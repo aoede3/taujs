@@ -1,0 +1,37 @@
+{
+  "name": "taujs",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose",
+    "build": "yarn build:client && yarn build:entry-server && yarn build:shared && yarn build:server && yarn build:server:rollup",
+    "build:client": "vite build",
+    "build:entry-server": "BUILD_MODE=ssr vite build",
+    "build:shared": "esbuild `find src/shared \\( -name '*.ts' -o -name '*.tsx' \\) ! -name '*.d.ts'` --bundle --platform=node --format=esm --external:@client/* --tree-shaking=true --splitting=true --outdir=dist/shared --minify",
+    "build:server": "esbuild ./src/server/index.ts --bundle --platform=node --format=esm --packages=external --external:@client/* --tree-shaking=true --splitting=true --outdir=dist/server --minify",
+    "build:server:rollup": "rollup -c rollup.server.js",
+    "build:server:analyse": "esbuild ./src/server/index.ts --bundle --platform=node --format=esm --external:@client/* --tree-shaking=true --splitting=true --outdir=dist/ --analyze",
+    "start": "node --trace-warnings --experimental-specifier-resolution=node dist/server/index.js"
+  },
+  "dependencies": {
+    "@fastify/compress": "^7.0.3",
+    "@taujs/server": "^0.0.1",
+    "fastify": "^4.28.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.2"
+  },
+  "devDependencies": {
+    "@rollup/plugin-alias": "^5.1.0",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@types/node": "^20.14.9",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "fastify-tsconfig": "^2.0.0",
+    "sass": "^1.77.6",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  }
+}
