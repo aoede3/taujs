@@ -51,6 +51,8 @@ void (await fastify.register(SSRServer, {
 }));
 ```
 
+Not utilising taujs [ τjs ] template? Add in your own `alias` object for your own particular setup e.g. `alias: { object }`
+
 ### React 'entry-client.tsx'
 
 ```

@@ -23,7 +23,7 @@ import type { ServerResponse } from 'node:http';
 
 export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
-    const { clientRoot, clientHtmlTemplate, clientEntryClient, clientEntryServer, routes, serviceRegistry, isDebug } = opts;
+    const { alias, clientRoot, clientHtmlTemplate, clientEntryClient, clientEntryServer, routes, serviceRegistry, isDebug } = opts;
     const templateHtmlPath = path.join(clientRoot, clientHtmlTemplate);
     const templateHtml = !isDevelopment ? await fs.readFile(templateHtmlPath, 'utf-8') : await fs.readFile(path.join(clientRoot, clientHtmlTemplate), 'utf-8');
     const ssrManifestPath = path.join(clientRoot, '.vite/ssr-manifest.json');
@@ -69,9 +69,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         ],
         resolve: {
           alias: {
-            '@client': path.resolve(clientRoot),
-            '@server': path.resolve(__dirname),
-            '@shared': path.resolve(__dirname, '../shared'),
+            ...{
+              '@client': path.resolve(clientRoot),
+              '@server': path.resolve(__dirname),
+              '@shared': path.resolve(__dirname, '../shared'),
+            },
+            ...alias,
           },
         },
         root: clientRoot,
@@ -227,6 +230,7 @@ export type FetchConfig = {
 };
 
 export type SSRServerOptions = {
+  alias: Record<string, string>;
   clientRoot: string;
   clientHtmlTemplate: string;
   clientEntryClient: string;
