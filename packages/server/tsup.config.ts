@@ -24,4 +24,15 @@ export default defineConfig([
     splitting: false,
     target: 'esnext',
   },
+  {
+    dts: true,
+    entryPoints: ['src/SSRRender.ts'],
+    external: ['@types/react', 'node16', 'react', 'react-dom'],
+    format: ['esm'],
+    outDir: 'dist',
+    platform: 'node',
+    shims: false,
+    splitting: false,
+    target: 'esnext',
+  },
 ]);

@@ -20,7 +20,7 @@
     "type": "git",
     "url": "git+https://github.com/aoede3/taujs-server.git"
   },
-  "version": "0.0.1",
+  "version": "0.0.3",
   "exports": {
     ".": {
       "import": "./dist/SSRServer.js",
@@ -29,6 +29,10 @@
     "./data-store": {
       "import": "./dist/SSRDataStore.js",
       "types": "./dist/SSRDataStore.d.ts"
+    },
+    "./render": {
+      "import": "./dist/SSRRender.js",
+      "types": "./dist/SSRRender.d.ts"
     },
     "./package.json": "./package.json"
   },
@@ -41,6 +45,9 @@
     "*": {
       "data-store": [
         "./dist/SSRDataStore.d.ts"
+      ],
+      "render": [
+        "./dist/SSRRender.d.ts"
       ]
     }
   },
@@ -55,8 +62,10 @@
     "@changesets/cli": "^2.27.7",
     "@types/node": "^20.14.9",
     "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
     "fastify": "^4.28.0",
     "prettier": "^3.3.3",
+    "react-dom": "^18.3.1",
     "tsup": "^8.2.4",
     "vite": "^5.4.2",
     "vitest": "^2.0.5"

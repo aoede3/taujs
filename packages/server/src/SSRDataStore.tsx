@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useSyncExternalStore } from 'react';
 
-type SSRStore<T> = {
+export type SSRStore<T> = {
   getSnapshot: () => T;
   getServerSnapshot: () => T;
   setData: (newData: T) => void;
