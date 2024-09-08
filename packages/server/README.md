@@ -90,11 +90,10 @@ Extended pipe object with callbacks to @taujs/server enabling additional manipul
 
 ```
 import { ServerResponse } from 'node:http';
-import { Writable } from 'node:stream';
 
 import React from 'react';
-import { renderToPipeableStream } from 'react-dom/server';
 import { createSSRStore, SSRStoreProvider } from '@taujs/server/data-store';
+import { createStreamRenderer } from '@taujs/server/render';
 
 import AppBootstrap from '@client/AppBootstrap';
 
@@ -108,38 +107,24 @@ export const streamRender = (
 ) => {
   const store = createSSRStore(initialDataPromise);
 
-  const { pipe } = renderToPipeableStream(
-    <SSRStoreProvider store={store}>
-      <AppBootstrap />
-    </SSRStoreProvider>,
+  const headContent = `
+    <meta name="description" content="taujs [ τjs ]">
+    <link rel="icon" type="image/svg+xml" href="/taujs.svg" />
+    <title>taujs [ τjs ]</title>
+  `;
+
+  createStreamRenderer(
+    serverResponse,
+    { onHead, onFinish, onError },
     {
-      bootstrapModules: [bootstrapModules],
-      onShellReady() {
-        const headContent = `
-          <meta name="description" content="taujs [ τjs ]">
-          <link rel="icon" type="image/svg+xml" href="/taujs.svg" />
-          <title>taujs [ τjs ]</title>
-        `;
-        onHead(headContent);
-
-        pipe(
-          new Writable({
-            write(chunk, _encoding, callback) {
-              serverResponse.write(chunk, callback);
-            },
-            final(callback) {
-              onFinish(store.getSnapshot());
-              callback();
-            },
-          }),
-        );
-      },
-
-      onAllReady() {},
-
-      onError(error) {
-        onError(error);
-      },
+      appElement: (
+        <SSRStoreProvider store={store}>
+          <AppBootstrap />
+        </SSRStoreProvider>
+      ),
+      bootstrapModules,
+      getStoreSnapshot: store.getSnapshot,
+      headContent,
     },
   );
 };
