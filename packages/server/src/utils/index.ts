@@ -84,7 +84,7 @@ export function renderPreloadLinks(modules: string[], manifest: { [key: string]:
 export function renderPreloadLink(file: string): string {
   const fileType = file.match(/\.(js|css|woff2?|gif|jpe?g|png|svg)$/)?.[1];
 
-  if (!fileType) return '';
+  // if (!fileType) return '';
 
   switch (fileType) {
     case 'js':

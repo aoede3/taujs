@@ -17,7 +17,7 @@ export const createStreamRenderer = (
   serverResponse: ServerResponse,
   { onHead, onFinish, onError }: RenderCallbacks,
   { appElement, bootstrapModules, headContent, getStoreSnapshot }: StreamRender,
-) => {
+): void => {
   const { pipe } = renderToPipeableStream(appElement, {
     bootstrapModules: [bootstrapModules],
 
