@@ -66,6 +66,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitest/coverage-v8": "^2.1.0",
     "fastify": "^4.28.0",
+    "jsdom": "^25.0.0",
     "prettier": "^3.3.3",
     "react-dom": "^18.3.1",
     "tsup": "^8.2.4",

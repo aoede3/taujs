@@ -5,5 +5,6 @@ export default defineConfig({
     coverage: {
       reporter: ['html'],
     },
+    environment: 'jsdom',
   },
 });
