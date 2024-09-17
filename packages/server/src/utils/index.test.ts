@@ -1,39 +1,66 @@
-import { describe, it, expect, vi } from 'vitest';
-import { matchRoute, callServiceMethod, fetchData, collectStyle, renderPreloadLinks, renderPreloadLink, getCssLinks, overrideCSSHMRConsoleError } from './';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { callServiceMethod, collectStyle, fetchData, getCssLinks, matchRoute, overrideCSSHMRConsoleError, renderPreloadLink, renderPreloadLinks } from './';
+
+import type { ViteDevServer } from 'vite';
+import type { MockedFunction } from 'vitest';
 import type { ServiceRegistry } from '../';
 
-describe('collectStyle', () => {
-  // it('should collect and return styles with correct comments and transformed code', async () => {
-  //   const server = {
-  //     transformRequest: vi.fn((url) => {
-  //       if (url.includes('entry.css')) return Promise.resolve({ code: '/* mockCode for entry.css */' });
-  //       if (url.includes('module1.css')) return Promise.resolve({ code: '/* mockCode for module1.css */' });
-  //       if (url.includes('module2.css')) return Promise.resolve({ code: '/* mockCode for module2.css */' });
-  //       return Promise.resolve(null);
-  //     }),
-  //     moduleGraph: {
-  //       resolveUrl: vi.fn((url) => Promise.resolve([null, `${url}-id`])),
-  //       getModuleById: vi.fn((id) => {
-  //         if (id.includes('entry.css-id')) {
-  //           return {
-  //             importedModules: new Set([{ url: 'module1.css' }, { url: 'module2.css' }]),
-  //           };
-  //         }
-  //         return null;
-  //       }),
-  //     },
-  //   };
-  //   const entries = ['entry.css'];
-  //   const result = await collectStyle(server, entries);
+describe('Environment-specific path resolution', () => {
+  const originalEnv = process.env.NODE_ENV;
 
-  //   expect(result).toContain('/* [collectStyle] entry.css */');
-  //   expect(result).toContain('/* mockCode for entry.css */');
-  //   expect(result).toContain('/* [collectStyle] module1.css */');
-  //   expect(result).toContain('/* mockCode for module1.css */');
-  //   expect(result).toContain('/* [collectStyle] module2.css */');
-  //   expect(result).toContain('/* mockCode for module2.css */');
-  // });
+  afterEach(() => {
+    process.env.NODE_ENV = originalEnv;
+    vi.resetModules();
+  });
+
+  it('should return ".." when in development mode', async () => {
+    process.env.NODE_ENV = 'development';
+    vi.resetModules();
+
+    const { isDevelopment, __dirname } = await import('./');
+    const expectedDirname = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+    expect(isDevelopment).toBe(true);
+    expect(__dirname).toBe(expectedDirname);
+  });
+
+  it('should return "./" when in production mode', async () => {
+    const { isDevelopment, __dirname } = await import('./');
+    const expectedDirname = join(dirname(fileURLToPath(import.meta.url)), './');
+
+    expect(isDevelopment).toBe(false);
+    expect(__dirname).toBe(expectedDirname);
+  });
+});
+
+describe('collectStyle', () => {
+  const server = {
+    transformRequest: vi.fn(),
+    moduleGraph: {
+      resolveUrl: vi.fn(async (url) => [null, url]),
+      getModuleById: vi.fn(() => null),
+    },
+  } as unknown as ViteDevServer;
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('should return CSS with transformed code when transformRequest resolves', async () => {
+    const url = '/style.css';
+
+    (server.transformRequest as MockedFunction<ViteDevServer['transformRequest']>).mockResolvedValue({ code: 'transformed-css-code', map: null });
+
+    const result = await collectStyle(server, [url]);
+
+    expect(server.transformRequest).toHaveBeenCalledWith(url);
+    expect(server.transformRequest).toHaveBeenCalledWith(`${url}?direct`);
+    expect(result).toContain(`/* [collectStyle] ${url} */`);
+    expect(result).toContain('transformed-css-code');
+  });
 
   it('should return an empty string if no CSS files are found', async () => {
     const server = {
@@ -42,7 +69,7 @@ describe('collectStyle', () => {
         resolveUrl: vi.fn(() => Promise.resolve([null, 'entry.css-id'])),
         getModuleById: vi.fn(() => null),
       },
-    };
+    } as unknown as ViteDevServer;
     const entries = ['entry.css'];
     const result = await collectStyle(server, entries);
 
@@ -58,7 +85,7 @@ describe('collectStyle', () => {
           importedModules: new Set([{ url: 'module1.css' }, { url: 'module1.css' }]),
         })),
       },
-    };
+    } as unknown as ViteDevServer;
     const entries = ['entry.css'];
     const result = await collectStyle(server, entries);
 
@@ -205,12 +232,31 @@ describe('callServiceMethod', () => {
 });
 
 describe('fetchData', () => {
+  const baseMockResponse = {
+    ok: true,
+    json: () => Promise.resolve({ data: 'test' }),
+    headers: new Headers(),
+    redirected: false,
+    status: 200,
+    statusText: 'OK',
+    type: 'basic',
+    url: 'https://example.com',
+    clone: () => ({}),
+    body: null,
+    bodyUsed: false,
+    text: () => Promise.resolve(''),
+    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+    blob: () => Promise.resolve(new Blob()),
+    formData: () => Promise.resolve(new FormData()),
+  } as Response;
+
   it('should fetch data from a URL and return the parsed JSON', async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve({
+        ...baseMockResponse,
         ok: true,
         json: () => Promise.resolve({ data: 'test' }),
-      }),
+      } as Response),
     );
     const result = await fetchData({ url: 'https://example.com', options: {} });
 
@@ -220,8 +266,10 @@ describe('fetchData', () => {
   it('should throw an error if the fetch fails', async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve({
+        ...baseMockResponse,
         ok: false,
-      }),
+        json: () => Promise.resolve({ data: 'test' }),
+      } as Response),
     );
 
     await expect(fetchData({ url: 'https://example.com', options: {} })).rejects.toThrow('Failed to fetch data from https://example.com');
@@ -230,9 +278,10 @@ describe('fetchData', () => {
   it('should throw an error if the fetched data is not an object', async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve({
+        ...baseMockResponse,
         ok: true,
         json: () => Promise.resolve('not-an-object'),
-      }),
+      } as Response),
     );
     const fetchConfig = { url: 'https://example.com', options: {} };
 
@@ -242,9 +291,10 @@ describe('fetchData', () => {
   it('should throw an error if the fetched data is null', async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve({
+        ...baseMockResponse,
         ok: true,
         json: () => Promise.resolve(null),
-      }),
+      } as Response),
     );
     const fetchConfig = { url: 'https://example.com', options: {} };
 
@@ -260,8 +310,10 @@ describe('fetchData', () => {
   it('should throw an error if the fetch request fails', async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve({
+        ...baseMockResponse,
         ok: false,
-      }),
+        json: () => Promise.resolve(null),
+      } as Response),
     );
     const fetchConfig = { url: 'https://example.com', options: {} };
 
@@ -271,9 +323,10 @@ describe('fetchData', () => {
   it('should return the fetched data if it is a valid object', async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve({
+        ...baseMockResponse,
         ok: true,
         json: () => Promise.resolve({ success: true }),
-      }),
+      } as Response),
     );
     const fetchConfig = { url: 'https://example.com', options: {} };
     const result = await fetchData(fetchConfig);
@@ -302,7 +355,7 @@ describe('matchRoute', () => {
 describe('getCssLinks', () => {
   it('should return a list of preload CSS links from the manifest', () => {
     const manifest = {
-      module1: { css: ['style1.css', 'style2.css'] },
+      module1: { css: ['style1.css', 'style2.css'], file: 'module1.js' },
     };
     const result = getCssLinks(manifest);
 
