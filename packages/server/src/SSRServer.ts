@@ -9,6 +9,7 @@ import {
   callServiceMethod,
   collectStyle,
   fetchData,
+  fetchInitialData,
   getCssLinks,
   isDevelopment,
   matchRoute,
@@ -129,25 +130,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         const { attributes } = route;
         const [beforeBody = '', afterBody] = template.split('<!--ssr-html-->');
         const [beforeHead, afterHead] = beforeBody.split('<!--ssr-head-->');
-        const initialDataPromise =
-          attributes && typeof attributes.fetch === 'function'
-            ? attributes
-                .fetch(params, {
-                  headers: { 'Content-Type': 'application/json' },
-                  params,
-                })
-                .then((data) => {
-                  if (data.serviceName && data.serviceMethod)
-                    return callServiceMethod(serviceRegistry, data.serviceName, data.serviceMethod, data.options.params ?? {});
-
-                  return fetchData(data);
-                })
-                .catch((error: unknown) => {
-                  console.error('Error fetching initial data:', error);
-
-                  return {};
-                })
-            : Promise.resolve({});
+        const initialDataPromise = fetchInitialData(attributes, params, serviceRegistry);
 
         reply.raw.writeHead(200, { 'Content-Type': 'text/html' });
         reply.raw.write(beforeHead);
@@ -273,7 +256,7 @@ export type RouteAttributes<Params = {}> = {
 };
 
 export type Route<Params = {}> = {
-  attributes: RouteAttributes<Params>;
+  attributes?: RouteAttributes<Params>;
   path: string;
 };
 

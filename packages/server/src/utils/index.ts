@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 
 import { match } from 'path-to-regexp';
 
-import type { FetchConfig, Manifest, Route, RouteParams, ServiceRegistry } from '..';
+import type { FetchConfig, Manifest, Route, RouteAttributes, RouteParams, ServiceRegistry } from '..';
 import type { MatchFunction } from 'path-to-regexp';
 import type { ViteDevServer } from 'vite';
 
@@ -142,6 +142,33 @@ export const fetchData = async ({ url, options }: FetchConfig): Promise<Record<s
   }
 
   throw new Error('URL must be provided to fetch data');
+};
+
+export const fetchInitialData = async (
+  attributes: RouteAttributes<RouteParams> | undefined,
+  params: Partial<Record<string, string | string[]>>,
+  serviceRegistry: ServiceRegistry,
+): Promise<Record<string, unknown>> => {
+  if (attributes && typeof attributes.fetch === 'function') {
+    return attributes
+      .fetch(params, {
+        headers: { 'Content-Type': 'application/json' },
+        params,
+      })
+      .then(async (data) => {
+        if (data.serviceName && data.serviceMethod) {
+          return await callServiceMethod(serviceRegistry, data.serviceName, data.serviceMethod, data.options?.params ?? {});
+        }
+
+        return await fetchData(data);
+      })
+      .catch((error) => {
+        console.error('Error fetching initial data:', error);
+        throw error;
+      });
+  }
+
+  return Promise.resolve({});
 };
 
 export const matchRoute = <Params extends Partial<Record<string, string | string[]>>>(url: string, renderRoutes: Route<RouteParams>[]) => {

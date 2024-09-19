@@ -1,12 +1,13 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callServiceMethod, collectStyle, fetchData, getCssLinks, matchRoute, overrideCSSHMRConsoleError, renderPreloadLink, renderPreloadLinks } from './';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import * as utils from './';
 
 import type { ViteDevServer } from 'vite';
-import type { MockedFunction } from 'vitest';
-import type { ServiceRegistry } from '../';
+import type { MockedFunction, MockInstance } from 'vitest';
+import type { FetchConfig, RouteAttributes, RouteParams, ServiceRegistry } from '../';
 
 describe('Environment-specific path resolution', () => {
   const originalEnv = process.env.NODE_ENV;
@@ -54,7 +55,7 @@ describe('collectStyle', () => {
 
     (server.transformRequest as MockedFunction<ViteDevServer['transformRequest']>).mockResolvedValue({ code: 'transformed-css-code', map: null });
 
-    const result = await collectStyle(server, [url]);
+    const result = await utils.collectStyle(server, [url]);
 
     expect(server.transformRequest).toHaveBeenCalledWith(url);
     expect(server.transformRequest).toHaveBeenCalledWith(`${url}?direct`);
@@ -71,7 +72,7 @@ describe('collectStyle', () => {
       },
     } as unknown as ViteDevServer;
     const entries = ['entry.css'];
-    const result = await collectStyle(server, entries);
+    const result = await utils.collectStyle(server, entries);
 
     expect(result).toBe('');
   });
@@ -87,7 +88,7 @@ describe('collectStyle', () => {
       },
     } as unknown as ViteDevServer;
     const entries = ['entry.css'];
-    const result = await collectStyle(server, entries);
+    const result = await utils.collectStyle(server, entries);
 
     expect(result).toBe('');
   });
@@ -100,7 +101,7 @@ describe('renderPreloadLinks', () => {
       module2: ['file2.js'],
     };
     const modules = ['module1', 'module2'];
-    const result = renderPreloadLinks(modules, manifest);
+    const result = utils.renderPreloadLinks(modules, manifest);
 
     expect(result).toContain('<link rel="modulepreload" href="file1.js">');
     expect(result).toContain('<link rel="stylesheet" href="file1.css">');
@@ -110,59 +111,59 @@ describe('renderPreloadLinks', () => {
 
 describe('renderPreloadLink', () => {
   it('should return appropriate preload link based on file type', () => {
-    expect(renderPreloadLink('file.js')).toBe('<link rel="modulepreload" href="file.js">');
-    expect(renderPreloadLink('file.css')).toBe('<link rel="stylesheet" href="file.css">');
-    expect(renderPreloadLink('file.png')).toBe('<link rel="preload" href="file.png" as="image" type="image/png">');
+    expect(utils.renderPreloadLink('file.js')).toBe('<link rel="modulepreload" href="file.js">');
+    expect(utils.renderPreloadLink('file.css')).toBe('<link rel="stylesheet" href="file.css">');
+    expect(utils.renderPreloadLink('file.png')).toBe('<link rel="preload" href="file.png" as="image" type="image/png">');
   });
 
   it('should return an empty string for unsupported file types', () => {
-    expect(renderPreloadLink('file.txt')).toBe('');
+    expect(utils.renderPreloadLink('file.txt')).toBe('');
   });
 
   it('should return correct preload link for woff font files', () => {
-    const result = renderPreloadLink('font.woff');
+    const result = utils.renderPreloadLink('font.woff');
 
     expect(result).toBe('<link rel="preload" href="font.woff" as="font" type="font/woff" crossorigin>');
   });
 
   it('should return correct preload link for woff2 font files', () => {
-    const result = renderPreloadLink('font.woff2');
+    const result = utils.renderPreloadLink('font.woff2');
 
     expect(result).toBe('<link rel="preload" href="font.woff2" as="font" type="font/woff2" crossorigin>');
   });
 
   it('should return correct preload link for gif image files', () => {
-    const result = renderPreloadLink('image.gif');
+    const result = utils.renderPreloadLink('image.gif');
 
     expect(result).toBe('<link rel="preload" href="image.gif" as="image" type="image/gif">');
   });
 
   it('should return correct preload link for jpeg image files', () => {
-    const result = renderPreloadLink('image.jpeg');
+    const result = utils.renderPreloadLink('image.jpeg');
 
     expect(result).toBe('<link rel="preload" href="image.jpeg" as="image" type="image/jpeg">');
   });
 
   it('should return correct preload link for jpg image files', () => {
-    const result = renderPreloadLink('image.jpg');
+    const result = utils.renderPreloadLink('image.jpg');
 
     expect(result).toBe('<link rel="preload" href="image.jpg" as="image" type="image/jpg">');
   });
 
   it('should return correct preload link for png image files', () => {
-    const result = renderPreloadLink('image.png');
+    const result = utils.renderPreloadLink('image.png');
 
     expect(result).toBe('<link rel="preload" href="image.png" as="image" type="image/png">');
   });
 
   it('should return correct preload link for svg image files', () => {
-    const result = renderPreloadLink('image.svg');
+    const result = utils.renderPreloadLink('image.svg');
 
     expect(result).toBe('<link rel="preload" href="image.svg" as="image" type="image/svg+xml">');
   });
 
   it('should return an empty string for unsupported file types', () => {
-    const result = renderPreloadLink('file.txt');
+    const result = utils.renderPreloadLink('file.txt');
 
     expect(result).toBe('');
   });
@@ -176,7 +177,7 @@ describe('callServiceMethod', () => {
         myMethod: mockMethod,
       },
     };
-    const result = await callServiceMethod(serviceRegistry, 'myService', 'myMethod', {});
+    const result = await utils.callServiceMethod(serviceRegistry, 'myService', 'myMethod', {});
 
     expect(mockMethod).toHaveBeenCalledWith({});
     expect(result).toEqual({ data: 'test' });
@@ -187,7 +188,7 @@ describe('callServiceMethod', () => {
       myService: {},
     };
 
-    await expect(callServiceMethod(serviceRegistry, 'myService', 'nonexistentMethod', {})).rejects.toThrow(
+    await expect(utils.callServiceMethod(serviceRegistry, 'myService', 'nonexistentMethod', {})).rejects.toThrow(
       'Service method nonexistentMethod does not exist on myService',
     );
   });
@@ -200,7 +201,7 @@ describe('callServiceMethod', () => {
       },
     };
 
-    await expect(callServiceMethod(serviceRegistry, 'myService', 'myMethod', {})).rejects.toThrow(
+    await expect(utils.callServiceMethod(serviceRegistry, 'myService', 'myMethod', {})).rejects.toThrow(
       'Expected object response from service method myMethod on myService, but got string',
     );
   });
@@ -213,7 +214,7 @@ describe('callServiceMethod', () => {
       },
     };
 
-    await expect(callServiceMethod(serviceRegistry, 'myService', 'myMethod', {})).rejects.toThrow(
+    await expect(utils.callServiceMethod(serviceRegistry, 'myService', 'myMethod', {})).rejects.toThrow(
       'Expected object response from service method myMethod on myService, but got object',
     );
   });
@@ -225,7 +226,7 @@ describe('callServiceMethod', () => {
         myMethod: mockMethod,
       },
     };
-    const result = await callServiceMethod(serviceRegistry, 'myService', 'myMethod', {});
+    const result = await utils.callServiceMethod(serviceRegistry, 'myService', 'myMethod', {});
 
     expect(result).toEqual({ success: true });
   });
@@ -258,7 +259,7 @@ describe('fetchData', () => {
         json: () => Promise.resolve({ data: 'test' }),
       } as Response),
     );
-    const result = await fetchData({ url: 'https://example.com', options: {} });
+    const result = await utils.fetchData({ url: 'https://example.com', options: {} });
 
     expect(result).toEqual({ data: 'test' });
   });
@@ -272,7 +273,7 @@ describe('fetchData', () => {
       } as Response),
     );
 
-    await expect(fetchData({ url: 'https://example.com', options: {} })).rejects.toThrow('Failed to fetch data from https://example.com');
+    await expect(utils.fetchData({ url: 'https://example.com', options: {} })).rejects.toThrow('Failed to fetch data from https://example.com');
   });
 
   it('should throw an error if the fetched data is not an object', async () => {
@@ -285,7 +286,7 @@ describe('fetchData', () => {
     );
     const fetchConfig = { url: 'https://example.com', options: {} };
 
-    await expect(fetchData(fetchConfig)).rejects.toThrow('Expected object response from https://example.com, but got string');
+    await expect(utils.fetchData(fetchConfig)).rejects.toThrow('Expected object response from https://example.com, but got string');
   });
 
   it('should throw an error if the fetched data is null', async () => {
@@ -298,13 +299,13 @@ describe('fetchData', () => {
     );
     const fetchConfig = { url: 'https://example.com', options: {} };
 
-    await expect(fetchData(fetchConfig)).rejects.toThrow('Expected object response from https://example.com, but got object');
+    await expect(utils.fetchData(fetchConfig)).rejects.toThrow('Expected object response from https://example.com, but got object');
   });
 
   it('should throw an error if URL is not provided', async () => {
     const fetchConfig = { url: '', options: {} };
 
-    await expect(fetchData(fetchConfig)).rejects.toThrow('URL must be provided to fetch data');
+    await expect(utils.fetchData(fetchConfig)).rejects.toThrow('URL must be provided to fetch data');
   });
 
   it('should throw an error if the fetch request fails', async () => {
@@ -317,7 +318,7 @@ describe('fetchData', () => {
     );
     const fetchConfig = { url: 'https://example.com', options: {} };
 
-    await expect(fetchData(fetchConfig)).rejects.toThrow('Failed to fetch data from https://example.com');
+    await expect(utils.fetchData(fetchConfig)).rejects.toThrow('Failed to fetch data from https://example.com');
   });
 
   it('should return the fetched data if it is a valid object', async () => {
@@ -329,7 +330,7 @@ describe('fetchData', () => {
       } as Response),
     );
     const fetchConfig = { url: 'https://example.com', options: {} };
-    const result = await fetchData(fetchConfig);
+    const result = await utils.fetchData(fetchConfig);
 
     expect(result).toEqual({ success: true });
   });
@@ -338,7 +339,7 @@ describe('fetchData', () => {
 describe('matchRoute', () => {
   it('should match a URL to a route', () => {
     const routes = [{ path: '/test' }];
-    const result = matchRoute('/test', routes);
+    const result = utils.matchRoute('/test', routes);
 
     expect(result).toBeTruthy();
     expect(result?.route.path).toBe('/test');
@@ -346,7 +347,7 @@ describe('matchRoute', () => {
 
   it('should return null if no route matches', () => {
     const routes = [{ path: '/test' }];
-    const result = matchRoute('/nomatch', routes);
+    const result = utils.matchRoute('/nomatch', routes);
 
     expect(result).toBeNull();
   });
@@ -357,7 +358,7 @@ describe('getCssLinks', () => {
     const manifest = {
       module1: { css: ['style1.css', 'style2.css'], file: 'module1.js' },
     };
-    const result = getCssLinks(manifest);
+    const result = utils.getCssLinks(manifest);
 
     expect(result).toContain('<link rel="preload stylesheet" as="style" type="text/css" href="/style1.css">');
     expect(result).toContain('<link rel="preload stylesheet" as="style" type="text/css" href="/style2.css">');
@@ -369,7 +370,7 @@ describe('overrideCSSHMRConsoleError', () => {
     const originalConsoleError = console.error;
     const spy = vi.spyOn(console, 'error');
 
-    overrideCSSHMRConsoleError();
+    utils.overrideCSSHMRConsoleError();
 
     console.error('css hmr is not supported in runtime mode');
     expect(spy).not.toHaveBeenCalledWith('css hmr is not supported in runtime mode');
@@ -378,5 +379,114 @@ describe('overrideCSSHMRConsoleError', () => {
     expect(spy).toHaveBeenCalledWith('some other error');
 
     console.error = originalConsoleError;
+  });
+});
+
+describe('fetchInitialData', () => {
+  let serviceRegistry: ServiceRegistry;
+  let attributes: RouteAttributes<RouteParams> | undefined;
+  let params: Partial<Record<string, string | string[]>>;
+  let mockFetchData: MockInstance<({ url, options }: FetchConfig) => Promise<Record<string, unknown>>>;
+  let mockCallServiceMethod: MockInstance;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    serviceRegistry = {
+      exampleService: {
+        exampleMethod: vi.fn().mockResolvedValue({ serviceData: 'success' }),
+      },
+    };
+    attributes = undefined;
+    params = {};
+
+    mockFetchData = vi.spyOn(utils, 'fetchData').mockResolvedValue({ fetchedData: true });
+    mockCallServiceMethod = vi.spyOn(utils, 'callServiceMethod').mockResolvedValue({ serviceData: 'success' });
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ fetchedData: true }),
+    } as unknown as Response);
+  });
+
+  it('should return an empty object when attributes is undefined', async () => {
+    const result = await utils.fetchInitialData(undefined, params, serviceRegistry);
+    expect(result).toEqual({});
+  });
+
+  it('should return an empty object when attributes.fetch is not a function', async () => {
+    attributes = {
+      // @ts-ignore
+      fetch: 'not-a-function',
+    };
+    const result = await utils.fetchInitialData(attributes, params, serviceRegistry);
+    expect(result).toEqual({});
+  });
+
+  it('should call attributes.fetch and fetchData when serviceName and serviceMethod are not present', async () => {
+    attributes = {
+      fetch: vi.fn().mockResolvedValue({ url: 'https://example.com', options: {} }),
+    };
+
+    const result = await utils.fetchInitialData(attributes, params, serviceRegistry);
+
+    expect(attributes.fetch).toHaveBeenCalledWith(params, {
+      headers: { 'Content-Type': 'application/json' },
+      params,
+    });
+    expect(result).toEqual({ fetchedData: true });
+  });
+
+  it('should call callServiceMethod when serviceName and serviceMethod are present', async () => {
+    attributes = {
+      fetch: vi.fn().mockResolvedValue({
+        serviceName: 'exampleService',
+        serviceMethod: 'exampleMethod',
+        options: { params: { key: 'value' } },
+      }),
+    };
+
+    const result = await utils.fetchInitialData(attributes, params, serviceRegistry);
+
+    expect(attributes.fetch).toHaveBeenCalledWith(params, {
+      headers: { 'Content-Type': 'application/json' },
+      params,
+    });
+    expect(result).toEqual({ serviceData: 'success' });
+  });
+
+  it('should call callServiceMethod with empty params when data.options.params is undefined', async () => {
+    attributes = {
+      fetch: vi.fn().mockResolvedValue({
+        serviceName: 'exampleService',
+        serviceMethod: 'exampleMethod',
+        options: {},
+      }),
+    };
+
+    const result = await utils.fetchInitialData(attributes, params, serviceRegistry);
+
+    expect(attributes.fetch).toHaveBeenCalledWith(params, {
+      headers: { 'Content-Type': 'application/json' },
+      params,
+    });
+    expect(result).toEqual({ serviceData: 'success' });
+  });
+
+  it('should throw an error if attributes.fetch rejects', async () => {
+    const error = new Error('Fetch failed');
+    attributes = {
+      fetch: vi.fn().mockRejectedValue(error),
+    };
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(utils.fetchInitialData(attributes, params, serviceRegistry)).rejects.toThrow('Fetch failed');
+
+    expect(attributes.fetch).toHaveBeenCalledWith(params, {
+      headers: { 'Content-Type': 'application/json' },
+      params,
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Error fetching initial data:', error);
+
+    consoleErrorSpy.mockRestore();
   });
 });
