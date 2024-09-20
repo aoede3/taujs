@@ -6,5 +6,10 @@ export default defineConfig({
       reporter: ['html'],
     },
     environment: 'jsdom',
+    server: {
+      deps: {
+        inline: ['esbuild'],
+      },
+    },
   },
 });

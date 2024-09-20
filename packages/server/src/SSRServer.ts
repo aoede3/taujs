@@ -1,21 +1,10 @@
-import fs from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import fp from 'fastify-plugin';
 import { createViteRuntime } from 'vite';
 
-import {
-  __dirname,
-  callServiceMethod,
-  collectStyle,
-  fetchData,
-  fetchInitialData,
-  getCssLinks,
-  isDevelopment,
-  matchRoute,
-  overrideCSSHMRConsoleError,
-  renderPreloadLinks,
-} from './utils';
+import { __dirname, collectStyle, fetchInitialData, getCssLinks, isDevelopment, matchRoute, overrideCSSHMRConsoleError, renderPreloadLinks } from './utils';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -26,12 +15,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
     const { alias, clientRoot, clientHtmlTemplate, clientEntryClient, clientEntryServer, routes, serviceRegistry, isDebug } = opts;
     const templateHtmlPath = path.join(clientRoot, clientHtmlTemplate);
-    const templateHtml = !isDevelopment ? await fs.readFile(templateHtmlPath, 'utf-8') : await fs.readFile(path.join(clientRoot, clientHtmlTemplate), 'utf-8');
+    const templateHtml = !isDevelopment ? await readFile(templateHtmlPath, 'utf-8') : await readFile(path.join(clientRoot, clientHtmlTemplate), 'utf-8');
     const ssrManifestPath = path.join(clientRoot, '.vite/ssr-manifest.json');
-    const ssrManifest = !isDevelopment ? JSON.parse(await fs.readFile(ssrManifestPath, 'utf-8')) : undefined;
+    const ssrManifest = !isDevelopment ? JSON.parse(await readFile(ssrManifestPath, 'utf-8')) : undefined;
     const manifestPath = path.join(clientRoot, '.vite/manifest.json');
-    const manifest = !isDevelopment ? JSON.parse(await fs.readFile(manifestPath, 'utf-8')) : undefined;
-    const bootstrapModules = isDevelopment ? `/${clientEntryClient}.tsx` : `/${manifest[`${clientEntryClient}.tsx`].file}`;
+    const manifest = !isDevelopment ? JSON.parse(await readFile(manifestPath, 'utf-8')) : undefined;
+    const bootstrapModules = isDevelopment ? `/${clientEntryClient}.tsx` : `/${manifest[`${clientEntryClient}.tsx`]?.file}`;
     const preloadLinks = !isDevelopment ? renderPreloadLinks(Object.keys(ssrManifest), ssrManifest) : undefined;
     const cssLinks = !isDevelopment ? getCssLinks(manifest) : undefined;
 
@@ -51,7 +40,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           ...(isDebug
             ? [
                 {
-                  name: 'taujs-ssr-server-debug-logging',
                   configureServer(server: ViteDevServer) {
                     console.log('τjs debug ssr server started.');
 
@@ -64,6 +52,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
                       next();
                     });
                   },
+                  name: 'taujs-ssr-server-debug-logging',
                 },
               ]
             : []),
@@ -154,10 +143,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
             },
 
             onError: (error: unknown) => {
-              console.error('Critical rendering error:', error);
-
-              if (!reply.raw.headersSent) reply.raw.writeHead(500, { 'Content-Type': 'text/plain' });
-
+              console.error('Critical rendering onError:', error);
               reply.raw.end('Internal Server Error');
             },
           },

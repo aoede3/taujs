@@ -20,7 +20,7 @@
     "type": "git",
     "url": "git+https://github.com/aoede3/taujs-server.git"
   },
-  "version": "0.0.5",
+  "version": "0.0.6",
   "exports": {
     ".": {
       "import": "./dist/SSRServer.js",
@@ -75,8 +75,6 @@
     "vitest": "^2.0.5"
   },
   "peerDependencies": {
-    "@types/node": "^20.14.9",
-    "@types/react": "^18.3.3",
     "@vitejs/plugin-react": "^4.3.1",
     "fastify": "^5.0.0",
     "react": "^18.3.1",

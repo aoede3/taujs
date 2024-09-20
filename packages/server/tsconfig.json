@@ -16,7 +16,7 @@
     "skipLibCheck": true,
     "target": "es2022",
     "strict": true,
-    "types": ["node"],
+    "types": ["node", "vitest/globals"],
     "verbatimModuleSyntax": true
   },
   "exclude": ["node_modules"],
