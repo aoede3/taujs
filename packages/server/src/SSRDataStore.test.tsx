@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
+import { screen } from '@testing-library/dom';
 
 import { createSSRStore, SSRStoreProvider, useSSRStore } from './SSRDataStore';
 
