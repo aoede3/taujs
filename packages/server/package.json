@@ -20,7 +20,7 @@
     "type": "git",
     "url": "git+https://github.com/aoede3/taujs-server.git"
   },
-  "version": "0.0.6",
+  "version": "0.0.7",
   "exports": {
     ".": {
       "import": "./dist/SSRServer.js",

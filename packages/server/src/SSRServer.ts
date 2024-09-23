@@ -199,7 +199,7 @@ export type FetchConfig = {
 };
 
 export type SSRServerOptions = {
-  alias: Record<string, string>;
+  alias?: Record<string, string>;
   clientRoot: string;
   clientHtmlTemplate: string;
   clientEntryClient: string;
