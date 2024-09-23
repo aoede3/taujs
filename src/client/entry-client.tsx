@@ -19,7 +19,5 @@ const bootstrap = () => {
 if (document.readyState !== 'loading') {
   bootstrap();
 } else {
-  document.addEventListener('DOMContentLoaded', () => {
-    bootstrap();
-  });
+  document.addEventListener('DOMContentLoaded', () => bootstrap());
 }
