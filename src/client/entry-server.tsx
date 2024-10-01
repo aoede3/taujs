@@ -1,21 +1,10 @@
-import { ServerResponse } from 'node:http';
-
 import React from 'react';
-import { createSSRStore, SSRStoreProvider } from '@taujs/server/data-store';
-import { createStreamRenderer } from '@taujs/server/render';
+import { createStreamRenderer } from '@taujs/server/data';
 
+import type { StreamRender } from '@taujs/server';
 import AppBootstrap from '@client/AppBootstrap';
 
-import type { RenderCallbacks } from '@taujs/server';
-
-export const streamRender = (
-  serverResponse: ServerResponse,
-  { onHead, onFinish, onError }: RenderCallbacks,
-  initialDataPromise: Promise<Record<string, unknown>>,
-  bootstrapModules: string,
-) => {
-  const store = createSSRStore(initialDataPromise);
-
+export const streamRender: StreamRender = (serverResponse, { onHead, onFinish, onError }, initialDataPromise, bootstrapModules) => {
   const headContent = `
     <meta name="description" content="taujs [ τjs ]">
     <link rel="icon" type="image/svg+xml" href="/taujs.svg" />
@@ -26,13 +15,9 @@ export const streamRender = (
     serverResponse,
     { onHead, onFinish, onError },
     {
-      appElement: (
-        <SSRStoreProvider store={store}>
-          <AppBootstrap />
-        </SSRStoreProvider>
-      ),
+      appComponent: <AppBootstrap />,
+      initialDataPromise,
       bootstrapModules,
-      getStoreSnapshot: store.getSnapshot,
       headContent,
     },
   );
