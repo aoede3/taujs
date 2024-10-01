@@ -3,11 +3,11 @@ import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as utils from './';
+import * as utils from '../';
 
 import type { ViteDevServer } from 'vite';
 import type { MockedFunction, MockInstance } from 'vitest';
-import type { FetchConfig, RouteAttributes, RouteParams, ServiceRegistry } from '../';
+import type { FetchConfig, RouteAttributes, RouteParams, ServiceRegistry } from '../../SSRServer';
 
 describe('Environment-specific path resolution', () => {
   const originalEnv = process.env.NODE_ENV;
@@ -21,16 +21,16 @@ describe('Environment-specific path resolution', () => {
     process.env.NODE_ENV = 'development';
     vi.resetModules();
 
-    const { isDevelopment, __dirname } = await import('./');
-    const expectedDirname = join(dirname(fileURLToPath(import.meta.url)), '..');
+    const { isDevelopment, __dirname } = await import('../');
+    const expectedDirname = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
     expect(isDevelopment).toBe(true);
     expect(__dirname).toBe(expectedDirname);
   });
 
   it('should return "./" when in production mode', async () => {
-    const { isDevelopment, __dirname } = await import('./');
-    const expectedDirname = join(dirname(fileURLToPath(import.meta.url)), './');
+    const { isDevelopment, __dirname } = await import('../');
+    const expectedDirname = join(dirname(fileURLToPath(import.meta.url)), '../');
 
     expect(isDevelopment).toBe(false);
     expect(__dirname).toBe(expectedDirname);

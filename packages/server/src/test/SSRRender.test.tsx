@@ -4,7 +4,7 @@ import { Writable } from 'node:stream';
 import { renderToPipeableStream } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createStreamRenderer } from './SSRRender';
+import { createStreamRenderer } from '../SSRRender';
 
 import type { Mock } from 'vitest';
 
@@ -17,7 +17,8 @@ describe('createStreamRenderer', () => {
     const mockAppElement = <div>Test</div>;
     const mockBootstrapModules = 'test-module';
     const mockHeadContent = '<title>Test</title>';
-    const mockStoreSnapshot = { data: 'test' };
+    const mockInitialData = { data: 'test' };
+    const mockInitialDataPromise = Promise.resolve(mockInitialData);
 
     const onHead = vi.fn();
     const onFinish = vi.fn();
@@ -61,10 +62,10 @@ describe('createStreamRenderer', () => {
       serverResponse as any,
       { onHead, onFinish, onError },
       {
-        appElement: mockAppElement,
+        appComponent: mockAppElement,
+        initialDataPromise: mockInitialDataPromise,
         bootstrapModules: mockBootstrapModules,
         headContent: mockHeadContent,
-        getStoreSnapshot: () => mockStoreSnapshot,
       },
     );
 
@@ -76,14 +77,15 @@ describe('createStreamRenderer', () => {
     const chunk = Buffer.from('Test chunk');
     expect(writeSpy).toHaveBeenCalledWith(chunk, expect.any(Function));
 
-    expect(onFinish).toHaveBeenCalledWith(mockStoreSnapshot);
+    expect(onFinish).toHaveBeenCalledWith(mockInitialData);
   });
 
   it('should handle errors in rendering', () => {
     const mockAppElement = <div>Test</div>;
     const mockBootstrapModules = 'test-module';
     const mockHeadContent = '<title>Test</title>';
-    const mockStoreSnapshot = { data: 'test' };
+    const mockInitialData = { data: 'test' };
+    const mockInitialDataPromise = Promise.resolve(mockInitialData);
 
     const serverResponse = {
       write: vi.fn(),
@@ -102,10 +104,10 @@ describe('createStreamRenderer', () => {
       serverResponse,
       { onHead, onFinish, onError },
       {
-        appElement: mockAppElement,
+        appComponent: mockAppElement,
+        initialDataPromise: mockInitialDataPromise,
         bootstrapModules: mockBootstrapModules,
         headContent: mockHeadContent,
-        getStoreSnapshot: () => mockStoreSnapshot,
       },
     );
 

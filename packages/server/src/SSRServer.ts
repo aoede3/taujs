@@ -220,13 +220,15 @@ export type Manifest = {
   };
 };
 
+export type StreamRender = (
+  serverResponse: ServerResponse,
+  callbacks: RenderCallbacks,
+  initialDataPromise: Promise<Record<string, unknown>>,
+  bootstrapModules: string,
+) => void;
+
 export type RenderModule = {
-  streamRender: (
-    serverResponse: ServerResponse,
-    callbacks: RenderCallbacks,
-    initialDataPromise: Promise<Record<string, unknown>>,
-    bootstrapModules: string,
-  ) => void;
+  streamRender: StreamRender;
 };
 
 export type RouteAttributes<Params = {}> = {

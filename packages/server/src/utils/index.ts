@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 
 import { match } from 'path-to-regexp';
 
-import type { FetchConfig, Manifest, Route, RouteAttributes, RouteParams, ServiceRegistry } from '..';
+import type { FetchConfig, Manifest, Route, RouteAttributes, RouteParams, ServiceRegistry } from '../SSRServer';
 import type { MatchFunction } from 'path-to-regexp';
 import type { ViteDevServer } from 'vite';
 

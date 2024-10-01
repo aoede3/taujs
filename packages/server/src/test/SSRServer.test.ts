@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FastifyInstance } from 'fastify';
 import type { Mock } from 'vitest';
-import type { SSRServerOptions } from './SSRServer';
+import type { SSRServerOptions } from '../SSRServer';
 
 let mockVitePlugins: any[] = [];
 
@@ -132,7 +132,7 @@ describe('SSRServer Plugin', () => {
 
   it('should register the plugin without errors in development', async () => {
     isDevelopmentValue = true;
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
     expect(app.hasPlugin('taujs-ssr-server')).toBe(true);
@@ -144,7 +144,7 @@ describe('SSRServer Plugin', () => {
       ...options,
       isDebug: true,
     };
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, optionsDebug);
 
     expect(app.hasPlugin('taujs-ssr-server')).toBe(true);
@@ -155,7 +155,7 @@ describe('SSRServer Plugin', () => {
 
   it('should register the plugin without errors in production', async () => {
     isDevelopmentValue = false;
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
     expect(app.hasPlugin('taujs-ssr-server')).toBe(true);
@@ -207,7 +207,7 @@ describe('SSRServer Plugin', () => {
       };
     });
 
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
     const mockRoute = {
@@ -217,10 +217,10 @@ describe('SSRServer Plugin', () => {
       },
       params: {},
     };
-    const { matchRoute } = await import('./utils');
+    const { matchRoute } = await import('../utils');
     (matchRoute as Mock).mockReturnValue(mockRoute);
 
-    const { collectStyle } = await import('./utils');
+    const { collectStyle } = await import('../utils');
     (collectStyle as Mock).mockResolvedValue('/* styles */');
 
     const response = await app.inject({
@@ -236,7 +236,7 @@ describe('SSRServer Plugin', () => {
     options.isDebug = false;
     isDevelopmentValue = false;
 
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
     const response = await app.inject({
@@ -252,10 +252,10 @@ describe('SSRServer Plugin', () => {
     options.routes = [];
     isDevelopmentValue = false;
 
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
-    const { matchRoute } = await import('./utils');
+    const { matchRoute } = await import('../utils');
     (matchRoute as Mock).mockReturnValue(undefined);
 
     const response = await app.inject({
@@ -277,10 +277,10 @@ describe('SSRServer Plugin', () => {
     options.routes = [];
     isDevelopmentValue = false;
 
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
-    const { matchRoute } = await import('./utils');
+    const { matchRoute } = await import('../utils');
     (matchRoute as Mock).mockReturnValue(undefined);
 
     const response = await app.inject({
@@ -296,10 +296,10 @@ describe('SSRServer Plugin', () => {
     options.routes = [];
     isDevelopmentValue = false;
 
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
-    const { matchRoute, getCssLinks } = await import('./utils');
+    const { matchRoute, getCssLinks } = await import('../utils');
     (matchRoute as Mock).mockReturnValue(undefined);
     (getCssLinks as Mock).mockImplementation(() => {
       throw new Error('Mock getCssLinks Error');
@@ -369,7 +369,7 @@ describe('SSRServer Plugin', () => {
       })),
     }));
 
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
     expect(consoleLogSpy).toHaveBeenCalledWith('τjs debug ssr server started.');
@@ -416,7 +416,7 @@ describe('SSRServer Plugin', () => {
 
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
     const response = await app.inject({
@@ -461,7 +461,7 @@ describe('SSRServer Plugin', () => {
 
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
     const response = await app.inject({
@@ -479,7 +479,7 @@ describe('SSRServer Plugin', () => {
   it('should default to "/" when req.url is undefined', async () => {
     isDevelopmentValue = false;
 
-    const { SSRServer } = await import('./SSRServer');
+    const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
 
     app.addHook('onRequest', (request, _reply, done) => {

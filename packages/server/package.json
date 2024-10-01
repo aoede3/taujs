@@ -1,10 +1,17 @@
 {
+  "name": "@taujs/server",
+  "version": "0.0.8",
+  "description": "taujs | τjs",
   "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
+  "license": "MIT",
+  "homepage": "https://github.com/aoede3/taujs-server",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aoede3/taujs-server.git"
+  },
   "bugs": {
     "url": "https://github.com/aoede3/taujs-server/issues"
   },
-  "description": "taujs | τjs",
-  "homepage": "https://github.com/aoede3/taujs-server",
   "keywords": [
     "fastify",
     "typescript",
@@ -14,44 +21,23 @@
     "react",
     "ssr"
   ],
-  "license": "MIT",
-  "name": "@taujs/server",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/aoede3/taujs-server.git"
-  },
-  "version": "0.0.7",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/SSRServer.js",
-      "types": "./dist/SSRServer.d.ts"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     },
-    "./data-store": {
-      "import": "./dist/SSRDataStore.js",
-      "types": "./dist/SSRDataStore.d.ts"
-    },
-    "./render": {
-      "import": "./dist/SSRRender.js",
-      "types": "./dist/SSRRender.d.ts"
+    "./data": {
+      "import": "./dist/data.js",
+      "types": "./dist/data.d.ts"
     },
     "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
-  "main": "./dist/SSRServer.js",
-  "types": "./dist/SSRServer.d.ts",
-  "typesVersions": {
-    "*": {
-      "data-store": [
-        "./dist/SSRDataStore.d.ts"
-      ],
-      "render": [
-        "./dist/SSRRender.d.ts"
-      ]
-    }
-  },
-  "type": "module",
   "dependencies": {
     "@fastify/static": "^7.0.4",
     "path-to-regexp": "^8.1.0"
@@ -76,7 +62,6 @@
     "vitest": "^2.0.5"
   },
   "peerDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
     "fastify": "^5.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

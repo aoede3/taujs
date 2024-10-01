@@ -4,20 +4,30 @@ import { Writable } from 'node:stream';
 import React from 'react';
 import { renderToPipeableStream } from 'react-dom/server';
 
-import type { RenderCallbacks } from './SSRServer';
+import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
+// import type { RenderCallbacks } from './client';
 
-type StreamRender = {
-  appElement: React.JSX.Element;
+type StreamRenderOptions = {
+  appComponent: React.ReactElement;
+  initialDataPromise: Promise<Record<string, unknown>>;
   bootstrapModules: string;
   headContent: string;
-  getStoreSnapshot: () => unknown;
+};
+
+type RenderCallbacks = {
+  onHead: (headContent: string) => void;
+  onFinish: (initialDataResolved: unknown) => void;
+  onError: (error: unknown) => void;
 };
 
 export const createStreamRenderer = (
   serverResponse: ServerResponse,
   { onHead, onFinish, onError }: RenderCallbacks,
-  { appElement, bootstrapModules, headContent, getStoreSnapshot }: StreamRender,
+  { appComponent, initialDataPromise, bootstrapModules, headContent }: StreamRenderOptions,
 ): void => {
+  const store = createSSRStore(initialDataPromise);
+  const appElement = <SSRStoreProvider store={store}>{appComponent}</SSRStoreProvider>;
+
   const { pipe } = renderToPipeableStream(appElement, {
     bootstrapModules: [bootstrapModules],
 
@@ -31,7 +41,7 @@ export const createStreamRenderer = (
           },
 
           final(callback) {
-            onFinish(getStoreSnapshot());
+            onFinish(store.getSnapshot());
             callback();
           },
         }),
