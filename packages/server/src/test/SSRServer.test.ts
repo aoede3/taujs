@@ -91,7 +91,7 @@ describe('SSRServer Plugin', () => {
 
     mockVitePlugins = [];
 
-    vi.doMock('./utils', async (importOriginal) => {
+    vi.doMock('../utils', async (importOriginal) => {
       const actual = await importOriginal();
 
       return {
@@ -405,7 +405,7 @@ describe('SSRServer Plugin', () => {
       },
     ];
 
-    vi.doMock('./utils', async (importOriginal) => {
+    vi.doMock('../utils', async (importOriginal) => {
       const actual = await importOriginal();
 
       return {
@@ -433,7 +433,7 @@ describe('SSRServer Plugin', () => {
   it('should handle critical rendering errors in onError callback', async () => {
     isDevelopmentValue = false;
 
-    vi.doMock('./utils', async (importOriginal) => {
+    vi.doMock('../utils', async (importOriginal) => {
       const actual = await importOriginal();
       return {
         ...(actual as Record<string, unknown>),
