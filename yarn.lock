@@ -653,10 +653,10 @@
   resolved "https://registry.yarnpkg.com/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.22.4.tgz#3dd5d53e900df2a40841882c02e56f866c04d202"
   integrity sha512-j8pPKp53/lq9lMXN57S8cFz0MynJk8OWNuUnXct/9KCpKU7DgU3bYMJhwWmcqC0UU29p8Lr0/7KEVcaM6bf47Q==
 
-"@taujs/server@^0.0.6":
-  version "0.0.6"
-  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.0.6.tgz#bab2235826a852acee1fc8d29f00e483c58cbd33"
-  integrity sha512-si3hyQ1W93E/BZQqdMyRMS/5VyfaazU+is9iDT8VesOdaciBgVFpevcRG0uekDIT2XIa2YQF0T7wLT8UwvWvHw==
+"@taujs/server@^0.0.8":
+  version "0.0.8"
+  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.0.8.tgz#80834ee5c9cca439cf60f305f3a06e17c77b697f"
+  integrity sha512-aB94I9+CjnyKCn1xvhA/XQFbZ6j/cDJacBZ0vi4kV3Mo6EfSyzry1O8eFJslzLwwjVAkImEhRHqtwdEnhv+Siw==
   dependencies:
     "@fastify/static" "^7.0.4"
     path-to-regexp "^8.1.0"
