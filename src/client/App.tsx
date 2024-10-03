@@ -2,7 +2,6 @@ import React, { Suspense, useState, useCallback } from 'react';
 
 import fastifyLogo from '@client/assets/images/fastify.svg';
 import reactLogo from '@client/assets/images/react.svg';
-import { useHydrationCheck } from '@client/utils/useHydrationCheck';
 
 import '@client/assets/styling/App.scss';
 
@@ -10,11 +9,9 @@ const DataComponent = React.lazy(() => import('@client/components/DataComponent'
 
 export const App = () => {
   const [count, setCount] = useState(0);
-  const isHydrated = useHydrationCheck();
-
   const handleClick = useCallback(() => {
-    if (isHydrated) setCount((prevCount) => prevCount + 1);
-  }, [isHydrated]);
+    setCount((prevCount) => prevCount + 1);
+  }, []);
 
   return (
     <>
