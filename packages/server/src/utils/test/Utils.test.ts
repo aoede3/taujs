@@ -474,9 +474,7 @@ describe('fetchInitialData', () => {
 
   it('should throw an error if attributes.fetch rejects', async () => {
     const error = new Error('Fetch failed');
-    attributes = {
-      fetch: vi.fn().mockRejectedValue(error),
-    };
+    attributes = { fetch: vi.fn().mockRejectedValue(error) };
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(utils.fetchInitialData(attributes, params, serviceRegistry)).rejects.toThrow('Fetch failed');

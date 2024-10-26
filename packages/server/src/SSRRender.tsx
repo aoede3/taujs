@@ -2,15 +2,13 @@ import { ServerResponse } from 'node:http';
 import { Writable } from 'node:stream';
 
 import React from 'react';
-import { renderToPipeableStream } from 'react-dom/server';
+import { renderToPipeableStream, renderToString } from 'react-dom/server';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
 
-type StreamRenderOptions = {
+type RendererOptions = {
   appComponent: React.ReactElement;
-  initialDataPromise: Promise<Record<string, unknown>>;
-  bootstrapModules: string;
-  headContent: string;
+  headContent: string | ((data: Record<string, unknown>) => string);
 };
 
 type RenderCallbacks = {
@@ -19,19 +17,60 @@ type RenderCallbacks = {
   onError: (error: unknown) => void;
 };
 
-export const createStreamRenderer = (
+export const resolveHeadContent = (headContent: string | ((data: Record<string, unknown>) => string), initialDataResolved: Record<string, unknown>): string => {
+  return typeof headContent === 'function' ? headContent(initialDataResolved) : headContent;
+};
+
+export const createRenderer = ({ appComponent, headContent }: RendererOptions) => {
+  const renderSSR = async (initialDataResolved: Record<string, unknown>) => {
+    const dynamicHeadContent = resolveHeadContent(headContent, initialDataResolved);
+    const appHtml = renderToString(<SSRStoreProvider store={createSSRStore(Promise.resolve(initialDataResolved))}>{appComponent}</SSRStoreProvider>);
+
+    return {
+      headContent: dynamicHeadContent,
+      appHtml,
+      initialDataScript: `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`,
+    };
+  };
+
+  const renderStream = (
+    serverResponse: ServerResponse,
+    callbacks: RenderCallbacks,
+    initialDataResolved: Record<string, unknown>,
+    bootstrapModules?: string,
+  ) => {
+    const dynamicHeadContent = typeof headContent === 'function' ? headContent(initialDataResolved) : headContent;
+
+    createRenderStream(serverResponse, callbacks, {
+      appComponent,
+      headContent: dynamicHeadContent,
+      initialDataResolved,
+      bootstrapModules,
+    });
+  };
+
+  return { renderSSR, renderStream };
+};
+
+export const createRenderStream = (
   serverResponse: ServerResponse,
   { onHead, onFinish, onError }: RenderCallbacks,
-  { appComponent, initialDataPromise, bootstrapModules, headContent }: StreamRenderOptions,
+  {
+    appComponent,
+    headContent,
+    initialDataResolved,
+    bootstrapModules,
+  }: RendererOptions & { initialDataResolved: Record<string, unknown>; bootstrapModules?: string },
 ): void => {
-  const store = createSSRStore(initialDataPromise);
+  const store = createSSRStore(Promise.resolve(initialDataResolved));
   const appElement = <SSRStoreProvider store={store}>{appComponent}</SSRStoreProvider>;
 
   const { pipe } = renderToPipeableStream(appElement, {
-    bootstrapModules: [bootstrapModules],
+    bootstrapModules: bootstrapModules ? [bootstrapModules] : undefined,
 
     onShellReady() {
-      onHead(headContent);
+      const dynamicHeadContent = resolveHeadContent(headContent, initialDataResolved);
+      onHead(dynamicHeadContent);
 
       pipe(
         new Writable({

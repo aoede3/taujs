@@ -4,6 +4,8 @@ import path from 'node:path';
 import fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SSRTAG, RENDERTYPE } from '../constants';
+
 import type { FastifyInstance } from 'fastify';
 import type { Mock } from 'vitest';
 import type { SSRServerOptions } from '../SSRServer';
@@ -19,15 +21,20 @@ vi.mock('vite', () => ({
       middlewares: {
         use: vi.fn(),
       },
-      transformIndexHtml: vi.fn().mockResolvedValue('<html><!--ssr-head--><!--ssr-html--></html>'),
+      transformIndexHtml: vi.fn().mockResolvedValue(`<html>${SSRTAG.ssrHead}${SSRTAG.ssrHtml}</html>`),
     };
   }),
   defineConfig: vi.fn((config) => config),
   createViteRuntime: vi.fn(async (_viteServer) => ({
     executeEntrypoint: vi.fn().mockResolvedValue({
-      streamRender: vi.fn().mockImplementation((_res, callbacks) => {
+      renderStream: vi.fn().mockImplementation((_res, callbacks) => {
         callbacks.onHead('<head></head>');
         callbacks.onFinish({});
+      }),
+      renderSSR: vi.fn().mockResolvedValue({
+        headContent: '<head></head>',
+        appHtml: '<div id="app"></div>',
+        initialDataScript: '<script>window.__INITIAL_DATA__ = {}</script>',
       }),
     }),
   })),
@@ -70,8 +77,8 @@ describe('SSRServer Plugin', () => {
       readFile: vi.fn(async (filePath: string) => {
         if (filePath.endsWith('index.html')) {
           return `<html>
-                    <head><!--ssr-head--></head>
-                    <body><!--ssr-html--></body>
+                    <head>${SSRTAG.ssrHead}</head>
+                    <body>${SSRTAG.ssrHtml}</body>
                   </html>`;
         } else if (filePath.endsWith('.vite/ssr-manifest.json')) {
           return JSON.stringify({
@@ -112,13 +119,12 @@ describe('SSRServer Plugin', () => {
     });
 
     vi.doMock(path.join(options.clientRoot, `${options.clientEntryServer}.js`), () => ({
-      // default: {
-      streamRender: vi.fn().mockImplementation((_res, callbacks) => {
+      renderStream: vi.fn().mockImplementation((_res, callbacks) => {
         callbacks.onHead('<head></head>');
         callbacks.onFinish({});
         callbacks.onError(new Error('Test Critical Error'));
       }),
-      // },
+      renderSSR: vi.fn().mockRejectedValue(new Error('Test Critical Error')),
     }));
 
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -171,9 +177,14 @@ describe('SSRServer Plugin', () => {
 
       return {
         ...(actual as Record<string, unknown>),
-        streamRender: vi.fn().mockImplementation((_res, callbacks) => {
+        renderStream: vi.fn().mockImplementation((_res, callbacks) => {
           callbacks.onHead('<head></head>');
           callbacks.onFinish({});
+        }),
+        renderSSR: vi.fn().mockResolvedValue({
+          headContent: '<head></head>',
+          appHtml: '<div id="app"></div>',
+          initialDataScript: '<script>window.__INITIAL_DATA__ = {}</script>',
         }),
       };
     });
@@ -188,15 +199,20 @@ describe('SSRServer Plugin', () => {
       mockMiddlewares.use = vi.fn();
 
       const mockViteDevServer = {
-        transformIndexHtml: vi.fn().mockResolvedValue('<html><!--ssr-head--><!--ssr-html--></html>'),
+        transformIndexHtml: vi.fn().mockResolvedValue(`<html>${SSRTAG.ssrHead}${SSRTAG.ssrHtml}</html>`),
         middlewares: mockMiddlewares,
       };
 
       const mockViteRuntime = {
         executeEntrypoint: vi.fn().mockResolvedValue({
-          streamRender: vi.fn().mockImplementation((_res, callbacks) => {
+          renderStream: vi.fn().mockImplementation((_res, callbacks) => {
             callbacks.onHead('<head></head>');
             callbacks.onFinish({});
+          }),
+          renderSSR: vi.fn().mockResolvedValue({
+            headContent: '<head></head>',
+            appHtml: '<div id="app"></div>',
+            initialDataScript: '<script>window.__INITIAL_DATA__ = {}</script>',
           }),
         }),
       };
@@ -268,8 +284,8 @@ describe('SSRServer Plugin', () => {
     expect(response.body).toContain('<html>');
     expect(response.body).toContain('</html>');
     expect(response.body).toContain('<script type="module" src="/entry-client.js" async=""></script></body>');
-    expect(response.body).not.toContain('<!--ssr-head-->');
-    expect(response.body).not.toContain('<!--ssr-html-->');
+    expect(response.body).not.toContain(`${SSRTAG.ssrHead}`);
+    expect(response.body).not.toContain(`${SSRTAG.ssrHtml}`);
     expect(response.body).toContain('<link rel="stylesheet" href="/style.css">');
   });
 
@@ -355,15 +371,20 @@ describe('SSRServer Plugin', () => {
           middlewares: {
             use: vi.fn(),
           },
-          transformIndexHtml: vi.fn().mockResolvedValue('<html><!--ssr-head--><!--ssr-html--></html>'),
+          transformIndexHtml: vi.fn().mockResolvedValue(`<html${SSRTAG.ssrHead}${SSRTAG.ssrHtml}</html>`),
         };
       }),
       defineConfig: vi.fn((config) => config),
       createViteRuntime: vi.fn(async (_viteServer) => ({
         executeEntrypoint: vi.fn().mockResolvedValue({
-          streamRender: vi.fn().mockImplementation((_res, callbacks) => {
+          renderStream: vi.fn().mockImplementation((_res, callbacks) => {
             callbacks.onHead('<head></head>');
             callbacks.onFinish({});
+          }),
+          renderSSR: vi.fn().mockResolvedValue({
+            headContent: '<head></head>',
+            appHtml: '<div id="app"></div>',
+            initialDataScript: '<script>window.__INITIAL_DATA__ = {}</script>',
           }),
         }),
       })),
@@ -430,34 +451,19 @@ describe('SSRServer Plugin', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it('should handle critical rendering errors in onError callback', async () => {
+  it('should handle errors in the route handler and return 500', async () => {
     isDevelopmentValue = false;
 
     vi.doMock('../utils', async (importOriginal) => {
       const actual = await importOriginal();
+
       return {
         ...(actual as Record<string, unknown>),
-        __dirname: __dirname,
-        get isDevelopment() {
-          return isDevelopmentValue;
-        },
-        matchRoute: vi.fn().mockReturnValue({
-          route: {
-            path: '/',
-            attributes: {},
-          },
-          params: {},
+        matchRoute: vi.fn(() => {
+          throw new Error('Test Error in matchRoute');
         }),
       };
     });
-
-    vi.doMock(path.join(options.clientRoot, `${options.clientEntryServer}.js`), () => ({
-      default: {
-        streamRender: vi.fn().mockImplementation((_res, callbacks) => {
-          callbacks.onError(new Error('Test Critical Error'));
-        }),
-      },
-    }));
 
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -466,7 +472,7 @@ describe('SSRServer Plugin', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/',
+      url: '/test-path',
     });
 
     expect(consoleErrorSpy).toHaveBeenCalledWith('Error setting up SSR stream:', expect.any(Error));
@@ -494,5 +500,54 @@ describe('SSRServer Plugin', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('<html>');
+  });
+
+  it('should render using renderSSR when renderType is "ssr"', async () => {
+    isDevelopmentValue = false;
+
+    options.routes = [
+      {
+        path: '/',
+        attributes: {
+          fetch: vi.fn().mockResolvedValue({ options: {}, url: '/api/data' }),
+          render: RENDERTYPE.ssr,
+        },
+      },
+    ];
+
+    vi.doMock('../utils', async (importOriginal) => {
+      const actual = await importOriginal();
+
+      return {
+        ...(actual as Record<string, unknown>),
+        matchRoute: vi.fn().mockReturnValue({
+          route: options.routes[0],
+          params: {},
+        }),
+        fetchInitialData: vi.fn().mockResolvedValue({}),
+      };
+    });
+
+    vi.doMock(path.join(options.clientRoot, `${options.clientEntryServer}.js`), () => ({
+      renderSSR: vi.fn().mockResolvedValue({
+        headContent: '<head></head>',
+        appHtml: '<div id="app"></div>',
+        initialDataScript: '<script>window.__INITIAL_DATA__ = {}</script>',
+      }),
+      renderStream: vi.fn(),
+    }));
+
+    const { SSRServer } = await import('../SSRServer');
+    await app.register(SSRServer, options);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('<head></head>');
+    expect(response.body).toContain('<div id="app"></div>');
+    expect(response.body).toContain('<script>window.__INITIAL_DATA__ = {}</script>');
   });
 });
