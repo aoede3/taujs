@@ -43,7 +43,7 @@ vi.mock('vite', () => ({
 vi.mock('@fastify/static', () => ({
   default: async (instance: FastifyInstance, _opts: any) => {
     instance.get('/static/*', async (_request, reply) => {
-      reply.status(404).send('Not Found');
+      reply.status(404).send('404 Not Found');
     });
   },
 }));
@@ -229,7 +229,7 @@ describe('SSRServer Plugin', () => {
     const mockRoute = {
       route: {
         path: '/some-route',
-        attributes: {},
+        attr: {},
       },
       params: {},
     };
@@ -261,7 +261,7 @@ describe('SSRServer Plugin', () => {
     });
 
     expect(response.statusCode).toBe(404);
-    expect(response.body).toBe('Not Found');
+    expect(response.body).toBe('404 Not Found');
   });
 
   it('should correctly handle not-found handler for SPA routes', async () => {
@@ -420,7 +420,7 @@ describe('SSRServer Plugin', () => {
     options.routes = [
       {
         path: '/',
-        attributes: {
+        attr: {
           fetch: vi.fn().mockResolvedValue({ options: {}, url: '/api/data' }),
         },
       },
@@ -508,7 +508,7 @@ describe('SSRServer Plugin', () => {
     options.routes = [
       {
         path: '/',
-        attributes: {
+        attr: {
           fetch: vi.fn().mockResolvedValue({ options: {}, url: '/api/data' }),
           render: RENDERTYPE.ssr,
         },

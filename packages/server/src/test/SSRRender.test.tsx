@@ -43,7 +43,7 @@ describe('createRenderer', () => {
         headContent: mockHeadContent,
       });
 
-      const result = await renderSSR(mockInitialData);
+      const result = await renderSSR(mockInitialData, {});
 
       expect(renderToStringMock).toHaveBeenCalled();
       expect(result).toEqual({
@@ -66,7 +66,7 @@ describe('createRenderer', () => {
         headContent: headContentFn,
       });
 
-      const result = await renderSSR(mockInitialData);
+      const result = await renderSSR(mockInitialData, {});
 
       expect(renderToStringMock).toHaveBeenCalled();
       expect(headContentFn).toHaveBeenCalledWith(mockInitialData);
@@ -76,6 +76,38 @@ describe('createRenderer', () => {
         initialDataScript: `<script>window.__INITIAL_DATA__ = ${JSON.stringify(mockInitialData).replace(/</g, '\\u003c')}</script>`,
       });
     });
+
+    it('should use initialDataResolved when it has properties', async () => {
+      const mockAppElement = <div>Test</div>;
+      const mockHeadContentFn = vi.fn((data) => `<title>${data.title}</title>`);
+      const initialDataResolved = { title: 'From Initial Data' };
+      const meta = { title: 'From Meta' };
+
+      const { renderSSR } = createRenderer({
+        appComponent: mockAppElement,
+        headContent: mockHeadContentFn,
+      });
+
+      await renderSSR(initialDataResolved, meta);
+
+      expect(mockHeadContentFn).toHaveBeenCalledWith(initialDataResolved);
+    });
+
+    it('should use meta when initialDataResolved is empty', async () => {
+      const mockAppElement = <div>Test</div>;
+      const mockHeadContentFn = vi.fn((data) => `<title>${data.title}</title>`);
+      const initialDataResolved = {};
+      const meta = { title: 'From Meta' };
+
+      const { renderSSR } = createRenderer({
+        appComponent: mockAppElement,
+        headContent: mockHeadContentFn,
+      });
+
+      await renderSSR(initialDataResolved, meta);
+
+      expect(mockHeadContentFn).toHaveBeenCalledWith(meta);
+    });
   });
 
   describe('renderStream', () => {
@@ -83,7 +115,6 @@ describe('createRenderer', () => {
       const mockAppElement = <div>Test</div>;
       const mockHeadContent = '<title>Test</title>';
       const mockInitialData = { data: 'test' };
-      const mockInitialDataPromise = Promise.resolve(mockInitialData);
       const mockBootstrapModules = 'test-module';
 
       const onHead = vi.fn();
@@ -191,7 +222,7 @@ describe('createRenderer', () => {
         headContent: headContentFn,
       });
 
-      renderStream(serverResponse as any, { onHead, onFinish, onError }, mockInitialData, mockBootstrapModules);
+      renderStream(serverResponse as any, { onHead, onFinish, onError }, mockInitialData, mockBootstrapModules, mockInitialData);
 
       await onFinishPromise;
 

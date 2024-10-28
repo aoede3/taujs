@@ -17,13 +17,13 @@ type RenderCallbacks = {
   onError: (error: unknown) => void;
 };
 
-export const resolveHeadContent = (headContent: string | ((data: Record<string, unknown>) => string), initialDataResolved: Record<string, unknown>): string => {
-  return typeof headContent === 'function' ? headContent(initialDataResolved) : headContent;
-};
+export const resolveHeadContent = (headContent: string | ((meta: Record<string, unknown>) => string), meta: Record<string, unknown> = {}): string =>
+  typeof headContent === 'function' ? headContent(meta) : headContent;
 
 export const createRenderer = ({ appComponent, headContent }: RendererOptions) => {
-  const renderSSR = async (initialDataResolved: Record<string, unknown>) => {
-    const dynamicHeadContent = resolveHeadContent(headContent, initialDataResolved);
+  const renderSSR = async (initialDataResolved: Record<string, unknown>, meta: Record<string, unknown>) => {
+    const dataForHeadContent = initialDataResolved && Object.keys(initialDataResolved).length > 0 ? initialDataResolved : meta;
+    const dynamicHeadContent = resolveHeadContent(headContent, dataForHeadContent);
     const appHtml = renderToString(<SSRStoreProvider store={createSSRStore(Promise.resolve(initialDataResolved))}>{appComponent}</SSRStoreProvider>);
 
     return {
@@ -38,8 +38,9 @@ export const createRenderer = ({ appComponent, headContent }: RendererOptions) =
     callbacks: RenderCallbacks,
     initialDataResolved: Record<string, unknown>,
     bootstrapModules?: string,
+    meta: Record<string, unknown> = {},
   ) => {
-    const dynamicHeadContent = typeof headContent === 'function' ? headContent(initialDataResolved) : headContent;
+    const dynamicHeadContent = resolveHeadContent(headContent, meta);
 
     createRenderStream(serverResponse, callbacks, {
       appComponent,

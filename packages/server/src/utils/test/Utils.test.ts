@@ -384,7 +384,7 @@ describe('overrideCSSHMRConsoleError', () => {
 
 describe('fetchInitialData', () => {
   let serviceRegistry: ServiceRegistry;
-  let attributes: RouteAttributes<RouteParams> | undefined;
+  let attr: RouteAttributes<RouteParams> | undefined;
   let params: Partial<Record<string, string | string[]>>;
   let mockFetchData: MockInstance<({ url, options }: FetchConfig) => Promise<Record<string, unknown>>>;
   let mockCallServiceMethod: MockInstance;
@@ -396,7 +396,7 @@ describe('fetchInitialData', () => {
         exampleMethod: vi.fn().mockResolvedValue({ serviceData: 'success' }),
       },
     };
-    attributes = undefined;
+    attr = undefined;
     params = {};
 
     mockFetchData = vi.spyOn(utils, 'fetchData').mockResolvedValue({ fetchedData: true });
@@ -408,28 +408,28 @@ describe('fetchInitialData', () => {
     } as unknown as Response);
   });
 
-  it('should return an empty object when attributes is undefined', async () => {
+  it('should return an empty object when attr is undefined', async () => {
     const result = await utils.fetchInitialData(undefined, params, serviceRegistry);
     expect(result).toEqual({});
   });
 
-  it('should return an empty object when attributes.fetch is not a function', async () => {
-    attributes = {
+  it('should return an empty object when attr.fetch is not a function', async () => {
+    attr = {
       // @ts-ignore
       fetch: 'not-a-function',
     };
-    const result = await utils.fetchInitialData(attributes, params, serviceRegistry);
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry);
     expect(result).toEqual({});
   });
 
-  it('should call attributes.fetch and fetchData when serviceName and serviceMethod are not present', async () => {
-    attributes = {
+  it('should call attr.fetch and fetchData when serviceName and serviceMethod are not present', async () => {
+    attr = {
       fetch: vi.fn().mockResolvedValue({ url: 'https://example.com', options: {} }),
     };
 
-    const result = await utils.fetchInitialData(attributes, params, serviceRegistry);
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry);
 
-    expect(attributes.fetch).toHaveBeenCalledWith(params, {
+    expect(attr.fetch).toHaveBeenCalledWith(params, {
       headers: { 'Content-Type': 'application/json' },
       params,
     });
@@ -437,7 +437,7 @@ describe('fetchInitialData', () => {
   });
 
   it('should call callServiceMethod when serviceName and serviceMethod are present', async () => {
-    attributes = {
+    attr = {
       fetch: vi.fn().mockResolvedValue({
         serviceName: 'exampleService',
         serviceMethod: 'exampleMethod',
@@ -445,9 +445,9 @@ describe('fetchInitialData', () => {
       }),
     };
 
-    const result = await utils.fetchInitialData(attributes, params, serviceRegistry);
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry);
 
-    expect(attributes.fetch).toHaveBeenCalledWith(params, {
+    expect(attr.fetch).toHaveBeenCalledWith(params, {
       headers: { 'Content-Type': 'application/json' },
       params,
     });
@@ -455,7 +455,7 @@ describe('fetchInitialData', () => {
   });
 
   it('should call callServiceMethod with empty params when data.options.params is undefined', async () => {
-    attributes = {
+    attr = {
       fetch: vi.fn().mockResolvedValue({
         serviceName: 'exampleService',
         serviceMethod: 'exampleMethod',
@@ -463,23 +463,23 @@ describe('fetchInitialData', () => {
       }),
     };
 
-    const result = await utils.fetchInitialData(attributes, params, serviceRegistry);
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry);
 
-    expect(attributes.fetch).toHaveBeenCalledWith(params, {
+    expect(attr.fetch).toHaveBeenCalledWith(params, {
       headers: { 'Content-Type': 'application/json' },
       params,
     });
     expect(result).toEqual({ serviceData: 'success' });
   });
 
-  it('should throw an error if attributes.fetch rejects', async () => {
+  it('should throw an error if attr.fetch rejects', async () => {
     const error = new Error('Fetch failed');
-    attributes = { fetch: vi.fn().mockRejectedValue(error) };
+    attr = { fetch: vi.fn().mockRejectedValue(error) };
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await expect(utils.fetchInitialData(attributes, params, serviceRegistry)).rejects.toThrow('Fetch failed');
+    await expect(utils.fetchInitialData(attr, params, serviceRegistry)).rejects.toThrow('Fetch failed');
 
-    expect(attributes.fetch).toHaveBeenCalledWith(params, {
+    expect(attr.fetch).toHaveBeenCalledWith(params, {
       headers: { 'Content-Type': 'application/json' },
       params,
     });

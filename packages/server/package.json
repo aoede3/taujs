@@ -39,7 +39,7 @@
     "dist"
   ],
   "dependencies": {
-    "@fastify/static": "^7.0.4",
+    "@fastify/static": "^8.0.2",
     "path-to-regexp": "^8.1.0"
   },
   "devDependencies": {
@@ -52,7 +52,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitest/coverage-v8": "^2.1.0",
-    "fastify": "^4.28.0",
+    "fastify": "^5.0.0",
     "jsdom": "^25.0.0",
     "prettier": "^3.3.3",
     "react-dom": "^18.3.1",
@@ -70,6 +70,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "build-local": "tsup && ./move.sh",
     "ci": "npm run build && npm run check-format && npm run lint",
     "lint": "tsc",
     "test": "vitest run",

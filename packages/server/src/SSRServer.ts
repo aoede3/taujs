@@ -31,6 +31,13 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     let viteDevServer: ViteDevServer;
     let viteRuntime: ViteRuntime;
 
+    void (await app.register(import('@fastify/static'), {
+      index: false,
+      prefix: '/',
+      root: clientRoot,
+      wildcard: false,
+    }));
+
     if (isDevelopment) {
       const { createServer } = await import('vite');
 
@@ -89,12 +96,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       });
     } else {
       renderModule = await import(path.join(clientRoot, `${clientEntryServer}.js`));
-
-      void (await app.register(import('@fastify/static'), {
-        index: false,
-        root: path.resolve(clientRoot),
-        wildcard: false,
-      }));
     }
 
     void app.get('/*', async (req, reply) => {
@@ -121,14 +122,11 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         }
 
         const { route, params } = matchedRoute;
-        const { attributes } = route;
-        const renderType = attributes?.render || RENDERTYPE.streaming;
+        const { attr } = route;
+        const renderType = attr?.render || RENDERTYPE.streaming;
         const [beforeBody = '', afterBody] = template.split(SSRTAG.ssrHtml);
         const [beforeHead, afterHead] = beforeBody.split(SSRTAG.ssrHead);
-        const initialDataPromise = fetchInitialData(attributes, params, serviceRegistry);
-
-        reply.raw.writeHead(200, { 'Content-Type': 'text/html' });
-        reply.raw.write(beforeHead);
+        const initialDataPromise = fetchInitialData(attr, params, serviceRegistry);
 
         if (renderType === RENDERTYPE.ssr) {
           const { renderSSR } = renderModule;
@@ -136,6 +134,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           const { headContent, appHtml, initialDataScript } = await renderSSR(initialDataResolved);
 
           const fullHtml = `
+            ${beforeHead}
             ${headContent}
             ${afterHead}
             ${appHtml}
@@ -143,21 +142,22 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
             ${afterBody}
           `;
 
-          reply.raw.write(fullHtml);
-          reply.raw.end();
+          return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
         } else {
           const { renderStream } = renderModule;
+
+          reply.raw.writeHead(200, { 'Content-Type': 'text/html' });
 
           renderStream(
             reply.raw,
             {
               onHead: (headContent: string) => {
-                let fullHeadContent = headContent;
+                let aggregateHeadContent = headContent;
 
-                if (ssrManifest) fullHeadContent += preloadLinks;
-                if (manifest) fullHeadContent += cssLinks;
+                if (ssrManifest) aggregateHeadContent += preloadLinks;
+                if (manifest) aggregateHeadContent += cssLinks;
 
-                reply.raw.write(`${fullHeadContent}${afterHead}`);
+                reply.raw.write(`${beforeHead}${aggregateHeadContent}${afterHead}`);
               },
 
               onFinish: async (initialDataResolved: unknown) => {
@@ -173,6 +173,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
             },
             initialDataPromise,
             bootstrapModules,
+            attr?.meta,
           );
         }
       } catch (error) {
@@ -256,6 +257,7 @@ export type RenderStream = (
   callbacks: RenderCallbacks,
   initialDataPromise: Promise<Record<string, unknown>>,
   bootstrapModules: string,
+  meta?: Record<string, unknown>,
 ) => void;
 
 export type RenderModule = {
@@ -273,11 +275,12 @@ export type RouteAttributes<Params = {}> = {
     serviceMethod?: string;
     url?: string;
   }>;
+  meta?: Record<string, unknown>;
   render?: typeof RENDERTYPE.ssr | typeof RENDERTYPE.streaming;
 };
 
 export type Route<Params = {}> = {
-  attributes?: RouteAttributes<Params>;
+  attr?: RouteAttributes<Params>;
   path: string;
 };
 
