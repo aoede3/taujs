@@ -91,7 +91,7 @@ import type { Route, RouteParams } from '@taujs/server';
 export const routes: Route<RouteParams>[] = [
   {
     path: '/',
-    attributes: {
+    attr: {
       fetch: async () => {
         return {
           url: 'http://localhost:5173/api/initial',
@@ -104,7 +104,7 @@ export const routes: Route<RouteParams>[] = [
   },
   {
     path: '/:id',
-    attributes: {
+    attr: {
       fetch: async (params: RouteParams) => {
         return {
           url: `http://localhost:5173/api/initial/${params.id}`,
@@ -117,7 +117,7 @@ export const routes: Route<RouteParams>[] = [
   },
   {
     path: '/:id/:another',
-    attributes: {
+    attr: {
       fetch: async (params: RouteParams) => {
         return {
           options: { params },
