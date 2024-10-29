@@ -6,7 +6,7 @@
 
 `pnpm add @taujs/server`
 
-## Streaming React SSR & Hydration
+## SPA; SSR; Streaming SSR; Hydration; React 18
 
 Fastify Plugin for integration with taujs [ τjs ] template https://github.com/aoede3/taujs
 

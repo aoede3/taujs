@@ -100,6 +100,9 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
     void app.get('/*', async (req, reply) => {
       try {
+        // fastify/static wildcard: false and /* checks for assets herre and routes 404
+        if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
+
         const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
         const matchedRoute = matchRoute(url, routes);
 
@@ -131,7 +134,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         if (renderType === RENDERTYPE.ssr) {
           const { renderSSR } = renderModule;
           const initialDataResolved = await initialDataPromise;
-          const { headContent, appHtml, initialDataScript } = await renderSSR(initialDataResolved);
+          const { headContent, appHtml, initialDataScript } = await renderSSR(initialDataResolved, req.url, attr?.meta);
 
           const fullHtml = `
             ${beforeHead}
@@ -172,6 +175,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
               },
             },
             initialDataPromise,
+            req.url,
             bootstrapModules,
             attr?.meta,
           );
@@ -246,7 +250,11 @@ export type Manifest = {
   };
 };
 
-export type RenderSSR = (initialDataResolved: Record<string, unknown>) => Promise<{
+export type RenderSSR = (
+  initialDataResolved: Record<string, unknown>,
+  location: string,
+  meta?: Record<string, unknown>,
+) => Promise<{
   headContent: string;
   appHtml: string;
   initialDataScript: string;
@@ -256,7 +264,8 @@ export type RenderStream = (
   serverResponse: ServerResponse,
   callbacks: RenderCallbacks,
   initialDataPromise: Promise<Record<string, unknown>>,
-  bootstrapModules: string,
+  location: string,
+  bootstrapModules?: string,
   meta?: Record<string, unknown>,
 ) => void;
 
