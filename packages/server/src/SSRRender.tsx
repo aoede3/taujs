@@ -24,15 +24,11 @@ export const createRenderer = ({ appComponent, headContent }: RendererOptions) =
   const renderSSR = async (initialDataResolved: Record<string, unknown>, location: string, meta: Record<string, unknown> = {}) => {
     const dataForHeadContent = Object.keys(initialDataResolved).length > 0 ? initialDataResolved : meta;
     const dynamicHeadContent = resolveHeadContent(headContent, dataForHeadContent);
-
-    const appHtml = renderToString(
-      <SSRStoreProvider store={createSSRStore(Promise.resolve(initialDataResolved))}>{appComponent({ location })}</SSRStoreProvider>,
-    );
+    const appHtml = renderToString(<SSRStoreProvider store={createSSRStore(initialDataResolved)}>{appComponent({ location })}</SSRStoreProvider>);
 
     return {
       headContent: dynamicHeadContent,
       appHtml,
-      initialDataScript: `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`,
     };
   };
 
@@ -69,7 +65,7 @@ export const createRenderStream = (
     bootstrapModules,
   }: RendererOptions & { initialDataResolved: Record<string, unknown>; location: string; bootstrapModules?: string },
 ): void => {
-  const store = createSSRStore(Promise.resolve(initialDataResolved));
+  const store = createSSRStore(initialDataResolved);
   const appElement = <SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>;
 
   const { pipe } = renderToPipeableStream(appElement, {

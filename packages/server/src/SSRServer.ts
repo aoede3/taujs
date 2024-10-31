@@ -100,7 +100,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
     void app.get('/*', async (req, reply) => {
       try {
-        // fastify/static wildcard: false and /* checks for assets herre and routes 404
+        // fastify/static wildcard: false and /* => checks for .assets here and routes 404
         if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
 
         const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
@@ -134,16 +134,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         if (renderType === RENDERTYPE.ssr) {
           const { renderSSR } = renderModule;
           const initialDataResolved = await initialDataPromise;
-          const { headContent, appHtml, initialDataScript } = await renderSSR(initialDataResolved, req.url, attr?.meta);
+          const initialDataScript = `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`;
+          const { headContent, appHtml } = await renderSSR(initialDataResolved, req.url, attr?.meta);
 
-          const fullHtml = `
-            ${beforeHead}
-            ${headContent}
-            ${afterHead}
-            ${appHtml}
-            ${initialDataScript}
-            ${afterBody}
-          `;
+          const fullHtml = template
+            .replace(SSRTAG.ssrHead, headContent)
+            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script type="module" src="${bootstrapModules}" async=""></script>`);
 
           return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
         } else {

@@ -1,5 +1,6 @@
 import { ServerResponse } from 'node:http';
 import { Writable } from 'node:stream';
+
 import React from 'react';
 import { renderToPipeableStream, renderToString } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -43,7 +44,7 @@ describe('createRenderer', () => {
         headContent: mockHeadContent,
       });
 
-      const result = await renderSSR(mockInitialData, '/test');
+      const result = await renderSSR(mockInitialData, '/test', {});
 
       expect(renderToStringMock).toHaveBeenCalled();
       expect(result).toEqual({
@@ -66,7 +67,7 @@ describe('createRenderer', () => {
         headContent: headContentFn,
       });
 
-      const result = await renderSSR(mockInitialData, '/test');
+      const result = await renderSSR(mockInitialData, '/test', {});
 
       expect(renderToStringMock).toHaveBeenCalled();
       expect(headContentFn).toHaveBeenCalledWith(mockInitialData);
