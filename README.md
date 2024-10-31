@@ -4,7 +4,7 @@ taujs [ τjs ] template
 
 > τjs is in development. Expect some breaking changes on the road towards a stable v1 release. Some features may or may not be missing!
 
-## Streaming React SSR & Hydration
+## CSR, SSR, Streaming React SSR & Hydration
 
 - Production: Fastify, React
 - Development: Fastify, React, Vite, tsx
@@ -91,7 +91,7 @@ import type { Route, RouteParams } from '@taujs/server';
 export const routes: Route<RouteParams>[] = [
   {
     path: '/',
-    attributes: {
+    attr: {
       fetch: async () => {
         return {
           url: 'http://localhost:5173/api/initial',
@@ -104,7 +104,7 @@ export const routes: Route<RouteParams>[] = [
   },
   {
     path: '/:id',
-    attributes: {
+    attr: {
       fetch: async (params: RouteParams) => {
         return {
           url: `http://localhost:5173/api/initial/${params.id}`,
@@ -117,7 +117,7 @@ export const routes: Route<RouteParams>[] = [
   },
   {
     path: '/:id/:another',
-    attributes: {
+    attr: {
       fetch: async (params: RouteParams) => {
         return {
           options: { params },
@@ -149,7 +149,7 @@ export const ServiceExample = {
   async exampleMethod(params: Record<string, unknown>): Promise<Record<string, unknown>> {
     return new Promise((resolve) => {
       setTimeout(() => {
-        resolve({ hello: `world internal service call response with id: ${params.id} and another: ${params.another}` });
+        resolve({ hello: `world internal service response with id: ${params.id} and another: ${params.another}` });
       }, 5500);
     });
   },

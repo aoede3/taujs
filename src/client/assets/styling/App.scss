@@ -26,7 +26,26 @@ h1 {
   line-height: 1.1;
 }
 
-button {
+h3 {
+  line-height: 1;
+
+  margin: 0 0 0.5rem;
+}
+
+.navigation {
+  display: flex;
+  justify-content: space-around;
+}
+
+.page__container {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 120px;
+}
+
+button,
+.btn {
   background-color: #1a1a1a;
   border-radius: 8px;
   border: 1px solid transparent;
@@ -57,7 +76,8 @@ button {
     color: #747bff;
   }
 
-  button {
+  button,
+  .btn {
     background-color: #f9f9f9;
   }
 }
@@ -74,7 +94,7 @@ body {
 #root {
   margin: 0 auto;
   max-width: 1280px;
-  padding: 2rem;
+  padding: 0 2rem;
   text-align: center;
 }
 
@@ -115,6 +135,7 @@ h1.τjs {
 
 .card {
   padding: 1rem;
+  width: 100%;
 }
 
 .read-the-docs {
