@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.1.0 - 31/10/2024
+
+fix: fastify dependency change to 4.28.1 compatibililty between static/compress
+
 v0.0.9 - 31/10/2024
 
 Merge branch 'integrate-spa-ssr' Integrated @taujs/server SPA, SSR, Streaming SSR, SSRDataStore; Hydration
