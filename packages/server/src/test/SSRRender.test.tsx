@@ -50,7 +50,6 @@ describe('createRenderer', () => {
       expect(result).toEqual({
         headContent: mockHeadContent,
         appHtml: '<div>Rendered App</div>',
-        initialDataScript: `<script>window.__INITIAL_DATA__ = ${JSON.stringify(mockInitialData).replace(/</g, '\\u003c')}</script>`,
       });
     });
 
@@ -74,7 +73,6 @@ describe('createRenderer', () => {
       expect(result).toEqual({
         headContent: '<title>Test Title</title>',
         appHtml: '<div>Rendered App</div>',
-        initialDataScript: `<script>window.__INITIAL_DATA__ = ${JSON.stringify(mockInitialData).replace(/</g, '\\u003c')}</script>`,
       });
     });
 
@@ -136,7 +134,7 @@ describe('createRenderer', () => {
         });
       });
 
-      const renderToPipeableStreamMock = vi.fn((_appElement: React.JSX.Element, options: any) => {
+      const renderToPipeableStreamMock = vi.fn((_appElement: React.JSX.Element, options: { onShellReady: () => void; onAllReady: () => void }) => {
         const stream = {
           pipe: (writable: Writable) => {
             writable.write(Buffer.from('Test chunk'), (err) => {
@@ -187,7 +185,7 @@ describe('createRenderer', () => {
       const onFinish = vi.fn();
       const onError = vi.fn();
 
-      (renderToPipeableStream as any).mockImplementation((_appElement: JSX.Element, { onError }: any) => {
+      (renderToPipeableStream as Mock).mockImplementation((_appElement: JSX.Element, { onError }: { onError: (error: Error) => void }) => {
         onError(new Error('Test Error'));
         return { pipe: vi.fn() };
       });
@@ -228,7 +226,7 @@ describe('createRenderer', () => {
         });
       });
 
-      const renderToPipeableStreamMock = vi.fn((_appElement: React.JSX.Element, options: any) => {
+      const renderToPipeableStreamMock = vi.fn((_appElement: React.JSX.Element, options: { onShellReady: () => void; onAllReady: () => void }) => {
         const stream = {
           pipe: (writable: Writable) => {
             writable.write(Buffer.from('Test chunk'), (err) => {

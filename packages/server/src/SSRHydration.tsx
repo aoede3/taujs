@@ -1,5 +1,5 @@
 import React from 'react';
-import { hydrateRoot } from 'react-dom/client';
+import { createRoot, hydrateRoot } from 'react-dom/client';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
 import { createLogger } from './utils/Logger';
@@ -24,25 +24,27 @@ export const hydrateApp = ({ appComponent, initialDataKey = '__INITIAL_DATA__', 
     }
 
     const initialData = window[initialDataKey];
+
     if (!initialData) {
-      warn(`Initial data key "${initialDataKey}" is undefined on window.`);
+      warn(`Initial data key "${initialDataKey}" is undefined on window. Defaulting to SPA createRoot`);
+      const root = createRoot(rootElement);
+
+      root.render(<React.StrictMode>{appComponent}</React.StrictMode>);
     } else {
       log('Initial data loaded:', initialData);
+      const initialDataPromise = Promise.resolve(initialData);
+      const store = createSSRStore(initialDataPromise);
+      log('Store created:', store);
+
+      hydrateRoot(
+        rootElement,
+        <React.StrictMode>
+          <SSRStoreProvider store={store}>{appComponent}</SSRStoreProvider>
+        </React.StrictMode>,
+      );
+
+      log('Hydration completed');
     }
-
-    const initialDataPromise = Promise.resolve(initialData);
-    const store = createSSRStore(initialDataPromise);
-
-    log('Store created:', store);
-
-    hydrateRoot(
-      rootElement as HTMLElement,
-      <React.StrictMode>
-        <SSRStoreProvider store={store}>{appComponent}</SSRStoreProvider>
-      </React.StrictMode>,
-    );
-
-    log('Hydration completed');
   };
 
   if (document.readyState !== 'loading') {

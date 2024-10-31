@@ -81,7 +81,7 @@ describe('createSSRStore', () => {
   });
 
   it('should allow setting data before initialDataPromise resolves', async () => {
-    let resolvePromise: (value: any) => void;
+    let resolvePromise: (value: Record<string, unknown>) => void;
     const initialDataPromise = new Promise<any>((resolve) => {
       resolvePromise = resolve;
     });

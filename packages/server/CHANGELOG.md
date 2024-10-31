@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.1.1 - 31/10/2024
+
+feat: SSRHydration createRoot + hydrateRoot; tests; vite css modern; clearup
+
 v0.1.0 - 31/10/2024
 
 fix: fastify dependency change to 4.28.1 compatibililty between static/compress

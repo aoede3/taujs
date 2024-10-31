@@ -10,7 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Mock } from 'vitest';
 import type { SSRServerOptions } from '../SSRServer';
 
-let mockVitePlugins: any[] = [];
+let mockVitePlugins: Record<string, unknown>[] = [];
 
 vi.mock('vite', () => ({
   createServer: vi.fn(async (viteConfig) => {
@@ -41,7 +41,7 @@ vi.mock('vite', () => ({
 }));
 
 vi.mock('@fastify/static', () => ({
-  default: async (instance: FastifyInstance, _opts: any) => {
+  default: async (instance: FastifyInstance, _opts: Record<string, unknown>) => {
     instance.get('/static/*', async (_request, reply) => {
       reply.status(404).send('404 Not Found');
     });
@@ -191,7 +191,7 @@ describe('SSRServer Plugin', () => {
 
     vi.doMock('vite', () => {
       type MiddlewareFunction = {
-        (req: any, res: any, next: any): void;
+        (req: Record<string, unknown>, res: Record<string, unknown>, next: Record<string, unknown>): void;
         use: Mock;
       };
 
@@ -353,7 +353,7 @@ describe('SSRServer Plugin', () => {
       },
     };
 
-    let middlewareFunction: (req: any, res: any, next: any) => void;
+    let middlewareFunction: (req: Record<string, unknown>, res: Record<string, unknown>, next: Record<string, unknown>) => void;
 
     vi.doMock('vite', () => ({
       createServer: vi.fn(async (viteConfig) => {

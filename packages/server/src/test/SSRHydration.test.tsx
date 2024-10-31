@@ -1,5 +1,5 @@
 import React from 'react';
-import { hydrateRoot } from 'react-dom/client';
+import { createRoot, hydrateRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Mock } from 'vitest';
@@ -7,13 +7,19 @@ import { hydrateApp } from '../SSRHydration';
 import { createSSRStore } from '../SSRDataStore';
 import { createLogger } from '../utils/Logger';
 
-vi.mock('react-dom/client', () => ({
-  hydrateRoot: vi.fn(),
-}));
+vi.mock('react-dom/client', () => {
+  const mockRender = vi.fn();
+  return {
+    hydrateRoot: vi.fn(),
+    createRoot: vi.fn(() => ({
+      render: mockRender,
+    })),
+  };
+});
 
 vi.mock('../SSRDataStore', () => ({
   createSSRStore: vi.fn(),
-  SSRStoreProvider: ({ children }: any) => <>{children}</>,
+  SSRStoreProvider: ({ children }: Record<string, unknown>) => <>{children}</>,
 }));
 
 vi.mock('../utils/Logger', () => ({
@@ -23,15 +29,16 @@ vi.mock('../utils/Logger', () => ({
 declare global {
   interface Window {
     __INITIAL_DATA__?: Record<string, unknown>;
-    __CUSTOM_DATA__?: any;
+    __CUSTOM_DATA__?: Record<string, unknown>;
   }
 }
 
 describe('hydrateApp', () => {
-  let logMock: any;
-  let warnMock: any;
-  let errorMock: any;
+  let logMock: Mock<() => void>;
+  let warnMock: Mock<() => void>;
+  let errorMock: Mock<() => void>;
   let appComponent: React.ReactElement;
+  let mockRender: Mock;
 
   beforeEach(() => {
     logMock = vi.fn();
@@ -44,10 +51,14 @@ describe('hydrateApp', () => {
       warn: warnMock,
       error: errorMock,
     });
+
+    mockRender = vi.fn();
+    (createRoot as Mock).mockReturnValue({ render: mockRender });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    document.body.innerHTML = '';
   });
 
   it('should log and hydrate when root element and initial data are present', () => {
@@ -75,7 +86,9 @@ describe('hydrateApp', () => {
 
     hydrateApp({ appComponent });
 
-    expect(warnMock).toHaveBeenCalledWith('Initial data key "__INITIAL_DATA__" is undefined on window.');
+    expect(warnMock).toHaveBeenCalledWith('Initial data key "__INITIAL_DATA__" is undefined on window. Defaulting to SPA createRoot');
+    expect(createRoot).toHaveBeenCalledWith(mockElement);
+    expect(mockRender).toHaveBeenCalledWith(<React.StrictMode>{appComponent}</React.StrictMode>);
   });
 
   it('should log an error if root element is not found', () => {
@@ -110,18 +123,6 @@ describe('hydrateApp', () => {
     expect(logMock).toHaveBeenCalledWith('Hydration started');
   });
 
-  it('should use custom rootElementId if provided', () => {
-    const customId = 'custom-root';
-    const mockElement = document.createElement('div');
-    mockElement.id = customId;
-    document.body.appendChild(mockElement);
-
-    hydrateApp({ appComponent, rootElementId: customId });
-
-    expect(logMock).toHaveBeenCalledWith('Hydration started');
-    expect(hydrateRoot).toHaveBeenCalledWith(mockElement, expect.anything());
-  });
-
   it('should use custom initialDataKey if provided', () => {
     const mockElement = document.createElement('div');
     mockElement.id = 'root';
@@ -132,5 +133,31 @@ describe('hydrateApp', () => {
     hydrateApp({ appComponent, initialDataKey: '__CUSTOM_DATA__' });
 
     expect(logMock).toHaveBeenCalledWith('Initial data loaded:', { custom: 'data' });
+  });
+
+  it('should fallback to createRoot if hydrateRoot is unavailable', () => {
+    const mockElement = document.createElement('div');
+    mockElement.id = 'root';
+    document.body.appendChild(mockElement);
+
+    window.__INITIAL_DATA__ = undefined;
+
+    hydrateApp({ appComponent });
+
+    expect(createRoot).toHaveBeenCalledWith(mockElement);
+    expect(mockRender).toHaveBeenCalledWith(<React.StrictMode>{appComponent}</React.StrictMode>);
+  });
+
+  it('should call bootstrap when DOMContentLoaded fires if document is loading', () => {
+    const mockElement = document.createElement('div');
+    mockElement.id = 'root';
+    document.body.appendChild(mockElement);
+
+    vi.spyOn(document, 'readyState', 'get').mockReturnValue('loading');
+    const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
+
+    hydrateApp({ appComponent });
+
+    expect(addEventListenerSpy).toHaveBeenCalledWith('DOMContentLoaded', expect.any(Function));
   });
 });

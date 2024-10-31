@@ -43,6 +43,13 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
       viteDevServer = await createServer({
         appType: 'custom',
+        css: {
+          preprocessorOptions: {
+            scss: {
+              api: 'modern-compiler',
+            },
+          },
+        },
         mode: 'development',
         plugins: [
           ...(isDebug
@@ -219,7 +226,7 @@ export type RenderCallbacks = {
 
 export type FetchConfig = {
   url?: string;
-  options: RequestInit & { params?: any };
+  options: RequestInit & { params?: Record<string, unknown> };
   serviceName?: string;
   serviceMethod?: string;
 };
