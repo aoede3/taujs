@@ -4,7 +4,7 @@ taujs [ τjs ] template
 
 > τjs is in development. Expect some breaking changes on the road towards a stable v1 release. Some features may or may not be missing!
 
-## Streaming React SSR & Hydration
+## CSR, SSR, Streaming React SSR & Hydration
 
 - Production: Fastify, React
 - Development: Fastify, React, Vite, tsx
@@ -83,75 +83,16 @@ In ensuring a particular 'route' receives data for hydration there are two optio
 
 In supporting Option 2. there is a registry of services. More detail in 'Service Registry'.
 
-Each routes 'path' is a simple URL regex as per below examples.
+Each routes 'path' is a simple URL regex as per below examples with choice of render.
 
-```
-import type { Route, RouteParams } from '@taujs/server';
-
-export const routes: Route<RouteParams>[] = [
-  {
-    path: '/',
-    attributes: {
-      fetch: async () => {
-        return {
-          url: 'http://localhost:5173/api/initial',
-          options: {
-            method: 'GET',
-          },
-        };
-      },
-    },
-  },
-  {
-    path: '/:id',
-    attributes: {
-      fetch: async (params: RouteParams) => {
-        return {
-          url: `http://localhost:5173/api/initial/${params.id}`,
-          options: {
-            method: 'GET',
-          },
-        };
-      },
-    },
-  },
-  {
-    path: '/:id/:another',
-    attributes: {
-      fetch: async (params: RouteParams) => {
-        return {
-          options: { params },
-          serviceMethod: 'exampleMethod',
-          serviceName: 'ServiceExample',
-        };
-      },
-    },
-  },
-];
-```
+https://github.com/aoede3/taujs/blob/main/src/shared/routes/Routes.ts
 
 ### Service Registry
 
 τjs' registry of available services and methods provides the linkage between the SSR Streaming routes and your own Fastify architectural setup and developmental patterns
 
-```
-import { ServiceExample } from './ServiceExample';
+https://github.com/aoede3/taujs/blob/main/src/server/services/ServiceRegistry.ts
 
-import type { ServiceRegistry } from '@taujs/server';
+and
 
-export const serviceRegistry: ServiceRegistry = {
-  ServiceExample,
-};
-```
-
-```
-export const ServiceExample = {
-  async exampleMethod(params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({ hello: `world internal service call response with id: ${params.id} and another: ${params.another}` });
-      }, 5500);
-    });
-  },
-};
-```
+https://github.com/aoede3/taujs/blob/main/src/server/services/ServiceExample.ts

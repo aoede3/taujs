@@ -11,6 +11,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { InitialRouteParams } from '@taujs/server';
 
 const port = Number(process.env.PORT) || 5173;
+const clientRoot = path.resolve(__dirname, '../client');
 
 const startServer = async () => {
   try {
@@ -26,7 +27,7 @@ const startServer = async () => {
       clientEntryClient: 'entry-client',
       clientEntryServer: 'entry-server',
       clientHtmlTemplate: 'index.html',
-      clientRoot: path.resolve(__dirname, '../client'),
+      clientRoot,
       routes,
       serviceRegistry,
     }));
@@ -36,10 +37,13 @@ const startServer = async () => {
 
       if (id) {
         setTimeout(() => {
-          reply.send({ hello: `world GET api call with id ${id}` });
-        }, 5500);
+          reply.send({
+            title: `taujs [ τjs ] - ${id}`,
+            description: `HTTP API call response with - ${id}`,
+          });
+        }, 1000);
       } else {
-        reply.send({ hello: 'world' });
+        reply.send({ data: 'HTTP API call response with route meta' });
       }
     });
 

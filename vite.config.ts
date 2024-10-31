@@ -24,6 +24,13 @@ export default defineConfig({
     ssr: isSSRBuild ? path.resolve(__dirname, 'src/client/entry-server.tsx') : undefined,
     ssrManifest: isSSRBuild,
   },
+  css: {
+    preprocessorOptions: {
+      scss: {
+        api: 'modern-compiler',
+      },
+    },
+  },
   plugins: [react()],
   publicDir: 'public',
   resolve: {
