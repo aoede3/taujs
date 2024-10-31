@@ -6,13 +6,13 @@ import reactLogo from '@client/assets/images/react.svg';
 const Header = () => {
   return (
     <>
-      <div>
+      <div className="container__taujs">
         <a href="https://taujs.io" target="_blank" title="taujs [ &tau;js ]" rel="noreferrer">
           <img src="/taujs.svg" className="logo &tau;js" alt="&tau;js logo" />
         </a>
         <h1 className="&tau;js">taujs [ &tau;js ]</h1>
       </div>
-      <div>
+      <div className="container__logos">
         <a href="https://fastify.dev" target="_blank" title="Fastify: Fast and low overhead web framework, for Node.js" rel="noreferrer">
           <img src={fastifyLogo} className="logo" alt="Fastify logo" />
         </a>
@@ -26,19 +26,14 @@ const Header = () => {
       <p className="read-the-docs">Click on logos to learn more</p>
       <h2>SPA; SSR; Streaming SSR; Hydration</h2>
       <h3>
-        Development:&nbsp;
-        <a href="https://tsx.is/" target="_blank" title="A Node.js enhancement to run TypeScript">
-          tsx (TS eXecute)
-        </a>
-        &nbsp;/&nbsp;(
-        <a href="https://vitejs.dev/guide/ssr#setting-up-the-dev-server" target="_blank" title="Vite decoupled from the production environment">
-          ViteDevServer HMR
+        Production:&nbsp;
+        <a href="https://fastify.dev" target="_blank" title="Fastify: Fast and low overhead web framework, for Node.js" rel="noreferrer">
+          Fastify
         </a>
         &nbsp;+&nbsp;
-        <a href="https://vitejs.dev/guide/api-vite-runtime" target="_blank" title="Low-level API precursor to Environment API">
-          Vite Runtime API
+        <a href="https://reactjs.org" target="_blank" title="React: The library for web and native user interfaces" rel="noreferrer">
+          React
         </a>
-        )
       </h3>
       <h3>
         Build:&nbsp;client&nbsp; (
@@ -56,14 +51,19 @@ const Header = () => {
         )
       </h3>
       <h3>
-        Production:&nbsp;
-        <a href="https://fastify.dev" target="_blank" title="Fastify: Fast and low overhead web framework, for Node.js" rel="noreferrer">
-          Fastify
+        Development:&nbsp;
+        <a href="https://tsx.is/" target="_blank" title="A Node.js enhancement to run TypeScript">
+          tsx (TS eXecute)
+        </a>
+        &nbsp;/&nbsp;(
+        <a href="https://vitejs.dev/guide/ssr#setting-up-the-dev-server" target="_blank" title="Vite decoupled from the production environment">
+          ViteDevServer HMR
         </a>
         &nbsp;+&nbsp;
-        <a href="https://reactjs.org" target="_blank" title="React: The library for web and native user interfaces" rel="noreferrer">
-          React
+        <a href="https://vitejs.dev/guide/api-vite-runtime" target="_blank" title="Low-level API precursor to Environment API">
+          Vite Runtime API
         </a>
+        )
       </h3>
     </>
   );

@@ -2,21 +2,6 @@ import type { Route, RouteParams } from '@taujs/server';
 
 export const routes: Route<RouteParams>[] = [
   {
-    path: '/',
-    attr: {
-      fetch: async () => {
-        return {
-          url: 'http://localhost:5173/api/initial',
-          options: {
-            method: 'GET',
-          },
-        };
-      },
-      meta: { title: 'taujs [ τjs ] - title route meta', description: 'Streaming page description from route meta' },
-      render: 'streaming',
-    },
-  },
-  {
     path: '/:id',
     attr: {
       fetch: async (params: RouteParams) => {

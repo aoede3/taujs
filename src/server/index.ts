@@ -23,13 +23,6 @@ const startServer = async () => {
       global: true,
     }));
 
-    void (await fastify.register(import('@fastify/static'), {
-      index: false,
-      prefix: '/',
-      root: clientRoot,
-      wildcard: false,
-    }));
-
     void (await fastify.register(SSRServer, {
       clientEntryClient: 'entry-client',
       clientEntryServer: 'entry-server',

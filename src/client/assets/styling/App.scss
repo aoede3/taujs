@@ -32,6 +32,18 @@ h3 {
   margin: 0 0 0.5rem;
 }
 
+.navigation {
+  display: flex;
+  justify-content: space-around;
+}
+
+.page__container {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 120px;
+}
+
 button,
 .btn {
   background-color: #1a1a1a;
@@ -123,6 +135,7 @@ h1.τjs {
 
 .card {
   padding: 1rem;
+  width: 100%;
 }
 
 .read-the-docs {
