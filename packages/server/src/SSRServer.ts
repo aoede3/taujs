@@ -5,6 +5,7 @@ import fp from 'fastify-plugin';
 import { createViteRuntime } from 'vite';
 
 import { __dirname, collectStyle, fetchInitialData, getCssLinks, isDevelopment, matchRoute, overrideCSSHMRConsoleError, renderPreloadLinks } from './utils';
+import { RENDERTYPE, SSRTAG } from './constants';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -29,6 +30,13 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     let template = templateHtml;
     let viteDevServer: ViteDevServer;
     let viteRuntime: ViteRuntime;
+
+    void (await app.register(import('@fastify/static'), {
+      index: false,
+      prefix: '/',
+      root: clientRoot,
+      wildcard: false,
+    }));
 
     if (isDevelopment) {
       const { createServer } = await import('vite');
@@ -88,16 +96,13 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       });
     } else {
       renderModule = await import(path.join(clientRoot, `${clientEntryServer}.js`));
-
-      void (await app.register(import('@fastify/static'), {
-        index: false,
-        root: path.resolve(clientRoot),
-        wildcard: false,
-      }));
     }
 
     void app.get('/*', async (req, reply) => {
       try {
+        // fastify/static wildcard: false and /* => checks for .assets here and routes 404
+        if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
+
         const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
         const matchedRoute = matchRoute(url, routes);
 
@@ -108,48 +113,69 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         }
 
         if (isDevelopment) {
-          template = await viteDevServer.transformIndexHtml(url, template);
+          template = template.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '');
+          template = template.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
+
           renderModule = await viteRuntime.executeEntrypoint(path.join(clientRoot, `${clientEntryServer}.tsx`));
+
           styles = await collectStyle(viteDevServer, [`${clientRoot}/${clientEntryServer}.tsx`]);
           template = template.replace('</head>', `<style type="text/css">${styles}</style></head>`);
+
+          template = await viteDevServer.transformIndexHtml(url, template);
         }
 
-        const { streamRender } = renderModule;
         const { route, params } = matchedRoute;
-        const { attributes } = route;
-        const [beforeBody = '', afterBody] = template.split('<!--ssr-html-->');
-        const [beforeHead, afterHead] = beforeBody.split('<!--ssr-head-->');
-        const initialDataPromise = fetchInitialData(attributes, params, serviceRegistry);
+        const { attr } = route;
+        const renderType = attr?.render || RENDERTYPE.streaming;
+        const [beforeBody = '', afterBody] = template.split(SSRTAG.ssrHtml);
+        const [beforeHead, afterHead] = beforeBody.split(SSRTAG.ssrHead);
+        const initialDataPromise = fetchInitialData(attr, params, serviceRegistry);
 
-        reply.raw.writeHead(200, { 'Content-Type': 'text/html' });
-        reply.raw.write(beforeHead);
+        if (renderType === RENDERTYPE.ssr) {
+          const { renderSSR } = renderModule;
+          const initialDataResolved = await initialDataPromise;
+          const initialDataScript = `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`;
+          const { headContent, appHtml } = await renderSSR(initialDataResolved, req.url, attr?.meta);
 
-        streamRender(
-          reply.raw,
-          {
-            onHead: (headContent: string) => {
-              let fullHeadContent = headContent;
+          const fullHtml = template
+            .replace(SSRTAG.ssrHead, headContent)
+            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script type="module" src="${bootstrapModules}" async=""></script>`);
 
-              if (ssrManifest) fullHeadContent += preloadLinks;
-              if (manifest) fullHeadContent += cssLinks;
+          return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
+        } else {
+          const { renderStream } = renderModule;
 
-              reply.raw.write(`${fullHeadContent}${afterHead}`);
+          reply.raw.writeHead(200, { 'Content-Type': 'text/html' });
+
+          renderStream(
+            reply.raw,
+            {
+              onHead: (headContent: string) => {
+                let aggregateHeadContent = headContent;
+
+                if (ssrManifest) aggregateHeadContent += preloadLinks;
+                if (manifest) aggregateHeadContent += cssLinks;
+
+                reply.raw.write(`${beforeHead}${aggregateHeadContent}${afterHead}`);
+              },
+
+              onFinish: async (initialDataResolved: unknown) => {
+                reply.raw.write(`<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`);
+                reply.raw.write(afterBody);
+                reply.raw.end();
+              },
+
+              onError: (error: unknown) => {
+                console.error('Critical rendering onError:', error);
+                reply.raw.end('Internal Server Error');
+              },
             },
-
-            onFinish: async (initialDataResolved: unknown) => {
-              reply.raw.write(`<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`);
-              reply.raw.write(afterBody);
-              reply.raw.end();
-            },
-
-            onError: (error: unknown) => {
-              console.error('Critical rendering onError:', error);
-              reply.raw.end('Internal Server Error');
-            },
-          },
-          initialDataPromise,
-          bootstrapModules,
-        );
+            initialDataPromise,
+            req.url,
+            bootstrapModules,
+            attr?.meta,
+          );
+        }
       } catch (error) {
         console.error('Error setting up SSR stream:', error);
 
@@ -165,7 +191,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       try {
         let template = templateHtml;
 
-        template = template.replace('<!--ssr-head-->', '').replace('<!--ssr-html-->', '');
+        template = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
         if (!isDevelopment) template = template.replace('</head>', `${getCssLinks(manifest)}</head>`);
         template = template.replace('</body>', `<script type="module" src="${bootstrapModules}" async=""></script></body>`);
 
@@ -220,15 +246,28 @@ export type Manifest = {
   };
 };
 
-export type StreamRender = (
+export type RenderSSR = (
+  initialDataResolved: Record<string, unknown>,
+  location: string,
+  meta?: Record<string, unknown>,
+) => Promise<{
+  headContent: string;
+  appHtml: string;
+  initialDataScript: string;
+}>;
+
+export type RenderStream = (
   serverResponse: ServerResponse,
   callbacks: RenderCallbacks,
   initialDataPromise: Promise<Record<string, unknown>>,
-  bootstrapModules: string,
+  location: string,
+  bootstrapModules?: string,
+  meta?: Record<string, unknown>,
 ) => void;
 
 export type RenderModule = {
-  streamRender: StreamRender;
+  renderSSR: RenderSSR;
+  renderStream: RenderStream;
 };
 
 export type RouteAttributes<Params = {}> = {
@@ -241,10 +280,12 @@ export type RouteAttributes<Params = {}> = {
     serviceMethod?: string;
     url?: string;
   }>;
+  meta?: Record<string, unknown>;
+  render?: typeof RENDERTYPE.ssr | typeof RENDERTYPE.streaming;
 };
 
 export type Route<Params = {}> = {
-  attributes?: RouteAttributes<Params>;
+  attr?: RouteAttributes<Params>;
   path: string;
 };
 

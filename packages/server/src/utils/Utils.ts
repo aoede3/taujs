@@ -145,12 +145,12 @@ export const fetchData = async ({ url, options }: FetchConfig): Promise<Record<s
 };
 
 export const fetchInitialData = async (
-  attributes: RouteAttributes<RouteParams> | undefined,
+  attr: RouteAttributes<RouteParams> | undefined,
   params: Partial<Record<string, string | string[]>>,
   serviceRegistry: ServiceRegistry,
 ): Promise<Record<string, unknown>> => {
-  if (attributes && typeof attributes.fetch === 'function') {
-    return attributes
+  if (attr && typeof attr.fetch === 'function') {
+    return attr
       .fetch(params, {
         headers: { 'Content-Type': 'application/json' },
         params,

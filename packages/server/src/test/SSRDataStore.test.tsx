@@ -30,7 +30,7 @@ describe('createSSRStore', () => {
       store.getSnapshot();
       throw new Error('Expected getSnapshot to throw');
     } catch (e) {
-      expect(e).toBe(initialDataPromise);
+      expect(e).toStrictEqual(initialDataPromise);
     }
 
     await act(async () => {
