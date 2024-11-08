@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.1.2 - 08/11/2024
+
+release: 0.1.2; type change; audit, cleanse; ReadMe update
+
 v0.1.1 - 31/10/2024
 
 feat: SSRHydration createRoot + hydrateRoot; tests; vite css modern; clearup
