@@ -278,7 +278,7 @@ export type RenderModule = {
 };
 
 export type RouteAttributes<Params = {}> = {
-  fetch: (
+  fetch?: (
     params?: Params,
     options?: RequestInit & { params?: Record<string, unknown> },
   ) => Promise<{
