@@ -6,7 +6,7 @@
 
 `pnpm add @taujs/server`
 
-## SPA; SSR; Streaming SSR; Hydration; Fastify + React 18
+## CSR; SSR; Streaming SSR; Hydration; Fastify + React 18
 
 Fastify Plugin for integration with taujs [ τjs ] template https://github.com/aoede3/taujs
 
@@ -40,7 +40,7 @@ Integrated ViteDevServer HMR + Vite Runtime API run alongside tsx (TS eXecute) p
 
 https://github.com/aoede3/taujs/blob/main/src/server/index.ts
 
-Not utilising taujs [ τjs ] template? Add in your own `alias` object for your own particular setup e.g. `alias: { object }`
+Not utilising taujs [ τjs ] template? Add in your own ts `alias` object for your own particular directory setup e.g. `alias: { object }`
 
 ### React 'entry-client.tsx'
 
