@@ -335,7 +335,7 @@ describe('SSRServer Plugin', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it('should log rx and cx when a request is made and response finishes in debug mode', async () => {
+  it('should log rx and tx when a request is made and response finishes in debug mode', async () => {
     vi.resetModules();
 
     isDevelopmentValue = true;
@@ -410,7 +410,7 @@ describe('SSRServer Plugin', () => {
     middlewareFunction(req, res, next);
 
     expect(consoleLogSpy).toHaveBeenCalledWith('rx: /test-url');
-    expect(consoleLogSpy).toHaveBeenCalledWith('cx: /test-url');
+    expect(consoleLogSpy).toHaveBeenCalledWith('tx: /test-url');
     expect(next).toHaveBeenCalled();
 
     consoleLogSpy.mockRestore();

@@ -8,12 +8,19 @@
 
 ## CSR; SSR; Streaming SSR; Hydration; Fastify + React 18
 
+Supports rendering modes:
+
+- Client-side rendering (CSR)
+- Server-side rendering (SSR)
+- Streaming SSR
+
 Fastify Plugin for integration with taujs [ τjs ] template https://github.com/aoede3/taujs
 
 - Production: Fastify, React
 - Development: Fastify, React, tsx, Vite
 
-TypeScript / ESM-only focus
+- TypeScript-first
+- ESM-only focus
 
 ## τjs - Developer eXperience
 

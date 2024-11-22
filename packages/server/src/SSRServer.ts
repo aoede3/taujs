@@ -4,13 +4,13 @@ import path from 'node:path';
 import fp from 'fastify-plugin';
 import { createViteRuntime } from 'vite';
 
-import { __dirname, collectStyle, fetchInitialData, getCssLinks, isDevelopment, matchRoute, overrideCSSHMRConsoleError, renderPreloadLinks } from './utils';
 import { RENDERTYPE, SSRTAG } from './constants';
+import { __dirname, collectStyle, fetchInitialData, getCssLinks, isDevelopment, matchRoute, overrideCSSHMRConsoleError, renderPreloadLinks } from './utils';
 
+import type { ServerResponse } from 'node:http';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
 import type { ViteRuntime } from 'vite/runtime';
-import type { ServerResponse } from 'node:http';
 
 export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
@@ -61,7 +61,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
                     server.middlewares.use((req, res, next) => {
                       console.log(`rx: ${req.url}`);
                       res.on('finish', () => {
-                        console.log(`cx: ${req.url}`);
+                        console.log(`tx: ${req.url}`);
                       });
 
                       next();

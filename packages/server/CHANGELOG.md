@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.1.3 - 22/22/2024
+
+chore(deps): bump cross-spawn and @changesets/cli
+chore: Update README; cleanup debug
+
 v0.1.2 - 08/11/2024
 
 release: 0.1.2; type change; audit, cleanse; ReadMe update
