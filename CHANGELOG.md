@@ -1,5 +1,11 @@
 # @taujs
 
+v0.0.7 - 22/11/2024
+
+chore: Update @taujs/server; Update README
+chore(deps): bump cross-spawn from 7.0.3 to 7.0.6
+chore: Update CHANGELOG; package
+
 v0.0.6 - 31/10/2024
 
 Integrated @taujs/server CSR, SSR, Streaming SSR, SSRDataStore; Hydration
