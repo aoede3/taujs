@@ -32,7 +32,7 @@ const Header = () => {
         </a>
         &nbsp;+&nbsp;
         <a href="https://reactjs.org" target="_blank" title="React: The library for web and native user interfaces" rel="noreferrer">
-          React
+          React 18
         </a>
       </h3>
       <h3>

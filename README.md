@@ -4,12 +4,20 @@ taujs [ τjs ] template
 
 > τjs is in development. Expect some breaking changes on the road towards a stable v1 release. Some features may or may not be missing!
 
-## CSR, SSR, Streaming React SSR & Hydration
+Example use of @taujs/server Fastify plugin. Simplified CSR, SSR, Streaming SSR, and Hydration, with 'fast' developer experience
+
+## CSR, SSR, Streaming SSR, and Hydration. React 18.
 
 - Production: Fastify, React
 - Development: Fastify, React, Vite, tsx
+- TypeScript-first
+- ESM-only focus
 
-TypeScript / ESM-only focus
+Supports rendering modes:
+
+- Client-side rendering (CSR)
+- Server-side rendering (SSR)
+- Streaming SSR
 
 ## τjs - Developer eXperience
 
@@ -60,7 +68,7 @@ src
   shared
 ```
 
-_client_: React; Streaming SSR entry-client + entry-server
+_client_: React; entry-client + entry-server
 
 _server_: Fastify + τjs plugin; service registry / services
 
@@ -73,7 +81,7 @@ Beyond this scope each area is open to be built around whatever architectural an
 Integral to τjs is its internal routing:
 
 1. Fastify serving index.html to client browser for client routing
-2. Internal service calls to API prior to Streaming SSR to provide data for streaming/hydration
+2. Internal service calls to API prior to 'render' to provide data for render/hydration
 3. Fastify API calls via HTTP in the more traditional sense of client/server
 
 In ensuring a particular 'route' receives data for hydration there are two options:
