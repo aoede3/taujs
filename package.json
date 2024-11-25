@@ -13,7 +13,7 @@
     "build:server": "esbuild ./src/server/index.ts --bundle --platform=node --format=esm --packages=external --external:@client/* --tree-shaking=true --splitting=true --outdir=dist/server --minify",
     "build:server:rollup": "rollup -c rollup.server.js",
     "build:server:analyse": "esbuild ./src/server/index.ts --bundle --platform=node --format=esm --external:@client/* --tree-shaking=true --splitting=true --outdir=dist/ --analyze",
-    "start": "node --trace-warnings --experimental-specifier-resolution=node dist/server/index.js"
+    "start": "NODE_ENV=production node --trace-warnings --experimental-specifier-resolution=node dist/server/index.js"
   },
   "dependencies": {
     "@fastify/compress": "7.0.3",
