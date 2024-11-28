@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 
 import { match } from 'path-to-regexp';
 
-import type { FetchConfig, Manifest, Route, RouteAttributes, RouteParams, ServiceRegistry } from '../SSRServer';
+import type { FetchConfig, Manifest, Route, RouteAttributes, RouteParams, ServiceRegistry, SSRManifest } from '../SSRServer';
 import type { MatchFunction } from 'path-to-regexp';
 import type { ViteDevServer } from 'vite';
 
@@ -61,22 +61,40 @@ async function collectStyleUrls(server: ViteDevServer, entries: string[]): Promi
 }
 
 // https://github.com/vitejs/vite-plugin-vue/blob/main/playground/ssr-vue/src/entry-server.js
-export function renderPreloadLinks(modules: string[], manifest: { [key: string]: string[] }) {
-  const seen = new Set<string>();
+// export function renderPreloadLinks(modules: string[], manifest: { [key: string]: string[] }) {
+//   const seen = new Set<string>();
+//   let links = '';
+
+//   modules.forEach((id: string) => {
+//     const files = manifest[id];
+
+//     if (files) {
+//       files.forEach((file: string) => {
+//         if (!seen.has(file)) {
+//           seen.add(file);
+//           links += renderPreloadLink(file);
+//         }
+//       });
+//     }
+//   });
+
+//   return links;
+// }
+export function renderPreloadLinks(manifest: SSRManifest): string {
   let links = '';
+  const seen = new Set<string>();
 
-  modules.forEach((id: string) => {
-    const files = manifest[id];
-
+  for (const moduleId in manifest) {
+    const files = manifest[moduleId];
     if (files) {
-      files.forEach((file: string) => {
+      files.forEach((file) => {
         if (!seen.has(file)) {
           seen.add(file);
-          links += renderPreloadLink(file);
+          links += `<link rel="modulepreload" href="${file}">`;
         }
       });
     }
-  });
+  }
 
   return links;
 }
