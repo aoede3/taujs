@@ -10,8 +10,13 @@ import { routes } from '@shared/routes';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { InitialRouteParams } from '@taujs/server';
 
+export const clientRoot = path.resolve(__dirname, '../client');
+export const configs = [
+  { configId: 'spa', entryPoint: '' },
+  { configId: 'mpa', entryPoint: '@admin' },
+];
+
 const port = Number(process.env.PORT) || 5173;
-const clientRoot = path.resolve(__dirname, '../client');
 
 const startServer = async () => {
   try {
@@ -24,10 +29,8 @@ const startServer = async () => {
     }));
 
     void (await fastify.register(SSRServer, {
-      clientEntryClient: 'entry-client',
-      clientEntryServer: 'entry-server',
-      clientHtmlTemplate: 'index.html',
       clientRoot,
+      configs,
       routes,
       serviceRegistry,
     }));

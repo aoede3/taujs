@@ -24,7 +24,8 @@ const Header = () => {
         </a>
       </div>
       <p className="read-the-docs">Click on logos to learn more</p>
-      <h2>CSR; SSR; Streaming SSR; Hydration</h2>
+      <h2 className="smpa">Single and or Multiple Page Application</h2>
+      <h2 className="rendering">CSR; SSR; Streaming SSR; Hydration</h2>
       <h3>
         Production:&nbsp;
         <a href="https://fastify.dev" target="_blank" title="Fastify: Fast and low overhead web framework, for Node.js" rel="noreferrer">
