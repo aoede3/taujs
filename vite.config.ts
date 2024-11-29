@@ -12,6 +12,7 @@ export default defineConfig({
     manifest: !isSSRBuild,
     outDir: path.resolve(__dirname, 'dist/client'),
     rollupOptions: {
+      external: ['node:fs/promises', 'node:path', 'node:url', 'node:stream', '@taujs/server', 'react', 'react-dom'],
       input: isSSRBuild
         ? {
             server: path.resolve(__dirname, 'src/client/entry-server.tsx'),
