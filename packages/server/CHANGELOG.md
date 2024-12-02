@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.1.4 - 02/12/2024
+
+fix: ssr css and preload links in header
+
 v0.1.3 - 22/22/2024
 
 chore(deps): bump cross-spawn and @changesets/cli

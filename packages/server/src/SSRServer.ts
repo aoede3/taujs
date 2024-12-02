@@ -231,9 +231,14 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           const initialDataScript = `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`;
           const { headContent, appHtml } = await renderSSR(initialDataResolved as Record<string, unknown>, req.url!, attr?.meta);
 
-          let fullHtml = template
-            .replace(SSRTAG.ssrHead, headContent)
-            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script type="module" src="${bootstrapModule}" async=""></script>`);
+          let aggregateHeadContent = headContent;
+
+          if (ssrManifest) aggregateHeadContent += preloadLinks;
+          if (manifest) aggregateHeadContent += cssLinks;
+
+          const fullHtml = template
+            .replace(SSRTAG.ssrHead, aggregateHeadContent)
+            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script type="module" src="${bootstrapModules}" async=""></script>`);
 
           if (!isDevelopment && cssLink) fullHtml = fullHtml.replace('</head>', `${cssLink}</head>`);
 
