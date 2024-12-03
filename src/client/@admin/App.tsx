@@ -24,7 +24,7 @@ export const App: React.FC = () => {
         <a className="btn" href="/streaming/ssr">
           Streaming SSR
         </a>
-        <a className="btn" href="/mpa">
+        <a className="btn" href="/mpa/3">
           MPA
         </a>
       </nav>
