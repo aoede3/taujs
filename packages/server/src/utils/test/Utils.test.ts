@@ -100,8 +100,7 @@ describe('renderPreloadLinks', () => {
       module1: ['file1.js', 'file1.css'],
       module2: ['file2.js'],
     };
-    const modules = ['module1', 'module2'];
-    const result = utils.renderPreloadLinks(modules, manifest);
+    const result = utils.renderPreloadLinks(manifest);
 
     expect(result).toContain('<link rel="modulepreload" href="file1.js">');
     expect(result).toContain('<link rel="stylesheet" href="file1.css">');

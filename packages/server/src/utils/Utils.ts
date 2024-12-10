@@ -61,36 +61,18 @@ async function collectStyleUrls(server: ViteDevServer, entries: string[]): Promi
 }
 
 // https://github.com/vitejs/vite-plugin-vue/blob/main/playground/ssr-vue/src/entry-server.js
-// export function renderPreloadLinks(modules: string[], manifest: { [key: string]: string[] }) {
-//   const seen = new Set<string>();
-//   let links = '';
-
-//   modules.forEach((id: string) => {
-//     const files = manifest[id];
-
-//     if (files) {
-//       files.forEach((file: string) => {
-//         if (!seen.has(file)) {
-//           seen.add(file);
-//           links += renderPreloadLink(file);
-//         }
-//       });
-//     }
-//   });
-
-//   return links;
-// }
-export function renderPreloadLinks(manifest: SSRManifest): string {
-  let links = '';
+export function renderPreloadLinks(ssrManifest: SSRManifest, basePath = ''): string {
   const seen = new Set<string>();
+  let links = '';
 
-  for (const moduleId in manifest) {
-    const files = manifest[moduleId];
+  for (const moduleId in ssrManifest) {
+    const files = ssrManifest[moduleId];
+
     if (files) {
       files.forEach((file) => {
         if (!seen.has(file)) {
           seen.add(file);
-          links += `<link rel="modulepreload" href="${file}">`;
+          links += renderPreloadLink(basePath ? `${basePath}/${file}` : `${file}`);
         }
       });
     }
@@ -101,8 +83,6 @@ export function renderPreloadLinks(manifest: SSRManifest): string {
 
 export function renderPreloadLink(file: string): string {
   const fileType = file.match(/\.(js|css|woff2?|gif|jpe?g|png|svg)$/)?.[1];
-
-  // if (!fileType) return '';
 
   switch (fileType) {
     case 'js':
@@ -202,19 +182,24 @@ export const matchRoute = <Params extends Partial<Record<string, string | string
   return null;
 };
 
-export const getCssLinks = (manifest: Manifest): string => {
-  const links: string[] = [];
+export function getCssLinks(manifest: Manifest, basePath = ''): string {
+  const seen = new Set<string>();
+  const styles = [];
 
-  for (const value of Object.values(manifest)) {
-    if (value.css && value.css.length > 0) {
-      value.css.forEach((cssFile) => {
-        links.push(`<link rel="preload stylesheet" as="style" type="text/css" href="/${cssFile}">`);
-      });
+  for (const key in manifest) {
+    const entry = manifest[key];
+    if (entry && entry.css) {
+      for (const cssFile of entry.css) {
+        if (!seen.has(cssFile)) {
+          seen.add(cssFile);
+          styles.push(`<link rel="preload stylesheet" as="style" type="text/css" href="${basePath}/${cssFile}">`);
+        }
+      }
     }
   }
 
-  return links.join('');
-};
+  return styles.join('\n');
+}
 
 // https://github.com/vitejs/vite/blob/b947fdcc9d0db51ee6ac64d9712e8f04077280a7/packages/vite/src/runtime/hmrHandler.ts#L36
 // we're using our own collectStyle as per above commentary!
