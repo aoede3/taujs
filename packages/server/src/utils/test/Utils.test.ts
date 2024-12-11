@@ -487,3 +487,25 @@ describe('fetchInitialData', () => {
     consoleErrorSpy.mockRestore();
   });
 });
+
+describe('ensureNonNull', () => {
+  it('should return the value if it is not null or undefined', () => {
+    const value = 'hello';
+    const result = utils.ensureNonNull(value, 'Value is required');
+    expect(result).toBe(value);
+  });
+
+  it('should throw an error if the value is null', () => {
+    expect(() => utils.ensureNonNull(null, 'Value is required')).toThrowError('Value is required');
+  });
+
+  it('should throw an error if the value is undefined', () => {
+    expect(() => utils.ensureNonNull(undefined, 'Value is required')).toThrowError('Value is required');
+  });
+
+  it('should allow complex types and preserve their structure', () => {
+    const obj = { key: 'value' };
+    const result = utils.ensureNonNull(obj, 'Object is required');
+    expect(result).toBe(obj);
+  });
+});

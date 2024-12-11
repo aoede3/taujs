@@ -5,16 +5,39 @@ import fp from 'fastify-plugin';
 import { createViteRuntime } from 'vite';
 
 import { RENDERTYPE, SSRTAG, TEMPLATE } from './constants';
-import { __dirname, collectStyle, fetchInitialData, getCssLinks, isDevelopment, matchRoute, overrideCSSHMRConsoleError, renderPreloadLinks } from './utils';
+import {
+  __dirname,
+  collectStyle,
+  ensureNonNull,
+  fetchInitialData,
+  getCssLinks,
+  isDevelopment,
+  matchRoute,
+  overrideCSSHMRConsoleError,
+  renderPreloadLinks,
+} from './utils';
 
 import type { ServerResponse } from 'node:http';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
 import type { ViteRuntime } from 'vite/runtime';
 
+export const createMaps = () => {
+  return {
+    bootstrapModules: new Map<string, string>(),
+    cssLinks: new Map<string, string>(),
+    manifests: new Map<string, Manifest>(),
+    preloadLinks: new Map<string, string>(),
+    renderModules: new Map<string, RenderModule>(),
+    ssrManifests: new Map<string, SSRManifest>(),
+    templates: new Map<string, string>(),
+  };
+};
+
 export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
     const { alias, configs, routes, serviceRegistry, isDebug, clientRoot: baseClientRoot } = opts;
+    const { bootstrapModules, cssLinks, manifests, preloadLinks, renderModules, ssrManifests, templates } = createMaps();
 
     const processedConfigs: ProcessedConfig[] = configs.map((config) => {
       const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
@@ -28,14 +51,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       };
     });
 
-    const bootstrapModules = new Map<string, string>();
-    const cssLinks = new Map<string, string>();
-    const manifests = new Map<string, Manifest>();
-    const preloadLinks = new Map<string, string>();
-    const renderModules = new Map<string, RenderModule>();
-    const ssrManifests = new Map<string, SSRManifest>();
-    const templates = new Map<string, string>();
-
     for (const config of processedConfigs) {
       const { clientRoot, entryClient, htmlTemplate } = config;
 
@@ -47,18 +62,17 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       const adjustedRelativePath = relativeBasePath ? `/${relativeBasePath}` : '';
 
       if (!isDevelopment) {
-        const ssrManifestPath = path.join(clientRoot, '.vite/ssr-manifest.json');
-        const ssrManifestContent = await readFile(ssrManifestPath, 'utf-8');
-        const ssrManifest = JSON.parse(ssrManifestContent) as SSRManifest;
-        ssrManifests.set(clientRoot, ssrManifest);
-
         const manifestPath = path.join(clientRoot, '.vite/manifest.json');
         const manifestContent = await readFile(manifestPath, 'utf-8');
         const manifest = JSON.parse(manifestContent) as Manifest;
         manifests.set(clientRoot, manifest);
 
-        const entryClientFile = manifest[`${entryClient}.tsx`]?.file;
+        const ssrManifestPath = path.join(clientRoot, '.vite/ssr-manifest.json');
+        const ssrManifestContent = await readFile(ssrManifestPath, 'utf-8');
+        const ssrManifest = JSON.parse(ssrManifestContent) as SSRManifest;
+        ssrManifests.set(clientRoot, ssrManifest);
 
+        const entryClientFile = manifest[`${entryClient}.tsx`]?.file;
         if (!entryClientFile) throw new Error(`Entry client file not found in manifest for ${entryClient}.tsx`);
 
         const bootstrapModule = `/${adjustedRelativePath}/${entryClientFile}`.replace(/\/{2,}/g, '/');
@@ -168,8 +182,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
         const { clientRoot, entryServer } = config;
 
-        let template = templates.get(clientRoot);
-        if (!template) throw new Error(`Template not found for clientRoot: ${clientRoot}`);
+        let template = ensureNonNull(templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
 
         const bootstrapModule = bootstrapModules.get(clientRoot);
         const cssLink = cssLinks.get(clientRoot);
@@ -188,7 +201,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           renderModule = executedModule as RenderModule;
 
           const styles = await collectStyle(viteDevServer, [entryServerPath]);
-          template = template.replace('</head>', `<style type="text/css">${styles}</style></head>`);
+          template = template?.replace('</head>', `<style type="text/css">${styles}</style></head>`);
 
           template = await viteDevServer.transformIndexHtml(url, template);
         } else {
@@ -276,8 +289,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
         const { clientRoot } = defaultConfig;
 
-        let template = templates.get(clientRoot);
-        if (!template) throw new Error(`Template not found for clientRoot: ${clientRoot}`);
+        let template = ensureNonNull(templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
 
         const cssLink = cssLinks.get(clientRoot);
         const bootstrapModule = bootstrapModules.get(clientRoot);

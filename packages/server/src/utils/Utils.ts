@@ -212,3 +212,9 @@ export const overrideCSSHMRConsoleError = () => {
     originalConsoleError.apply(console, [message, ...optionalParams]);
   };
 };
+
+export const ensureNonNull = <T>(value: T | null | undefined, errorMessage: string): T => {
+  if (value === undefined || value === null) throw new Error(errorMessage);
+
+  return value;
+};

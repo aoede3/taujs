@@ -72,6 +72,12 @@ vi.mock('../utils', () => ({
   get isDevelopment() {
     return isDevelopmentValue;
   },
+  ensureNonNull: vi.fn((value, errorMessage) => {
+    if (value === undefined || value === null) {
+      throw new Error(errorMessage);
+    }
+    return value;
+  }),
 }));
 
 const originalFsReadFile = vi.fn(async (filePath: string) => {
@@ -111,6 +117,7 @@ describe('SSRServer Plugin (New)', () => {
   beforeEach(async () => {
     vi.resetModules();
     fsReadFileMock = vi.fn(originalFsReadFile);
+
     app = fastify();
     options = {
       alias: {},
@@ -389,36 +396,6 @@ describe('SSRServer Plugin (New)', () => {
     expect(response.body).toBe('Internal Server Error');
 
     consoleErrorSpy.mockRestore();
-  });
-
-  it('should handle URL undefined', async () => {
-    isDevelopmentValue = false;
-    options.routes = [{ path: '/', attr: { render: RENDERTYPE.ssr } }];
-
-    const importedModule = {
-      renderSSR: vi.fn().mockResolvedValue({
-        headContent: '<head></head>',
-        appHtml: '<div id="app"></div>',
-        initialDataScript: '<script>window.__INITIAL_DATA__ = {}</script>',
-      }),
-      renderStream: vi.fn(),
-    };
-    vi.doMock(path.join(path.resolve(baseClientRoot, '.'), 'entry-server.js'), () => importedModule);
-
-    const { SSRServer } = await import('../SSRServer');
-    await app.register(SSRServer, options);
-
-    app.addHook('onRequest', (request, _reply, done) => {
-      request.raw.url = undefined;
-      done();
-    });
-
-    const utils = await import('../utils');
-    (utils.matchRoute as Mock).mockReturnValue({ route: options.routes[0], params: {} });
-
-    const response = await app.inject({ method: 'GET', url: '/test' });
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('<div id="app"></div>');
   });
 
   it('should delegate to callNotFound for requests with file extensions', async () => {
@@ -772,6 +749,140 @@ describe('SSRServer Plugin (New)', () => {
     const res = await app.inject({ method: 'GET', url: '/second' });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain('<div id="app"></div>');
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('should correctly handle not-found handler for SPA routes', async () => {
+    options.routes = [];
+    isDevelopmentValue = false;
+
+    const { SSRServer } = await import('../SSRServer');
+    await app.register(SSRServer, options);
+
+    const { matchRoute } = await import('../utils');
+    (matchRoute as Mock).mockReturnValue(undefined);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/spa-route',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.body).toContain('<html>');
+    expect(response.body).toContain('</html>');
+    expect(response.body).toContain('<script type="module" src="/entry-client.js" async=""></script></body>');
+    expect(response.body).not.toContain(`${SSRTAG.ssrHead}`);
+    expect(response.body).not.toContain(`${SSRTAG.ssrHtml}`);
+    expect(response.body).toContain('<link rel="preload stylesheet" as="style" type="text/css" href="/entry-client.css">');
+  });
+
+  it('should correctly handle not-found handler for SPA routes defaulting to "/" when req.url is undefined', async () => {
+    options.routes = [];
+    isDevelopmentValue = false;
+
+    const { SSRServer } = await import('../SSRServer');
+    await app.register(SSRServer, options);
+
+    app.addHook('onRequest', (request, _reply, done) => {
+      request.raw.url = undefined;
+      done();
+    });
+
+    const utils = await import('../utils');
+    (utils.matchRoute as Mock).mockReturnValue(undefined);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/spa-route',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.body).toContain('<html>');
+    expect(response.body).toContain('</html>');
+  });
+
+  it('should default to RENDERTYPE.ssr when attr.render is undefined', async () => {
+    isDevelopmentValue = false;
+    options.routes = [{ path: '/default-render', attr: {} }];
+
+    const { SSRServer } = await import('../SSRServer');
+    await app.register(SSRServer, options);
+
+    const utils = await import('../utils');
+    (utils.matchRoute as Mock).mockReturnValue({ route: options.routes[0], params: {} });
+
+    const importedModule = {
+      renderSSR: vi.fn().mockResolvedValue({
+        headContent: '<head></head>',
+        appHtml: '<div id="app"></div>',
+        initialDataScript: '<script>window.__INITIAL_DATA__ = {}</script>',
+      }),
+      renderStream: vi.fn(),
+    };
+    vi.doMock(path.join(path.resolve(baseClientRoot, '.'), 'entry-server.js'), () => importedModule);
+
+    const response = await app.inject({ method: 'GET', url: '/default-render' });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('<div id="app"></div>');
+    expect(importedModule.renderSSR).toHaveBeenCalled();
+  });
+
+  it('should throw an error when no configuration is found for the request', async () => {
+    isDevelopmentValue = false;
+
+    options.configs = [];
+    options.routes = [{ path: '/test-route', attr: { render: RENDERTYPE.ssr }, appId: 'unknown-app' }];
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { SSRServer } = await import('../SSRServer');
+    await app.register(SSRServer, options);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/test-route',
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body).toBe('Internal Server Error');
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Error setting up SSR stream:'),
+      expect.objectContaining({ message: 'No configuration found for the request.' }),
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('should handle errors in the SSR stream setup', async () => {
+    isDevelopmentValue = false;
+
+    options.configs = [
+      {
+        appId: 'error-triggering-app',
+        entryPoint: 'invalid-path',
+        entryClient: 'entry-client',
+        entryServer: 'mock-entry-server',
+        htmlTemplate: 'non-existent.html',
+      },
+    ];
+
+    options.routes = [{ path: '/error-trigger', attr: { render: RENDERTYPE.ssr }, appId: 'error-triggering-app' }];
+
+    const { SSRServer } = await import('../SSRServer');
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await app.register(SSRServer, options);
+
+    const utils = await import('../utils');
+    (utils.matchRoute as Mock).mockReturnValue({ route: options.routes[0], params: {} });
+
+    const response = await app.inject({ method: 'GET', url: '/error-trigger' });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body).toBe('Internal Server Error');
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Error setting up SSR stream:'), expect.any(Error));
+
     consoleErrorSpy.mockRestore();
   });
 });
