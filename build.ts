@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path, { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { processConfigs, TEMPLATE } from '@taujs/server';
 import react from '@vitejs/plugin-react';
 import { build } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
@@ -24,18 +25,19 @@ const deleteDist = async () => {
 };
 
 const runBuilds = async () => {
-  await deleteDist();
+  const baseClientRoot = path.resolve(__dirname, 'src/client');
+  const processedConfigs = processConfigs(configs, baseClientRoot, TEMPLATE);
 
-  for (const config of configs) {
-    const entryPoint = config.entryPoint;
+  for (const config of processedConfigs) {
+    const { clientRoot, entryPoint, entryClient, entryServer, htmlTemplate } = config;
+    const outDir = path.resolve(__dirname, `dist/client/${entryPoint}`);
     const root = entryPoint ? path.resolve(__dirname, `src/client/${entryPoint}`) : path.resolve(__dirname, 'src/client');
-    const outDir = entryPoint ? path.resolve(__dirname, `dist/client/${entryPoint}`) : path.resolve(__dirname, 'dist/client');
 
-    console.log(`Building for entryPoint: "${entryPoint}" on ${root}`);
+    console.log(`Building for entryPoint: "${entryPoint}" on ${clientRoot}`);
 
-    const server = path.resolve(root, 'entry-server.tsx');
-    const client = path.resolve(root, 'entry-client.tsx');
-    const main = path.resolve(root, 'index.html');
+    const server = path.resolve(clientRoot, `${entryServer}.tsx`);
+    const client = path.resolve(clientRoot, `${entryClient}.tsx`);
+    const main = path.resolve(clientRoot, htmlTemplate);
 
     const customConfig = {
       base: entryPoint ? `/${entryPoint}/` : '/',
@@ -86,4 +88,5 @@ const runBuilds = async () => {
   }
 };
 
+if (!isSSRBuild) await deleteDist();
 runBuilds();

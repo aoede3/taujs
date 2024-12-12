@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 
 import DataComponent from './components/DataComponent';
 import Header from './components/Header';
@@ -6,6 +6,10 @@ import Header from './components/Header';
 import './assets/styling/App.scss';
 
 export const App: React.FC = () => {
+  const [count, setCount] = useState(0);
+  const handleClick = useCallback(() => {
+    setCount((prevCount) => prevCount + 1);
+  }, []);
   return (
     <>
       <Header />
@@ -27,6 +31,14 @@ export const App: React.FC = () => {
           MFE
         </a>
       </nav>
+
+      <button type="button" onClick={handleClick}>
+        count is {count}
+      </button>
+
+      <p>
+        Edit <code>src/client/@admin/App.tsx</code> and save to test HMR
+      </p>
     </>
   );
 };
