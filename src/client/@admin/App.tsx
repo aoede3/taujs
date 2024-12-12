@@ -10,10 +10,9 @@ export const App: React.FC = () => {
     <>
       <Header />
       <DataComponent />
-      <a href="https://vite.dev/guide/build#multi-page-app" target="_blank">
-        Vite MPA: Multi-Page Application
-      </a>
-      <p>Seperate application associated via seperate entry point.</p>
+
+      <p>Separate micro-frontend orchestrated and served from same server instance</p>
+      <p>Production bundled via dynamic isolated Vite build process</p>
       <nav className="navigation">
         <a className="btn" href="/">
           CSR
@@ -24,8 +23,8 @@ export const App: React.FC = () => {
         <a className="btn" href="/streaming/ssr">
           Streaming SSR
         </a>
-        <a className="btn" href="/mpa/3">
-          MPA
+        <a className="btn" href="/mfe/3">
+          MFE
         </a>
       </nav>
     </>

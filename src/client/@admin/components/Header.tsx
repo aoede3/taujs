@@ -7,7 +7,7 @@ const Header = () => {
         <img src="/taujs.svg" className="logo &tau;js" alt="&tau;js logo" />
       </a>
       <h1 className="&tau;js">taujs [ &tau;js ]</h1>
-      <h2>Multi-Page-Application</h2>
+      <h2>Micro-Frontend</h2>
     </div>
   );
 };

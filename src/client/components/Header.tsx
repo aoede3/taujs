@@ -7,10 +7,15 @@ const Header = () => {
   return (
     <>
       <div className="container__taujs">
-        <a href="https://taujs.io" target="_blank" title="taujs [ &tau;js ]" rel="noreferrer">
-          <img src="/taujs.svg" className="logo &tau;js" alt="&tau;js logo" />
-        </a>
+        <div className="logo-wrapper">
+          <a href="https://taujs.io" target="_blank" title="taujs [ &tau;js ]" rel="noreferrer">
+            <img src="/taujs.svg" className="logo &tau;js" alt="&tau;js logo" />
+          </a>
+        </div>
         <h1 className="&tau;js">taujs [ &tau;js ]</h1>
+        <h2 className="rendering">CSR; SSR; Streaming SSR; Hydration</h2>
+        <h2 className="smpa">Single and or Multiple Page Application(s)</h2>
+        <h2 className="">Flexible 'build-time' &amp; server orchestrated micro-frontend(s)</h2>
       </div>
       <div className="container__logos">
         <a href="https://fastify.dev" target="_blank" title="Fastify: Fast and low overhead web framework, for Node.js" rel="noreferrer">
@@ -24,8 +29,7 @@ const Header = () => {
         </a>
       </div>
       <p className="read-the-docs">Click on logos to learn more</p>
-      <h2 className="smpa">Single and or Multiple Page Application</h2>
-      <h2 className="rendering">CSR; SSR; Streaming SSR; Hydration</h2>
+
       <h3>
         Production:&nbsp;
         <a href="https://fastify.dev" target="_blank" title="Fastify: Fast and low overhead web framework, for Node.js" rel="noreferrer">

@@ -19,6 +19,14 @@ Supports rendering modes:
 - Server-side rendering (SSR)
 - Streaming SSR
 
+Supported application structure and composition:
+
+- Single-page Application (SPA)
+- Multi-page Application (MPA)
+- Build-time Micro-Frontends, server orchestration and delivery
+
+Assemble independently built frontends at build time incorporating flexible per-route SPA-MPA hybrid with CSR, SSR, and Streaming SSR, rendering options.
+
 ## τjs - Developer eXperience
 
 See `@taujs/server` Fastify Plugin https://github.com/aoede3/taujs-server
@@ -104,3 +112,15 @@ https://github.com/aoede3/taujs/blob/main/src/server/services/ServiceRegistry.ts
 and
 
 https://github.com/aoede3/taujs/blob/main/src/server/services/ServiceExample.ts
+
+### Micro-Frontends MFE
+
+Build-time micro-frontends enabling development and maintainance of independent frontend modules integrated during the build process and orchestrated and delivered by the server at run-time.
+
+Configuration of each MFE entry point for build process via simple configuration object pointing to independant 'root' folders per micro-frontend.
+https://github.com/aoede3/taujs/blob/main/src/server/index.ts
+
+As per the following `buildConfig` file: https://github.com/aoede3/taujs/blob/main/src/buildConfig.ts a blank `entryPoint: ''` will cause the build to be output to the root of the `dist/client` folder
+whilst a string value will be considered the isolated directory name from `src/client/directoryName` to be built and generated in dist e.g. `dist/client/directoryName`.
+
+Each isolated micro-frontend should be tagged with an `appId` such that `@taujs/server` will connect with its internal configuration and client/server files.

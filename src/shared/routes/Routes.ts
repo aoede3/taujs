@@ -1,15 +1,11 @@
-import path from 'node:path';
-
 import { __dirname } from '@server/utils';
 
 import type { Route, RouteParams } from '@taujs/server';
 
-const clientRoot = path.resolve(__dirname, '../client');
-
 export const routes: Route<RouteParams>[] = [
   {
-    path: '/mpa/:id',
-    configId: 'mpa',
+    appId: 'mfe',
+    path: '/mfe/:id',
     attr: {
       fetch: async (params: RouteParams) => {
         return {
@@ -47,6 +43,7 @@ export const routes: Route<RouteParams>[] = [
         };
       },
       meta: { title: 'taujs [ τjs ] - streaming', description: 'Streaming page description from route meta' },
+      render: 'streaming',
     },
   },
 ];
