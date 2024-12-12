@@ -7,11 +7,13 @@ import { serviceRegistry } from '@server/services';
 import { __dirname } from '@server/utils';
 import { routes } from '@shared/routes';
 
+import { configs } from '../../buildConfig';
+
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { InitialRouteParams } from '@taujs/server';
 
-const port = Number(process.env.PORT) || 5173;
 const clientRoot = path.resolve(__dirname, '../client');
+const port = Number(process.env.PORT) || 5173;
 
 const startServer = async () => {
   try {
@@ -24,10 +26,8 @@ const startServer = async () => {
     }));
 
     void (await fastify.register(SSRServer, {
-      clientEntryClient: 'entry-client',
-      clientEntryServer: 'entry-server',
-      clientHtmlTemplate: 'index.html',
       clientRoot,
+      configs,
       routes,
       serviceRegistry,
     }));

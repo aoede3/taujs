@@ -1,5 +1,11 @@
 # @taujs
 
+v0.0.8 - 12/12/2024
+
+feat: Micro-frontend build; app, dynamic entryPoints; README; CHANGELOG
+feat: Micro-frontend build; app, entryPoints; configuration
+feat: Micro-frontend build, app, entryPoints initial
+
 v0.0.7 - 22/11/2024
 
 chore: Update @taujs/server; Update README

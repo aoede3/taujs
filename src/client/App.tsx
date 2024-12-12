@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Route, Routes, Link } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 
 import Header from '@client/components/Header';
 import PageCSR from '@client/pages/PageCSR';
@@ -25,10 +25,13 @@ export const App: React.FC = () => {
             CSR
           </a>
           <a className="btn" href="/ssr">
-            SSR{' '}
+            SSR
           </a>
           <a className="btn" href="/streaming/ssr">
             Streaming SSR
+          </a>
+          <a className="btn" href="/mfe/3">
+            MFE
           </a>
         </nav>
 
