@@ -73,6 +73,7 @@ export const createRenderStream = (
 
     onShellReady() {
       const dynamicHeadContent = resolveHeadContent(headContent, initialDataResolved);
+
       onHead(dynamicHeadContent);
 
       pipe(

@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import path, { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -100,8 +100,7 @@ describe('renderPreloadLinks', () => {
       module1: ['file1.js', 'file1.css'],
       module2: ['file2.js'],
     };
-    const modules = ['module1', 'module2'];
-    const result = utils.renderPreloadLinks(modules, manifest);
+    const result = utils.renderPreloadLinks(manifest);
 
     expect(result).toContain('<link rel="modulepreload" href="file1.js">');
     expect(result).toContain('<link rel="stylesheet" href="file1.css">');
@@ -486,5 +485,27 @@ describe('fetchInitialData', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith('Error fetching initial data:', error);
 
     consoleErrorSpy.mockRestore();
+  });
+});
+
+describe('ensureNonNull', () => {
+  it('should return the value if it is not null or undefined', () => {
+    const value = 'hello';
+    const result = utils.ensureNonNull(value, 'Value is required');
+    expect(result).toBe(value);
+  });
+
+  it('should throw an error if the value is null', () => {
+    expect(() => utils.ensureNonNull(null, 'Value is required')).toThrowError('Value is required');
+  });
+
+  it('should throw an error if the value is undefined', () => {
+    expect(() => utils.ensureNonNull(undefined, 'Value is required')).toThrowError('Value is required');
+  });
+
+  it('should allow complex types and preserve their structure', () => {
+    const obj = { key: 'value' };
+    const result = utils.ensureNonNull(obj, 'Object is required');
+    expect(result).toBe(obj);
   });
 });
