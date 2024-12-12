@@ -1,11 +1,13 @@
-import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import path from 'node:path'; /* separated import due to Istanbul coverage bug */
+import { fileURLToPath } from 'node:url';
 
 import { match } from 'path-to-regexp';
 
-import type { FetchConfig, Manifest, Route, RouteAttributes, RouteParams, ServiceRegistry, SSRManifest } from '../SSRServer';
 import type { MatchFunction } from 'path-to-regexp';
 import type { ViteDevServer } from 'vite';
+import type { TEMPLATE } from '../constants';
+import type { Config, FetchConfig, Manifest, ProcessedConfig, Route, RouteAttributes, RouteParams, ServiceRegistry, SSRManifest } from '../SSRServer';
 
 export const isDevelopment = process.env.NODE_ENV === 'development';
 export const __filename = fileURLToPath(import.meta.url);

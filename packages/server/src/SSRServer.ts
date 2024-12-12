@@ -22,6 +22,8 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
 import type { ViteRuntime } from 'vite/runtime';
 
+export { TEMPLATE };
+
 export const createMaps = () => {
   return {
     bootstrapModules: new Map<string, string>(),
@@ -34,22 +36,26 @@ export const createMaps = () => {
   };
 };
 
+export const processConfigs = (configs: Config[], baseClientRoot: string, templateDefaults: typeof TEMPLATE): ProcessedConfig[] => {
+  return configs.map((config) => {
+    const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
+
+    return {
+      clientRoot,
+      entryPoint: config.entryPoint,
+      entryClient: config.entryClient || templateDefaults.defaultEntryClient,
+      entryServer: config.entryServer || templateDefaults.defaultEntryServer,
+      htmlTemplate: config.htmlTemplate || templateDefaults.defaultHtmlTemplate,
+      appId: config.appId,
+    };
+  });
+};
+
 export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
     const { alias, configs, routes, serviceRegistry, isDebug, clientRoot: baseClientRoot } = opts;
     const { bootstrapModules, cssLinks, manifests, preloadLinks, renderModules, ssrManifests, templates } = createMaps();
-
-    const processedConfigs: ProcessedConfig[] = configs.map((config) => {
-      const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
-
-      return {
-        clientRoot,
-        entryClient: config.entryClient || TEMPLATE.defaultEntryClient,
-        entryServer: config.entryServer || TEMPLATE.defaultEntryServer,
-        htmlTemplate: config.htmlTemplate || TEMPLATE.defaultHtmlTemplate,
-        appId: config.appId,
-      };
-    });
+    const processedConfigs = processConfigs(configs, baseClientRoot, TEMPLATE);
 
     for (const config of processedConfigs) {
       const { clientRoot, entryClient, htmlTemplate } = config;
@@ -320,6 +326,7 @@ export type ProcessedConfig = {
   appId: string;
   clientRoot: string;
   entryClient: string;
+  entryPoint: string;
   entryServer: string;
   htmlTemplate: string;
 };
@@ -395,9 +402,16 @@ export type RenderModule = {
 
 export type RouteAttributes<Params = {}> = {
   fetch?: (params?: Params, options?: RequestInit & { params?: Record<string, unknown> }) => Promise<FetchConfig>;
-  meta?: Record<string, unknown>;
-  render?: typeof RENDERTYPE.ssr | typeof RENDERTYPE.streaming;
-};
+} & (
+  | {
+      render?: typeof RENDERTYPE.ssr;
+      meta?: Record<string, unknown>;
+    }
+  | {
+      render: typeof RENDERTYPE.streaming;
+      meta: Record<string, unknown>;
+    }
+);
 
 export type Route<Params = {}> = {
   attr?: RouteAttributes<Params>;

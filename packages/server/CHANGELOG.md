@@ -1,5 +1,11 @@
 # @taujs/server
 
+v0.1.5 - 12/12/2024
+
+feat: Micro-frontend; processConfigs utill; testing; CHANGELOG; README
+feat: Micro-frontend; testing; utils
+feat: Micro-frontend; server orchestration; utility alignment
+
 v0.1.4 - 02/12/2024
 
 fix: ssr css and preload links in header

@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import path, { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

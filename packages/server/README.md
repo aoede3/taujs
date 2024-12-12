@@ -14,6 +14,14 @@ Supports rendering modes:
 - Server-side rendering (SSR)
 - Streaming SSR
 
+Supported application structure and composition:
+
+- Single-page Application (SPA)
+- Multi-page Application (MPA)
+- Build-time Micro-Frontends, server orchestration and delivery
+
+Assemble independently built frontends at build time incorporating flexible per-route SPA-MPA hybrid with CSR, SSR, and Streaming SSR, rendering options.
+
 Fastify Plugin for integration with taujs [ τjs ] template https://github.com/aoede3/taujs
 
 - Production: Fastify, React

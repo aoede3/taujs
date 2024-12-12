@@ -8,7 +8,7 @@ import { RENDERTYPE, SSRTAG } from '../constants';
 
 import type { FastifyInstance } from 'fastify';
 import type { Mock } from 'vitest';
-import type { SSRServerOptions } from '../SSRServer';
+import type { Config, SSRServerOptions } from '../SSRServer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -77,6 +77,18 @@ vi.mock('../utils', () => ({
       throw new Error(errorMessage);
     }
     return value;
+  }),
+  processConfigs: vi.fn((configs, baseClientRoot, templateDefaults) => {
+    return configs.map((config: Config) => {
+      const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
+      return {
+        clientRoot,
+        entryClient: config.entryClient || templateDefaults.defaultEntryClient,
+        entryServer: config.entryServer || templateDefaults.defaultEntryServer,
+        htmlTemplate: config.htmlTemplate || templateDefaults.defaultHtmlTemplate,
+        appId: config.appId,
+      };
+    });
   }),
 }));
 
@@ -884,5 +896,42 @@ describe('SSRServer Plugin (New)', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Error setting up SSR stream:'), expect.any(Error));
 
     consoleErrorSpy.mockRestore();
+  });
+});
+
+describe('processConfigs', () => {
+  it('processConfigs should process configurations correctly', async () => {
+    const { processConfigs } = await import('../SSRServer');
+    const mockConfigs = [
+      { entryPoint: 'entry1', appId: 'app1' },
+      { entryPoint: 'entry2', entryClient: 'client2', appId: 'app2' },
+    ];
+    const mockBaseClientRoot = '/base/root';
+    const mockTemplateDefaults = {
+      defaultEntryClient: 'defaultClient',
+      defaultEntryServer: 'defaultServer',
+      defaultHtmlTemplate: 'defaultTemplate',
+    };
+
+    const result = processConfigs(mockConfigs, mockBaseClientRoot, mockTemplateDefaults);
+
+    expect(result).toEqual([
+      {
+        clientRoot: path.resolve(mockBaseClientRoot, 'entry1'),
+        entryClient: 'defaultClient',
+        entryPoint: 'entry1',
+        entryServer: 'defaultServer',
+        htmlTemplate: 'defaultTemplate',
+        appId: 'app1',
+      },
+      {
+        clientRoot: path.resolve(mockBaseClientRoot, 'entry2'),
+        entryClient: 'client2',
+        entryPoint: 'entry2',
+        entryServer: 'defaultServer',
+        htmlTemplate: 'defaultTemplate',
+        appId: 'app2',
+      },
+    ]);
   });
 });
