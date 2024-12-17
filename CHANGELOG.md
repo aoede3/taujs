@@ -1,5 +1,9 @@
 # @taujs
 
+v0.0.9 - 17/12/2024
+
+chore: Update Fastify + associated packages
+
 v0.0.8 - 12/12/2024
 
 feat: Micro-frontend build; app, dynamic entryPoints; README; CHANGELOG
