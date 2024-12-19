@@ -1,6 +1,5 @@
 import React from 'react';
-import { BrowserRouter } from 'react-router-dom';
-import { StaticRouter } from 'react-router-dom/server';
+import { BrowserRouter, StaticRouter } from 'react-router-dom';
 
 import { App } from '@client/App';
 import ErrorBoundary from '@client/utils/ErrorBoundary';

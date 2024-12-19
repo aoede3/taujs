@@ -1,5 +1,9 @@
 # @taujs
 
+v0.1.0 - 19/12/2024
+
+chore: Update React to v19 + associated packages
+
 v0.0.9 - 17/12/2024
 
 chore: Update Fastify + associated packages

@@ -6,7 +6,7 @@ taujs [ τjs ] template
 
 Example use of @taujs/server Fastify plugin. Simplified CSR, SSR, Streaming SSR, and Hydration, with 'fast' developer experience
 
-## CSR, SSR, Streaming SSR, and Hydration. React 18.
+## CSR, SSR, Streaming SSR, and Hydration. React 19.
 
 - Production: Fastify, React
 - Development: Fastify, React, Vite, tsx
