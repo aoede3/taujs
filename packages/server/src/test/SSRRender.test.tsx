@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createRenderer, createRenderStream, resolveHeadContent } from '../SSRRender';
 
+import type { JSX } from 'react';
 import type { Mock } from 'vitest';
 
 vi.mock('react-dom/server', () => ({

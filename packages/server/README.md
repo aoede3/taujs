@@ -6,7 +6,7 @@
 
 `pnpm add @taujs/server`
 
-## CSR; SSR; Streaming SSR; Hydration; Fastify + React 18
+## CSR; SSR; Streaming SSR; Hydration; Fastify + React 19
 
 Supports rendering modes:
 
