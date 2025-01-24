@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.1.8 - 24/01/2025
+
+chore(deps-dev): bump vite from 5.4.7 to 5.4.14
+chore(deps-dev): bump vite from 5.4.7 to 5.4.14 - release
+
 v0.1.7 - 19/12/2024
 
 chore: Update React to v19 + associated packages
