@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import fp from 'fastify-plugin';
-import { createViteRuntime } from 'vite';
+import pc from 'picocolors';
 
 import { RENDERTYPE, SSRTAG, TEMPLATE } from './constants';
 import {
@@ -122,12 +122,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
                 {
                   name: 'taujs-development-server-debug-logging',
                   configureServer(server: ViteDevServer) {
-                    console.log('τjs development server debug started.');
+                    console.log(pc.green('τjs development server debug started.'));
 
                     server.middlewares.use((req, res, next) => {
-                      console.log(`rx: ${req.url}`);
+                      console.log(pc.cyan(`← rx: ${req.url}`));
 
-                      res.on('finish', () => console.log(`tx: ${req.url}`));
+                      res.on('finish', () => console.log(pc.yellow(`→ tx: ${req.url}`)));
 
                       next();
                     });
