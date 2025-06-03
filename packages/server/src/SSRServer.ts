@@ -20,7 +20,6 @@ import {
 import type { ServerResponse } from 'node:http';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { ViteRuntime } from 'vite/runtime';
 
 export { TEMPLATE };
 
@@ -96,7 +95,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     }
 
     let viteDevServer: ViteDevServer;
-    let viteRuntime: ViteRuntime;
 
     await app.register(import('@fastify/static'), {
       index: false,
@@ -155,7 +153,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         },
       });
 
-      viteRuntime = await createViteRuntime(viteDevServer);
       overrideCSSHMRConsoleError();
 
       app.addHook('onRequest', async (request, reply) => {
@@ -203,7 +200,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           template = template.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
 
           const entryServerPath = path.join(clientRoot, `${entryServer}.tsx`);
-          const executedModule = await viteRuntime.executeEntrypoint(entryServerPath);
+          const executedModule = await viteDevServer.ssrLoadModule(entryServerPath);
           renderModule = executedModule as RenderModule;
 
           const styles = await collectStyle(viteDevServer, [entryServerPath]);

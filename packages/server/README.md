@@ -40,7 +40,6 @@ Integrated ViteDevServer HMR + Vite Runtime API run alongside tsx (TS eXecute) p
 - Vite https://vitejs.dev/guide/ssr#building-for-production
 
 - ViteDevServer HMR https://vitejs.dev/guide/ssr#setting-up-the-dev-server
-- Vite Runtime API https://vitejs.dev/guide/api-vite-runtime
 - ESBuild https://esbuild.github.io/
 - Rollup https://rollupjs.org/
 - ESM https://nodejs.org/api/esm.html
@@ -85,8 +84,8 @@ Integral to τjs is its internal routing:
 
 In ensuring a particular 'route' receives data for hydration there are two options:
 
-1. An HTTP call elsewhere syntactically not unlike 'fetch' providing params to a 'fetch' call
-2. Internally calling a service which in turn will make 'call' to return data as per your architecture
+1. An HTTP call syntactically not unlike 'fetch' providing params to a 'fetch' call
+2. Internal service call returning data as per your architecture
 
 In supporting Option 2. there is a registry of services. More detail in 'Service Registry'.
 
