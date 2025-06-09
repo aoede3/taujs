@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import fp from 'fastify-plugin';
-import { createViteRuntime } from 'vite';
+import pc from 'picocolors';
 
 import { RENDERTYPE, SSRTAG, TEMPLATE } from './constants';
 import {
@@ -20,7 +20,6 @@ import {
 import type { ServerResponse } from 'node:http';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { ViteRuntime } from 'vite/runtime';
 
 export { TEMPLATE };
 
@@ -96,7 +95,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     }
 
     let viteDevServer: ViteDevServer;
-    let viteRuntime: ViteRuntime;
 
     await app.register(import('@fastify/static'), {
       index: false,
@@ -124,12 +122,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
                 {
                   name: 'taujs-development-server-debug-logging',
                   configureServer(server: ViteDevServer) {
-                    console.log('τjs development server debug started.');
+                    console.log(pc.green('τjs development server debug started.'));
 
                     server.middlewares.use((req, res, next) => {
-                      console.log(`rx: ${req.url}`);
+                      console.log(pc.cyan(`← rx: ${req.url}`));
 
-                      res.on('finish', () => console.log(`tx: ${req.url}`));
+                      res.on('finish', () => console.log(pc.yellow(`→ tx: ${req.url}`)));
 
                       next();
                     });
@@ -155,7 +153,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         },
       });
 
-      viteRuntime = await createViteRuntime(viteDevServer);
       overrideCSSHMRConsoleError();
 
       app.addHook('onRequest', async (request, reply) => {
@@ -203,7 +200,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           template = template.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
 
           const entryServerPath = path.join(clientRoot, `${entryServer}.tsx`);
-          const executedModule = await viteRuntime.executeEntrypoint(entryServerPath);
+          const executedModule = await viteDevServer.ssrLoadModule(entryServerPath);
           renderModule = executedModule as RenderModule;
 
           const styles = await collectStyle(viteDevServer, [entryServerPath]);

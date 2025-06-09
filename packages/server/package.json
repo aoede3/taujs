@@ -1,6 +1,6 @@
 {
   "name": "@taujs/server",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "taujs | τjs",
   "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
   "license": "MIT",
@@ -52,7 +52,7 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitest/coverage-v8": "^2.1.0",
-    "fastify": "^5.2.0",
+    "fastify": "^5.3.3",
     "jsdom": "^25.0.0",
     "prettier": "^3.3.3",
     "react-dom": "^19.0.0",
@@ -62,11 +62,11 @@
     "vitest": "^2.0.5"
   },
   "peerDependencies": {
-    "fastify": "^5.2.0",
+    "fastify": "^5.3.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.5.4",
-    "vite": "^5.4.2"
+    "vite": "^6.2.5"
   },
   "scripts": {
     "build": "tsup",
