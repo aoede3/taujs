@@ -1,5 +1,12 @@
 # @taujs/server
 
+v0.1.9 - 09/07/2025
+
+test: Vite createViteRuntime -> ssrLoadModule
+chore: Update Fastify 5.2.0 --> 5.3.3
+feat: Introducing picolors and associated messaging
+chore: Update Vite 5.4.2 ->6.3.5
+
 v0.1.8 - 24/01/2025
 
 chore(deps-dev): bump vite from 5.4.7 to 5.4.14

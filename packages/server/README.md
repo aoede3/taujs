@@ -18,9 +18,9 @@ Supported application structure and composition:
 
 - Single-page Application (SPA)
 - Multi-page Application (MPA)
-- Build-time Micro-Frontends, server orchestration and delivery
+- Build-time Micro-Frontends (MFE), with server orchestration and delivery
 
-Assemble independently built frontends at build time incorporating flexible per-route SPA-MPA hybrid with CSR, SSR, and Streaming SSR, rendering options.
+Assemble independent frontends at build time incorporating flexible per-route SPA-MPA hybrid with CSR, SSR, and Streaming SSR, rendering options.
 
 Fastify Plugin for integration with taujs [ τjs ] template https://github.com/aoede3/taujs
 
@@ -30,16 +30,15 @@ Fastify Plugin for integration with taujs [ τjs ] template https://github.com/a
 - TypeScript-first
 - ESM-only focus
 
-## τjs - Developer eXperience
+## τjs - DX Developer Experience
 
-Integrated ViteDevServer HMR + Vite Runtime API run alongside tsx (TS eXecute) providing fast responsive dev reload times for both backend / frontend
+Integrated Vite HMR run alongside tsx (TS eXecute) providing fast responsive dev reload times for universal backend / frontend changes
 
 - Fastify https://fastify.dev/
 - React https://reactjs.org/
 - tsx https://tsx.is/
 - Vite https://vitejs.dev/guide/ssr#building-for-production
 
-- ViteDevServer HMR https://vitejs.dev/guide/ssr#setting-up-the-dev-server
 - ESBuild https://esbuild.github.io/
 - Rollup https://rollupjs.org/
 - ESM https://nodejs.org/api/esm.html
@@ -95,7 +94,7 @@ https://github.com/aoede3/taujs/blob/main/src/shared/routes/Routes.ts
 
 ### Service Registry
 
-In supporting internal calls via τjs a registry of available services and methods provides the linkage to your own architectural setup and developmental patterns
+In supporting internal calls via τjs a registry of available services and methods can provide linkage to your own architectural setup and developmental patterns
 
 https://github.com/aoede3/taujs/blob/main/src/server/services/ServiceRegistry.ts
 
