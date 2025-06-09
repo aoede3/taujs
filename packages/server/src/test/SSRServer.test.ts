@@ -16,40 +16,43 @@ const __dirname = path.dirname(__filename);
 let mockVitePlugins: Record<string, unknown>[] = [];
 let mockViteDevServer: any;
 
-vi.mock('vite', () => ({
-  createServer: vi.fn(async (viteConfig) => {
-    mockVitePlugins = viteConfig.plugins || [];
-    mockViteDevServer = {
-      close: vi.fn(),
-      middlewares: {
-        use: vi.fn(),
-      },
-      transformIndexHtml: vi.fn().mockResolvedValue(`<html>${SSRTAG.ssrHead}${SSRTAG.ssrHtml}</html>`),
-    };
-
-    for (const plugin of mockVitePlugins) {
-      if (plugin && typeof plugin.configureServer === 'function') {
-        plugin.configureServer(mockViteDevServer);
-      }
-    }
-
-    return mockViteDevServer;
-  }),
-  defineConfig: vi.fn((config) => config),
-  createViteRuntime: vi.fn(async (_viteServer) => ({
-    executeEntrypoint: vi.fn().mockResolvedValue({
-      renderStream: vi.fn().mockImplementation((_res, callbacks) => {
-        callbacks.onHead('<head></head>');
-        callbacks.onFinish({});
-      }),
-      renderSSR: vi.fn().mockResolvedValue({
-        headContent: '<head></head>',
-        appHtml: '<div id="app"></div>',
-        initialDataScript: '<script>window.__INITIAL_DATA__ = {}</script>',
-      }),
+vi.mock('vite', () => {
+  let mockRenderModule = {
+    renderStream: vi.fn().mockImplementation((_res, callbacks) => {
+      callbacks.onHead('<head></head>');
+      callbacks.onFinish({});
     }),
-  })),
-}));
+    renderSSR: vi.fn().mockResolvedValue({
+      headContent: '<head></head>',
+      appHtml: '<div id="app"></div>',
+      initialDataScript: '<script>window.__INITIAL_DATA__ = {}</script>',
+    }),
+  };
+
+  mockViteDevServer = {
+    close: vi.fn(),
+    middlewares: {
+      use: vi.fn(),
+    },
+    transformIndexHtml: vi.fn().mockResolvedValue(`<html>${SSRTAG.ssrHead}${SSRTAG.ssrHtml}</html>`),
+    ssrLoadModule: vi.fn().mockImplementation(async (_path: string) => mockRenderModule),
+  };
+
+  return {
+    createServer: vi.fn(async (viteConfig) => {
+      mockVitePlugins = viteConfig.plugins || [];
+
+      for (const plugin of mockVitePlugins) {
+        if (plugin && typeof plugin.configureServer === 'function') {
+          plugin.configureServer(mockViteDevServer);
+        }
+      }
+
+      return mockViteDevServer;
+    }),
+    defineConfig: vi.fn((config) => config),
+  };
+});
 
 vi.mock('@fastify/static', () => ({
   default: async (instance: FastifyInstance, _opts: Record<string, unknown>) => {
@@ -527,8 +530,8 @@ describe('SSRServer Plugin (New)', () => {
 
     mockViteDevServer.middlewares.use.mock.calls[0][0](req, res, next);
 
-    expect(consoleLogSpy).toHaveBeenCalledWith('rx: /test-url');
-    expect(consoleLogSpy).toHaveBeenCalledWith('tx: /test-url');
+    expect(consoleLogSpy).toHaveBeenCalledWith('← rx: /test-url');
+    expect(consoleLogSpy).toHaveBeenCalledWith('→ tx: /test-url');
     expect(next).toHaveBeenCalled();
 
     consoleLogSpy.mockRestore();
@@ -621,10 +624,7 @@ describe('SSRServer Plugin (New)', () => {
       const mockViteDevServer = {
         transformIndexHtml: vi.fn().mockResolvedValue(`<html>${SSRTAG.ssrHead}${SSRTAG.ssrHtml}</html>`),
         middlewares: mockMiddlewares,
-      };
-
-      const mockViteRuntime = {
-        executeEntrypoint: vi.fn().mockResolvedValue({
+        ssrLoadModule: vi.fn().mockResolvedValue({
           renderStream: vi.fn().mockImplementation((_res, callbacks) => {
             callbacks.onHead('<head></head>');
             callbacks.onFinish({});
@@ -639,7 +639,6 @@ describe('SSRServer Plugin (New)', () => {
 
       return {
         createServer: vi.fn().mockResolvedValue(mockViteDevServer),
-        createViteRuntime: vi.fn().mockResolvedValue(mockViteRuntime),
       };
     });
 
