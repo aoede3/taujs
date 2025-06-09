@@ -1,11 +1,15 @@
 # @taujs/server
 
+v0.2.0 - 09/07/2025
+
+chore: update vite 6.3.5
+
 v0.1.9 - 09/07/2025
 
 test: Vite createViteRuntime -> ssrLoadModule
 chore: Update Fastify 5.2.0 --> 5.3.3
 feat: Introducing picolors and associated messaging
-chore: Update Vite 5.4.2 ->6.3.5
+chore: Update Vite 5.4.2 -> 6.3.5
 
 v0.1.8 - 24/01/2025
 
