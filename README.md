@@ -25,13 +25,13 @@ Supported application structure and composition:
 - Multi-page Application (MPA)
 - Build-time Micro-Frontends, server orchestration and delivery
 
-Assemble independently built frontends at build time incorporating flexible per-route SPA-MPA hybrid with CSR, SSR, and Streaming SSR, rendering options.
+Assemble independent frontends at build time incorporating flexible per-route SPA-MPA hybrid with CSR, SSR, and Streaming SSR, rendering options.
 
 ## τjs - Developer eXperience
 
 See `@taujs/server` Fastify Plugin https://github.com/aoede3/taujs-server
 
-Integrated ViteDevServer HMR + Vite Runtime API run alongside tsx (TS eXecute) providing fast responsive dev reload times for both backend / frontend
+Integrated ViteDevServer HMR + ssrModule run alongside tsx (TS eXecute) providing fast responsive dev reload times for both backend / frontend
 
 - Fastify https://fastify.dev/
 - Vite https://vitejs.dev/guide/ssr#building-for-production
@@ -40,7 +40,7 @@ Integrated ViteDevServer HMR + Vite Runtime API run alongside tsx (TS eXecute) p
 - tsx https://tsx.is/
 
 - ViteDevServer HMR https://vitejs.dev/guide/ssr#setting-up-the-dev-server
-- Vite Runtime API https://vitejs.dev/guide/api-vite-runtime
+- Vite ssrModule https://vite.dev/guide/ssr
 - ESBuild https://esbuild.github.io/
 - Rollup https://rollupjs.org/
 - ESM https://nodejs.org/api/esm.html

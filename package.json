@@ -2,7 +2,7 @@
   "name": "taujs",
   "license": "MIT",
   "private": true,
-  "version": "0.0.9",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose",
@@ -17,12 +17,12 @@
   },
   "dependencies": {
     "@fastify/compress": "^8.0.1",
-    "@taujs/server": "^0.1.8",
-    "fastify": "^5.2.0",
+    "@taujs/server": "^0.2.0",
+    "fastify": "^5.3.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.2",
-    "vite": "^5.4.12"
+    "vite": "^6.3.5"
   },
   "devDependencies": {
     "@rollup/plugin-alias": "^5.1.0",
@@ -33,8 +33,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "fastify-tsconfig": "^2.0.0",
     "sass": "^1.80.5",
-    "tsx": "^4.19.2",
+    "tsx": "^4.19.3",
     "typescript": "^5.5.4",
-    "vite-plugin-node-polyfills": "^0.22.0"
+    "vite-plugin-node-polyfills": "^0.23.0"
   }
 }
