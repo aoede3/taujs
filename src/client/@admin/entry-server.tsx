@@ -1,5 +1,5 @@
 import React from 'react';
-import { createRenderer } from '@taujs/server/data';
+import { createRenderer } from '@taujs/react';
 
 import AppBootstrap from './AppBootstrap';
 

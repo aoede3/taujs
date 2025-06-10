@@ -1,5 +1,5 @@
 import React from 'react';
-import { useSSRStore } from '@taujs/server/data';
+import { useSSRStore } from '@taujs/react';
 
 const DataComponent = () => {
   const data = useSSRStore();
