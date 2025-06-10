@@ -1,10 +1,10 @@
 # @taujs/react
 
-`npm install @taujs/server`
+`npm install @taujs/react`
 
-`yarn add @taujs/server`
+`yarn add @taujs/react`
 
-`pnpm add @taujs/server`
+`pnpm add @taujs/react`
 
 ## CSR; SSR; Streaming SSR; Hydration; Fastify + React 19
 
