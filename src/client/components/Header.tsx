@@ -64,10 +64,6 @@ const Header = () => {
         <a href="https://vitejs.dev/guide/ssr#setting-up-the-dev-server" target="_blank" title="Vite decoupled from the production environment">
           ViteDevServer HMR
         </a>
-        &nbsp;+&nbsp;
-        <a href="https://vitejs.dev/guide/api-vite-runtime" target="_blank" title="Low-level API precursor to Environment API">
-          Vite Runtime API
-        </a>
         )
       </h3>
     </>

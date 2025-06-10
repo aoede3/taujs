@@ -1,5 +1,5 @@
 import React from 'react';
-import { hydrateApp } from '@taujs/server/data';
+import { hydrateApp } from '@taujs/react';
 
 import AppBootstrap from './AppBootstrap';
 
