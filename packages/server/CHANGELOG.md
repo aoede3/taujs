@@ -1,5 +1,11 @@
 # @taujs/server
 
+v0.2.1 - 10/07/2025
+
+feat: split renderer to own package
+
+chore: update vite 6.3.5
+
 v0.2.0 - 09/07/2025
 
 chore: update vite 6.3.5
