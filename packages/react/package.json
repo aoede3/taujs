@@ -1,0 +1,84 @@
+{
+  "name": "@taujs/react",
+  "version": "0.0.1",
+  "description": "taujs | τjs",
+  "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
+  "license": "MIT",
+  "homepage": "https://github.com/aoede3/taujs-react",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aoede3/taujs-react.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aoede3/taujs-react/issues"
+  },
+  "keywords": [
+    "fastify",
+    "typescript",
+    "esm",
+    "vite",
+    "streaming",
+    "react",
+    "ssr"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.15.4",
+    "@babel/preset-typescript": "^7.24.7",
+    "@changesets/cli": "^2.27.7",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitest/coverage-v8": "^2.1.0",
+    "jsdom": "^25.0.0",
+    "prettier": "^3.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.2.4",
+    "typescript": "^5.5.4",
+    "vite": "^6.3.5",
+    "vitest": "^2.0.5"
+  },
+  "peerDependencies": {
+    "@taujs/server": "^0.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.5.4",
+    "vite": "^6.3.5"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "build-local": "tsup && ./move.sh",
+    "ci": "npm run build && npm run check-format && npm run lint",
+    "lint": "tsc",
+    "test": "vitest run",
+    "test:ui": "vitest --ui --coverage.enabled=true",
+    "coverage": "vitest run --coverage",
+    "format": "prettier --write .",
+    "check-format": "prettier --check .",
+    "check-exports": "attw --pack . --ignore-rules=cjs-resolves-to-esm",
+    "prepublishOnly": "npm run ci",
+    "local-release": "npm run ci && changeset version && changeset publish"
+  }
+}
