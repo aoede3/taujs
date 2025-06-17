@@ -1,9 +1,12 @@
 # @taujs/server
 
+v0.2.2 - 17/06/2025
+
+chore(deps): bump brace-expansion from 2.0.1 to 2.0.2
+
 v0.2.1 - 10/07/2025
 
 feat: split renderer to own package
-
 chore: update vite 6.3.5
 
 v0.2.0 - 09/07/2025
