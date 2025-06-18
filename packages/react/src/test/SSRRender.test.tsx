@@ -253,7 +253,7 @@ describe('createRenderer', () => {
         {
           appComponent: mockAppComponent,
           headContent: headContentFn,
-          initialDataResolved: mockInitialData,
+          initialDataPromise: mockInitialData,
           location: mockLocation,
           bootstrapModules: mockBootstrapModules,
         },
@@ -270,5 +270,81 @@ describe('createRenderer', () => {
 
       expect(onFinish).toHaveBeenCalledWith(mockInitialData);
     });
+  });
+});
+
+describe('SSR v Streaming SSR rendering consistency', () => {
+  it('should render consistent output between renderSSR and renderStream', async () => {
+    (renderToPipeableStream as Mock).mockImplementation((_appElement: React.JSX.Element, options: { onShellReady: () => void; onAllReady: () => void }) => {
+      const stream = {
+        pipe: (writable: Writable) => {
+          console.log('pipe called');
+          writable.write(Buffer.from('<div>Hello /test-page</div>'), (err) => {
+            if (err) throw err;
+            writable.end();
+          });
+        },
+      };
+
+      setImmediate(() => {
+        options.onShellReady?.();
+        options.onAllReady?.();
+      });
+
+      return stream;
+    });
+
+    const { renderSSR, renderStream } = createRenderer({
+      appComponent: ({ location }) => <div>Hello {location}</div>,
+      headContent: (data) => `<title>${data.pageTitle}</title>`,
+    });
+
+    const initialData = { pageTitle: 'Test Page' };
+    const location = '/test-page';
+
+    (renderToString as Mock).mockImplementation(() => '<div>Hello /test-page</div>');
+
+    const { headContent, appHtml } = await renderSSR(initialData, location, initialData);
+
+    let streamedHtml = '';
+    let streamedHead = '';
+
+    const onFinishPromise = new Promise<void>((resolve) => {
+      const serverResponse = new Writable({
+        write(chunk, _encoding, callback) {
+          streamedHtml += chunk.toString();
+          callback();
+        },
+      });
+
+      renderStream(
+        serverResponse as any,
+        {
+          onHead: (head) => {
+            streamedHead = head;
+          },
+          onFinish: () => resolve(),
+          onError: (err) => {
+            console.error('renderStream error:', err);
+            throw err;
+          },
+        },
+        initialData,
+        location,
+        undefined,
+        initialData,
+      );
+    });
+
+    await onFinishPromise;
+
+    const normalize = (html: string) =>
+      html
+        .replace(/\s+/g, ' ')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
+        .trim();
+
+    expect(normalize(appHtml)).toBe(normalize(streamedHtml));
+    expect(normalize(headContent)).toBe(normalize(streamedHead));
   });
 });

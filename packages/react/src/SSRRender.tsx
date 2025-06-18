@@ -13,7 +13,7 @@ type RendererOptions = {
 
 type RenderCallbacks = {
   onHead: (headContent: string) => void;
-  onFinish: (initialDataResolved: unknown) => void;
+  onFinish: (initialDataPromise: unknown) => void;
   onError: (error: unknown) => void;
 };
 
@@ -21,10 +21,10 @@ export const resolveHeadContent = (headContent: string | ((meta: Record<string, 
   typeof headContent === 'function' ? headContent(meta) : headContent;
 
 export const createRenderer = ({ appComponent, headContent }: RendererOptions) => {
-  const renderSSR = async (initialDataResolved: Record<string, unknown>, location: string, meta: Record<string, unknown> = {}) => {
-    const dataForHeadContent = Object.keys(initialDataResolved).length > 0 ? initialDataResolved : meta;
+  const renderSSR = async (initialDataPromise: Record<string, unknown>, location: string, meta: Record<string, unknown> = {}) => {
+    const dataForHeadContent = Object.keys(initialDataPromise).length > 0 ? initialDataPromise : meta;
     const dynamicHeadContent = resolveHeadContent(headContent, dataForHeadContent);
-    const appHtml = renderToString(<SSRStoreProvider store={createSSRStore(initialDataResolved)}>{appComponent({ location })}</SSRStoreProvider>);
+    const appHtml = renderToString(<SSRStoreProvider store={createSSRStore(initialDataPromise)}>{appComponent({ location })}</SSRStoreProvider>);
 
     return {
       headContent: dynamicHeadContent,
@@ -35,7 +35,7 @@ export const createRenderer = ({ appComponent, headContent }: RendererOptions) =
   const renderStream = (
     serverResponse: ServerResponse,
     callbacks: RenderCallbacks,
-    initialDataResolved: Record<string, unknown>,
+    initialDataPromise: Record<string, unknown>,
     location: string,
     bootstrapModules?: string,
     meta: Record<string, unknown> = {},
@@ -45,7 +45,7 @@ export const createRenderer = ({ appComponent, headContent }: RendererOptions) =
     createRenderStream(serverResponse, callbacks, {
       appComponent: (props) => appComponent({ ...props, location }),
       headContent: dynamicHeadContent,
-      initialDataResolved,
+      initialDataPromise,
       location,
       bootstrapModules,
     });
@@ -60,34 +60,34 @@ export const createRenderStream = (
   {
     appComponent,
     headContent,
-    initialDataResolved,
+    initialDataPromise,
     location,
     bootstrapModules,
-  }: RendererOptions & { initialDataResolved: Record<string, unknown>; location: string; bootstrapModules?: string },
+  }: RendererOptions & { initialDataPromise: Record<string, unknown>; location: string; bootstrapModules?: string },
 ): void => {
-  const store = createSSRStore(initialDataResolved);
+  const store = createSSRStore(initialDataPromise);
   const appElement = <SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>;
 
   const { pipe } = renderToPipeableStream(appElement, {
     bootstrapModules: bootstrapModules ? [bootstrapModules] : undefined,
 
     onShellReady() {
-      const dynamicHeadContent = resolveHeadContent(headContent, initialDataResolved);
+      Promise.resolve(initialDataPromise).then((resolvedData) => {
+        const dynamicHeadContent = resolveHeadContent(headContent, resolvedData);
+        onHead(dynamicHeadContent);
 
-      onHead(dynamicHeadContent);
-
-      pipe(
-        new Writable({
-          write(chunk, _encoding, callback) {
-            serverResponse.write(chunk, callback);
-          },
-
-          final(callback) {
-            onFinish(store.getSnapshot());
-            callback();
-          },
-        }),
-      );
+        pipe(
+          new Writable({
+            write(chunk, _encoding, callback) {
+              serverResponse.write(chunk, callback);
+            },
+            final(callback) {
+              onFinish(store.getSnapshot());
+              callback();
+            },
+          }),
+        );
+      });
     },
 
     onAllReady() {},
