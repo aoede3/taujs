@@ -1,5 +1,9 @@
 # @taujs/react
 
+v0.0.4 - 18/06/2025
+
+feat: SSRRender head resolution timing
+
 v0.0.3 - 18/06/2025
 
 feat: SSRRender head resolution timing; align SSRender + SSRServer

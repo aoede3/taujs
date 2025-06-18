@@ -72,22 +72,20 @@ export const createRenderStream = (
     bootstrapModules: bootstrapModules ? [bootstrapModules] : undefined,
 
     onShellReady() {
-      Promise.resolve(initialDataPromise).then((resolvedData) => {
-        const dynamicHeadContent = resolveHeadContent(headContent, resolvedData);
-        onHead(dynamicHeadContent);
+      const dynamicHeadContent = resolveHeadContent(headContent, initialDataPromise);
+      onHead(dynamicHeadContent);
 
-        pipe(
-          new Writable({
-            write(chunk, _encoding, callback) {
-              serverResponse.write(chunk, callback);
-            },
-            final(callback) {
-              onFinish(store.getSnapshot());
-              callback();
-            },
-          }),
-        );
-      });
+      pipe(
+        new Writable({
+          write(chunk, _encoding, callback) {
+            serverResponse.write(chunk, callback);
+          },
+          final(callback) {
+            onFinish(store.getSnapshot());
+            callback();
+          },
+        }),
+      );
     },
 
     onAllReady() {},
