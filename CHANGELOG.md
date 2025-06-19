@@ -1,5 +1,21 @@
 # @taujs
 
+v0.1.4 - 19/06/2025
+
+v0.1.3 - 17/06/2025
+
+chore(deps): bump react-router and react-router-dom
+chore(deps): bump brace-expansion from 2.0.1 to 2.0.2
+
+v0.1.2 - 10/06/2025
+
+feat: Integrate @taujs/react renderer
+
+v0.1.1 - 24/01/2025
+
+chore(deps): bump vite from 5.4.10 to 5.4.12
+chore(deps): bump vite from 5.4.10 to 5.4.12 - release
+
 v0.1.0 - 19/12/2024
 
 chore: Update React to v19 + associated packages
