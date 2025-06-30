@@ -29,17 +29,23 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./plugin": {
+      "import": "./dist/plugin.js",
+      "types": "./dist/plugin.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
+  "dependencies": {},
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.15.4",
     "@babel/preset-typescript": "^7.24.7",
     "@changesets/cli": "^2.27.7",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.1.0",
+    "@types/node": "^24.0.7",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitest/coverage-v8": "^2.1.0",
@@ -55,6 +61,7 @@
   },
   "peerDependencies": {
     "@taujs/server": "^0.2.0",
+    "@vitejs/plugin-react": "^4.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.5.4",
