@@ -19,7 +19,7 @@ import {
 
 import type { ServerResponse } from 'node:http';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import type { ViteDevServer } from 'vite';
+import type { PluginOption, ViteDevServer } from 'vite';
 
 export { TEMPLATE };
 
@@ -237,7 +237,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
           const fullHtml = template
             .replace(SSRTAG.ssrHead, aggregateHeadContent)
-            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script type="module" src="${bootstrapModule}" async=""></script>`);
+            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script type="module" src="${bootstrapModule}" defer></script>`);
 
           return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
         } else {
@@ -299,7 +299,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
         template = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
         if (!isDevelopment && cssLink) template = template.replace('</head>', `${cssLink}</head>`);
-        if (bootstrapModule) template = template.replace('</body>', `<script type="module" src="${bootstrapModule}" async=""></script></body>`);
+        if (bootstrapModule) template = template.replace('</body>', `<script type="module" src="${bootstrapModule}" defer></script></body>`);
 
         reply.status(200).type('text/html').send(template);
       } catch (error) {
@@ -326,6 +326,7 @@ export type ProcessedConfig = {
   entryPoint: string;
   entryServer: string;
   htmlTemplate: string;
+  plugins?: PluginOption[];
 };
 
 export type SSRServerOptions = {
