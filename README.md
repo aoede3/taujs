@@ -122,7 +122,7 @@ Build-time micro-frontends enabling development and maintainance of independent 
 Configuration of each MFE entry point for build process via simple configuration object pointing to independant 'root' folders per micro-frontend.
 https://github.com/aoede3/taujs/blob/main/src/server/index.ts
 
-As per the following `buildConfig` file: https://github.com/aoede3/taujs/blob/main/src/buildConfig.ts a blank `entryPoint: ''` will cause the build to be output to the root of the `dist/client` folder
+As per the following `build` configuration file: https://github.com/aoede3/taujs/blob/main/src/build.ts a blank `entryPoint: ''` will cause the build to be output to the root of the `dist/client` folder
 whilst a string value will be considered the isolated directory name from `src/client/directoryName` to be built and generated in dist e.g. `dist/client/directoryName`.
 
 Each isolated micro-frontend should be tagged with an `appId` such that `@taujs/server` will connect with its internal configuration and client/server files.
