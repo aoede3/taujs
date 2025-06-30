@@ -1,5 +1,11 @@
 # @taujs/server
 
+v0.2.3 - 30/06/2025
+
+feat: Integrate build; tsup config; clean up package.json;
+chore: update to node 22.17.0
+feat: defer dynamic module injection
+
 v0.2.2 - 17/06/2025
 
 chore(deps): bump brace-expansion from 2.0.1 to 2.0.2
