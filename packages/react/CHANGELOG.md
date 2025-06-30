@@ -1,5 +1,9 @@
 # @taujs/react
 
+v0.0.5 - 30/06/2025
+
+feat: Integrate build plugin helper; tsup config
+
 v0.0.4 - 18/06/2025
 
 feat: SSRRender head resolution timing
