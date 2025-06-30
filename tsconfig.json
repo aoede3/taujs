@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
-    "esModuleInterop": true,
-    "module": "ESNext",
-    "moduleResolution": "node",
-    "target": "ESNext",
-    "verbatimModuleSyntax": true
+    "moduleResolution": "nodenext",
+    "module": "NodeNext",
+    "target": "esnext",
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true
   }
 }
