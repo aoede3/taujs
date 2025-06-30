@@ -4,7 +4,7 @@ taujs [ τjs ] template
 
 > τjs is in development. Expect some breaking changes on the road towards a stable v1 release. Some features may or may not be missing!
 
-Example use of @taujs/server Fastify plugin + @taujs/react React renderer. Simplified CSR, SSR, Streaming SSR, and Hydration, with 'fast' developer experience
+Unified rendering with @taujs/server and @taujs/react. Switch seamlessly between CSR, SSR, and Streaming SSR with Fastify. Simple hydration, and a fast and smooth developer workflow.
 
 ## CSR, SSR, Streaming SSR, and Hydration. React 19.
 
@@ -27,7 +27,7 @@ Supported application structure and composition:
 
 Assemble independent frontends at build time incorporating flexible per-route SPA-MPA hybrid with CSR, SSR, and Streaming SSR, rendering options.
 
-## τjs - Developer eXperience
+## τjs - DX - Developer experience
 
 See `@taujs/server` Fastify Plugin https://github.com/aoede3/taujs-server
 
