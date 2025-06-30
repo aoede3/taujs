@@ -19,7 +19,7 @@ import {
 
 import type { ServerResponse } from 'node:http';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import type { ViteDevServer } from 'vite';
+import type { PluginOption, ViteDevServer } from 'vite';
 
 export { TEMPLATE };
 
@@ -326,6 +326,7 @@ export type ProcessedConfig = {
   entryPoint: string;
   entryServer: string;
   htmlTemplate: string;
+  plugins?: PluginOption[];
 };
 
 export type SSRServerOptions = {

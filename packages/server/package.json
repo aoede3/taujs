@@ -29,9 +29,9 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./data": {
-      "import": "./dist/data.js",
-      "types": "./dist/data.d.ts"
+    "./build": {
+      "import": "./dist/build.js",
+      "types": "./dist/build.d.ts"
     },
     "./package.json": "./package.json"
   },
@@ -40,22 +40,18 @@
   ],
   "dependencies": {
     "@fastify/static": "^8.0.3",
-    "path-to-regexp": "^8.1.0"
+    "path-to-regexp": "^8.1.0",
+    "vite-plugin-node-polyfills": "^0.23.0"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.15.4",
     "@babel/preset-typescript": "^7.24.7",
     "@changesets/cli": "^2.27.7",
-    "@testing-library/dom": "^10.4.0",
-    "@testing-library/react": "^16.1.0",
     "@types/node": "^20.14.9",
-    "@types/react": "^19.0.2",
-    "@types/react-dom": "^19.0.2",
     "@vitest/coverage-v8": "^2.1.0",
     "fastify": "^5.3.3",
     "jsdom": "^25.0.0",
     "prettier": "^3.3.3",
-    "react-dom": "^19.0.0",
     "tsup": "^8.2.4",
     "typescript": "^5.5.4",
     "vite": "^6.3.5",
@@ -63,8 +59,6 @@
   },
   "peerDependencies": {
     "fastify": "^5.3.3",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "typescript": "^5.5.4",
     "vite": "^6.3.5"
   },
