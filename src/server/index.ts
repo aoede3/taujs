@@ -7,7 +7,7 @@ import { serviceRegistry } from '@server/services';
 import { __dirname } from '@server/utils';
 import { routes } from '@shared/routes';
 
-import { configs } from '../../buildConfig';
+import { configs } from '../../buildConfig.js';
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { InitialRouteParams } from '@taujs/server';
