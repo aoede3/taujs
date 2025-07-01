@@ -15,12 +15,12 @@ export type Config = {
 };
 
 export async function taujsBuild({
-  config,
+  configs,
   projectRoot,
   clientBaseDir,
   isSSRBuild = process.env.BUILD_MODE === 'ssr',
 }: {
-  config: Config[];
+  configs: Config[];
   projectRoot: string;
   clientBaseDir: string;
   isSSRBuild?: boolean;
@@ -35,7 +35,7 @@ export async function taujsBuild({
     }
   };
 
-  const processedConfigs = processConfigs(config, clientBaseDir, TEMPLATE);
+  const processedConfigs = processConfigs(configs, clientBaseDir, TEMPLATE);
 
   if (!isSSRBuild) await deleteDist();
 
