@@ -6,8 +6,7 @@ import { match } from 'path-to-regexp';
 
 import type { MatchFunction } from 'path-to-regexp';
 import type { ViteDevServer } from 'vite';
-import type { TEMPLATE } from '../constants';
-import type { Config, FetchConfig, Manifest, ProcessedConfig, Route, RouteAttributes, RouteParams, ServiceRegistry, SSRManifest } from '../SSRServer';
+import type { FetchConfig, Manifest, Route, RouteAttributes, RouteParams, ServiceMethod, ServiceRegistry, SSRManifest } from '../SSRServer';
 
 export const isDevelopment = process.env.NODE_ENV === 'development';
 export const __filename = fileURLToPath(import.meta.url);
@@ -115,7 +114,7 @@ export const callServiceMethod = async (
   const service = serviceRegistry[serviceName];
 
   if (service && typeof service[serviceMethod] === 'function') {
-    const method = service[serviceMethod] as Function;
+    const method: ServiceMethod = service[serviceMethod];
 
     const data = await method(params);
 

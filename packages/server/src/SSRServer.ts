@@ -338,11 +338,9 @@ export type SSRServerOptions = {
   isDebug?: boolean;
 };
 
-export type ServiceRegistry = {
-  [serviceName: string]: {
-    [methodName: string]: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  };
-};
+export type ServiceMethod = (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+export type NamedService = Record<string, ServiceMethod>;
+export type ServiceRegistry = Record<string, NamedService>;
 
 export type RenderCallbacks = {
   onHead: (headContent: string) => void;
