@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.2.4 - 01/07/2025
+
+feat: service typing; cleanup
+
 v0.2.3 - 30/06/2025
 
 feat: Integrate build; tsup config; clean up package.json;
