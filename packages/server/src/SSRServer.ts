@@ -108,7 +108,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     app.addHook(
       'onRequest',
       cspHook({
-        directives: opts.security?.csp?.directives ?? DEV_CSP_DIRECTIVES,
+        directives: opts.security?.csp?.directives,
         generateCSP: opts.security?.csp?.generateCSP,
       }),
     );
