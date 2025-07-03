@@ -4,7 +4,8 @@ import path from 'node:path';
 import fp from 'fastify-plugin';
 import pc from 'picocolors';
 
-import { RENDERTYPE, SSRTAG, TEMPLATE } from './constants';
+import { DEV_CSP_DIRECTIVES, RENDERTYPE, SSRTAG, TEMPLATE } from './constants';
+import { applyCSP, cspHook } from './security/csp';
 import {
   __dirname,
   collectStyle,
@@ -20,6 +21,7 @@ import {
 import type { ServerResponse } from 'node:http';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { PluginOption, ViteDevServer } from 'vite';
+import type { CSPDirectives } from './security/csp';
 
 export { TEMPLATE };
 
@@ -103,6 +105,14 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       wildcard: false,
     });
 
+    app.addHook(
+      'onRequest',
+      cspHook({
+        directives: opts.security?.csp?.directives ?? DEV_CSP_DIRECTIVES,
+        generateCSP: opts.security?.csp?.generateCSP,
+      }),
+    );
+
     if (isDevelopment) {
       const { createServer } = await import('vite');
 
@@ -171,6 +181,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
         const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
         const matchedRoute = matchRoute(url, routes);
+        const nonce = applyCSP(opts.security, reply);
 
         if (!matchedRoute) {
           reply.callNotFound();
@@ -227,7 +238,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         if (renderType === RENDERTYPE.ssr) {
           const { renderSSR } = renderModule;
           const initialDataResolved = await initialDataPromise;
-          const initialDataScript = `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`;
+          const initialDataScript = `<script nonce="${nonce}">window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`;
           const { headContent, appHtml } = await renderSSR(initialDataResolved as Record<string, unknown>, req.url!, attr?.meta);
 
           let aggregateHeadContent = headContent;
@@ -237,7 +248,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
           const fullHtml = template
             .replace(SSRTAG.ssrHead, aggregateHeadContent)
-            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script type="module" src="${bootstrapModule}" defer></script>`);
+            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script nonce="${nonce}" type="module" src="${bootstrapModule}" defer></script>`);
 
           return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
         } else {
@@ -258,7 +269,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
               },
 
               onFinish: async (initialDataResolved: unknown) => {
-                reply.raw.write(`<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`);
+                reply.raw.write(`<script nonce="${nonce}">window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`);
                 reply.raw.write(afterBody);
                 reply.raw.end();
               },
@@ -291,6 +302,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         if (!defaultConfig) throw new Error('No default configuration found.');
 
         const { clientRoot } = defaultConfig;
+        const nonce = applyCSP(opts.security, reply);
 
         let template = ensureNonNull(templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
 
@@ -299,7 +311,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
         template = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
         if (!isDevelopment && cssLink) template = template.replace('</head>', `${cssLink}</head>`);
-        if (bootstrapModule) template = template.replace('</body>', `<script type="module" src="${bootstrapModule}" defer></script></body>`);
+        if (bootstrapModule) template = template.replace('</body>', `<script nonce="${nonce}" type="module" src="${bootstrapModule}" defer></script></body>`);
 
         reply.status(200).type('text/html').send(template);
       } catch (error) {
@@ -335,6 +347,12 @@ export type SSRServerOptions = {
   configs: Config[];
   routes: Route<RouteParams>[];
   serviceRegistry: ServiceRegistry;
+  security?: {
+    csp?: {
+      directives?: CSPDirectives;
+      generateCSP?: (directives: CSPDirectives, nonce: string) => string;
+    };
+  };
   isDebug?: boolean;
 };
 

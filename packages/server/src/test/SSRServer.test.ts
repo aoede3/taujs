@@ -117,6 +117,17 @@ vi.mock('node:fs/promises', () => ({
   readFile: (filePath: string) => fsReadFileMock(filePath),
 }));
 
+vi.mock('../security/csp', () => ({
+  applyCSP: vi.fn((security, _reply) => {
+    const nonce = 'mock-nonce';
+    if (security?.csp?.generateCSP) {
+      security.csp.generateCSP(security.csp.directives || {}, nonce);
+    }
+    return nonce;
+  }),
+  cspHook: vi.fn(() => (_req: any, _res: any, next: () => any) => next()),
+}));
+
 describe('SSRServer Plugin (New)', () => {
   let app: FastifyInstance;
   let options: SSRServerOptions;
@@ -587,7 +598,7 @@ describe('SSRServer Plugin (New)', () => {
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.body).toContain('<html>');
     expect(response.body).toContain('</html>');
-    expect(response.body).toContain('<script type="module" src="/entry-client.js" async=""></script></body>');
+    expect(response.body).toContain('<script nonce="mock-nonce" type="module" src="/entry-client.js" defer></script></body>');
     expect(response.body).not.toContain(`${SSRTAG.ssrHead}`);
     expect(response.body).not.toContain(`${SSRTAG.ssrHtml}`);
     expect(response.body).toContain('<link rel="preload stylesheet" as="style" type="text/css" href="/entry-client.css">');
@@ -664,7 +675,7 @@ describe('SSRServer Plugin (New)', () => {
     // expect(body).toContain('.test-class { color: red; }');
 
     expect(body).toContain(
-      '<html><head></head><div id="app"></div><script>window.__INITIAL_DATA__ = {}</script><script type="module" src="/entry-client" async=""></script></html>',
+      '<html><head></head><div id="app"></div><script nonce="mock-nonce">window.__INITIAL_DATA__ = {}</script><script nonce="mock-nonce" type="module" src="/entry-client" defer></script></html>',
     );
   });
 
@@ -782,7 +793,7 @@ describe('SSRServer Plugin (New)', () => {
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.body).toContain('<html>');
     expect(response.body).toContain('</html>');
-    expect(response.body).toContain('<script type="module" src="/entry-client.js" async=""></script></body>');
+    expect(response.body).toContain('<script nonce="mock-nonce" type="module" src="/entry-client.js" defer></script></body>');
     expect(response.body).not.toContain(`${SSRTAG.ssrHead}`);
     expect(response.body).not.toContain(`${SSRTAG.ssrHtml}`);
     expect(response.body).toContain('<link rel="preload stylesheet" as="style" type="text/css" href="/entry-client.css">');
@@ -932,5 +943,55 @@ describe('processConfigs', () => {
         appId: 'app2',
       },
     ]);
+  });
+
+  it('registers plugin with custom CSP directives and generateCSP', async () => {
+    isDevelopmentValue = false;
+
+    const mockDirectives = {
+      'script-src': ["'self'", "'nonce-custom'"],
+    };
+
+    const mockGenerateCSP = vi.fn((_directives, nonce) => {
+      expect(nonce).toBe('mock-nonce');
+      return `script-src 'nonce-${nonce}'`; // This string is not inspected, just needed to satisfy the interface
+    });
+
+    const { SSRServer } = await import('../SSRServer');
+
+    const customOptions: SSRServerOptions = {
+      alias: {},
+      clientRoot: './test',
+      configs: [
+        {
+          appId: '',
+          entryPoint: '.',
+          entryClient: 'entry-client',
+          entryServer: 'entry-server',
+          htmlTemplate: 'index.html',
+        },
+      ],
+      routes: [{ path: '/', attr: { render: RENDERTYPE.ssr } }],
+      serviceRegistry: {},
+      security: {
+        csp: {
+          directives: mockDirectives,
+          generateCSP: mockGenerateCSP,
+        },
+      },
+    };
+
+    const app = fastify();
+    await app.register(SSRServer, customOptions);
+
+    const { matchRoute } = await import('../utils');
+    (matchRoute as Mock).mockReturnValue({ route: customOptions.routes[0], params: {} });
+
+    const response = await app.inject({ method: 'GET', url: '/' });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGenerateCSP).toHaveBeenCalledWith(mockDirectives, 'mock-nonce');
+
+    await app.close();
   });
 });
