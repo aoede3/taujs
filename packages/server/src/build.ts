@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { build } from 'vite';
@@ -26,9 +25,11 @@ export async function taujsBuild({
   isSSRBuild?: boolean;
 }) {
   const deleteDist = async () => {
+    // imported here as dynamic to avoid vitest hoisting issues
+    const { rm } = await import('node:fs/promises');
     const distPath = path.resolve(projectRoot, 'dist');
     try {
-      await fs.rm(distPath, { recursive: true, force: true });
+      await rm(distPath, { recursive: true, force: true });
       console.log('Deleted the dist directory\n');
     } catch (err) {
       console.error('Error deleting dist directory:', err);
