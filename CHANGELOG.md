@@ -1,8 +1,17 @@
 # @taujs
 
-v0.1.6 - 03/07/2025
+v0.1.8 - 03/07/2025
 
-chore(deps): Bump taujs-server package
+feat: Security csp dev standard
+
+v0.1.7 - 03/07/2025
+
+feat: typing; ordering
+feat: integrate csp
+
+v0.1.6 - 01/07/2025
+
+feat: service typing; cleanup
 
 v0.1.5 - 30/06/2025
 
