@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.2.6 - 03/07/2025
+
+feat: Security csp dev standard
+
 v0.2.5 - 03/07/2025
 
 feat: Security csp
