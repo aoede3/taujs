@@ -33,6 +33,10 @@
       "import": "./dist/build.js",
       "types": "./dist/build.d.ts"
     },
+    "./csp": {
+      "import": "./dist/security/csp.js",
+      "types": "./dist/security/csp.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "files": [
