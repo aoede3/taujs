@@ -1,5 +1,12 @@
 # @taujs/server
 
+v0.2.5 - 03/07/2025
+
+feat: Security csp
+test: Security csp
+test: build
+feat: Security csp
+
 v0.2.4 - 01/07/2025
 
 feat: service typing; cleanup
