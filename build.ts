@@ -8,7 +8,7 @@ import { configs } from './buildConfig.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 await taujsBuild({
+  clientBaseDir: path.resolve(__dirname, 'src/client'),
   configs,
   projectRoot: __dirname,
-  clientBaseDir: path.resolve(__dirname, 'src/client'),
 });
