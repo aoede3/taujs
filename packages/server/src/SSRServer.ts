@@ -347,14 +347,13 @@ export type SSRServerOptions = {
   configs: Config[];
   routes: Route<RouteParams>[];
   serviceRegistry: ServiceRegistry;
-
-  isDebug?: boolean;
   security?: {
     csp?: {
       directives?: CSPDirectives;
       generateCSP?: (directives: CSPDirectives, nonce: string) => string;
     };
   };
+  isDebug?: boolean;
 };
 
 export type ServiceMethod = (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
