@@ -1,5 +1,9 @@
 # @taujs
 
+v0.1.6 - 03/07/2025
+
+chore(deps): Bump taujs-server package
+
 v0.1.5 - 30/06/2025
 
 chore(deps): Bump taujs packages
