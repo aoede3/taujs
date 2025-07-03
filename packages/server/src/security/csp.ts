@@ -63,12 +63,12 @@ export const cspHook =
 export const getRequestNonce = (req: FastifyRequest): string | undefined => (req as any).nonce;
 
 export const applyCSP = (security: SSRServerOptions['security'], reply: FastifyReply): string | undefined => {
-  if (!security?.csp) return;
-
   const nonce = generateNonce();
-  const { directives = {}, generateCSP = defaultGenerateCSP } = security.csp;
-  const header = generateCSP(directives, nonce);
 
+  const directives = security?.csp?.directives ?? DEV_CSP_DIRECTIVES;
+  const generate = security?.csp?.generateCSP ?? defaultGenerateCSP;
+
+  const header = generate(directives, nonce);
   reply.header('Content-Security-Policy', header);
   reply.request.nonce = nonce;
 

@@ -123,12 +123,18 @@ describe('applyCSP', () => {
     vi.clearAllMocks();
   });
 
-  it('does nothing if no CSP in config', () => {
-    const reply = { header: vi.fn(), request: {} };
-    const result = applyCSP(undefined, reply as any);
+  it('uses default directives when security or csp is undefined', () => {
+    const reply: any = { header: vi.fn(), request: {} };
+    const result = applyCSP(undefined as any, reply);
 
-    expect(result).toBeUndefined();
-    expect(reply.header).not.toHaveBeenCalled();
+    expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy', expect.stringContaining('script-src'));
+    expect(result).toBe(reply.request.nonce);
+
+    vi.clearAllMocks();
+
+    const result2 = applyCSP({} as any, reply);
+    expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy', expect.stringContaining('script-src'));
+    expect(result2).toBe(reply.request.nonce);
   });
 
   it('sets CSP and nonce using defaults', () => {
@@ -147,6 +153,18 @@ describe('applyCSP', () => {
 
     expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy', 'test-csp');
     expect(generateCSP).toHaveBeenCalled();
+    expect(result).toBe(reply.request.nonce);
+  });
+
+  it('uses custom directives with default generator', () => {
+    const directives: CSPDirectives = {
+      'script-src': ["'self'", 'https://example.com'],
+    };
+
+    const reply: any = { header: vi.fn(), request: {} };
+    const result = applyCSP({ csp: { directives } }, reply);
+
+    expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy', expect.stringContaining('https://example.com'));
     expect(result).toBe(reply.request.nonce);
   });
 });
