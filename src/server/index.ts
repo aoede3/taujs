@@ -30,14 +30,6 @@ const startServer = async () => {
       configs,
       routes,
       serviceRegistry,
-      security: {
-        csp: {
-          directives: {
-            'default-src': ["'self'"],
-            'img-src': ["'self'", 'data:'],
-          },
-        },
-      },
     }));
 
     void fastify.get('/api/initial/:id?', (request: FastifyRequest<{ Params: InitialRouteParams }>, reply: FastifyReply) => {
