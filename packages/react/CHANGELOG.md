@@ -1,5 +1,11 @@
 # @taujs/react
 
+v0.0.6 - 05/07/2025
+
+feat: SSRDataStore error handling
+test: SSRDataStore error handling
+test: plugin coverage
+
 v0.0.5 - 30/06/2025
 
 feat: Integrate build plugin helper; tsup config
