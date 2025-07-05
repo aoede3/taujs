@@ -7,14 +7,33 @@ export type SSRStore<T> = {
   subscribe: (callback: () => void) => () => void;
 };
 
-export const createSSRStore = <T,>(initialDataOrPromise: T | Promise<T>): SSRStore<T> => {
-  let currentData: T;
+export const createSSRStore = <T,>(initialDataOrPromise: T | Promise<T> | (() => Promise<T>)): SSRStore<T> => {
+  let currentData: T | undefined;
   let status: 'pending' | 'success' | 'error';
+  let lastError: Error | undefined;
 
   const subscribers = new Set<() => void>();
   let serverDataPromise: Promise<void>;
 
-  if (initialDataOrPromise instanceof Promise) {
+  const handleError = (error: unknown) => {
+    console.error('Failed to load initial data:', error);
+    lastError = error instanceof Error ? error : new Error(String(JSON.stringify(error)));
+    status = 'error';
+  };
+
+  if (typeof initialDataOrPromise === 'function') {
+    // Lazy promise
+    status = 'pending';
+    const promiseFromFunction = (initialDataOrPromise as () => Promise<T>)();
+    serverDataPromise = promiseFromFunction
+      .then((data) => {
+        currentData = data;
+        status = 'success';
+        subscribers.forEach((callback) => callback());
+      })
+      .catch(handleError);
+  } else if (initialDataOrPromise instanceof Promise) {
+    // Immediate promise
     status = 'pending';
     serverDataPromise = initialDataOrPromise
       .then((data) => {
@@ -22,12 +41,9 @@ export const createSSRStore = <T,>(initialDataOrPromise: T | Promise<T>): SSRSto
         status = 'success';
         subscribers.forEach((callback) => callback());
       })
-      .catch((error) => {
-        console.error('Failed to load initial data:', error);
-        status = 'error';
-      })
-      .then(() => {});
+      .catch(handleError);
   } else {
+    // Raw data
     currentData = initialDataOrPromise;
     status = 'success';
     serverDataPromise = Promise.resolve();
@@ -49,8 +65,10 @@ export const createSSRStore = <T,>(initialDataOrPromise: T | Promise<T>): SSRSto
       // trigger client suspense
       throw serverDataPromise;
     } else if (status === 'error') {
-      throw new Error('An error occurred while fetching the data.');
+      throw new Error(`SSR data fetch failed: ${lastError?.message || 'Unknown error'}`);
     }
+    if (currentData === undefined) throw new Error('SSR data is undefined - store initialisation problem');
+
     return currentData;
   };
 
@@ -58,8 +76,10 @@ export const createSSRStore = <T,>(initialDataOrPromise: T | Promise<T>): SSRSto
     if (status === 'pending') {
       throw serverDataPromise;
     } else if (status === 'error') {
-      throw new Error('Data is not available on the server.');
+      throw new Error(`Server-side data fetch failed: ${lastError?.message || 'Unknown error'}`);
     }
+    if (currentData === undefined) throw new Error('Server data not available - check SSR configuration');
+
     return currentData;
   };
 

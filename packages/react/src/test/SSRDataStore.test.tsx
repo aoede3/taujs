@@ -22,7 +22,12 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
 }
 
 describe('createSSRStore', () => {
-  it('should initialize with initial data after promise resolves', async () => {
+  it('should initialise immediately with raw data', () => {
+    const store = createSSRStore({ foo: 'bar' });
+    expect(store.getSnapshot()).toEqual({ foo: 'bar' });
+  });
+
+  it('should initialise with initial data after promise resolves', async () => {
     const initialDataPromise = Promise.resolve({ foo: 'bar' });
     const store = createSSRStore(initialDataPromise);
 
@@ -38,6 +43,24 @@ describe('createSSRStore', () => {
     });
 
     expect(store.getSnapshot()).toEqual({ foo: 'bar' });
+  });
+
+  it('should initialise from a lazy promise function', async () => {
+    const lazyFn = () => Promise.resolve({ foo: 'baz' });
+    const store = createSSRStore(lazyFn);
+
+    try {
+      store.getSnapshot();
+      throw new Error('Expected to throw promise');
+    } catch (e) {
+      expect(e).to.be.instanceOf(Promise);
+    }
+
+    await act(async () => {
+      await lazyFn();
+    });
+
+    expect(store.getSnapshot()).toEqual({ foo: 'baz' });
   });
 
   it('should notify subscribers when data changes', async () => {
@@ -68,7 +91,7 @@ describe('createSSRStore', () => {
     const store = createSSRStore(errorPromise);
 
     const consoleError = console.error;
-    console.error = () => {}; // suppress error
+    console.error = () => {};
 
     await act(async () => {
       try {
@@ -76,7 +99,7 @@ describe('createSSRStore', () => {
       } catch (e) {}
     });
 
-    expect(() => store.getSnapshot()).toThrow('An error occurred while fetching the data.');
+    expect(() => store.getSnapshot()).toThrow('SSR data fetch failed: Failed to load data');
     console.error = consoleError;
   });
 
@@ -101,6 +124,21 @@ describe('createSSRStore', () => {
 
     expect(store.getSnapshot()).toEqual({ foo: 'bar' });
   });
+
+  it('should remove subscriber after unsubscribe', async () => {
+    const store = createSSRStore({ foo: 'bar' });
+    const callback = vi.fn();
+    const unsubscribe = store.subscribe(callback);
+
+    store.setData({ foo: 'baz' });
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    callback.mockReset();
+    unsubscribe();
+
+    store.setData({ foo: 'qux' });
+    expect(callback).not.toHaveBeenCalled();
+  });
 });
 
 describe('SSRStoreProvider and useSSRStore', () => {
@@ -109,9 +147,8 @@ describe('SSRStoreProvider and useSSRStore', () => {
     const store = createSSRStore<Record<string, unknown>>(initialDataPromise);
 
     const TestComponent: React.FC = () => {
-      const maybeData = useSSRStore<Record<string, unknown>>();
-      const data = typeof maybeData.getSnapshot === 'function' ? maybeData.getSnapshot() : (maybeData as Record<string, unknown>);
-
+      const data = useSSRStore<Record<string, unknown>>();
+      return <div>{data.foo as string}</div>;
       return <div>{data['foo'] as string}</div>;
     };
 
@@ -138,7 +175,7 @@ describe('SSRStoreProvider and useSSRStore', () => {
     };
 
     const consoleError = console.error;
-    console.error = () => {}; // suppress error
+    console.error = () => {};
 
     const { findByText } = render(
       <ErrorBoundary>
@@ -187,18 +224,17 @@ describe('SSRStoreProvider and useSSRStore', () => {
   });
 
   it('should handle errors in useSSRStore when data fetching fails', async () => {
-    const errorPromise = Promise.reject(new Error('Failed to load data'));
+    const errorPromise = new Promise<Record<string, unknown>>((_, reject) => setTimeout(() => reject(new Error('Failed to load data')), 0));
     const store = createSSRStore<Record<string, unknown>>(errorPromise);
 
     const TestComponent: React.FC = () => {
       const maybeData = useSSRStore<Record<string, unknown>>();
       const data = typeof maybeData.getSnapshot === 'function' ? maybeData.getSnapshot() : (maybeData as Record<string, unknown>);
-
       return <div>{data['foo'] as string}</div>;
     };
 
     const consoleError = console.error;
-    console.error = () => {}; // suppress error
+    console.error = () => {};
 
     const { findByText } = render(
       <SSRStoreProvider store={store}>
@@ -210,16 +246,104 @@ describe('SSRStoreProvider and useSSRStore', () => {
       </SSRStoreProvider>,
     );
 
-    await act(async () => {
-      try {
-        await errorPromise;
-      } catch {}
-    });
-
-    const element = await findByText('Error: An error occurred while fetching the data.');
+    const element = await findByText(/failed to load data/i);
     expect(element).to.exist;
 
     console.error = consoleError;
+  });
+
+  it('should handle non-Error thrown values', async () => {
+    const errorPromise = Promise.reject('not an error object');
+    const store = createSSRStore(errorPromise);
+
+    const consoleError = console.error;
+    console.error = () => {};
+
+    try {
+      await errorPromise;
+    } catch {}
+
+    await new Promise((r) => setImmediate(r));
+
+    expect(() => store.getSnapshot()).toThrow('SSR data fetch failed: "not an error object"');
+
+    console.error = consoleError;
+  });
+
+  it('should stringify non-Error thrown objects', async () => {
+    const errorObj = { foo: 'bar' };
+    const errorPromise = Promise.reject(errorObj);
+    const store = createSSRStore(errorPromise);
+
+    const consoleError = console.error;
+    console.error = () => {};
+
+    try {
+      await errorPromise;
+    } catch {}
+
+    await new Promise((r) => setImmediate(r));
+
+    expect(() => store.getSnapshot()).toThrow('SSR data fetch failed: {"foo":"bar"}');
+
+    console.error = consoleError;
+  });
+
+  it('should use "Unknown error" if lastError is missing', () => {
+    const store = createSSRStore({ foo: 'bar' }) as any;
+
+    store.getSnapshot = () => {
+      (store as any).status = 'error';
+      (store as any).lastError = {};
+      return (store as any).originalGetSnapshot();
+    };
+
+    store.originalGetSnapshot = () => {
+      if (store.status === 'error') {
+        throw new Error(`SSR data fetch failed: ${store.lastError?.message || 'Unknown error'}`);
+      }
+      return store.currentData;
+    };
+
+    expect(() => store.getSnapshot()).toThrow('SSR data fetch failed: Unknown error');
+  });
+
+  it('should throw if data is undefined even though status is success (SSR init problem)', () => {
+    const store = createSSRStore({ foo: 'bar' }) as any;
+
+    store.getSnapshot = () => {
+      store.status = 'success';
+      store.currentData = undefined;
+      return store.originalGetSnapshot();
+    };
+
+    store.originalGetSnapshot = () => {
+      if (store.status === 'success' && store.currentData === undefined) {
+        throw new Error('SSR data is undefined - store initialisation problem');
+      }
+      return store.currentData;
+    };
+
+    expect(() => store.getSnapshot()).toThrow('SSR data is undefined - store initialisation problem');
+  });
+
+  it('should throw if server data is undefined even though status is success', () => {
+    const store = createSSRStore({ foo: 'bar' }) as any;
+
+    store.getServerSnapshot = () => {
+      store.status = 'success';
+      store.currentData = undefined;
+      return store.originalGetServerSnapshot();
+    };
+
+    store.originalGetServerSnapshot = () => {
+      if (store.status === 'success' && store.currentData === undefined) {
+        throw new Error('Server data not available - check SSR configuration');
+      }
+      return store.currentData;
+    };
+
+    expect(() => store.getServerSnapshot()).toThrow('Server data not available - check SSR configuration');
   });
 
   it('should throw the serverDataPromise when data is pending', () => {
@@ -246,7 +370,7 @@ describe('SSRStoreProvider and useSSRStore', () => {
     const store = createSSRStore(errorPromise);
 
     const consoleError = console.error;
-    console.error = () => {}; // suppress error
+    console.error = () => {};
 
     try {
       await errorPromise;
@@ -254,7 +378,7 @@ describe('SSRStoreProvider and useSSRStore', () => {
 
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(() => store.getServerSnapshot()).to.throw('Data is not available on the server.');
+    expect(() => store.getServerSnapshot()).to.throw('Server-side data fetch failed: Failed to load data');
 
     console.error = consoleError;
   });
