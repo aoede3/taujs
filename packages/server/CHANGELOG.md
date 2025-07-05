@@ -1,5 +1,11 @@
 # @taujs/server
 
+v0.2.7 - 05/07/2025
+
+feat: SSRServer clean up typing
+feat: utils; service method typing
+test: utils service method coverage
+
 v0.2.6 - 03/07/2025
 
 feat: Security csp dev standard
