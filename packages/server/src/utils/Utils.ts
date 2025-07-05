@@ -105,26 +105,25 @@ export function renderPreloadLink(file: string): string {
   }
 }
 
-export const callServiceMethod = async (
-  serviceRegistry: ServiceRegistry,
-  serviceName: string,
-  serviceMethod: string,
-  params: Record<string, unknown>,
-): Promise<Record<string, unknown>> => {
-  const service = serviceRegistry[serviceName];
+export const callServiceMethod = async <S extends keyof ServiceRegistry, M extends keyof ServiceRegistry[S]>(
+  registry: ServiceRegistry,
+  serviceName: S,
+  methodName: M,
+  params: Parameters<ServiceRegistry[S][M]>[0],
+): Promise<Awaited<ReturnType<ServiceRegistry[S][M]>>> => {
+  const service = registry[serviceName];
+  if (!service) throw new Error(`Service ${String(serviceName)} does not exist in the registry`);
 
-  if (service && typeof service[serviceMethod] === 'function') {
-    const method: ServiceMethod = service[serviceMethod];
+  const method = service[methodName];
 
-    const data = await method(params);
+  if (typeof method !== 'function') throw new Error(`Service method ${String(methodName)} does not exist on ${String(serviceName)}`);
 
-    if (typeof data !== 'object' || data === null)
-      throw new Error(`Expected object response from service method ${serviceMethod} on ${serviceName}, but got ${typeof data}`);
+  const data = await method(params);
 
-    return data;
-  }
+  if (typeof data !== 'object' || data === null)
+    throw new Error(`Expected object response from ${String(serviceName)}.${String(methodName)}, but got ${typeof data}`);
 
-  throw new Error(`Service method ${serviceMethod} does not exist on ${serviceName}`);
+  return data;
 };
 
 export const fetchData = async ({ url, options }: FetchConfig): Promise<Record<string, unknown>> => {
@@ -155,11 +154,12 @@ export const fetchInitialData = async (
         params,
       })
       .then(async (data) => {
-        if (data.serviceName && data.serviceMethod) {
+        if (data.serviceName && data.serviceMethod && typeof data.serviceName === 'string' && typeof data.serviceMethod === 'string')
           return await callServiceMethod(serviceRegistry, data.serviceName, data.serviceMethod, data.options?.params ?? {});
-        }
 
-        return await fetchData(data);
+        if (data.url && typeof data.url === 'string') return await fetchData(data);
+
+        throw new Error('Invalid fetch configuration: must have either serviceName+serviceMethod or url');
       })
       .catch((error) => {
         console.error('Error fetching initial data:', error);
