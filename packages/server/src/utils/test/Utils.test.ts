@@ -201,7 +201,7 @@ describe('callServiceMethod', () => {
     };
 
     await expect(utils.callServiceMethod(serviceRegistry, 'myService', 'myMethod', {})).rejects.toThrow(
-      'Expected object response from service method myMethod on myService, but got string',
+      'Expected object response from myService.myMethod, but got string',
     );
   });
 
@@ -214,7 +214,7 @@ describe('callServiceMethod', () => {
     };
 
     await expect(utils.callServiceMethod(serviceRegistry, 'myService', 'myMethod', {})).rejects.toThrow(
-      'Expected object response from service method myMethod on myService, but got object',
+      'Expected object response from myService.myMethod, but got object',
     );
   });
 
@@ -228,6 +228,14 @@ describe('callServiceMethod', () => {
     const result = await utils.callServiceMethod(serviceRegistry, 'myService', 'myMethod', {});
 
     expect(result).toEqual({ success: true });
+  });
+
+  it('should throw an error if the service does not exist in the registry', async () => {
+    const serviceRegistry: ServiceRegistry = {};
+
+    await expect(utils.callServiceMethod(serviceRegistry, 'nonexistentService' as any, 'someMethod' as any, {})).rejects.toThrow(
+      'Service nonexistentService does not exist in the registry',
+    );
   });
 });
 
@@ -485,6 +493,24 @@ describe('fetchInitialData', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith('Error fetching initial data:', error);
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it('should throw an error if fetch config has neither serviceName/method nor url', async () => {
+    const attr = {
+      fetch: vi.fn().mockResolvedValue({}),
+    };
+
+    await expect(utils.fetchInitialData(attr, {}, {} as ServiceRegistry)).rejects.toThrow(
+      'Invalid fetch configuration: must have either serviceName+serviceMethod or url',
+    );
+
+    expect(attr.fetch).toHaveBeenCalledWith(
+      {},
+      {
+        headers: { 'Content-Type': 'application/json' },
+        params: {},
+      },
+    );
   });
 });
 

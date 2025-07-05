@@ -397,7 +397,6 @@ export type RenderSSR = (
 ) => Promise<{
   headContent: string;
   appHtml: string;
-  initialDataScript: string;
 }>;
 
 export type RenderStream = (
