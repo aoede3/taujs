@@ -2,12 +2,12 @@ import path from 'node:path';
 
 import Fastify from 'fastify';
 import { SSRServer } from '@taujs/server';
+import { extractBuildConfigs, extractRoutes } from '@taujs/server/config';
 
 import { serviceRegistry } from '@server/services';
 import { __dirname } from '@server/utils';
-import { routes } from '@shared/routes';
 
-import { configs } from '../../buildConfig.js';
+import { taujsConfig } from '../../taujs.config.js';
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { InitialRouteParams } from '@taujs/server';
@@ -16,6 +16,7 @@ const clientRoot = path.resolve(__dirname, '../client');
 const port = Number(process.env.PORT) || 5173;
 
 const startServer = async () => {
+  /*  */
   try {
     const fastify = Fastify({
       logger: false,
@@ -27,8 +28,8 @@ const startServer = async () => {
 
     void (await fastify.register(SSRServer, {
       clientRoot,
-      configs,
-      routes,
+      configs: extractBuildConfigs(taujsConfig),
+      routes: extractRoutes(taujsConfig),
       serviceRegistry,
     }));
 

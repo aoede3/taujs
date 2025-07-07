@@ -642,15 +642,15 @@
   resolved "https://registry.yarnpkg.com/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.42.0.tgz#516c6770ba15fe6aef369d217a9747492c01e8b7"
   integrity sha512-LpHiJRwkaVz/LqjHjK8LCi8osq7elmpwujwbXKNW88bM8eeGxavJIKKjkjpMHAh/2xfnrt1ZSnhTv41WYUHYmA==
 
-"@taujs/react@^0.0.5":
-  version "0.0.5"
-  resolved "https://registry.yarnpkg.com/@taujs/react/-/react-0.0.5.tgz#d7f44ec6b1f9faad2b43be4389325320edb546fa"
-  integrity sha512-HfMNOHoeM5pHEIaQsfUR4Mt0zO0igJ3hW/v2QupWMVcIYBxa0M285vaSgOWgImkV35AtRKrKcFrajVZBhXryYA==
+"@taujs/react@^0.0.6":
+  version "0.0.6"
+  resolved "https://registry.yarnpkg.com/@taujs/react/-/react-0.0.6.tgz#c3f541f571add525717c8620505b9b0962a19f31"
+  integrity sha512-3BAHTM2Xox9iW5oOCJJl8WHLyQ/QFF3AEarypQYsOXz5oCBGxxqd54fe4XFh7P+0nBVkYOZqleZaSKwP83spLg==
 
-"@taujs/server@^0.2.5":
-  version "0.2.5"
-  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.2.5.tgz#14dd79a229af623a76da4d7180e5f84a8664dc0f"
-  integrity sha512-0rlqWmm/4WKZ7mgTK0TjZTeZey+Z0nwQTH/O6ChIXm47rXv9EX1hNQUudtY/WkNhqwq7XeKIVLsj1CuZ7rG39w==
+"@taujs/server@^0.2.8":
+  version "0.2.8"
+  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.2.8.tgz#7c8da4f360b0632ec46976dc1a3b5be9166b03c9"
+  integrity sha512-MLojgM67g0E5w2qzZMtPlyakODtUkG5FDbh/bab0mROGeWxaLV4eq860/BMG1GjXCAxAXYAKJqZZIOIc0VkR1A==
   dependencies:
     "@fastify/static" "^8.0.3"
     path-to-regexp "^8.1.0"
