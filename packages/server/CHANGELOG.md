@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.2.8 - 07/07/2025
+
+feat: taujs.config
+feat: selective hydration; types; constants; tests
+
 v0.2.7 - 05/07/2025
 
 feat: SSRServer clean up typing
