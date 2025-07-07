@@ -246,9 +246,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
           if (manifest && cssLink) aggregateHeadContent += cssLink;
 
+          const shouldHydrate = attr?.hydrate !== false;
+          const bootstrapScriptTag = shouldHydrate ? `<script nonce="${nonce}" type="module" src="${bootstrapModule}" defer></script>` : '';
+
           const fullHtml = template
             .replace(SSRTAG.ssrHead, aggregateHeadContent)
-            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script nonce="${nonce}" type="module" src="${bootstrapModule}" defer></script>`);
+            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}${bootstrapScriptTag}`);
 
           return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
         } else {
@@ -413,18 +416,19 @@ export type RenderModule = {
   renderStream: RenderStream;
 };
 
-export type RouteAttributes<Params = {}> = {
-  fetch?: (params?: Params, options?: RequestInit & { params?: Record<string, unknown> }) => Promise<FetchConfig>;
-} & (
+export type RouteAttributes<Params = {}> =
   | {
-      render?: typeof RENDERTYPE.ssr;
+      render: 'ssr';
+      hydrate?: boolean;
       meta?: Record<string, unknown>;
+      fetch?: (params?: Params, options?: RequestInit & { params?: Record<string, unknown> }) => Promise<FetchConfig>;
     }
   | {
-      render: typeof RENDERTYPE.streaming;
+      render: 'streaming';
+      hydrate?: never;
       meta: Record<string, unknown>;
-    }
-);
+      fetch?: (params?: Params, options?: RequestInit & { params?: Record<string, unknown> }) => Promise<FetchConfig>;
+    };
 
 export type Route<Params = {}> = {
   attr?: RouteAttributes<Params>;

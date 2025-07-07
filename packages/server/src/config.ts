@@ -3,9 +3,12 @@ import { performance } from 'node:perf_hooks';
 import pc from 'picocolors';
 import type { PluginOption } from 'vite';
 
-import type { Route, RouteParams } from './SSRServer';
+import type { Route, RouteAttributes, RouteParams } from './SSRServer';
 
-export type AppRoute = Omit<Route<RouteParams>, 'appId'>;
+export type AppRoute = Omit<Route<RouteParams>, 'appId'> & {
+  attr?: RouteAttributes;
+};
+
 export type AppConfig = {
   appId: string;
   entryPoint: string;
