@@ -1,5 +1,17 @@
 # @taujs
 
+v0.2.1 - 08/07/2025
+
+chore(deps): Bump taujs/server
+
+v0.2.0 - 07/07/2025
+
+feat: taujs config
+
+v0.1.9 - 05/07/2025
+
+chore(deps): Bump taujs/server; taujs/react
+
 v0.1.8 - 03/07/2025
 
 feat: Security csp dev standard
