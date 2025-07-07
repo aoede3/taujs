@@ -1,0 +1,71 @@
+import { performance } from 'node:perf_hooks';
+
+import pc from 'picocolors';
+import type { PluginOption } from 'vite';
+
+import type { Route, RouteParams } from './SSRServer';
+
+export type AppRoute = Omit<Route<RouteParams>, 'appId'>;
+export type AppConfig = {
+  appId: string;
+  entryPoint: string;
+  plugins?: PluginOption[];
+  routes?: AppRoute[];
+};
+
+export type TaujsConfig = {
+  apps: AppConfig[];
+};
+
+export const extractBuildConfigs = (config: { apps: { appId: string; entryPoint: string; plugins?: PluginOption[] }[] }): AppConfig[] => {
+  return config.apps.map(({ appId, entryPoint, plugins }) => ({
+    appId,
+    entryPoint,
+    plugins,
+  }));
+};
+
+export function extractRoutes(taujsConfig: TaujsConfig): Route<RouteParams>[] {
+  console.log(pc.bold('Preparing taujs [ τjs ]'));
+  const t0 = performance.now();
+
+  try {
+    const allRoutes: Route<RouteParams>[] = [];
+    const pathTracker = new Map<string, string[]>();
+    let totalRoutes = 0;
+
+    for (const app of taujsConfig.apps) {
+      const appRoutes = (app.routes ?? []).map((route) => {
+        const fullRoute: Route<RouteParams> = { ...route, appId: app.appId };
+
+        if (!pathTracker.has(route.path)) pathTracker.set(route.path, []);
+        pathTracker.get(route.path)!.push(app.appId);
+
+        return fullRoute;
+      });
+
+      console.log(pc.gray(` • ${app.appId}: ${appRoutes.length} route(s)`));
+
+      allRoutes.push(...appRoutes);
+      totalRoutes += appRoutes.length;
+    }
+
+    for (const [path, appIds] of pathTracker.entries()) {
+      if (appIds.length > 1) console.warn(pc.yellow(`⚠️ Route path "${path}" is declared in multiple apps: ${appIds.join(', ')} – order may affect matching`));
+    }
+
+    const sortedRoutes = allRoutes.sort((a, b) => computeScore(b.path) - computeScore(a.path));
+    const t1 = performance.now();
+
+    console.log(pc.green(`Prepared ${totalRoutes} route(s) in ${(t1 - t0).toFixed(1)}ms`));
+
+    return sortedRoutes;
+  } catch (err) {
+    console.log(pc.red('Failed to prepare routes'));
+    throw err;
+  }
+}
+
+function computeScore(path: string): number {
+  return path.split('/').filter(Boolean).length;
+}
