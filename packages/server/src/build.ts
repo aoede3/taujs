@@ -6,12 +6,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { processConfigs, TEMPLATE } from './SSRServer';
 
 import type { InlineConfig, PluginOption } from 'vite';
-
-export type Config = {
-  appId: string;
-  entryPoint: string;
-  plugins?: PluginOption[];
-};
+import type { AppConfig } from './config';
 
 export async function taujsBuild({
   configs,
@@ -19,7 +14,7 @@ export async function taujsBuild({
   clientBaseDir,
   isSSRBuild = process.env.BUILD_MODE === 'ssr',
 }: {
-  configs: Config[];
+  configs: AppConfig[];
   projectRoot: string;
   clientBaseDir: string;
   isSSRBuild?: boolean;
