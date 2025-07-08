@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.2.9 - 08/07/2025
+
+feat: middleware intro; auth; tests; cleanup
+
 v0.2.8 - 07/07/2025
 
 feat: taujs.config
