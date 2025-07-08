@@ -1,5 +1,9 @@
 # @taujs
 
+v0.2.0 - 08/07/2025
+
+chore(deps): Bump taujs/server
+
 v0.2.0 - 07/07/2025
 
 feat: taujs config
