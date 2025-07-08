@@ -76,14 +76,14 @@ vi.mock('../utils', () => ({
     return isDevelopmentValue;
   },
   ensureNonNull: vi.fn((value, errorMessage) => {
-    if (value === undefined || value === null) {
-      throw new Error(errorMessage);
-    }
+    if (value === undefined || value === null) throw new Error(errorMessage);
+
     return value;
   }),
   processConfigs: vi.fn((configs, baseClientRoot, templateDefaults) => {
     return configs.map((config: Config) => {
       const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
+
       return {
         clientRoot,
         entryClient: config.entryClient || templateDefaults.defaultEntryClient,
@@ -120,12 +120,11 @@ vi.mock('node:fs/promises', () => ({
 vi.mock('../security/csp', () => ({
   applyCSP: vi.fn((security, _reply) => {
     const nonce = 'mock-nonce';
-    if (security?.csp?.generateCSP) {
-      security.csp.generateCSP(security.csp.directives || {}, nonce);
-    }
+    if (security?.csp?.generateCSP) security.csp.generateCSP(security.csp.directives || {}, nonce);
+
     return nonce;
   }),
-  cspHook: vi.fn(() => (_req: any, _res: any, next: () => any) => next()),
+  createCSPHook: vi.fn(() => (_req: any, _res: any, next: () => any) => next()),
 }));
 
 describe('SSRServer Plugin', () => {

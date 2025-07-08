@@ -39,7 +39,7 @@ export const defaultGenerateCSP = (directives: CSPDirectives, nonce: string): st
 
 export const generateNonce = (): string => crypto.randomBytes(16).toString('base64');
 
-export const cspHook =
+export const createCSPHook =
   (options: CSPOptions = {}) =>
   (req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) => {
     const nonce = generateNonce();
