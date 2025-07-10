@@ -1,5 +1,6 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest';
 import { verifyContracts } from '../security/verifyMiddleware';
+
 import type { FastifyInstance } from 'fastify';
 import type { Route } from '../SSRServer';
 

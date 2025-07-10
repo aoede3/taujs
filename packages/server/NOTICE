@@ -1,14 +1,14 @@
 taujs [ τjs ] Orchestration System  
-Copyright © 2024–present Aoede Ltd  
+Copyright © 2024-present Aoede Ltd  
 Author: John Smith
 
-This project introduces the taujs [ τjs ] orchestration model — a declarative, build-time system for managing microfrontend applications. It replaces traditional runtime module federation with a composable, server-side orchestration layer optimized for SSR, streaming, and middleware composition.
+This project introduces the taujs [ τjs ] orchestration model - a declarative, build-time system for managing microfrontend applications. It replaces traditional runtime module federation with a composable, server-side orchestration layer optimized for SSR, streaming, and middleware composition.
 
 taujs [ τjs ] enables:
 
 - Explicit route-to-app orchestration via `taujs.config.ts`
 - Isolated app build pipelines with plugin extensibility
-- Per-route rendering control (`ssr`, `stream`)
+- Per-route rendering control (`csr`, `ssr`, `stream`)
 - Optional hydration toggles and middleware composition
 
 Use of this software is permitted under the MIT License.

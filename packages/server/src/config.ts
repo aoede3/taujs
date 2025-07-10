@@ -5,14 +5,14 @@
  *
  * Licensed under the MIT License — attribution appreciated.
  * Part of the taujs [ τjs ] system for declarative, build-time orchestration of microfrontend applications,
- * including SSR, streaming, and middleware composition.
+ * including CSR, SSR, streaming, and middleware composition.
  */
 
 import { performance } from 'node:perf_hooks';
 
 import pc from 'picocolors';
-import type { PluginOption } from 'vite';
 
+import type { PluginOption } from 'vite';
 import type { Route, RouteAttributes, RouteParams } from './SSRServer';
 
 export type AppRoute = Omit<Route<RouteParams>, 'appId'> & {
@@ -38,7 +38,7 @@ export const extractBuildConfigs = (config: { apps: { appId: string; entryPoint:
   }));
 };
 
-export function extractRoutes(taujsConfig: TaujsConfig): Route<RouteParams>[] {
+export const extractRoutes = (taujsConfig: TaujsConfig): Route<RouteParams>[] => {
   console.log(pc.bold('Preparing taujs [ τjs ]'));
   const t0 = performance.now();
 
@@ -77,8 +77,11 @@ export function extractRoutes(taujsConfig: TaujsConfig): Route<RouteParams>[] {
     console.log(pc.red('Failed to prepare routes'));
     throw err;
   }
-}
+};
 
-function computeScore(path: string): number {
-  return path.split('/').filter(Boolean).length;
-}
+const computeScore = (path: string): number => {
+  return path
+    .split('/')
+    .filter(Boolean)
+    .reduce((score, segment) => score + (segment.startsWith(':') ? 1 : 10), 0);
+};

@@ -5,7 +5,7 @@
  *
  * Licensed under the MIT License — attribution appreciated.
  * Part of the taujs [ τjs ] system for declarative, build-time orchestration of microfrontend applications,
- * including SSR, streaming, and middleware composition.
+ * including CSR, SSR, streaming, and middleware composition.
  */
 
 import path from 'node:path';

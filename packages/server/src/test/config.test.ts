@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { extractBuildConfigs, extractRoutes } from '../config';
 
-import type { TaujsConfig } from '../config';
 import type { PluginOption } from 'vite';
+import type { TaujsConfig } from '../config';
 
 describe('extractBuildConfigs', () => {
   it('maps basic config without plugins', () => {
@@ -134,5 +134,21 @@ describe('extractRoutes', () => {
 
     expect(() => extractRoutes(config)).toThrow('routes access failed');
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to prepare routes'));
+  });
+
+  it('computes lower score for dynamic segments', () => {
+    const config: TaujsConfig = {
+      apps: [
+        {
+          appId: 'dynamic',
+          entryPoint: 'e',
+          routes: [{ path: '/user/:id' }, { path: '/user/profile' }],
+        },
+      ],
+    };
+    const result = extractRoutes(config);
+    const paths = result.map((r) => r.path);
+
+    expect(paths).toEqual(['/user/profile', '/user/:id']);
   });
 });
