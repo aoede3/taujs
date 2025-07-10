@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-import { createLogger } from '../Logger';
+import { createLogger, debugLog } from '../Logger';
 
 describe('createLogger', () => {
   it('should log to console when debug is true', () => {
@@ -61,5 +61,25 @@ describe('createLogger', () => {
     expect(errorSpy).not.toHaveBeenCalled();
 
     errorSpy.mockRestore();
+  });
+});
+
+describe('debugLog', () => {
+  const method = 'GET';
+  const url = '/foo';
+  const mockReq = { method, url };
+
+  it('logs formatted message using provided logger', () => {
+    const log = vi.fn();
+    const logger = { log, warn: vi.fn(), error: vi.fn() };
+    debugLog(logger, 'Test message', mockReq as any);
+    expect(log).toHaveBeenCalledWith('[τjs] GET /foo Test message');
+  });
+
+  it('logs without method/url if req is undefined', () => {
+    const log = vi.fn();
+    const logger = { log, warn: vi.fn(), error: vi.fn() };
+    debugLog(logger, 'No request');
+    expect(log).toHaveBeenCalledWith('[τjs]  No request');
   });
 });

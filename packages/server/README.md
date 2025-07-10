@@ -1,5 +1,7 @@
 # @taujs/server
 
+This package is part of the taujs [ τjs ] orchestration system, authored by John Smith | Aoede, 2024-present. Attribution is appreciated.
+
 `npm install @taujs/server`
 
 `yarn add @taujs/server`

@@ -1,11 +1,10 @@
 import path from 'node:path';
-import * as fs from 'node:fs/promises';
 import * as vite from 'vite';
 import { describe, it, beforeEach, vi, expect } from 'vitest';
 
 import { taujsBuild } from '../build';
 
-import type { Config } from '../build';
+import type { AppConfig } from '../config';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal();
@@ -25,7 +24,7 @@ vi.mock('vite', async () => {
 vi.mock('../SSRServer', async () => {
   const original = await vi.importActual('../SSRServer');
 
-  const mockProcessConfigs = vi.fn((configs: Config[]) =>
+  const mockProcessConfigs = vi.fn((configs: AppConfig[]) =>
     configs.map((cfg) => ({
       ...cfg,
       clientRoot: path.resolve('test-client', cfg.entryPoint),
@@ -52,7 +51,7 @@ declare module '../SSRServer' {
 const mockProcessConfigs = SSR.__mocked_processConfigs as ReturnType<typeof vi.fn>;
 
 describe('taujsBuild', () => {
-  const baseConfig: Config = {
+  const baseConfig: AppConfig = {
     appId: 'test-app',
     entryPoint: 'test-entry',
   };
@@ -95,7 +94,7 @@ describe('taujsBuild', () => {
   });
 
   it('supports multiple configs with and without entryPoint', async () => {
-    const configs: Config[] = [
+    const configs: AppConfig[] = [
       { appId: 'app1', entryPoint: 'foo' },
       { appId: 'app2', entryPoint: '' },
     ];
@@ -112,7 +111,7 @@ describe('taujsBuild', () => {
   });
 
   it('handles optional plugins', async () => {
-    const configWithPlugins: Config = {
+    const configWithPlugins: AppConfig = {
       appId: 'test-app',
       entryPoint: 'test-entry',
       plugins: [{ name: 'customPlugin' }],
@@ -190,7 +189,7 @@ describe('taujsBuild', () => {
   });
 
   it('executes the /api proxy rewrite function', async () => {
-    const configWithPlugins: Config = {
+    const configWithPlugins: AppConfig = {
       appId: 'test-app',
       entryPoint: 'test-entry',
     };

@@ -1,3 +1,13 @@
+/**
+ * taujs [ τjs ] Orchestration System
+ * (c) 2024-present Aoede Ltd
+ * Author: John Smith
+ *
+ * Licensed under the MIT License — attribution appreciated.
+ * Part of the taujs [ τjs ] system for declarative, build-time orchestration of microfrontend applications,
+ * including SSR, streaming, and middleware composition.
+ */
+
 import path from 'node:path';
 
 import { build } from 'vite';
@@ -6,12 +16,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { processConfigs, TEMPLATE } from './SSRServer';
 
 import type { InlineConfig, PluginOption } from 'vite';
-
-export type Config = {
-  appId: string;
-  entryPoint: string;
-  plugins?: PluginOption[];
-};
+import type { AppConfig } from './config';
 
 export async function taujsBuild({
   configs,
@@ -19,7 +24,7 @@ export async function taujsBuild({
   clientBaseDir,
   isSSRBuild = process.env.BUILD_MODE === 'ssr',
 }: {
-  configs: Config[];
+  configs: AppConfig[];
   projectRoot: string;
   clientBaseDir: string;
   isSSRBuild?: boolean;

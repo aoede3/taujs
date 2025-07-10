@@ -1,11 +1,24 @@
+/**
+ * taujs [ τjs ] Orchestration System
+ * (c) 2024-present Aoede Ltd
+ * Author: John Smith
+ *
+ * Licensed under the MIT License — attribution appreciated.
+ * Part of the taujs [ τjs ] system for declarative, build-time orchestration of microfrontend applications,
+ * including SSR, streaming, and middleware composition.
+ */
+
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import fp from 'fastify-plugin';
 import pc from 'picocolors';
 
-import { DEV_CSP_DIRECTIVES, RENDERTYPE, SSRTAG, TEMPLATE } from './constants';
-import { applyCSP, cspHook } from './security/csp';
+import { createLogger } from './utils/Logger';
+import { RENDERTYPE, SSRTAG, TEMPLATE } from './constants';
+import { createAuthHook } from './security/auth';
+import { applyCSP, createCSPHook } from './security/csp';
+import { hasAuthenticate, isAuthRequired, verifyContracts } from './security/verifyMiddleware';
 import {
   __dirname,
   collectStyle,
@@ -54,6 +67,7 @@ export const processConfigs = (configs: Config[], baseClientRoot: string, templa
 
 export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
+    const logger = createLogger(opts.isDebug ?? false);
     const { alias, configs, routes, serviceRegistry, isDebug, clientRoot: baseClientRoot } = opts;
     const { bootstrapModules, cssLinks, manifests, preloadLinks, renderModules, ssrManifests, templates } = createMaps();
     const processedConfigs = processConfigs(configs, baseClientRoot, TEMPLATE);
@@ -98,6 +112,20 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
     let viteDevServer: ViteDevServer;
 
+    verifyContracts(
+      app,
+      routes,
+      [
+        {
+          key: 'auth',
+          required: isAuthRequired,
+          verify: hasAuthenticate,
+          errorMessage: 'Routes require auth but Fastify instance is missing `.authenticate` decorator.',
+        },
+      ],
+      opts.isDebug,
+    );
+
     await app.register(import('@fastify/static'), {
       index: false,
       prefix: '/',
@@ -107,11 +135,13 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
     app.addHook(
       'onRequest',
-      cspHook({
+      createCSPHook({
         directives: opts.security?.csp?.directives,
         generateCSP: opts.security?.csp?.generateCSP,
       }),
     );
+
+    app.addHook('onRequest', createAuthHook(routes));
 
     if (isDevelopment) {
       const { createServer } = await import('vite');
@@ -132,12 +162,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
                 {
                   name: 'taujs-development-server-debug-logging',
                   configureServer(server: ViteDevServer) {
-                    console.log(pc.green('τjs development server debug started.'));
+                    logger.log(pc.green('τjs development server debug started.'));
 
                     server.middlewares.use((req, res, next) => {
-                      console.log(pc.cyan(`← rx: ${req.url}`));
+                      logger.log(pc.cyan(`← rx: ${req.url}`));
 
-                      res.on('finish', () => console.log(pc.yellow(`→ tx: ${req.url}`)));
+                      res.on('finish', () => logger.log(pc.yellow(`→ tx: ${req.url}`)));
 
                       next();
                     });
@@ -246,9 +276,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
           if (manifest && cssLink) aggregateHeadContent += cssLink;
 
+          const shouldHydrate = attr?.hydrate !== false;
+          const bootstrapScriptTag = shouldHydrate ? `<script nonce="${nonce}" type="module" src="${bootstrapModule}" defer></script>` : '';
+
           const fullHtml = template
             .replace(SSRTAG.ssrHead, aggregateHeadContent)
-            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}<script nonce="${nonce}" type="module" src="${bootstrapModule}" defer></script>`);
+            .replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}${bootstrapScriptTag}`);
 
           return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
         } else {
@@ -413,18 +446,30 @@ export type RenderModule = {
   renderStream: RenderStream;
 };
 
-export type RouteAttributes<Params = {}> = {
-  fetch?: (params?: Params, options?: RequestInit & { params?: Record<string, unknown> }) => Promise<FetchConfig>;
-} & (
+export type BaseMiddleware = {
+  auth?: {
+    required: boolean;
+    redirect?: string;
+    roles?: string[];
+    strategy?: string;
+  };
+};
+
+export type RouteAttributes<Params = {}, Middleware = BaseMiddleware> =
   | {
-      render?: typeof RENDERTYPE.ssr;
+      render: 'ssr';
+      hydrate?: boolean;
       meta?: Record<string, unknown>;
+      middleware?: Middleware;
+      fetch?: (params?: Params, options?: RequestInit & { params?: Record<string, unknown> }) => Promise<FetchConfig>;
     }
   | {
-      render: typeof RENDERTYPE.streaming;
+      render: 'streaming';
+      hydrate?: never;
       meta: Record<string, unknown>;
-    }
-);
+      middleware?: Middleware;
+      fetch?: (params?: Params, options?: RequestInit & { params?: Record<string, unknown> }) => Promise<FetchConfig>;
+    };
 
 export type Route<Params = {}> = {
   attr?: RouteAttributes<Params>;

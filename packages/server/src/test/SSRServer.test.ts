@@ -76,14 +76,14 @@ vi.mock('../utils', () => ({
     return isDevelopmentValue;
   },
   ensureNonNull: vi.fn((value, errorMessage) => {
-    if (value === undefined || value === null) {
-      throw new Error(errorMessage);
-    }
+    if (value === undefined || value === null) throw new Error(errorMessage);
+
     return value;
   }),
   processConfigs: vi.fn((configs, baseClientRoot, templateDefaults) => {
     return configs.map((config: Config) => {
       const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
+
       return {
         clientRoot,
         entryClient: config.entryClient || templateDefaults.defaultEntryClient,
@@ -120,15 +120,14 @@ vi.mock('node:fs/promises', () => ({
 vi.mock('../security/csp', () => ({
   applyCSP: vi.fn((security, _reply) => {
     const nonce = 'mock-nonce';
-    if (security?.csp?.generateCSP) {
-      security.csp.generateCSP(security.csp.directives || {}, nonce);
-    }
+    if (security?.csp?.generateCSP) security.csp.generateCSP(security.csp.directives || {}, nonce);
+
     return nonce;
   }),
-  cspHook: vi.fn(() => (_req: any, _res: any, next: () => any) => next()),
+  createCSPHook: vi.fn(() => (_req: any, _res: any, next: () => any) => next()),
 }));
 
-describe('SSRServer Plugin (New)', () => {
+describe('SSRServer Plugin', () => {
   let app: FastifyInstance;
   let options: SSRServerOptions;
   const baseClientRoot = './test';
@@ -373,7 +372,7 @@ describe('SSRServer Plugin (New)', () => {
 
   it('should handle streaming render (RENDERTYPE.streaming)', async () => {
     isDevelopmentValue = false;
-    options.routes = [{ path: '/', attr: { render: RENDERTYPE.streaming } }];
+    options.routes = [{ path: '/', attr: { render: RENDERTYPE.streaming, meta: {} } }];
 
     const importedModule = {
       renderSSR: vi.fn(),
@@ -398,7 +397,7 @@ describe('SSRServer Plugin (New)', () => {
 
   it('should handle streaming error via onError callback', async () => {
     isDevelopmentValue = false;
-    options.routes = [{ path: '/', attr: { render: RENDERTYPE.streaming } }];
+    options.routes = [{ path: '/', attr: { render: RENDERTYPE.streaming, meta: {} } }];
 
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -827,7 +826,7 @@ describe('SSRServer Plugin (New)', () => {
 
   it('should default to RENDERTYPE.ssr when attr.render is undefined', async () => {
     isDevelopmentValue = false;
-    options.routes = [{ path: '/default-render', attr: {} }];
+    options.routes = [{ path: '/default-render', attr: undefined }];
 
     const { SSRServer } = await import('../SSRServer');
     await app.register(SSRServer, options);
@@ -907,6 +906,40 @@ describe('SSRServer Plugin (New)', () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  it('should inject bootstrap script when hydrate is true or undefined', async () => {
+    isDevelopmentValue = false;
+    options.routes = [
+      { path: '/hydrate-true', attr: { render: RENDERTYPE.ssr, hydrate: true } },
+      { path: '/hydrate-undefined', attr: { render: RENDERTYPE.ssr } },
+    ];
+
+    const { SSRServer } = await import('../SSRServer');
+    await app.register(SSRServer, options);
+
+    const utils = await import('../utils');
+    for (const route of options.routes) {
+      (utils.matchRoute as Mock).mockReturnValue({ route, params: {} });
+
+      const response = await app.inject({ method: 'GET', url: route.path });
+      expect(response.body).toContain('<script nonce="mock-nonce" type="module" src="/entry-client.js" defer></script>');
+    }
+  });
+
+  it('should not inject bootstrap script when hydrate is false', async () => {
+    isDevelopmentValue = false;
+    const noHydrateRoute = { path: '/hydrate-false', attr: { render: RENDERTYPE.ssr, hydrate: false } };
+    options.routes = [noHydrateRoute];
+
+    const { SSRServer } = await import('../SSRServer');
+    await app.register(SSRServer, options);
+
+    const utils = await import('../utils');
+    (utils.matchRoute as Mock).mockReturnValue({ route: noHydrateRoute, params: {} });
+
+    const response = await app.inject({ method: 'GET', url: '/hydrate-false' });
+    expect(response.body).not.toContain('<script nonce="mock-nonce" type="module" src="/entry-client.js" defer></script>');
+  });
 });
 
 describe('processConfigs', () => {
@@ -918,28 +951,28 @@ describe('processConfigs', () => {
     ];
     const mockBaseClientRoot = '/base/root';
     const mockTemplateDefaults = {
-      defaultEntryClient: 'defaultClient',
-      defaultEntryServer: 'defaultServer',
-      defaultHtmlTemplate: 'defaultTemplate',
-    };
+      defaultEntryClient: 'entry-client',
+      defaultEntryServer: 'entry-server',
+      defaultHtmlTemplate: 'index.html',
+    } as const;
 
     const result = processConfigs(mockConfigs, mockBaseClientRoot, mockTemplateDefaults);
 
     expect(result).toEqual([
       {
         clientRoot: path.resolve(mockBaseClientRoot, 'entry1'),
-        entryClient: 'defaultClient',
+        entryClient: 'entry-client',
         entryPoint: 'entry1',
-        entryServer: 'defaultServer',
-        htmlTemplate: 'defaultTemplate',
+        entryServer: 'entry-server',
+        htmlTemplate: 'index.html',
         appId: 'app1',
       },
       {
         clientRoot: path.resolve(mockBaseClientRoot, 'entry2'),
         entryClient: 'client2',
         entryPoint: 'entry2',
-        entryServer: 'defaultServer',
-        htmlTemplate: 'defaultTemplate',
+        entryServer: 'entry-server',
+        htmlTemplate: 'index.html',
         appId: 'app2',
       },
     ]);

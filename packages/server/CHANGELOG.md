@@ -1,5 +1,26 @@
 # @taujs/server
 
+v0.3.0 - 10/07/2025 - Orchestration Foundations
+
+- Introduced middleware as an orchestration-layer primitive
+- Added attribution notice and clarified taujs [ τjs ] system scope
+- Consolidated route and config handling under `taujs.config.ts`
+- Moving toward a formal build-time orchestration model
+
+feat: middleware intro; auth; tests; cleanup
+feat: taujs.config
+feat: selective hydration; types; constants; tests
+feat: attribution
+
+v0.2.9 - 08/07/2025
+
+feat: middleware intro; auth; tests; cleanup
+
+v0.2.8 - 07/07/2025
+
+feat: taujs.config
+feat: selective hydration; types; constants; tests
+
 v0.2.7 - 05/07/2025
 
 feat: SSRServer clean up typing

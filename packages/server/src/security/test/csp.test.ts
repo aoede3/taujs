@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { defaultGenerateCSP, generateNonce, cspHook, getRequestNonce, applyCSP } from '../csp';
+import { defaultGenerateCSP, generateNonce, createCSPHook, getRequestNonce, applyCSP } from '../csp';
 
 import type { CSPDirectives } from '../csp';
 
@@ -75,7 +75,7 @@ describe('cspHook', () => {
 
   it('uses default CSP and sets nonce on request', () => {
     const req: any = {};
-    const hook = cspHook();
+    const hook = createCSPHook();
     hook(req, reply as any, done);
 
     expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy', expect.stringContaining('script-src'));
@@ -86,7 +86,7 @@ describe('cspHook', () => {
   it('calls exposeNonce if provided', () => {
     const exposeNonce = vi.fn();
     const req: any = {};
-    const hook = cspHook({ exposeNonce });
+    const hook = createCSPHook({ exposeNonce });
 
     hook(req, reply as any, done);
     expect(exposeNonce).toHaveBeenCalledWith(req, expect.any(String));
@@ -96,7 +96,7 @@ describe('cspHook', () => {
   it('uses custom generateCSP if provided', () => {
     const generateCSP = vi.fn(() => 'custom-policy');
     const req: any = {};
-    const hook = cspHook({ generateCSP });
+    const hook = createCSPHook({ generateCSP });
 
     hook(req, reply as any, done);
     expect(generateCSP).toHaveBeenCalled();

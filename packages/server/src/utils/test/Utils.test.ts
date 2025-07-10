@@ -8,6 +8,7 @@ import * as utils from '../';
 import type { ViteDevServer } from 'vite';
 import type { MockedFunction, MockInstance } from 'vitest';
 import type { FetchConfig, RouteAttributes, RouteParams, ServiceRegistry } from '../../SSRServer';
+import { RENDERTYPE } from '../../constants';
 
 describe('Environment-specific path resolution', () => {
   const originalEnv = process.env.NODE_ENV;
@@ -431,6 +432,7 @@ describe('fetchInitialData', () => {
 
   it('should call attr.fetch and fetchData when serviceName and serviceMethod are not present', async () => {
     attr = {
+      render: RENDERTYPE.ssr,
       fetch: vi.fn().mockResolvedValue({ url: 'https://example.com', options: {} }),
     };
 
@@ -445,6 +447,7 @@ describe('fetchInitialData', () => {
 
   it('should call callServiceMethod when serviceName and serviceMethod are present', async () => {
     attr = {
+      render: RENDERTYPE.ssr,
       fetch: vi.fn().mockResolvedValue({
         serviceName: 'exampleService',
         serviceMethod: 'exampleMethod',
@@ -463,6 +466,7 @@ describe('fetchInitialData', () => {
 
   it('should call callServiceMethod with empty params when data.options.params is undefined', async () => {
     attr = {
+      render: RENDERTYPE.ssr,
       fetch: vi.fn().mockResolvedValue({
         serviceName: 'exampleService',
         serviceMethod: 'exampleMethod',
@@ -481,7 +485,7 @@ describe('fetchInitialData', () => {
 
   it('should throw an error if attr.fetch rejects', async () => {
     const error = new Error('Fetch failed');
-    attr = { fetch: vi.fn().mockRejectedValue(error) };
+    attr = { render: RENDERTYPE.ssr, fetch: vi.fn().mockRejectedValue(error) };
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(utils.fetchInitialData(attr, params, serviceRegistry)).rejects.toThrow('Fetch failed');
@@ -497,6 +501,7 @@ describe('fetchInitialData', () => {
 
   it('should throw an error if fetch config has neither serviceName/method nor url', async () => {
     const attr = {
+      render: RENDERTYPE.ssr,
       fetch: vi.fn().mockResolvedValue({}),
     };
 

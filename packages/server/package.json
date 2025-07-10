@@ -1,8 +1,8 @@
 {
   "name": "@taujs/server",
-  "version": "0.2.7",
-  "description": "taujs | τjs",
-  "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
+  "version": "0.3.0",
+  "description": "taujs [ τjs ]",
+  "author": "John Smith | Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
   "license": "MIT",
   "homepage": "https://github.com/aoede3/taujs-server",
   "repository": {
@@ -32,6 +32,10 @@
     "./build": {
       "import": "./dist/build.js",
       "types": "./dist/build.d.ts"
+    },
+    "./config": {
+      "import": "./dist/config.js",
+      "types": "./dist/config.d.ts"
     },
     "./csp": {
       "import": "./dist/security/csp.js",
