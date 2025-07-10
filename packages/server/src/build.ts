@@ -1,3 +1,13 @@
+/**
+ * taujs [ τjs ] Orchestration System
+ * (c) 2024-present Aoede Ltd
+ * Author: John Smith
+ *
+ * Licensed under the MIT License — attribution appreciated.
+ * Part of the taujs [ τjs ] system for declarative, build-time orchestration of microfrontend applications,
+ * including SSR, streaming, and middleware composition.
+ */
+
 import path from 'node:path';
 
 import { build } from 'vite';
