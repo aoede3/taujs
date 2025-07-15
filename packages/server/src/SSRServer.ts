@@ -454,15 +454,15 @@ export type ServiceCall = {
   args?: Record<string, unknown>;
 };
 
-export type FetchResult = Record<string, unknown> | ServiceCall;
+export type DatahResult = Record<string, unknown> | ServiceCall;
 
-export type FetchFunction<Params> = (
+export type DataHandler<Params> = (
   params: Params,
   ctx: {
     headers: Record<string, string>;
     [key: string]: unknown;
   },
-) => Promise<FetchResult>;
+) => Promise<DatahResult>;
 
 export type RouteAttributes<Params = {}, Middleware = BaseMiddleware> =
   | {
@@ -470,14 +470,14 @@ export type RouteAttributes<Params = {}, Middleware = BaseMiddleware> =
       hydrate?: boolean;
       meta?: Record<string, unknown>;
       middleware?: Middleware;
-      fetch?: FetchFunction<Params>;
+      data?: DataHandler<Params>;
     }
   | {
       render: 'streaming';
       hydrate?: never;
       meta: Record<string, unknown>;
       middleware?: Middleware;
-      fetch?: FetchFunction<Params>;
+      data?: DataHandler<Params>;
     };
 
 export type Route<Params = {}> = {

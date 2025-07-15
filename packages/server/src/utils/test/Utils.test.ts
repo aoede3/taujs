@@ -1,14 +1,14 @@
 import { fileURLToPath } from 'node:url';
-import path, { dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as utils from '../';
+import { RENDERTYPE } from '../../constants';
 
 import type { ViteDevServer } from 'vite';
 import type { MockedFunction } from 'vitest';
 import type { RouteAttributes, ServiceRegistry } from '../../SSRServer';
-import { RENDERTYPE } from '../../constants';
 
 describe('Environment-specific path resolution', () => {
   const originalEnv = process.env.NODE_ENV;
@@ -321,12 +321,12 @@ describe('fetchInitialData', () => {
   it('returns directly resolved object from attr.fetch', async () => {
     attr = {
       render: RENDERTYPE.ssr,
-      fetch: vi.fn().mockResolvedValue({ some: 'data' }),
+      data: vi.fn().mockResolvedValue({ some: 'data' }),
     };
 
     const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx);
 
-    expect(attr.fetch).toHaveBeenCalledWith(params, ctx);
+    expect(attr.data).toHaveBeenCalledWith(params, ctx);
     expect(result).toEqual({ some: 'data' });
   });
 
@@ -335,7 +335,7 @@ describe('fetchInitialData', () => {
 
     attr = {
       render: RENDERTYPE.ssr,
-      fetch: vi.fn().mockResolvedValue({
+      data: vi.fn().mockResolvedValue({
         serviceName: 'exampleService',
         serviceMethod: 'exampleMethod',
         args: { foo: 'bar' },
@@ -353,7 +353,7 @@ describe('fetchInitialData', () => {
 
     attr = {
       render: RENDERTYPE.ssr,
-      fetch: vi.fn().mockResolvedValue({
+      data: vi.fn().mockResolvedValue({
         serviceName: 'exampleService',
         serviceMethod: 'exampleMethod',
       }),
@@ -368,7 +368,7 @@ describe('fetchInitialData', () => {
   it('throws if service descriptor is invalid', async () => {
     attr = {
       render: RENDERTYPE.ssr,
-      fetch: vi.fn().mockResolvedValue({
+      data: vi.fn().mockResolvedValue({
         serviceName: 'missingService',
         serviceMethod: 'missingMethod',
         args: {},
@@ -383,7 +383,7 @@ describe('fetchInitialData', () => {
   it('throws error if fetch result is not an object', async () => {
     attr = {
       render: RENDERTYPE.ssr,
-      fetch: vi.fn().mockResolvedValue(123 as any),
+      data: vi.fn().mockResolvedValue(123 as any),
     };
 
     await expect(utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock)).rejects.toThrow('Invalid result from attr.fetch');
@@ -395,7 +395,7 @@ describe('fetchInitialData', () => {
     const error = new Error('fetch failed');
     attr = {
       render: RENDERTYPE.ssr,
-      fetch: vi.fn().mockRejectedValue(error),
+      data: vi.fn().mockRejectedValue(error),
     };
 
     await expect(utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock)).rejects.toThrow('fetch failed');

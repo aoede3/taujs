@@ -153,7 +153,7 @@ export const fetchInitialData = async (
       );
     }
 
-    throw new Error(`Invalid service fetch: serviceName=${String(serviceName)}, method=${String(serviceMethod)}`);
+    throw new Error(`Invalid service: serviceName=${String(serviceName)}, method=${String(serviceMethod)}`);
   }
 
   // Resolved data
