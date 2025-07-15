@@ -399,13 +399,6 @@ export type RenderCallbacks = {
   onError: (error: unknown) => void;
 };
 
-export type FetchConfig = {
-  url?: string;
-  options: RequestInit & { params?: Record<string, unknown> };
-  serviceName?: string;
-  serviceMethod?: string;
-};
-
 export type SSRManifest = {
   [key: string]: string[];
 };
@@ -455,20 +448,36 @@ export type BaseMiddleware = {
   };
 };
 
+export type ServiceCall = {
+  serviceName: string;
+  serviceMethod: string;
+  args?: Record<string, unknown>;
+};
+
+export type DataResult = Record<string, unknown> | ServiceCall;
+
+export type DataHandler<Params> = (
+  params: Params,
+  ctx: {
+    headers: Record<string, string>;
+    [key: string]: unknown;
+  },
+) => Promise<DataResult>;
+
 export type RouteAttributes<Params = {}, Middleware = BaseMiddleware> =
   | {
       render: 'ssr';
       hydrate?: boolean;
       meta?: Record<string, unknown>;
       middleware?: Middleware;
-      fetch?: (params?: Params, options?: RequestInit & { params?: Record<string, unknown> }) => Promise<FetchConfig>;
+      data?: DataHandler<Params>;
     }
   | {
       render: 'streaming';
       hydrate?: never;
       meta: Record<string, unknown>;
       middleware?: Middleware;
-      fetch?: (params?: Params, options?: RequestInit & { params?: Record<string, unknown> }) => Promise<FetchConfig>;
+      data?: DataHandler<Params>;
     };
 
 export type Route<Params = {}> = {
