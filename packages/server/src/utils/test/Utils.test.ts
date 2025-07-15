@@ -286,6 +286,61 @@ describe('overrideCSSHMRConsoleError', () => {
   });
 });
 
+describe('utils.isServiceDescriptor', () => {
+  it('returns false for null', () => {
+    expect(utils.isServiceDescriptor(null)).toBe(false);
+  });
+
+  it('returns false for non-object types', () => {
+    expect(utils.isServiceDescriptor('string')).toBe(false);
+    expect(utils.isServiceDescriptor(42)).toBe(false);
+    expect(utils.isServiceDescriptor(true)).toBe(false);
+    expect(utils.isServiceDescriptor(undefined)).toBe(false);
+  });
+
+  it('returns false for arrays', () => {
+    expect(utils.isServiceDescriptor([])).toBe(false);
+    expect(utils.isServiceDescriptor([{ serviceName: 'a', serviceMethod: 'b' }])).toBe(false);
+  });
+
+  it('returns false for objects missing required keys', () => {
+    expect(utils.isServiceDescriptor({})).toBe(false);
+    expect(utils.isServiceDescriptor({ serviceName: 'a' })).toBe(false);
+    expect(utils.isServiceDescriptor({ serviceMethod: 'b' })).toBe(false);
+    expect(utils.isServiceDescriptor({ serviceName: 123, serviceMethod: 'b' })).toBe(false);
+    expect(utils.isServiceDescriptor({ serviceName: 'a', serviceMethod: 456 })).toBe(false);
+  });
+
+  it('returns true for valid service descriptor', () => {
+    expect(
+      utils.isServiceDescriptor({
+        serviceName: 'exampleService',
+        serviceMethod: 'exampleMethod',
+      }),
+    ).toBe(true);
+  });
+
+  it('returns true for valid descriptor with args', () => {
+    expect(
+      utils.isServiceDescriptor({
+        serviceName: 'exampleService',
+        serviceMethod: 'exampleMethod',
+        args: { foo: 'bar' },
+      }),
+    ).toBe(true);
+  });
+
+  it('returns true even with extra properties', () => {
+    expect(
+      utils.isServiceDescriptor({
+        serviceName: 'exampleService',
+        serviceMethod: 'exampleMethod',
+        extra: 123,
+      }),
+    ).toBe(true);
+  });
+});
+
 describe('fetchInitialData', () => {
   let serviceRegistry: ServiceRegistry;
   let attr: RouteAttributes | undefined;
@@ -294,44 +349,42 @@ describe('fetchInitialData', () => {
   let callServiceMethodMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    vi.resetAllMocks();
     serviceRegistry = {
       exampleService: {
-        exampleMethod: vi.fn().mockResolvedValue({ serviceData: 'success' }),
+        exampleMethod: vi.fn().mockResolvedValue({ serviceData: 'mocked' }),
       },
     };
     attr = undefined;
     params = {};
-    ctx = { headers: { 'x-test': '1' } };
+    ctx = { headers: { 'x-test': 'yes' } };
     callServiceMethodMock = vi.fn();
   });
 
-  it('returns an empty object when attr is undefined', async () => {
-    const result = await utils.fetchInitialData(undefined, params, serviceRegistry, ctx);
+  it('returns empty object if attr is undefined', async () => {
+    const result = await utils.fetchInitialData(undefined, params, serviceRegistry, ctx, callServiceMethodMock);
+    expect(result).toEqual({});
+    expect(callServiceMethodMock).not.toHaveBeenCalled();
+  });
+
+  it('returns empty object if attr.data is not a function', async () => {
+    attr = { render: RENDERTYPE.ssr, data: 'not-a-function' as any };
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock);
     expect(result).toEqual({});
   });
 
-  it('returns an empty object when attr.fetch is not a function', async () => {
-    // @ts-expect-error
-    attr = { render: RENDERTYPE.ssr, fetch: 'not-a-function' };
-    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx);
-    expect(result).toEqual({});
-  });
-
-  it('returns directly resolved object from attr.fetch', async () => {
+  it('returns directly resolved object from attr.data', async () => {
     attr = {
       render: RENDERTYPE.ssr,
-      data: vi.fn().mockResolvedValue({ some: 'data' }),
+      data: vi.fn().mockResolvedValue({ foo: 'bar' }),
     };
 
-    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx);
-
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock);
     expect(attr.data).toHaveBeenCalledWith(params, ctx);
-    expect(result).toEqual({ some: 'data' });
+    expect(result).toEqual({ foo: 'bar' });
   });
 
-  it('calls injected callServiceMethod when service descriptor is returned', async () => {
-    const mockCallServiceMethod = vi.fn().mockResolvedValue({ result: 'fromService' });
+  it('calls callServiceMethod with args from service descriptor', async () => {
+    callServiceMethodMock.mockResolvedValue({ service: 'data' });
 
     attr = {
       render: RENDERTYPE.ssr,
@@ -342,10 +395,10 @@ describe('fetchInitialData', () => {
       }),
     };
 
-    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx, mockCallServiceMethod);
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock);
 
-    expect(mockCallServiceMethod).toHaveBeenCalledWith(serviceRegistry, 'exampleService', 'exampleMethod', { foo: 'bar' });
-    expect(result).toEqual({ result: 'fromService' });
+    expect(callServiceMethodMock).toHaveBeenCalledWith(serviceRegistry, 'exampleService', 'exampleMethod', { foo: 'bar' });
+    expect(result).toEqual({ service: 'data' });
   });
 
   it('calls callServiceMethod with empty args if not provided in service descriptor', async () => {
@@ -365,33 +418,35 @@ describe('fetchInitialData', () => {
     expect(result).toEqual({ fallback: true });
   });
 
-  it('throws if service descriptor is invalid', async () => {
+  it('throws error if service name or method is invalid', async () => {
     attr = {
       render: RENDERTYPE.ssr,
       data: vi.fn().mockResolvedValue({
-        serviceName: 'missingService',
-        serviceMethod: 'missingMethod',
+        serviceName: 'badService',
+        serviceMethod: 'badMethod',
         args: {},
       }),
     };
 
-    await expect(utils.fetchInitialData(attr, params, serviceRegistry, ctx)).rejects.toThrow(
-      'Invalid service fetch: serviceName=missingService, method=missingMethod',
+    await expect(utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock)).rejects.toThrow(
+      'Invalid service: serviceName=badService, method=badMethod',
     );
+
+    expect(callServiceMethodMock).not.toHaveBeenCalled();
   });
 
-  it('throws error if fetch result is not an object', async () => {
+  it('throws error if data result is not an object', async () => {
     attr = {
       render: RENDERTYPE.ssr,
       data: vi.fn().mockResolvedValue(123 as any),
     };
 
-    await expect(utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock)).rejects.toThrow('Invalid result from attr.fetch');
+    await expect(utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock)).rejects.toThrow('Invalid result from attr.data');
 
     expect(callServiceMethodMock).not.toHaveBeenCalled();
   });
 
-  it('throws if attr.fetch throws an error', async () => {
+  it('throws if attr.data throws an error', async () => {
     const error = new Error('fetch failed');
     attr = {
       render: RENDERTYPE.ssr,

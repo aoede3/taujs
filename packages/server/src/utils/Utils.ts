@@ -129,37 +129,46 @@ export const callServiceMethod = async <S extends keyof ServiceRegistry, M exten
   return data;
 };
 
+type ServiceDescriptor = {
+  serviceName: string;
+  serviceMethod: string;
+  args?: Record<string, unknown>;
+};
+
+export const isServiceDescriptor = (obj: unknown): obj is ServiceDescriptor => {
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return false;
+
+  const maybe = obj as Record<string, unknown>;
+
+  return typeof maybe.serviceName === 'string' && typeof maybe.serviceMethod === 'string';
+};
+
 export const fetchInitialData = async (
   attr: RouteAttributes<RouteParams> | undefined,
   params: Partial<Record<string, string | string[]>>,
   serviceRegistry: ServiceRegistry,
-  ctx: { headers: Record<string, string> } = { headers: {} },
+  ctx: { headers: Record<string, string>; [key: string]: unknown } = { headers: {} },
   callServiceMethodImpl: typeof callServiceMethod = callServiceMethod,
 ): Promise<Record<string, unknown>> => {
-  if (!attr?.fetch || typeof attr.fetch !== 'function') return {};
+  if (!attr?.data || typeof attr.data !== 'function') return {};
 
-  const result = await attr.fetch(params, ctx);
+  const result = await attr.data(params, ctx);
 
-  // Internal `callServiceMethod` dispatch
-  if (typeof result === 'object' && result !== null && 'serviceName' in result && 'serviceMethod' in result) {
-    const { serviceName, serviceMethod, args = {} } = result;
+  if (isServiceDescriptor(result)) {
+    const { serviceName, serviceMethod, args } = result;
 
-    if (typeof serviceName === 'string' && typeof serviceMethod === 'string' && serviceRegistry[serviceName]?.[serviceMethod]) {
-      return await callServiceMethodImpl(
-        serviceRegistry,
-        serviceName as keyof ServiceRegistry,
-        serviceMethod as keyof ServiceRegistry[typeof serviceName],
-        args as Record<string, unknown>,
-      );
+    if (serviceRegistry[serviceName]?.[serviceMethod]) {
+      return await callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {});
     }
 
     throw new Error(`Invalid service: serviceName=${String(serviceName)}, method=${String(serviceMethod)}`);
   }
 
-  // Resolved data
-  if (typeof result === 'object' && result !== null) return result;
+  if (typeof result === 'object' && result !== null) {
+    return result as Record<string, unknown>;
+  }
 
-  throw new Error(`Invalid result from attr.fetch`);
+  throw new Error('Invalid result from attr.data');
 };
 
 export const matchRoute = <Params extends Partial<Record<string, string | string[]>>>(url: string, renderRoutes: Route<RouteParams>[]) => {

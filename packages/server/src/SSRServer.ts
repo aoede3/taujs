@@ -454,7 +454,7 @@ export type ServiceCall = {
   args?: Record<string, unknown>;
 };
 
-export type DatahResult = Record<string, unknown> | ServiceCall;
+export type DataResult = Record<string, unknown> | ServiceCall;
 
 export type DataHandler<Params> = (
   params: Params,
@@ -462,7 +462,7 @@ export type DataHandler<Params> = (
     headers: Record<string, string>;
     [key: string]: unknown;
   },
-) => Promise<DatahResult>;
+) => Promise<DataResult>;
 
 export type RouteAttributes<Params = {}, Middleware = BaseMiddleware> =
   | {
