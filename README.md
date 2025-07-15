@@ -96,10 +96,10 @@ Integral to τjs is its internal routing:
 
 In ensuring a particular 'route' receives data for hydration there are two options:
 
-1. An HTTP call elsewhere syntactically not unlike 'fetch' providing params to a 'fetch' call
-2. Internally calling a service which in turn will make 'call' to return data as per your architecture
+1. Internal service call returning data as per your architecture
+2. An HTTP call from your app passing resolved data to @taujs/server
 
-In supporting Option 2. there is a registry of services. More detail in 'Service Registry'.
+In supporting Option 1. there is a registry of services. More detail in 'Service Registry'.
 
 Each routes 'path' is a simple URL regex as per below examples with choice of render.
 
