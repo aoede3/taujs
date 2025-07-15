@@ -6,7 +6,7 @@ import { match } from 'path-to-regexp';
 
 import type { MatchFunction } from 'path-to-regexp';
 import type { ViteDevServer } from 'vite';
-import type { FetchConfig, Manifest, Route, RouteAttributes, RouteParams, ServiceMethod, ServiceRegistry, SSRManifest } from '../SSRServer';
+import type { Manifest, Route, RouteAttributes, RouteParams, ServiceMethod, ServiceRegistry, SSRManifest } from '../SSRServer';
 
 export const isDevelopment = process.env.NODE_ENV === 'development';
 export const __filename = fileURLToPath(import.meta.url);
@@ -105,6 +105,9 @@ export function renderPreloadLink(file: string): string {
   }
 }
 
+// Internal `Command Descriptor with Dynamic Dispatch over a Service Registry`
+// Resolves a command descriptor by dispatching it against the service registry
+// Supports dynamic data fetching based on route-level declarations
 export const callServiceMethod = async <S extends keyof ServiceRegistry, M extends keyof ServiceRegistry[S]>(
   registry: ServiceRegistry,
   serviceName: S,
@@ -126,48 +129,37 @@ export const callServiceMethod = async <S extends keyof ServiceRegistry, M exten
   return data;
 };
 
-export const fetchData = async ({ url, options }: FetchConfig): Promise<Record<string, unknown>> => {
-  if (url) {
-    const response = await fetch(url, options);
-
-    if (!response.ok) throw new Error(`Failed to fetch data from ${url}`);
-
-    const data = await response.json();
-
-    if (typeof data !== 'object' || data === null) throw new Error(`Expected object response from ${url}, but got ${typeof data}`);
-
-    return data as Record<string, unknown>;
-  }
-
-  throw new Error('URL must be provided to fetch data');
-};
-
 export const fetchInitialData = async (
   attr: RouteAttributes<RouteParams> | undefined,
   params: Partial<Record<string, string | string[]>>,
   serviceRegistry: ServiceRegistry,
+  ctx: { headers: Record<string, string> } = { headers: {} },
+  callServiceMethodImpl: typeof callServiceMethod = callServiceMethod,
 ): Promise<Record<string, unknown>> => {
-  if (attr && typeof attr.fetch === 'function') {
-    return attr
-      .fetch(params, {
-        headers: { 'Content-Type': 'application/json' },
-        params,
-      })
-      .then(async (data) => {
-        if (data.serviceName && data.serviceMethod && typeof data.serviceName === 'string' && typeof data.serviceMethod === 'string')
-          return await callServiceMethod(serviceRegistry, data.serviceName, data.serviceMethod, data.options?.params ?? {});
+  if (!attr?.fetch || typeof attr.fetch !== 'function') return {};
 
-        if (data.url && typeof data.url === 'string') return await fetchData(data);
+  const result = await attr.fetch(params, ctx);
 
-        throw new Error('Invalid fetch configuration: must have either serviceName+serviceMethod or url');
-      })
-      .catch((error) => {
-        console.error('Error fetching initial data:', error);
-        throw error;
-      });
+  // Internal `callServiceMethod` dispatch
+  if (typeof result === 'object' && result !== null && 'serviceName' in result && 'serviceMethod' in result) {
+    const { serviceName, serviceMethod, args = {} } = result;
+
+    if (typeof serviceName === 'string' && typeof serviceMethod === 'string' && serviceRegistry[serviceName]?.[serviceMethod]) {
+      return await callServiceMethodImpl(
+        serviceRegistry,
+        serviceName as keyof ServiceRegistry,
+        serviceMethod as keyof ServiceRegistry[typeof serviceName],
+        args as Record<string, unknown>,
+      );
+    }
+
+    throw new Error(`Invalid service fetch: serviceName=${String(serviceName)}, method=${String(serviceMethod)}`);
   }
 
-  return Promise.resolve({});
+  // Resolved data
+  if (typeof result === 'object' && result !== null) return result;
+
+  throw new Error(`Invalid result from attr.fetch`);
 };
 
 export const matchRoute = <Params extends Partial<Record<string, string | string[]>>>(url: string, renderRoutes: Route<RouteParams>[]) => {

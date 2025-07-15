@@ -8,7 +8,7 @@ declare module 'fastify' {
   }
   interface FastifyInstance {
     /**
-     * Optional authentication hook to be used by the TauJS SSRServer.
+     * Optional authentication hook to be used by the taujs SSRServer.
      * This method must be decorated by the user when using auth middleware in `taujs.config.ts`.
      *
      * Example usage:

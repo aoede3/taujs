@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as utils from '../';
 
 import type { ViteDevServer } from 'vite';
-import type { MockedFunction, MockInstance } from 'vitest';
-import type { FetchConfig, RouteAttributes, RouteParams, ServiceRegistry } from '../../SSRServer';
+import type { MockedFunction } from 'vitest';
+import type { RouteAttributes, ServiceRegistry } from '../../SSRServer';
 import { RENDERTYPE } from '../../constants';
 
 describe('Environment-specific path resolution', () => {
@@ -240,110 +240,6 @@ describe('callServiceMethod', () => {
   });
 });
 
-describe('fetchData', () => {
-  const baseMockResponse = {
-    ok: true,
-    json: () => Promise.resolve({ data: 'test' }),
-    headers: new Headers(),
-    redirected: false,
-    status: 200,
-    statusText: 'OK',
-    type: 'basic',
-    url: 'https://example.com',
-    clone: () => ({}),
-    body: null,
-    bodyUsed: false,
-    text: () => Promise.resolve(''),
-    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
-    blob: () => Promise.resolve(new Blob()),
-    formData: () => Promise.resolve(new FormData()),
-  } as Response;
-
-  it('should fetch data from a URL and return the parsed JSON', async () => {
-    global.fetch = vi.fn(() =>
-      Promise.resolve({
-        ...baseMockResponse,
-        ok: true,
-        json: () => Promise.resolve({ data: 'test' }),
-      } as Response),
-    );
-    const result = await utils.fetchData({ url: 'https://example.com', options: {} });
-
-    expect(result).toEqual({ data: 'test' });
-  });
-
-  it('should throw an error if the fetch fails', async () => {
-    global.fetch = vi.fn(() =>
-      Promise.resolve({
-        ...baseMockResponse,
-        ok: false,
-        json: () => Promise.resolve({ data: 'test' }),
-      } as Response),
-    );
-
-    await expect(utils.fetchData({ url: 'https://example.com', options: {} })).rejects.toThrow('Failed to fetch data from https://example.com');
-  });
-
-  it('should throw an error if the fetched data is not an object', async () => {
-    global.fetch = vi.fn(() =>
-      Promise.resolve({
-        ...baseMockResponse,
-        ok: true,
-        json: () => Promise.resolve('not-an-object'),
-      } as Response),
-    );
-    const fetchConfig = { url: 'https://example.com', options: {} };
-
-    await expect(utils.fetchData(fetchConfig)).rejects.toThrow('Expected object response from https://example.com, but got string');
-  });
-
-  it('should throw an error if the fetched data is null', async () => {
-    global.fetch = vi.fn(() =>
-      Promise.resolve({
-        ...baseMockResponse,
-        ok: true,
-        json: () => Promise.resolve(null),
-      } as Response),
-    );
-    const fetchConfig = { url: 'https://example.com', options: {} };
-
-    await expect(utils.fetchData(fetchConfig)).rejects.toThrow('Expected object response from https://example.com, but got object');
-  });
-
-  it('should throw an error if URL is not provided', async () => {
-    const fetchConfig = { url: '', options: {} };
-
-    await expect(utils.fetchData(fetchConfig)).rejects.toThrow('URL must be provided to fetch data');
-  });
-
-  it('should throw an error if the fetch request fails', async () => {
-    global.fetch = vi.fn(() =>
-      Promise.resolve({
-        ...baseMockResponse,
-        ok: false,
-        json: () => Promise.resolve(null),
-      } as Response),
-    );
-    const fetchConfig = { url: 'https://example.com', options: {} };
-
-    await expect(utils.fetchData(fetchConfig)).rejects.toThrow('Failed to fetch data from https://example.com');
-  });
-
-  it('should return the fetched data if it is a valid object', async () => {
-    global.fetch = vi.fn(() =>
-      Promise.resolve({
-        ...baseMockResponse,
-        ok: true,
-        json: () => Promise.resolve({ success: true }),
-      } as Response),
-    );
-    const fetchConfig = { url: 'https://example.com', options: {} };
-    const result = await utils.fetchData(fetchConfig);
-
-    expect(result).toEqual({ success: true });
-  });
-});
-
 describe('matchRoute', () => {
   it('should match a URL to a route', () => {
     const routes = [{ path: '/test' }];
@@ -392,10 +288,10 @@ describe('overrideCSSHMRConsoleError', () => {
 
 describe('fetchInitialData', () => {
   let serviceRegistry: ServiceRegistry;
-  let attr: RouteAttributes<RouteParams> | undefined;
+  let attr: RouteAttributes | undefined;
   let params: Partial<Record<string, string | string[]>>;
-  let mockFetchData: MockInstance<({ url, options }: FetchConfig) => Promise<Record<string, unknown>>>;
-  let mockCallServiceMethod: MockInstance;
+  let ctx: { headers: Record<string, string> };
+  let callServiceMethodMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -406,116 +302,103 @@ describe('fetchInitialData', () => {
     };
     attr = undefined;
     params = {};
-
-    mockFetchData = vi.spyOn(utils, 'fetchData').mockResolvedValue({ fetchedData: true });
-    mockCallServiceMethod = vi.spyOn(utils, 'callServiceMethod').mockResolvedValue({ serviceData: 'success' });
-
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue({ fetchedData: true }),
-    } as unknown as Response);
+    ctx = { headers: { 'x-test': '1' } };
+    callServiceMethodMock = vi.fn();
   });
 
-  it('should return an empty object when attr is undefined', async () => {
-    const result = await utils.fetchInitialData(undefined, params, serviceRegistry);
+  it('returns an empty object when attr is undefined', async () => {
+    const result = await utils.fetchInitialData(undefined, params, serviceRegistry, ctx);
     expect(result).toEqual({});
   });
 
-  it('should return an empty object when attr.fetch is not a function', async () => {
-    attr = {
-      // @ts-ignore
-      fetch: 'not-a-function',
-    };
-    const result = await utils.fetchInitialData(attr, params, serviceRegistry);
+  it('returns an empty object when attr.fetch is not a function', async () => {
+    // @ts-expect-error
+    attr = { render: RENDERTYPE.ssr, fetch: 'not-a-function' };
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx);
     expect(result).toEqual({});
   });
 
-  it('should call attr.fetch and fetchData when serviceName and serviceMethod are not present', async () => {
+  it('returns directly resolved object from attr.fetch', async () => {
     attr = {
       render: RENDERTYPE.ssr,
-      fetch: vi.fn().mockResolvedValue({ url: 'https://example.com', options: {} }),
+      fetch: vi.fn().mockResolvedValue({ some: 'data' }),
     };
 
-    const result = await utils.fetchInitialData(attr, params, serviceRegistry);
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx);
 
-    expect(attr.fetch).toHaveBeenCalledWith(params, {
-      headers: { 'Content-Type': 'application/json' },
-      params,
-    });
-    expect(result).toEqual({ fetchedData: true });
+    expect(attr.fetch).toHaveBeenCalledWith(params, ctx);
+    expect(result).toEqual({ some: 'data' });
   });
 
-  it('should call callServiceMethod when serviceName and serviceMethod are present', async () => {
+  it('calls injected callServiceMethod when service descriptor is returned', async () => {
+    const mockCallServiceMethod = vi.fn().mockResolvedValue({ result: 'fromService' });
+
     attr = {
       render: RENDERTYPE.ssr,
       fetch: vi.fn().mockResolvedValue({
         serviceName: 'exampleService',
         serviceMethod: 'exampleMethod',
-        options: { params: { key: 'value' } },
+        args: { foo: 'bar' },
       }),
     };
 
-    const result = await utils.fetchInitialData(attr, params, serviceRegistry);
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx, mockCallServiceMethod);
 
-    expect(attr.fetch).toHaveBeenCalledWith(params, {
-      headers: { 'Content-Type': 'application/json' },
-      params,
-    });
-    expect(result).toEqual({ serviceData: 'success' });
+    expect(mockCallServiceMethod).toHaveBeenCalledWith(serviceRegistry, 'exampleService', 'exampleMethod', { foo: 'bar' });
+    expect(result).toEqual({ result: 'fromService' });
   });
 
-  it('should call callServiceMethod with empty params when data.options.params is undefined', async () => {
+  it('calls callServiceMethod with empty args if not provided in service descriptor', async () => {
+    callServiceMethodMock.mockResolvedValue({ fallback: true });
+
     attr = {
       render: RENDERTYPE.ssr,
       fetch: vi.fn().mockResolvedValue({
         serviceName: 'exampleService',
         serviceMethod: 'exampleMethod',
-        options: {},
       }),
     };
 
-    const result = await utils.fetchInitialData(attr, params, serviceRegistry);
+    const result = await utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock);
 
-    expect(attr.fetch).toHaveBeenCalledWith(params, {
-      headers: { 'Content-Type': 'application/json' },
-      params,
-    });
-    expect(result).toEqual({ serviceData: 'success' });
+    expect(callServiceMethodMock).toHaveBeenCalledWith(serviceRegistry, 'exampleService', 'exampleMethod', {});
+    expect(result).toEqual({ fallback: true });
   });
 
-  it('should throw an error if attr.fetch rejects', async () => {
-    const error = new Error('Fetch failed');
-    attr = { render: RENDERTYPE.ssr, fetch: vi.fn().mockRejectedValue(error) };
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    await expect(utils.fetchInitialData(attr, params, serviceRegistry)).rejects.toThrow('Fetch failed');
-
-    expect(attr.fetch).toHaveBeenCalledWith(params, {
-      headers: { 'Content-Type': 'application/json' },
-      params,
-    });
-    expect(consoleErrorSpy).toHaveBeenCalledWith('Error fetching initial data:', error);
-
-    consoleErrorSpy.mockRestore();
-  });
-
-  it('should throw an error if fetch config has neither serviceName/method nor url', async () => {
-    const attr = {
+  it('throws if service descriptor is invalid', async () => {
+    attr = {
       render: RENDERTYPE.ssr,
-      fetch: vi.fn().mockResolvedValue({}),
+      fetch: vi.fn().mockResolvedValue({
+        serviceName: 'missingService',
+        serviceMethod: 'missingMethod',
+        args: {},
+      }),
     };
 
-    await expect(utils.fetchInitialData(attr, {}, {} as ServiceRegistry)).rejects.toThrow(
-      'Invalid fetch configuration: must have either serviceName+serviceMethod or url',
+    await expect(utils.fetchInitialData(attr, params, serviceRegistry, ctx)).rejects.toThrow(
+      'Invalid service fetch: serviceName=missingService, method=missingMethod',
     );
+  });
 
-    expect(attr.fetch).toHaveBeenCalledWith(
-      {},
-      {
-        headers: { 'Content-Type': 'application/json' },
-        params: {},
-      },
-    );
+  it('throws error if fetch result is not an object', async () => {
+    attr = {
+      render: RENDERTYPE.ssr,
+      fetch: vi.fn().mockResolvedValue(123 as any),
+    };
+
+    await expect(utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock)).rejects.toThrow('Invalid result from attr.fetch');
+
+    expect(callServiceMethodMock).not.toHaveBeenCalled();
+  });
+
+  it('throws if attr.fetch throws an error', async () => {
+    const error = new Error('fetch failed');
+    attr = {
+      render: RENDERTYPE.ssr,
+      fetch: vi.fn().mockRejectedValue(error),
+    };
+
+    await expect(utils.fetchInitialData(attr, params, serviceRegistry, ctx, callServiceMethodMock)).rejects.toThrow('fetch failed');
   });
 });
 
