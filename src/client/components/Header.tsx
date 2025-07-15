@@ -8,7 +8,7 @@ const Header = () => {
     <>
       <div className="container__taujs">
         <div className="logo-wrapper">
-          <a href="https://taujs.io" target="_blank" title="taujs [ &tau;js ]" rel="noreferrer">
+          <a href="https://taujs.dev" target="_blank" title="taujs [ &tau;js ]" rel="noreferrer">
             <img src="/taujs.svg" className="logo &tau;js" alt="&tau;js logo" />
           </a>
         </div>

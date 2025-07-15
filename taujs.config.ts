@@ -22,18 +22,22 @@ export const taujsConfig: TaujsConfig = {
         {
           path: '/:id',
           attr: {
-            fetch: async (params) => ({
-              url: `http://localhost:5173/api/initial/${params.id}`,
-              options: { method: 'GET' },
-            }),
+            data: async (params, ctx) => {
+              const res = await fetch(`http://localhost:5173/api/initial/${params.id}`, {
+                headers: ctx.headers,
+              });
+              const data = await res.json();
+
+              return data;
+            },
             render: 'ssr',
           },
         },
         {
           path: '/:id/:another',
           attr: {
-            fetch: async (params) => ({
-              options: { params },
+            data: async (params) => ({
+              args: params,
               serviceMethod: 'exampleMethod',
               serviceName: 'ServiceExample',
             }),
@@ -54,10 +58,14 @@ export const taujsConfig: TaujsConfig = {
         {
           path: '/mfe/:id',
           attr: {
-            fetch: async (params) => ({
-              url: `http://localhost:5173/api/initial/${params.id}`,
-              options: { method: 'GET' },
-            }),
+            data: async (params, ctx) => {
+              const res = await fetch(`http://localhost:5173/api/initial/${params.id}`, {
+                headers: ctx.headers,
+              });
+              const data = await res.json();
+
+              return data;
+            },
             render: 'ssr',
           },
         },

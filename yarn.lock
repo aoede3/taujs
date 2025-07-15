@@ -647,10 +647,10 @@
   resolved "https://registry.yarnpkg.com/@taujs/react/-/react-0.0.6.tgz#c3f541f571add525717c8620505b9b0962a19f31"
   integrity sha512-3BAHTM2Xox9iW5oOCJJl8WHLyQ/QFF3AEarypQYsOXz5oCBGxxqd54fe4XFh7P+0nBVkYOZqleZaSKwP83spLg==
 
-"@taujs/server@^0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.3.0.tgz#9b78135483243a04f3eb0cdbbc2dee18e2c1720e"
-  integrity sha512-s6bqWEN7UPujrvKgdfhH2NaiF9dLOOrqmKzN0aLBNyJSaiuIVeo/QVFe3VP3KX2USRGu8vNdzv4Bjck1rtYe/A==
+"@taujs/server@^0.3.2":
+  version "0.3.2"
+  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.3.2.tgz#f170b7c70a765cd9a9c2b70d8cdac0cef41a481e"
+  integrity sha512-JFX3jPrip1cUWeXssuM27axrXAuVxetALoyLeTGauLzFhM29wUNniQ6D1Uei/PLf4r0vKhNkYL8D4hoft/adCg==
   dependencies:
     "@fastify/static" "^8.0.3"
     path-to-regexp "^8.1.0"
