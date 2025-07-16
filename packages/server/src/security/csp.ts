@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 
 import { DEV_CSP_DIRECTIVES } from '../constants';
+import { isDevelopment } from '../utils';
 
 import type { HookHandlerDoneFunction, FastifyReply, FastifyRequest } from 'fastify';
 import type { SSRServerOptions } from '../SSRServer';
@@ -19,7 +20,7 @@ export const defaultGenerateCSP = (directives: CSPDirectives, nonce: string): st
   merged['script-src'] = merged['script-src'] || ["'self'"];
   if (!merged['script-src'].some((v) => v.startsWith("'nonce-"))) merged['script-src'].push(`'nonce-${nonce}'`);
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (isDevelopment) {
     const connect = merged['connect-src'] || ["'self'"];
 
     if (!connect.includes('ws:')) connect.push('ws:');
