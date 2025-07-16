@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { defaultGenerateCSP, generateNonce, createCSPHook, getRequestNonce, applyCSP } from '../csp';
+import { generateNonce, createCSPHook, getRequestNonce, applyCSP } from '../csp';
 
 import type { CSPDirectives } from '../csp';
+
+describe('generateNonce', () => {
+  it('generates a base64 nonce', () => {
+    const nonce = generateNonce();
+
+    expect(typeof nonce).toBe('string');
+    expect(Buffer.from(nonce, 'base64').length).toBe(16);
+  });
+});
 
 describe('generateNonce', () => {
   it('generates a base64 nonce', () => {
@@ -18,14 +27,26 @@ describe('defaultGenerateCSP', () => {
 
   afterEach(() => {
     process.env.NODE_ENV = originalEnv;
+    vi.doUnmock('../../utils');
+    vi.resetModules();
   });
 
-  it('adds nonce and defaults for production', () => {
+  it('adds nonce and defaults for production', async () => {
     process.env.NODE_ENV = 'production';
+
+    vi.doMock('../../utils', () => ({
+      isDevelopment: false,
+    }));
+
+    vi.resetModules();
+
+    const { defaultGenerateCSP } = await import('../csp');
+
     const nonce = 'abc123';
     const directives: CSPDirectives = {
       'script-src': ["'self'"],
     };
+
     const result = defaultGenerateCSP(directives, nonce);
 
     expect(result).toContain(`script-src 'self' 'nonce-${nonce}'`);
@@ -33,8 +54,15 @@ describe('defaultGenerateCSP', () => {
     expect(result).not.toContain('connect-src');
   });
 
-  it('adds ws:, http:, and unsafe-inline in dev', () => {
-    process.env.NODE_ENV = 'development';
+  it('adds ws:, http:, and unsafe-inline in dev', async () => {
+    vi.doMock('../../utils', () => ({
+      isDevelopment: true,
+    }));
+
+    vi.resetModules();
+
+    const { defaultGenerateCSP } = await import('../csp');
+
     const nonce = 'abc123';
     const directives: CSPDirectives = {
       'script-src': ["'self'"],
@@ -46,8 +74,15 @@ describe('defaultGenerateCSP', () => {
     expect(result).toContain(`style-src 'self' 'unsafe-inline'`);
   });
 
-  it('does not duplicate nonce or connect/style values', () => {
-    process.env.NODE_ENV = 'development';
+  it('does not duplicate nonce or connect/style values', async () => {
+    vi.doMock('../../utils', () => ({
+      isDevelopment: true,
+    }));
+
+    vi.resetModules();
+
+    const { defaultGenerateCSP } = await import('../csp');
+
     const nonce = 'abc123';
     const directives: CSPDirectives = {
       'script-src': ["'self'", `'nonce-${nonce}'`],
@@ -61,7 +96,6 @@ describe('defaultGenerateCSP', () => {
     expect(result.match(/'unsafe-inline'/g)?.length).toBe(1);
   });
 });
-
 describe('cspHook', () => {
   const reply = {
     header: vi.fn(),

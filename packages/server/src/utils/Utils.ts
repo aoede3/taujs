@@ -150,25 +150,23 @@ export const fetchInitialData = async (
   ctx: { headers: Record<string, string>; [key: string]: unknown } = { headers: {} },
   callServiceMethodImpl: typeof callServiceMethod = callServiceMethod,
 ): Promise<Record<string, unknown>> => {
-  if (!attr?.data || typeof attr.data !== 'function') return {};
+  const dataHandler = attr?.data;
 
-  const result = await attr.data(params, ctx);
+  if (!dataHandler || typeof dataHandler !== 'function') return Promise.resolve({});
 
-  if (isServiceDescriptor(result)) {
-    const { serviceName, serviceMethod, args } = result;
+  return dataHandler(params, ctx).then(async (result) => {
+    if (isServiceDescriptor(result)) {
+      const { serviceName, serviceMethod, args } = result;
 
-    if (serviceRegistry[serviceName]?.[serviceMethod]) {
-      return await callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {});
+      if (serviceRegistry[serviceName]?.[serviceMethod]) return callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {});
+
+      throw new Error(`Invalid service: serviceName=${String(serviceName)}, method=${String(serviceMethod)}`);
     }
 
-    throw new Error(`Invalid service: serviceName=${String(serviceName)}, method=${String(serviceMethod)}`);
-  }
+    if (typeof result === 'object' && result !== null) return result as Record<string, unknown>;
 
-  if (typeof result === 'object' && result !== null) {
-    return result as Record<string, unknown>;
-  }
-
-  throw new Error('Invalid result from attr.data');
+    throw new Error('Invalid result from attr.data');
+  });
 };
 
 export const matchRoute = <Params extends Partial<Record<string, string | string[]>>>(url: string, renderRoutes: Route<RouteParams>[]) => {
