@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RENDERTYPE, SSRTAG } from '../constants';
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Mock } from 'vitest';
 import type { Config, SSRServerOptions } from '../SSRServer';
 
@@ -231,6 +231,39 @@ describe('SSRServer Plugin', () => {
 
     await app.register(SSRServer, optionsConfigBlank);
     expect(app.hasPlugin('taujs-ssr-server')).toBe(true);
+  });
+
+  it('disables static file serving when registerStaticAssets is false', async () => {
+    isDevelopmentValue = false;
+    const { SSRServer } = await import('../SSRServer');
+
+    await app.register(SSRServer, {
+      ...options,
+      registerStaticAssets: false,
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/static/any.js' });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('uses injected registerStaticAssets function', async () => {
+    isDevelopmentValue = false;
+    const registerStaticAssets = vi.fn(async (appInstance) => {
+      appInstance.get('/mock-static.js', async (_req: FastifyRequest, reply: FastifyReply) => {
+        reply.type('application/javascript').send('console.log("injected asset");');
+      });
+    });
+
+    const { SSRServer } = await import('../SSRServer');
+    await app.register(SSRServer, {
+      ...options,
+      registerStaticAssets,
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/mock-static.js' });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('injected asset');
+    expect(registerStaticAssets).toHaveBeenCalled();
   });
 
   it('serves static files in production mode', async () => {

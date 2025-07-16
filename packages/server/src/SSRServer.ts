@@ -126,12 +126,25 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       opts.isDebug,
     );
 
-    await app.register(import('@fastify/static'), {
-      index: false,
-      prefix: '/',
-      root: baseClientRoot,
-      wildcard: false,
-    });
+    if (opts.registerStaticAssets !== false) {
+      if (typeof opts.registerStaticAssets === 'function') {
+        await opts.registerStaticAssets(app);
+      } else {
+        try {
+          const fastifyStatic = await import('@fastify/static');
+          await app.register(fastifyStatic.default, {
+            index: false,
+            prefix: '/',
+            root: baseClientRoot,
+            wildcard: false,
+          });
+        } catch (err) {
+          throw new Error(
+            'Static asset handling requires @fastify/static to be installed. Either install it or provide your own static asset handler using `registerStaticAssets`.',
+          );
+        }
+      }
+    }
 
     app.addHook(
       'onRequest',
@@ -386,6 +399,7 @@ export type SSRServerOptions = {
       generateCSP?: (directives: CSPDirectives, nonce: string) => string;
     };
   };
+  registerStaticAssets?: false | ((app: FastifyInstance) => Promise<void> | void);
   isDebug?: boolean;
 };
 

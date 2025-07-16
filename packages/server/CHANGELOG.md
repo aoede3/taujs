@@ -1,5 +1,15 @@
 # @taujs/server
 
+v0.3.2 - 15/07/2025
+
+sec: fetch network access; typing; tests
+feat: rename fetch to data
+sec: fetch network access; types
+
+v0.3.1 - 10/07/2025
+
+feat: url matching; test; cleanup
+
 v0.3.0 - 10/07/2025 - Orchestration Foundations
 
 - Introduced middleware as an orchestration-layer primitive
