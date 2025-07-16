@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.3.5 - 16/07/2025
+
+sec: env; remove await; tests
+
 v0.3.4 - 16/07/2025
 
 sec: fastify dependencies static
