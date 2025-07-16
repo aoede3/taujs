@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.3.4 - 16/07/2025
+
+sec: fastify dependencies static
+
 v0.3.3 - 16/07/2025
 
 sec: fastify dependencies
