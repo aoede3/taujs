@@ -32,7 +32,7 @@ import {
 } from './utils';
 
 import type { ServerResponse } from 'node:http';
-import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 import type { PluginOption, ViteDevServer } from 'vite';
 import type { CSPDirectives } from './security/csp';
 
@@ -126,24 +126,16 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       opts.isDebug,
     );
 
-    if (opts.registerStaticAssets !== false) {
-      if (typeof opts.registerStaticAssets === 'function') {
-        await opts.registerStaticAssets(app);
-      } else {
-        try {
-          const fastifyStatic = await import('@fastify/static');
-          await app.register(fastifyStatic.default, {
-            index: false,
-            prefix: '/',
-            root: baseClientRoot,
-            wildcard: false,
-          });
-        } catch (err) {
-          throw new Error(
-            'Static asset handling requires @fastify/static to be installed. Either install it or provide your own static asset handler using `registerStaticAssets`.',
-          );
-        }
-      }
+    if (opts.registerStaticAssets && typeof opts.registerStaticAssets === 'object') {
+      const { plugin, options } = opts.registerStaticAssets;
+
+      await app.register(plugin as FastifyPluginCallback<any>, {
+        root: baseClientRoot,
+        prefix: '/',
+        index: false,
+        wildcard: false,
+        ...(options ?? {}),
+      });
     }
 
     app.addHook(
@@ -399,7 +391,12 @@ export type SSRServerOptions = {
       generateCSP?: (directives: CSPDirectives, nonce: string) => string;
     };
   };
-  registerStaticAssets?: false | ((app: FastifyInstance) => Promise<void> | void);
+  registerStaticAssets?:
+    | false
+    | {
+        plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
+        options?: Record<string, unknown>;
+      };
   isDebug?: boolean;
 };
 
@@ -452,6 +449,8 @@ export type RenderModule = {
   renderSSR: RenderSSR;
   renderStream: RenderStream;
 };
+
+export type GenericPlugin = FastifyPluginCallback<Record<string, unknown>> | FastifyPluginAsync<Record<string, unknown>>;
 
 export type BaseMiddleware = {
   auth?: {
