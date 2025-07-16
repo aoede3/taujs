@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.3.3 - 16/07/2025
+
+sec: fastify dependencies
+
 v0.3.2 - 15/07/2025
 
 sec: fetch network access; typing; tests
