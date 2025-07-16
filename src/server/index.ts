@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import Fastify from 'fastify';
+import fastifyStatic from '@fastify/static';
 import { SSRServer } from '@taujs/server';
 import { extractBuildConfigs, extractRoutes } from '@taujs/server/config';
 
@@ -16,7 +17,6 @@ const clientRoot = path.resolve(__dirname, '../client');
 const port = Number(process.env.PORT) || 5173;
 
 const startServer = async () => {
-  /*  */
   try {
     const fastify = Fastify({
       logger: false,
@@ -31,6 +31,9 @@ const startServer = async () => {
       configs: extractBuildConfigs(taujsConfig),
       routes: extractRoutes(taujsConfig),
       serviceRegistry,
+      registerStaticAssets: {
+        plugin: fastifyStatic,
+      },
     }));
 
     void fastify.get('/api/initial/:id?', (request: FastifyRequest<{ Params: InitialRouteParams }>, reply: FastifyReply) => {
