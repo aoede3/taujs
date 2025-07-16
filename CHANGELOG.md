@@ -1,5 +1,10 @@
 # @taujs
 
+v0.2.5 - 16/07/2025
+
+chore(deps): Bump taujs/server
+Associated dep changes
+
 v0.2.4 - 15/07/2025
 
 chore(deps): Bump taujs/server

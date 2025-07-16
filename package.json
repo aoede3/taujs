@@ -2,7 +2,7 @@
   "name": "taujs",
   "license": "MIT",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose",
@@ -17,8 +17,9 @@
   },
   "dependencies": {
     "@fastify/compress": "^8.0.1",
+    "@fastify/static": "^8.2.0",
     "@taujs/react": "^0.0.6",
-    "@taujs/server": "^0.3.2",
+    "@taujs/server": "^0.3.3",
     "@vitejs/plugin-react": "^4.6.0",
     "fastify": "^5.3.3",
     "react": "^19.0.0",
