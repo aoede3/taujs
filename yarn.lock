@@ -659,10 +659,10 @@
   resolved "https://registry.yarnpkg.com/@taujs/react/-/react-0.0.7.tgz#97f75c614bf8cbdedd28ecc98b4aa1cf83af2045"
   integrity sha512-wPRDSUo+ZRh9y4Co3qRKaJxxI1Jp7zU958qktnzAZD1p9ld1kli2fRIqKWVW9e7v7K0M/YwqTOtUzUM9BqTUXg==
 
-"@taujs/server@^0.3.5":
-  version "0.3.5"
-  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.3.5.tgz#69f233f85d3d870bb71892547c8ac6ba6021a7a8"
-  integrity sha512-GVNdPcns5hJg873uxV3BAY/KtxEaTr63Geu04FR2Aa5B7ylu4G5SfXCLEisiqqgPkgbZIFAOh0Yrf1xX0r5/aA==
+"@taujs/server@^0.3.6":
+  version "0.3.6"
+  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.3.6.tgz#c988a4e0f41912e1b9a4ad257e1930fe97ab1166"
+  integrity sha512-6/KrbWflr6X4G6vZip4usdWE181fIDvi5IRfujaEBpwW3WYgQ3CroYi/XcFOYSsAeEb8j4nsP2y/NHOP1kyU5A==
   dependencies:
     path-to-regexp "^8.1.0"
     vite-plugin-node-polyfills "^0.23.0"

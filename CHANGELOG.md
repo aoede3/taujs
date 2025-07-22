@@ -1,5 +1,9 @@
 # @taujs
 
+v0.2.7 - 22/07/2025
+
+chore(deps): @taujs/server;
+
 v0.2.6 - 16/07/2025
 
 chore(deps): @taujs/server; @taujs/react; integrate @taujs/server
