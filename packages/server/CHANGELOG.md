@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.3.6 - 22/07/2025
+
+chore(deps-dev): bump form-data from 4.0.3 to 4.0.4
+
 v0.3.5 - 16/07/2025
 
 sec: env; remove await; tests
