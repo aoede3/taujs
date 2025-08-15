@@ -348,3 +348,187 @@ describe('SSR v Streaming SSR rendering consistency', () => {
     expect(normalize(headContent)).toBe(normalize(streamedHead));
   });
 });
+
+describe('CSP nonce & bootstrapModules wiring', () => {
+  it('createRenderer.renderStream: passes cspNonce and bootstrapModules to renderToPipeableStream', async () => {
+    const mockAppComponent = () => <div>Test</div>;
+    const mockHeadContent = '<title>Test</title>';
+    const mockInitialData = { data: 'test' };
+
+    const onHead = vi.fn();
+    const onFinish = vi.fn();
+    const onError = vi.fn();
+
+    const serverResponse = new Writable({
+      write(_chunk, _encoding, callback) {
+        setImmediate(callback);
+      },
+    });
+
+    let capturedOptions: any;
+    const onFinishPromise = new Promise<void>((resolve) => {
+      onFinish.mockImplementation(() => resolve());
+    });
+
+    (renderToPipeableStream as Mock).mockImplementation((_appElement: React.JSX.Element, options: any) => {
+      capturedOptions = options;
+
+      const stream = {
+        pipe: (writable: Writable) => {
+          writable.write(Buffer.from('nonce test'), (err) => {
+            if (err) throw err;
+            writable.end();
+          });
+        },
+      };
+
+      setImmediate(() => {
+        options.onShellReady?.();
+        options.onAllReady?.();
+      });
+
+      return stream;
+    });
+
+    const { renderStream } = createRenderer({
+      appComponent: mockAppComponent,
+      headContent: mockHeadContent,
+    });
+
+    const cspNonce = 'nonce-123';
+    const bootstrapModules = '/static/entry-client.js';
+
+    renderStream(
+      serverResponse as any,
+      { onHead, onFinish, onError },
+      mockInitialData,
+      '/test',
+      bootstrapModules,
+      undefined, // meta
+      cspNonce,
+    );
+
+    await onFinishPromise;
+
+    expect(capturedOptions?.nonce).toBe(cspNonce);
+    expect(capturedOptions?.bootstrapModules).toEqual([bootstrapModules]);
+  });
+
+  it('createRenderer.renderStream: omits bootstrapModules and nonce when not provided', async () => {
+    const mockAppComponent = () => <div>Test</div>;
+    const mockHeadContent = '<title>Test</title>';
+    const mockInitialData = { data: 'test' };
+
+    const onHead = vi.fn();
+    const onFinish = vi.fn();
+    const onError = vi.fn();
+
+    const serverResponse = new Writable({
+      write(_chunk, _encoding, callback) {
+        setImmediate(callback);
+      },
+    });
+
+    let capturedOptions: any;
+    const onFinishPromise = new Promise<void>((resolve) => {
+      onFinish.mockImplementation(() => resolve());
+    });
+
+    (renderToPipeableStream as Mock).mockImplementation((_appElement: React.JSX.Element, options: any) => {
+      capturedOptions = options;
+
+      const stream = {
+        pipe: (writable: Writable) => {
+          writable.write(Buffer.from('no bootstrap/no nonce'), (err) => {
+            if (err) throw err;
+            writable.end();
+          });
+        },
+      };
+
+      setImmediate(() => {
+        options.onShellReady?.();
+        options.onAllReady?.();
+      });
+
+      return stream;
+    });
+
+    const { renderStream } = createRenderer({
+      appComponent: mockAppComponent,
+      headContent: mockHeadContent,
+    });
+
+    // No bootstrapModules, no cspNonce
+    renderStream(serverResponse as any, { onHead, onFinish, onError }, mockInitialData, '/test');
+
+    await onFinishPromise;
+
+    expect(capturedOptions?.bootstrapModules).toBeUndefined();
+    expect(capturedOptions?.nonce).toBeUndefined();
+  });
+
+  it('createRenderStream: directly passes nonce and wraps bootstrapModules as array', async () => {
+    const mockAppComponent = ({ location }: { location: string }) => <div>Location: {location}</div>;
+    const headContentFn = (data: Record<string, unknown>) => `<title>${data?.title ?? ''}</title>`;
+    const mockInitialData = { title: 'Stream Nonce' };
+    const mockLocation = '/nonce';
+    const mockBootstrapModules = '/entry-client.mjs';
+    const cspNonce = 'abc123';
+
+    const onHead = vi.fn();
+    const onFinish = vi.fn();
+    const onError = vi.fn();
+
+    const serverResponse = new Writable({
+      write(_chunk, _encoding, callback) {
+        setImmediate(callback);
+      },
+    });
+
+    let capturedOptions: any;
+    const onFinishPromise = new Promise<void>((resolve) => {
+      onFinish.mockImplementation(() => resolve());
+    });
+
+    (renderToPipeableStream as Mock).mockImplementation((_appElement: React.JSX.Element, options: any) => {
+      capturedOptions = options;
+
+      const stream = {
+        pipe: (writable: Writable) => {
+          writable.write(Buffer.from('nonce pass-through'), (err) => {
+            if (err) throw err;
+            writable.end();
+          });
+        },
+      };
+
+      setImmediate(() => {
+        options.onShellReady?.();
+        options.onAllReady?.();
+      });
+
+      return stream;
+    });
+
+    createRenderStream(
+      serverResponse as any,
+      { onHead, onFinish, onError },
+      {
+        appComponent: mockAppComponent,
+        headContent: headContentFn,
+        initialDataPromise: mockInitialData,
+        location: mockLocation,
+        bootstrapModules: mockBootstrapModules,
+      },
+      cspNonce,
+    );
+
+    await onFinishPromise;
+
+    expect(capturedOptions?.nonce).toBe(cspNonce);
+    expect(capturedOptions?.bootstrapModules).toEqual([mockBootstrapModules]);
+    // sanity check: head computed from initialDataPromise (not meta) in onShellReady
+    expect(onHead).toHaveBeenCalledWith('<title>Stream Nonce</title>');
+  });
+});
