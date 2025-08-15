@@ -39,16 +39,22 @@ export const createRenderer = ({ appComponent, headContent }: RendererOptions) =
     location: string,
     bootstrapModules?: string,
     meta: Record<string, unknown> = {},
+    cspNonce?: string,
   ) => {
     const dynamicHeadContent = resolveHeadContent(headContent, meta);
 
-    createRenderStream(serverResponse, callbacks, {
-      appComponent: (props) => appComponent({ ...props, location }),
-      headContent: dynamicHeadContent,
-      initialDataPromise,
-      location,
-      bootstrapModules,
-    });
+    createRenderStream(
+      serverResponse,
+      callbacks,
+      {
+        appComponent: (props) => appComponent({ ...props, location }),
+        headContent: dynamicHeadContent,
+        initialDataPromise,
+        location,
+        bootstrapModules,
+      },
+      cspNonce,
+    );
   };
 
   return { renderSSR, renderStream };
@@ -64,11 +70,13 @@ export const createRenderStream = (
     location,
     bootstrapModules,
   }: RendererOptions & { initialDataPromise: Record<string, unknown>; location: string; bootstrapModules?: string },
+  cspNonce?: string,
 ): void => {
   const store = createSSRStore(initialDataPromise);
   const appElement = <SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>;
 
   const { pipe } = renderToPipeableStream(appElement, {
+    nonce: cspNonce,
     bootstrapModules: bootstrapModules ? [bootstrapModules] : undefined,
 
     onShellReady() {
