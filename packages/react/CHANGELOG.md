@@ -1,5 +1,13 @@
 # @taujs/react
 
+v0.0.8 - 15/08/2025
+
+feat: cspNonce addition + tests
+
+v0.0.7 - 10/07/2025
+
+chore(deps): pin taujs/server to 0.3.0
+
 v0.0.6 - 05/07/2025
 
 feat: SSRDataStore error handling
