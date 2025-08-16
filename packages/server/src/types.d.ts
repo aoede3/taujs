@@ -4,7 +4,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    nonce?: string;
+    cspNonce?: string;
   }
   interface FastifyInstance {
     /**
