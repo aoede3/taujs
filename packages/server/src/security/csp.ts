@@ -1,18 +1,17 @@
+import fp from 'fastify-plugin';
 import crypto from 'crypto';
 
 import { DEV_CSP_DIRECTIVES } from '../constants';
 import { isDevelopment } from '../utils';
 
-import type { HookHandlerDoneFunction, FastifyReply, FastifyRequest } from 'fastify';
-import type { SSRServerOptions } from '../SSRServer';
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
 
-export type CSPDirectives = Record<string, string[]>;
-
-export interface CSPOptions {
+export interface CSPPluginOptions {
   directives?: CSPDirectives;
-  exposeNonce?: (req: FastifyRequest, nonce: string) => void;
   generateCSP?: (directives: CSPDirectives, nonce: string) => string;
 }
+
+export type CSPDirectives = Record<string, string[]>;
 
 export const defaultGenerateCSP = (directives: CSPDirectives, nonce: string): string => {
   const merged: CSPDirectives = { ...directives };
@@ -40,38 +39,23 @@ export const defaultGenerateCSP = (directives: CSPDirectives, nonce: string): st
 
 export const generateNonce = (): string => crypto.randomBytes(16).toString('base64');
 
-export const createCSPHook =
-  (options: CSPOptions = {}) =>
-  (req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) => {
-    const nonce = generateNonce();
+export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
+  async (fastify, opts: CSPPluginOptions) => {
+    fastify.addHook('onRequest', (req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) => {
+      const nonce = generateNonce();
 
-    const directives = options.directives ?? DEV_CSP_DIRECTIVES;
-    const generate = options.generateCSP ?? defaultGenerateCSP;
+      req.cspNonce = nonce;
 
-    const cspHeader = generate(directives, nonce);
+      const directives = opts.directives ?? DEV_CSP_DIRECTIVES;
+      const generate = opts.generateCSP ?? defaultGenerateCSP;
+      const cspHeader = generate(directives, nonce);
 
-    reply.header('Content-Security-Policy', cspHeader);
+      reply.header('Content-Security-Policy', cspHeader);
 
-    if (typeof options.exposeNonce === 'function') {
-      options.exposeNonce(req, nonce);
-    } else {
-      req.nonce = nonce;
-    }
-
-    done();
-  };
-
-export const getRequestNonce = (req: FastifyRequest): string | undefined => (req as any).nonce;
-
-export const applyCSP = (security: SSRServerOptions['security'], reply: FastifyReply): string | undefined => {
-  const nonce = generateNonce();
-
-  const directives = security?.csp?.directives ?? DEV_CSP_DIRECTIVES;
-  const generate = security?.csp?.generateCSP ?? defaultGenerateCSP;
-
-  const header = generate(directives, nonce);
-  reply.header('Content-Security-Policy', header);
-  reply.request.nonce = nonce;
-
-  return nonce;
-};
+      done();
+    });
+  },
+  {
+    name: 'taujs-csp-plugin',
+  },
+);

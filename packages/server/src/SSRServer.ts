@@ -17,7 +17,7 @@ import pc from 'picocolors';
 import { createLogger } from './utils/Logger';
 import { RENDERTYPE, SSRTAG, TEMPLATE } from './constants';
 import { createAuthHook } from './security/auth';
-import { applyCSP, createCSPHook } from './security/csp';
+import { cspPlugin } from './security/csp';
 import { hasAuthenticate, isAuthRequired, verifyContracts } from './security/verifyMiddleware';
 import {
   __dirname,
@@ -138,13 +138,10 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       });
     }
 
-    app.addHook(
-      'onRequest',
-      createCSPHook({
-        directives: opts.security?.csp?.directives,
-        generateCSP: opts.security?.csp?.generateCSP,
-      }),
-    );
+    app.register(cspPlugin, {
+      directives: opts.security?.csp?.directives,
+      generateCSP: opts.security?.csp?.generateCSP,
+    });
 
     app.addHook('onRequest', createAuthHook(routes));
 
@@ -216,7 +213,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
         const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
         const matchedRoute = matchRoute(url, routes);
-        const nonce = applyCSP(opts.security, reply);
+        const cspNonce = req.cspNonce;
 
         if (!matchedRoute) {
           reply.callNotFound();
@@ -273,7 +270,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         if (renderType === RENDERTYPE.ssr) {
           const { renderSSR } = renderModule;
           const initialDataResolved = await initialDataPromise;
-          const initialDataScript = `<script nonce="${nonce}">window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`;
+          const initialDataScript = `<script nonce="${cspNonce}">window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`;
           const { headContent, appHtml } = await renderSSR(initialDataResolved as Record<string, unknown>, req.url!, attr?.meta);
 
           let aggregateHeadContent = headContent;
@@ -282,7 +279,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           if (manifest && cssLink) aggregateHeadContent += cssLink;
 
           const shouldHydrate = attr?.hydrate !== false;
-          const bootstrapScriptTag = shouldHydrate ? `<script nonce="${nonce}" type="module" src="${bootstrapModule}" defer></script>` : '';
+          const bootstrapScriptTag = shouldHydrate ? `<script nonce="${cspNonce}" type="module" src="${bootstrapModule}" defer></script>` : '';
 
           const fullHtml = template
             .replace(SSRTAG.ssrHead, aggregateHeadContent)
@@ -291,8 +288,14 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
         } else {
           const { renderStream } = renderModule;
+          const cspNonce = req.cspNonce;
+          // we're using `raw` so we need to rewrite csp from Fastify lifecycle to raw!
+          const cspHeader = reply.getHeader('Content-Security-Policy');
 
-          reply.raw.writeHead(200, { 'Content-Type': 'text/html' });
+          reply.raw.writeHead(200, {
+            'Content-Security-Policy': cspHeader,
+            'Content-Type': 'text/html',
+          });
 
           renderStream(
             reply.raw,
@@ -305,13 +308,13 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
                 reply.raw.write(`${beforeHead}${aggregateHeadContent}${afterHead}`);
               },
-
               onFinish: async (initialDataResolved: unknown) => {
-                reply.raw.write(`<script nonce="${nonce}">window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`);
+                reply.raw.write(
+                  `<script nonce="${cspNonce}">window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`,
+                );
                 reply.raw.write(afterBody);
                 reply.raw.end();
               },
-
               onError: (error: unknown) => {
                 console.error('Critical rendering onError:', error);
                 reply.raw.end('Internal Server Error');
@@ -321,6 +324,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
             req.url!,
             bootstrapModule,
             attr?.meta,
+            cspNonce,
           );
         }
       } catch (error) {
@@ -340,7 +344,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         if (!defaultConfig) throw new Error('No default configuration found.');
 
         const { clientRoot } = defaultConfig;
-        const nonce = applyCSP(opts.security, reply);
+        const cspNonce = req.cspNonce;
 
         let template = ensureNonNull(templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
 
@@ -349,7 +353,8 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
         template = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
         if (!isDevelopment && cssLink) template = template.replace('</head>', `${cssLink}</head>`);
-        if (bootstrapModule) template = template.replace('</body>', `<script nonce="${nonce}" type="module" src="${bootstrapModule}" defer></script></body>`);
+        if (bootstrapModule)
+          template = template.replace('</body>', `<script nonce="${cspNonce}" type="module" src="${bootstrapModule}" defer></script></body>`);
 
         reply.status(200).type('text/html').send(template);
       } catch (error) {
@@ -388,7 +393,7 @@ export type SSRServerOptions = {
   security?: {
     csp?: {
       directives?: CSPDirectives;
-      generateCSP?: (directives: CSPDirectives, nonce: string) => string;
+      generateCSP?: (directives: CSPDirectives, cspNonce: string) => string;
     };
   };
   registerStaticAssets?:
@@ -443,6 +448,7 @@ export type RenderStream = (
   location: string,
   bootstrapModules?: string,
   meta?: Record<string, unknown>,
+  cspNonce?: string,
 ) => void;
 
 export type RenderModule = {

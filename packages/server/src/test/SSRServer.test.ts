@@ -117,14 +117,15 @@ vi.mock('node:fs/promises', () => ({
   readFile: (filePath: string) => fsReadFileMock(filePath),
 }));
 
-vi.mock('../security/csp', () => ({
-  applyCSP: vi.fn((security, _reply) => {
-    const nonce = 'mock-nonce';
-    if (security?.csp?.generateCSP) security.csp.generateCSP(security.csp.directives || {}, nonce);
+const cspPluginMock = vi.fn(async (instance, _opts) => {
+  instance.addHook('onRequest', (req: { cspNonce: string }, _res: any, done: () => void) => {
+    req.cspNonce = 'mock-nonce';
+    done();
+  });
+});
 
-    return nonce;
-  }),
-  createCSPHook: vi.fn(() => (_req: any, _res: any, next: () => any) => next()),
+vi.mock('../security/csp', () => ({
+  cspPlugin: cspPluginMock,
 }));
 
 describe('SSRServer Plugin', () => {
@@ -144,6 +145,12 @@ describe('SSRServer Plugin', () => {
     fsReadFileMock = vi.fn(originalFsReadFile);
 
     app = fastify();
+    app.addHook('onRequest', (request, reply, done) => {
+      request.cspNonce = 'mock-nonce';
+      reply.header('Content-Security-Policy', "script-src 'nonce-mock-nonce'");
+      done();
+    });
+
     options = {
       alias: {},
       clientRoot: baseClientRoot,
@@ -975,6 +982,51 @@ describe('SSRServer Plugin', () => {
     const response = await app.inject({ method: 'GET', url: '/hydrate-false' });
     expect(response.body).not.toContain('<script nonce="mock-nonce" type="module" src="/entry-client.js" defer></script>');
   });
+
+  it('registers cspPlugin with a custom generateCSP function when provided', async () => {
+    const { SSRServer } = await import('../SSRServer');
+    const customGenerateCSP = vi.fn();
+
+    await app.register(SSRServer, {
+      ...options,
+      security: {
+        csp: {
+          generateCSP: customGenerateCSP,
+        },
+      },
+    });
+
+    // Explicitly check for the Fastify instance, options object, and the done callback.
+    expect(cspPluginMock).toHaveBeenCalledWith(
+      expect.anything(), // Matches Fastify instance
+      expect.objectContaining({
+        directives: undefined,
+        generateCSP: customGenerateCSP,
+      }),
+      expect.any(Function), // Matches Fastify 'done' callback
+    );
+  });
+
+  it('should handle undefined isDebug option and default to false', async () => {
+    isDevelopmentValue = true;
+
+    const optionsWithoutDebug = {
+      alias: {},
+      clientRoot: baseClientRoot,
+      configs: [defaultConfig],
+      routes: [{ path: '/test', attr: { render: RENDERTYPE.ssr } }],
+      serviceRegistry: {},
+    };
+
+    const { SSRServer } = await import('../SSRServer');
+    await app.register(SSRServer, optionsWithoutDebug);
+
+    expect(app.hasPlugin('taujs-ssr-server')).toBe(true);
+
+    // Verify that no debug plugin was added since isDebug defaults to false
+    const debugPlugin = mockVitePlugins.find((p) => p.name === 'taujs-development-server-debug-logging');
+    expect(debugPlugin).toBeUndefined();
+  });
 });
 
 describe('processConfigs', () => {
@@ -1011,55 +1063,5 @@ describe('processConfigs', () => {
         appId: 'app2',
       },
     ]);
-  });
-
-  it('registers plugin with custom CSP directives and generateCSP', async () => {
-    isDevelopmentValue = false;
-
-    const mockDirectives = {
-      'script-src': ["'self'", "'nonce-custom'"],
-    };
-
-    const mockGenerateCSP = vi.fn((_directives, nonce) => {
-      expect(nonce).toBe('mock-nonce');
-      return `script-src 'nonce-${nonce}'`; // This string is not inspected, just needed to satisfy the interface
-    });
-
-    const { SSRServer } = await import('../SSRServer');
-
-    const customOptions: SSRServerOptions = {
-      alias: {},
-      clientRoot: './test',
-      configs: [
-        {
-          appId: '',
-          entryPoint: '.',
-          entryClient: 'entry-client',
-          entryServer: 'entry-server',
-          htmlTemplate: 'index.html',
-        },
-      ],
-      routes: [{ path: '/', attr: { render: RENDERTYPE.ssr } }],
-      serviceRegistry: {},
-      security: {
-        csp: {
-          directives: mockDirectives,
-          generateCSP: mockGenerateCSP,
-        },
-      },
-    };
-
-    const app = fastify();
-    await app.register(SSRServer, customOptions);
-
-    const { matchRoute } = await import('../utils');
-    (matchRoute as Mock).mockReturnValue({ route: customOptions.routes[0], params: {} });
-
-    const response = await app.inject({ method: 'GET', url: '/' });
-
-    expect(response.statusCode).toBe(200);
-    expect(mockGenerateCSP).toHaveBeenCalledWith(mockDirectives, 'mock-nonce');
-
-    await app.close();
   });
 });
