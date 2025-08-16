@@ -1,5 +1,9 @@
 # @taujs
 
+v0.2.8 - 16/08/2025
+
+chore(deps): @taujs/server; @taujs/react
+
 v0.2.7 - 22/07/2025
 
 chore(deps): @taujs/server;
