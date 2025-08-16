@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify from 'fastify';
+
 import { cspPlugin, defaultGenerateCSP, generateNonce, type CSPDirectives } from '../csp'; // adjust path as needed
+
+import type { FastifyRequest } from 'fastify';
 
 let isDevelopmentValue = true;
 
@@ -20,7 +23,7 @@ describe('cspPlugin', () => {
   it('attaches nonce and sets CSP header with default options', async () => {
     await fastify.register(cspPlugin);
 
-    fastify.get('/', (req, reply) => {
+    fastify.get('/', (req: { cspNonce: unknown }, reply: { send: (arg0: { nonce: unknown }) => void }) => {
       reply.send({ nonce: req.cspNonce });
     });
 
@@ -42,7 +45,7 @@ describe('cspPlugin', () => {
       generateCSP,
     });
 
-    fastify.get('/', (req, reply) => {
+    fastify.get('/', (_req: FastifyRequest, reply: { send: () => void }) => {
       reply.send();
     });
 
