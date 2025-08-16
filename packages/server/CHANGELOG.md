@@ -1,5 +1,11 @@
 # @taujs/server
 
+v0.3.7 - 16/08/2025
+
+chore(deps): bump tmp and @changesets/cli
+feat: csp test types
+feat: csp updates; plugin; tests
+
 v0.3.6 - 22/07/2025
 
 chore(deps-dev): bump form-data from 4.0.3 to 4.0.4
