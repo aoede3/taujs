@@ -15,6 +15,8 @@ import pc from 'picocolors';
 import type { PluginOption } from 'vite';
 import type { Route, RouteAttributes, RouteParams } from './SSRServer';
 
+export { defineServiceRegistry, defineService, withSchema } from './utils';
+
 export type AppRoute = Omit<Route<RouteParams>, 'appId'> & {
   attr?: RouteAttributes;
 };

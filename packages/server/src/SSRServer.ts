@@ -405,9 +405,21 @@ export type SSRServerOptions = {
   isDebug?: boolean;
 };
 
-export type ServiceMethod = (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
-export type NamedService = Record<string, ServiceMethod>;
-export type ServiceRegistry = Record<string, NamedService>;
+export type ServiceContext = {
+  signal?: AbortSignal;
+  deadlineMs?: number;
+  traceId?: string;
+  logger?: { info: (...a: any[]) => void; error: (...a: any[]) => void };
+  user?: { id: string; roles: string[] } | null;
+};
+
+export type ServiceMethod<P = unknown, R extends Record<string, unknown> = Record<string, unknown>> = (params: P, ctx: ServiceContext) => Promise<R>;
+
+export type ServiceRegistry = {
+  readonly [service: string]: {
+    readonly [method: string]: ServiceMethod<any, Record<string, unknown>>;
+  };
+};
 
 export type RenderCallbacks = {
   onHead: (headContent: string) => void;
@@ -415,9 +427,7 @@ export type RenderCallbacks = {
   onError: (error: unknown) => void;
 };
 
-export type SSRManifest = {
-  [key: string]: string[];
-};
+export type SSRManifest = { [key: string]: string[] };
 
 export type ManifestEntry = {
   file: string;
@@ -428,9 +438,7 @@ export type ManifestEntry = {
   assets?: string[];
 };
 
-export type Manifest = {
-  [key: string]: ManifestEntry;
-};
+export type Manifest = { [key: string]: ManifestEntry };
 
 export type RenderSSR = (
   initialDataResolved: Record<string, unknown>,
