@@ -1,3 +1,3 @@
-import './types.d.ts';
+import './fastify.d.ts';
 
 export * from './SSRServer';

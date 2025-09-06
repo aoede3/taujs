@@ -13,12 +13,12 @@ import { performance } from 'node:perf_hooks';
 import pc from 'picocolors';
 
 import type { PluginOption } from 'vite';
-import type { Route, RouteAttributes, RouteParams } from './SSRServer';
+import type { PathToRegExpParams, Route, RouteAttributes } from './types';
 
-export { defineServiceRegistry, defineService, withSchema } from './utils';
+export { defineServiceRegistry, defineService } from './utils';
 
-export type AppRoute = Omit<Route<RouteParams>, 'appId'> & {
-  attr?: RouteAttributes;
+export type AppRoute = Omit<Route<PathToRegExpParams>, 'appId'> & {
+  attr?: RouteAttributes<PathToRegExpParams>;
 };
 
 export type AppConfig = {
@@ -40,18 +40,18 @@ export const extractBuildConfigs = (config: { apps: { appId: string; entryPoint:
   }));
 };
 
-export const extractRoutes = (taujsConfig: TaujsConfig): Route<RouteParams>[] => {
+export const extractRoutes = (taujsConfig: TaujsConfig): Route<PathToRegExpParams>[] => {
   console.log(pc.bold('Preparing taujs [ τjs ]'));
   const t0 = performance.now();
 
   try {
-    const allRoutes: Route<RouteParams>[] = [];
+    const allRoutes: Route<PathToRegExpParams>[] = [];
     const pathTracker = new Map<string, string[]>();
     let totalRoutes = 0;
 
     for (const app of taujsConfig.apps) {
       const appRoutes = (app.routes ?? []).map((route) => {
-        const fullRoute: Route<RouteParams> = { ...route, appId: app.appId };
+        const fullRoute: Route<PathToRegExpParams> = { ...route, appId: app.appId };
 
         if (!pathTracker.has(route.path)) pathTracker.set(route.path, []);
         pathTracker.get(route.path)!.push(app.appId);

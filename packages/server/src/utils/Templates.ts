@@ -1,13 +1,5 @@
-import { dirname, join } from 'node:path';
-import path from 'node:path'; /* separated import due to Istanbul coverage bug */
-import { fileURLToPath } from 'node:url';
-
 import type { ViteDevServer } from 'vite';
-import type { Manifest, SSRManifest } from '../SSRServer';
-
-export const isDevelopment = process.env.NODE_ENV === 'development';
-export const __filename = fileURLToPath(import.meta.url);
-export const __dirname = join(dirname(__filename), !isDevelopment ? './' : '..');
+import type { Manifest, SSRManifest } from '../types';
 
 // https://github.com/vitejs/vite/issues/16515
 // https://github.com/hi-ogawa/vite-plugins/blob/main/packages/ssr-css/src/collect.ts

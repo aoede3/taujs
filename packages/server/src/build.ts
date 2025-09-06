@@ -13,7 +13,8 @@ import path from 'node:path';
 import { build } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
-import { processConfigs, TEMPLATE } from './SSRServer';
+import { processConfigs } from './utils/AssetManager';
+import { TEMPLATE } from './constants';
 
 import type { InlineConfig, PluginOption } from 'vite';
 import type { AppConfig } from './config';
