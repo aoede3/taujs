@@ -5,9 +5,11 @@ export type SSRStore<T> = {
   getServerSnapshot: () => T;
   setData: (newData: T) => void;
   subscribe: (callback: () => void) => () => void;
+  status: 'pending' | 'success' | 'error';
+  lastError?: Error;
 };
 
-export const createSSRStore = <T,>(initialDataOrPromise: T | Promise<T> | (() => Promise<T>)): SSRStore<T> => {
+export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => Promise<T>)): SSRStore<T> {
   let currentData: T | undefined;
   let status: 'pending' | 'success' | 'error';
   let lastError: Error | undefined;
@@ -15,21 +17,24 @@ export const createSSRStore = <T,>(initialDataOrPromise: T | Promise<T> | (() =>
   const subscribers = new Set<() => void>();
   let serverDataPromise: Promise<void>;
 
+  const notify = () => subscribers.forEach((cb) => cb());
+
   const handleError = (error: unknown) => {
-    console.error('Failed to load initial data:', error);
-    lastError = error instanceof Error ? error : new Error(String(JSON.stringify(error)));
+    const normalised = error instanceof Error ? error : new Error(String(JSON.stringify(error)));
+    console.error('Failed to load initial data:', normalised);
+    lastError = normalised;
     status = 'error';
+    notify();
   };
 
   if (typeof initialDataOrPromise === 'function') {
     // Lazy promise
     status = 'pending';
-    const promiseFromFunction = (initialDataOrPromise as () => Promise<T>)();
-    serverDataPromise = promiseFromFunction
+    serverDataPromise = (initialDataOrPromise as () => Promise<T>)()
       .then((data) => {
         currentData = data;
         status = 'success';
-        subscribers.forEach((callback) => callback());
+        notify();
       })
       .catch(handleError);
   } else if (initialDataOrPromise instanceof Promise) {
@@ -39,7 +44,7 @@ export const createSSRStore = <T,>(initialDataOrPromise: T | Promise<T> | (() =>
       .then((data) => {
         currentData = data;
         status = 'success';
-        subscribers.forEach((callback) => callback());
+        notify();
       })
       .catch(handleError);
   } else {
@@ -49,53 +54,43 @@ export const createSSRStore = <T,>(initialDataOrPromise: T | Promise<T> | (() =>
     serverDataPromise = Promise.resolve();
   }
 
-  const setData = (newData: T): void => {
+  const setData = (newData: T) => {
     currentData = newData;
     status = 'success';
-    subscribers.forEach((callback) => callback());
+    notify();
   };
 
-  const subscribe = (callback: () => void): (() => void) => {
+  const subscribe = (callback: () => void) => {
     subscribers.add(callback);
     return () => subscribers.delete(callback);
   };
 
   const getSnapshot = (): T => {
-    if (status === 'pending') {
-      // trigger client suspense
-      throw serverDataPromise;
-    } else if (status === 'error') {
-      throw new Error(`SSR data fetch failed: ${lastError?.message || 'Unknown error'}`);
-    }
+    if (status === 'pending') throw serverDataPromise;
+    if (status === 'error') throw new Error(`SSR data fetch failed: ${lastError?.message || 'Unknown error'}`);
     if (currentData === undefined) throw new Error('SSR data is undefined - store initialisation problem');
-
     return currentData;
   };
 
   const getServerSnapshot = (): T => {
-    if (status === 'pending') {
-      throw serverDataPromise;
-    } else if (status === 'error') {
-      throw new Error(`Server-side data fetch failed: ${lastError?.message || 'Unknown error'}`);
-    }
+    if (status === 'pending') throw serverDataPromise;
+    if (status === 'error') throw new Error(`Server-side data fetch failed: ${lastError?.message || 'Unknown error'}`);
     if (currentData === undefined) throw new Error('Server data not available - check SSR configuration');
-
     return currentData;
   };
 
-  return { getSnapshot, getServerSnapshot, setData, subscribe };
-};
+  return { getSnapshot, getServerSnapshot, setData, subscribe, status, lastError };
+}
 
-const SSRStoreContext = createContext<SSRStore<Record<string, unknown>> | null>(null);
+// Generic context avoids type errors in Provider
+const SSRStoreContext = createContext<SSRStore<any> | null>(null);
 
-export const SSRStoreProvider: React.FC<React.PropsWithChildren<{ store: SSRStore<Record<string, unknown>> }>> = ({ store, children }) => (
+export const SSRStoreProvider = <T,>({ store, children }: React.PropsWithChildren<{ store: SSRStore<T> }>) => (
   <SSRStoreContext.Provider value={store}>{children}</SSRStoreContext.Provider>
 );
 
 export const useSSRStore = <T,>(): T => {
   const store = useContext(SSRStoreContext) as SSRStore<T> | null;
-
   if (!store) throw new Error('useSSRStore must be used within a SSRStoreProvider');
-
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
 };

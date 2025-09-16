@@ -1,105 +1,160 @@
-import { ServerResponse } from 'node:http';
-import { Writable } from 'node:stream';
-
 import React from 'react';
 import { renderToPipeableStream, renderToString } from 'react-dom/server';
+import type { Writable } from 'node:stream';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
+import { createLogger } from './utils/Logger';
+import { safeDestroyWritable } from './utils/Writable';
 
-type RendererOptions = {
+import type { Logger } from './utils/Logger';
+
+type HeadContentFn<T> = (ctx: { data: T; meta: Record<string, unknown> }) => string;
+
+export type RenderCallbacks<T> = {
+  onHead?: (head: string) => void;
+  onFinish?: (data: T) => void;
+  onShellError?: (err: unknown) => void;
+  onShellReady?: () => void;
+  onAllReady?: (data: T) => void;
+  onError?: (err: unknown) => void;
+};
+
+export function createRenderer<T extends {}>({
+  appComponent,
+  headContent,
+  debug = false,
+  logger,
+}: {
   appComponent: (props: { location: string }) => React.ReactElement;
-  headContent: string | ((data: Record<string, unknown>) => string);
-};
+  headContent: HeadContentFn<T>;
+  debug?: boolean;
+  logger?: Partial<Logger>;
+}) {
+  const { log, warn, error } = createLogger(debug, logger);
 
-type RenderCallbacks = {
-  onHead: (headContent: string) => void;
-  onFinish: (initialDataPromise: unknown) => void;
-  onError: (error: unknown) => void;
-};
+  const renderSSR = async (initialData: T, location: string, meta: Record<string, unknown> = {}) => {
+    log('Starting renderSSR with location:', location);
+    const dynamicHead = headContent({ data: initialData, meta });
+    const store = createSSRStore(initialData);
+    const html = renderToString(<SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>);
+    log('Completed renderSSR for location:', location);
 
-export const resolveHeadContent = (headContent: string | ((meta: Record<string, unknown>) => string), meta: Record<string, unknown> = {}): string =>
-  typeof headContent === 'function' ? headContent(meta) : headContent;
-
-export const createRenderer = ({ appComponent, headContent }: RendererOptions) => {
-  const renderSSR = async (initialDataPromise: Record<string, unknown>, location: string, meta: Record<string, unknown> = {}) => {
-    const dataForHeadContent = Object.keys(initialDataPromise).length > 0 ? initialDataPromise : meta;
-    const dynamicHeadContent = resolveHeadContent(headContent, dataForHeadContent);
-    const appHtml = renderToString(<SSRStoreProvider store={createSSRStore(initialDataPromise)}>{appComponent({ location })}</SSRStoreProvider>);
-
-    return {
-      headContent: dynamicHeadContent,
-      appHtml,
-    };
+    return { headContent: dynamicHead, appHtml: html };
   };
 
   const renderStream = (
-    serverResponse: ServerResponse,
-    callbacks: RenderCallbacks,
-    initialDataPromise: Record<string, unknown>,
+    writable: Writable,
+    callbacks: RenderCallbacks<T> = {},
+    initialData: T | Promise<T> | (() => Promise<T>),
     location: string,
     bootstrapModules?: string,
     meta: Record<string, unknown> = {},
     cspNonce?: string,
+    signal?: AbortSignal,
   ) => {
-    const dynamicHeadContent = resolveHeadContent(headContent, meta);
+    const { onAllReady, onError, onHead, onShellReady } = callbacks;
+    const isBenignAbort = (e: unknown) => {
+      const msg = String((e as any)?.message ?? e ?? '');
+      return /aborted|abort(ed)? by the server|closed early|socket hang up|premature|ECONNRESET|EPIPE/i.test(msg);
+    };
+    let abortFn: () => void = () => {};
+    let aborted = false;
 
-    createRenderStream(
-      serverResponse,
-      callbacks,
-      {
-        appComponent: (props) => appComponent({ ...props, location }),
-        headContent: dynamicHeadContent,
-        initialDataPromise,
-        location,
-        bootstrapModules,
+    log('Starting renderStream with location:', location);
+
+    try {
+      const store = createSSRStore(initialData);
+      const appElement = <SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>;
+
+      const { pipe, abort: reactAbort } = renderToPipeableStream(appElement, {
+        nonce: cspNonce,
+        bootstrapModules: bootstrapModules ? [bootstrapModules] : undefined,
+
+        onShellReady() {
+          log('Shell ready for location:', location);
+
+          try {
+            const dynamicHead = headContent({ data: {} as T, meta });
+            onHead?.(dynamicHead);
+          } catch (headErr) {
+            error('Error generating head content:', headErr);
+            onError?.(headErr);
+            return;
+          }
+
+          onShellReady?.();
+          pipe(writable);
+        },
+
+        onAllReady() {
+          log('All content ready for location:', location);
+          const retry = () => {
+            try {
+              const data = store.getSnapshot();
+              onAllReady?.(data);
+            } catch (thrown) {
+              // React throwing tantrum, promise, blah
+              if (thrown && typeof (thrown as any).then === 'function') {
+                (thrown as Promise<unknown>).then(retry).catch((e) => {
+                  error('Data promise rejected on allReady retry:', e);
+                  onError?.(e);
+                });
+              } else {
+                error('Unexpected throw from getSnapshot:', thrown);
+                onError?.(thrown);
+              }
+            }
+          };
+          retry();
+        },
+
+        onError(err) {
+          if (aborted || isBenignAbort(err)) {
+            warn('Client disconnected before stream finished');
+            return;
+          }
+
+          error('Error during renderStream:', err);
+          onError?.(err);
+        },
+      });
+
+      abortFn = () => {
+        if (aborted) return;
+        aborted = true;
+
+        try {
+          reactAbort();
+        } catch {}
+
+        try {
+          safeDestroyWritable(writable);
+        } catch {}
+
+        log('Stream aborted for location:', location);
+      };
+
+      if (signal) {
+        const onAbort = () => {
+          warn('AbortSignal triggered, aborting stream for location:', location);
+          abortFn();
+        };
+
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      }
+    } catch (err) {
+      error('Unhandled error in renderStream setup:', err);
+      onError?.(err);
+    }
+
+    return {
+      abort() {
+        warn('Manual abort called for location:', location);
+        abortFn();
       },
-      cspNonce,
-    );
+    };
   };
 
   return { renderSSR, renderStream };
-};
-
-export const createRenderStream = (
-  serverResponse: ServerResponse,
-  { onHead, onFinish, onError }: RenderCallbacks,
-  {
-    appComponent,
-    headContent,
-    initialDataPromise,
-    location,
-    bootstrapModules,
-  }: RendererOptions & { initialDataPromise: Record<string, unknown>; location: string; bootstrapModules?: string },
-  cspNonce?: string,
-): void => {
-  const store = createSSRStore(initialDataPromise);
-  const appElement = <SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>;
-
-  const { pipe } = renderToPipeableStream(appElement, {
-    nonce: cspNonce,
-    bootstrapModules: bootstrapModules ? [bootstrapModules] : undefined,
-
-    onShellReady() {
-      const dynamicHeadContent = resolveHeadContent(headContent, initialDataPromise);
-      onHead(dynamicHeadContent);
-
-      pipe(
-        new Writable({
-          write(chunk, _encoding, callback) {
-            serverResponse.write(chunk, callback);
-          },
-          final(callback) {
-            onFinish(store.getSnapshot());
-            callback();
-          },
-        }),
-      );
-    },
-
-    onAllReady() {},
-
-    onError(error: unknown) {
-      onError(error);
-    },
-  });
-};
+}
