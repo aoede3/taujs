@@ -1,11 +1,9 @@
-import type { FastifyInstance } from 'fastify';
-
 import { debugLog, createLogger } from '../utils/Logger';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import type { Route } from '../SSRServer';
+import type { Route } from '../types';
 
-export function createAuthHook(routes: Route[], isDebug?: boolean) {
+export const createAuthHook = (routes: Route[], isDebug?: boolean) => {
   const logger = createLogger(Boolean(isDebug));
 
   return async function authHook(req: FastifyRequest, reply: FastifyReply) {
@@ -14,12 +12,14 @@ export function createAuthHook(routes: Route[], isDebug?: boolean) {
     const authConfig = matched?.attr?.middleware?.auth;
 
     if (!authConfig?.required) {
-      debugLog(logger, 'Auth not required for route', req);
+      if (isDebug && !req.url.startsWith('/assets/')) debugLog(logger, `(auth not required)`, req);
+
       return;
     }
 
     if (typeof req.server.authenticate !== 'function') {
       req.log.warn('Route requires auth but no "authenticate" decorator is defined on Fastify.');
+
       return reply.status(500).send('Server misconfiguration: auth decorator missing.');
     }
 
@@ -32,4 +32,4 @@ export function createAuthHook(routes: Route[], isDebug?: boolean) {
       return reply.send(err);
     }
   };
-}
+};

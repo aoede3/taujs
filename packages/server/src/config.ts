@@ -15,7 +15,7 @@ import pc from 'picocolors';
 import type { PluginOption } from 'vite';
 import type { PathToRegExpParams, Route, RouteAttributes } from './types';
 
-export { defineServiceRegistry, defineService } from './utils';
+export { defineServiceRegistry, defineService } from './utils/DataServices';
 
 export type AppRoute = Omit<Route<PathToRegExpParams>, 'appId'> & {
   attr?: RouteAttributes<PathToRegExpParams>;
@@ -41,7 +41,7 @@ export const extractBuildConfigs = (config: { apps: { appId: string; entryPoint:
 };
 
 export const extractRoutes = (taujsConfig: TaujsConfig): Route<PathToRegExpParams>[] => {
-  console.log(pc.bold('Preparing taujs [ τjs ]'));
+  console.log(pc.bold('Preparing τjs [taujs]'));
   const t0 = performance.now();
 
   try {

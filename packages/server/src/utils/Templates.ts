@@ -1,4 +1,7 @@
 import type { ViteDevServer } from 'vite';
+
+import { SSRTAG } from '../constants';
+
 import type { Manifest, SSRManifest } from '../types';
 
 // https://github.com/vitejs/vite/issues/16515
@@ -129,4 +132,47 @@ export const ensureNonNull = <T>(value: T | null | undefined, errorMessage: stri
   if (value === undefined || value === null) throw new Error(errorMessage);
 
   return value;
+};
+
+export const cleanTemplateWhitespace = (templateParts: { beforeHead: string; afterHead: string; beforeBody: string; afterBody: string }) => {
+  const { beforeHead, afterHead, beforeBody, afterBody } = templateParts;
+
+  const cleanBeforeHead = beforeHead.replace(/\s*$/, '');
+  const cleanAfterHead = afterHead.replace(/^\s*/, '');
+  const cleanBeforeBody = beforeBody.replace(/\s*$/, '');
+  const cleanAfterBody = afterBody.replace(/^\s*/, '');
+
+  return {
+    beforeHead: cleanBeforeHead,
+    afterHead: cleanAfterHead,
+    beforeBody: cleanBeforeBody,
+    afterBody: cleanAfterBody,
+  };
+};
+
+export function processTemplate(template: string) {
+  const [headSplit, bodySplit] = template.split('<!--ssr-head-->');
+  if (typeof bodySplit === 'undefined') {
+    throw new Error("Template is missing '<!--ssr-head-->' marker.");
+  }
+  const [beforeBody, afterBody] = bodySplit.split('<!--ssr-html-->');
+  if (typeof beforeBody === 'undefined' || typeof afterBody === 'undefined') {
+    throw new Error("Template is missing '<!--ssr-html-->' marker.");
+  }
+
+  return {
+    beforeHead: headSplit,
+    afterHead: '',
+    beforeBody: beforeBody.replace(/\s*$/, ''),
+    afterBody: afterBody.replace(/^\s*/, ''),
+  };
+}
+
+export const rebuildTemplate = (parts: ReturnType<typeof processTemplate>, headContent: string, bodyContent: string) => {
+  return `${parts.beforeHead}${headContent}${parts.afterHead}${parts.beforeBody}${bodyContent}${parts.afterBody}`;
+};
+
+export const addNonceToInlineScripts = (html: string, nonce?: string) => {
+  if (!nonce) return html;
+  return html.replace(/<script(?![^>]*\bnonce=)([^>]*)>/g, `<script nonce="${nonce}"$1>`);
 };

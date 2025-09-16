@@ -1,6 +1,7 @@
 import { match } from 'path-to-regexp';
 
 import { callServiceMethod, isServiceDescriptor } from './DataServices';
+import { normaliseServiceError, ServiceError } from './Error';
 
 import type { MatchFunction } from 'path-to-regexp';
 import type { ServiceContext, ServiceRegistry } from './DataServices';
@@ -31,17 +32,21 @@ export const fetchInitialData = async <Params extends Partial<Record<string, str
   const dataHandler = attr?.data;
   if (!dataHandler || typeof dataHandler !== 'function') return {};
 
-  const result = await dataHandler(params, ctx);
+  try {
+    const result = await dataHandler(params, ctx);
 
-  if (isServiceDescriptor(result)) {
-    const { serviceName, serviceMethod, args } = result;
+    if (isServiceDescriptor(result)) {
+      const { serviceName, serviceMethod, args } = result;
 
-    return callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {}, ctx);
+      return callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {}, ctx);
+    }
+
+    if (typeof result === 'object' && result !== null) return result as Record<string, unknown>;
+
+    throw ServiceError.badRequest('Invalid result from attr.data - must return object or ServiceDescriptor');
+  } catch (error) {
+    throw normaliseServiceError(error, 'infra', ctx.logger);
   }
-
-  if (typeof result === 'object' && result !== null) return result as Record<string, unknown>;
-
-  throw new Error('Invalid result from attr.data');
 };
 
 export const createRouteMatchers = <Params extends object>(routes: Route<Params>[]): RouteMatcher<Params>[] => {

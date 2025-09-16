@@ -169,7 +169,7 @@ describe('taujsBuild', () => {
     (vite.build as any).mockRejectedValueOnce(error);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit was called'); // stop test
+      throw new Error('process.exit was called');
     });
 
     await expect(() =>

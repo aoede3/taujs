@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify from 'fastify';
 
-import { cspPlugin, defaultGenerateCSP, generateNonce, type CSPDirectives } from '../csp'; // adjust path as needed
+import { cspPlugin, defaultGenerateCSP, generateNonce } from '../csp';
 
 import type { FastifyRequest } from 'fastify';
+import type { CSPDirectives } from '../csp';
 
 let isDevelopmentValue = true;
 

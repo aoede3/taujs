@@ -1,9 +1,12 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
-import { SSRTAG } from '../constants';
-import { ensureNonNull } from './Templates';
+import { ServiceError, normaliseServiceError } from './Error';
+import { createLogger } from './Logger';
 import { isDevelopment } from './System';
+import { ensureNonNull } from './Templates';
+import { SSRTAG } from '../constants';
 
+import type { Logger } from './Logger';
 import type { ProcessedConfig } from '../types';
 
 export const handleNotFound = async (
@@ -15,28 +18,55 @@ export const handleNotFound = async (
     bootstrapModules: Map<string, string>;
     templates: Map<string, string>;
   },
+  opts: {
+    debug?: boolean;
+    logger?: Partial<Logger>;
+  } = {},
 ) => {
-  if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
+  const { debug = false, logger: customLogger } = opts;
+  const logger = createLogger(debug, customLogger);
 
   try {
+    if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
+
     const defaultConfig = processedConfigs[0];
-    if (!defaultConfig) throw new Error('No default configuration found.');
+    if (!defaultConfig) {
+      throw ServiceError.infra('No default configuration found', {
+        details: { configCount: processedConfigs.length, url: req.raw.url },
+      });
+    }
 
     const { clientRoot } = defaultConfig;
     const cspNonce = req.cspNonce;
 
-    let template = ensureNonNull(maps.templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
+    const template = ensureNonNull(maps.templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
 
     const cssLink = maps.cssLinks.get(clientRoot);
     const bootstrapModule = maps.bootstrapModules.get(clientRoot);
 
-    template = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
-    if (!isDevelopment && cssLink) template = template.replace('</head>', `${cssLink}</head>`);
-    if (bootstrapModule) template = template.replace('</body>', `<script nonce="${cspNonce}" type="module" src="${bootstrapModule}" defer></script></body>`);
+    let processedTemplate = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
 
-    reply.status(200).type('text/html').send(template);
-  } catch (error) {
-    console.error('Failed to serve clientHtmlTemplate:', error);
-    reply.status(500).send('Internal Server Error');
+    if (!isDevelopment && cssLink) processedTemplate = processedTemplate.replace('</head>', `${cssLink}</head>`);
+
+    if (bootstrapModule) {
+      const initialDataScript = `<script${cspNonce ? ` nonce="${cspNonce}"` : ''}>
+    window.__INITIAL_DATA__ = {};
+  </script>`;
+      processedTemplate = processedTemplate.replace(
+        '</body>',
+        `${initialDataScript}<script${cspNonce ? ` nonce="${cspNonce}"` : ''} type="module" src="${bootstrapModule}" defer></script></body>`,
+      );
+    }
+    reply.status(200).type('text/html').send(processedTemplate);
+  } catch (err) {
+    const serviceError = normaliseServiceError(err, 'infra', logger);
+
+    logger.error('Failed to serve clientHtmlTemplate:', {
+      error: serviceError,
+      url: req.raw.url,
+      clientRoot: processedConfigs[0]?.clientRoot,
+    });
+
+    reply.status(serviceError.httpStatus ?? 500).send('Internal Server Error');
   }
 };

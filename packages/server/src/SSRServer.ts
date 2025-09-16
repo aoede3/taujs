@@ -45,6 +45,10 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
+      {
+        debug: opts.isDebug,
+        logger: opts.logger,
+      },
     );
 
     verifyContracts(
@@ -78,21 +82,34 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       generateCSP: opts.security?.csp?.generateCSP,
     });
 
-    app.addHook('onRequest', createAuthHook(routeMatchers));
-
     if (isDevelopment) viteDevServer = await setupDevServer(app, baseClientRoot, alias, isDebug);
 
+    app.addHook('onRequest', createAuthHook(routes, opts.isDebug));
+
     app.get('/*', async (req, reply) => {
-      await handleRender(req, reply, routeMatchers, processedConfigs, serviceRegistry, maps, viteDevServer);
+      await handleRender(req, reply, routeMatchers, processedConfigs, serviceRegistry, maps, {
+        debug: opts.isDebug,
+        logger: opts.logger,
+        viteDevServer,
+      });
     });
 
     app.setNotFoundHandler(async (req, reply) => {
-      await handleNotFound(req, reply, processedConfigs, {
-        cssLinks: maps.cssLinks,
-        bootstrapModules: maps.bootstrapModules,
-        templates: maps.templates,
-      });
+      await handleNotFound(
+        req,
+        reply,
+        processedConfigs,
+        {
+          cssLinks: maps.cssLinks,
+          bootstrapModules: maps.bootstrapModules,
+          templates: maps.templates,
+        },
+        {
+          debug: opts.isDebug,
+          logger: opts.logger,
+        },
+      );
     });
   },
-  { name: 'taujs-ssr-server' },
+  { name: 'τjs-ssr-server' },
 );

@@ -1,15 +1,18 @@
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
+
+import { fetchInitialData, matchRoute } from './DataRoutes';
+import { ServiceError, normaliseServiceError } from './Error';
+import { createLogger } from './Logger';
+import { isDevelopment } from './System';
+import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
+import { RENDERTYPE } from '../constants';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
-
-import { fetchInitialData, matchRoute } from './DataRoutes';
-import { ensureNonNull, collectStyle } from './Templates';
-import { isDevelopment } from './System';
-import { RENDERTYPE, SSRTAG } from '../constants';
-
 import type { RouteMatcher } from './DataRoutes';
 import type { ServiceRegistry } from './DataServices';
+import type { Logger } from './Logger';
 import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../types';
 
 export const handleRender = async (
@@ -27,15 +30,25 @@ export const handleRender = async (
     ssrManifests: Map<string, SSRManifest>;
     templates: Map<string, string>;
   },
-  viteDevServer?: ViteDevServer,
+  opts: {
+    debug?: boolean;
+    logger?: Partial<Logger>;
+    viteDevServer?: ViteDevServer;
+  } = {},
 ) => {
+  const { debug = false, logger: customLogger, viteDevServer } = opts;
+  const logger = createLogger(debug, customLogger);
+
   try {
     // fastify/static wildcard: false and /* => checks for .assets here and routes 404
     if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
 
     const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
     const matchedRoute = matchRoute(url, routeMatchers);
-    const cspNonce = req.cspNonce;
+
+    const rawNonce = (req as any).cspNonce as string | undefined | null;
+    const cspNonce = rawNonce && rawNonce.length > 0 ? rawNonce : undefined;
+    const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
 
     if (!matchedRoute) {
       reply.callNotFound();
@@ -46,7 +59,11 @@ export const handleRender = async (
     const { attr, appId } = route;
 
     const config = processedConfigs.find((config) => config.appId === appId) || processedConfigs[0];
-    if (!config) throw new Error('No configuration found for the request.');
+    if (!config) {
+      throw ServiceError.infra('No configuration found for the request', {
+        details: { appId, availableAppIds: processedConfigs.map((c) => c.appId), url },
+      });
+    }
 
     const { clientRoot, entryServer } = config;
 
@@ -61,17 +78,24 @@ export const handleRender = async (
     let renderModule: RenderModule;
 
     if (isDevelopment && viteDevServer) {
-      template = template.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '');
-      template = template.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
+      try {
+        template = template.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '');
+        template = template.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
 
-      const entryServerPath = path.join(clientRoot, `${entryServer}.tsx`);
-      const executedModule = await viteDevServer.ssrLoadModule(entryServerPath);
-      renderModule = executedModule as RenderModule;
+        const entryServerPath = path.join(clientRoot, `${entryServer}.tsx`);
+        const executedModule = await viteDevServer.ssrLoadModule(entryServerPath);
+        renderModule = executedModule as RenderModule;
 
-      const styles = await collectStyle(viteDevServer, [entryServerPath]);
-      template = template?.replace('</head>', `<style type="text/css">${styles}</style></head>`);
+        const styles = await collectStyle(viteDevServer, [entryServerPath]);
+        template = template?.replace('</head>', `<style type="text/css">${styles}</style></head>`);
 
-      template = await viteDevServer.transformIndexHtml(url, template);
+        template = await viteDevServer.transformIndexHtml(url, template);
+      } catch (error) {
+        throw ServiceError.infra('Failed to load development assets', {
+          cause: error,
+          details: { clientRoot, entryServer, url },
+        });
+      }
     } else {
       renderModule = ensureNonNull(
         maps.renderModules.get(clientRoot),
@@ -80,70 +104,150 @@ export const handleRender = async (
     }
 
     const renderType = attr?.render || RENDERTYPE.ssr;
-    const [beforeBody = '', afterBody = ''] = template.split(SSRTAG.ssrHtml);
-    const [beforeHead = '', afterHead = ''] = beforeBody.split(SSRTAG.ssrHead);
-    const initialDataPromise = fetchInitialData(attr, params, serviceRegistry);
+    const templateParts = processTemplate(template);
+    let initialDataInput: Record<string, unknown> | Promise<Record<string, unknown>> | (() => Promise<Record<string, unknown>>);
+
+    try {
+      initialDataInput = () => fetchInitialData(attr, params, serviceRegistry);
+    } catch (err) {
+      throw normaliseServiceError(err, 'infra', logger);
+    }
 
     if (renderType === RENDERTYPE.ssr) {
-      const { renderSSR } = renderModule;
-      const initialDataResolved = await initialDataPromise;
-      const initialDataScript = `<script nonce="${cspNonce}">window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`;
-      const { headContent, appHtml } = await renderSSR(initialDataResolved as Record<string, unknown>, req.url!, attr?.meta);
+      try {
+        const { renderSSR } = renderModule;
 
-      let aggregateHeadContent = headContent;
+        if (!renderSSR) {
+          throw ServiceError.infra('renderSSR function not found in render module', {
+            details: { clientRoot, availableFunctions: Object.keys(renderModule) },
+          });
+        }
 
-      if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
-      if (manifest && cssLink) aggregateHeadContent += cssLink;
+        const initialDataResolved = await (initialDataInput as () => Promise<Record<string, unknown>>)();
+        const initialDataScript = `<script${nonceAttr}>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')};</script>`;
+        const { headContent, appHtml } = await renderSSR(initialDataResolved as Record<string, unknown>, req.url!, attr?.meta);
 
-      const shouldHydrate = attr?.hydrate !== false;
-      const bootstrapScriptTag = shouldHydrate ? `<script nonce="${cspNonce}" type="module" src="${bootstrapModule}" defer></script>` : '';
+        let aggregateHeadContent = headContent;
 
-      const fullHtml = template.replace(SSRTAG.ssrHead, aggregateHeadContent).replace(SSRTAG.ssrHtml, `${appHtml}${initialDataScript}${bootstrapScriptTag}`);
+        if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
+        if (manifest && cssLink) aggregateHeadContent += cssLink;
 
-      return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
+        const shouldHydrate = attr?.hydrate !== false;
+        const bootstrapScriptTag = shouldHydrate && bootstrapModule ? `<script nonce="${cspNonce}" type="module" src="${bootstrapModule}" defer></script>` : '';
+
+        const safeAppHtml = appHtml.trim();
+        const fullHtml = rebuildTemplate(templateParts, aggregateHeadContent, `${safeAppHtml}${initialDataScript}${bootstrapScriptTag}`);
+
+        return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
+      } catch (err) {
+        throw normaliseServiceError(err, 'infra', logger);
+      }
     } else {
-      const { renderStream } = renderModule;
-      const cspNonce = req.cspNonce;
-      // we're using `raw` so we need to rewrite csp from Fastify lifecycle to raw!
-      const cspHeader = reply.getHeader('Content-Security-Policy');
+      try {
+        const { renderStream } = renderModule;
+        if (!renderStream) {
+          throw ServiceError.infra('renderStream function not found in render module', {
+            details: { clientRoot, availableFunctions: Object.keys(renderModule) },
+          });
+        }
 
-      reply.raw.writeHead(200, {
-        'Content-Security-Policy': cspHeader,
-        'Content-Type': 'text/html',
-      });
+        const cspHeader = reply.getHeader('Content-Security-Policy');
+        reply.raw.writeHead(200, {
+          'Content-Security-Policy': cspHeader,
+          'Content-Type': 'text/html; charset=utf-8',
+        });
 
-      renderStream(
-        reply.raw,
-        {
-          onHead: (headContent: string) => {
-            let aggregateHeadContent = headContent;
+        const ac = new AbortController();
+        const onAborted = () => ac.abort();
 
-            if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
-            if (manifest && cssLink) aggregateHeadContent += cssLink;
+        req.raw.on('aborted', onAborted);
+        reply.raw.on('close', () => {
+          if (!reply.raw.writableEnded) ac.abort();
+        });
+        reply.raw.on('finish', () => req.raw.off('aborted', onAborted));
 
-            reply.raw.write(`${beforeHead}${aggregateHeadContent}${afterHead}`);
+        const shouldHydrate = attr?.hydrate !== false;
+        const abortedState = { aborted: false };
+
+        const isBenignSocketAbort = (e: unknown) => {
+          const msg = String((e as any)?.message ?? e ?? '');
+          return /ECONNRESET|EPIPE|socket hang up|aborted|premature/i.test(msg);
+        };
+
+        const writable = new PassThrough();
+        writable.on('error', (err) => {
+          if (!isBenignSocketAbort(err)) logger.error('PassThrough error:', err);
+        });
+        reply.raw.on('error', (err) => {
+          if (!isBenignSocketAbort(err)) logger.error('HTTP socket error:', err);
+        });
+
+        writable.pipe(reply.raw, { end: false });
+
+        let finalData: unknown = undefined;
+
+        renderStream(
+          writable,
+          {
+            onHead: (headContent: string) => {
+              let aggregateHeadContent = headContent;
+              if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
+              if (manifest && cssLink) aggregateHeadContent += cssLink;
+              reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}`);
+            },
+
+            onShellReady: () => {},
+
+            onAllReady: (data: unknown) => {
+              if (!abortedState.aborted) finalData = data;
+            },
+
+            onError: (err) => {
+              if (abortedState.aborted || isBenignSocketAbort(err)) {
+                logger.warn('Client disconnected before stream finished');
+                try {
+                  if (!reply.raw.writableEnded) reply.raw.destroy();
+                } catch {}
+                return;
+              }
+              logger.error('Critical rendering onError:', err);
+              if (!reply.raw.headersSent) reply.raw.writeHead(500, { 'Content-Type': 'text/plain' });
+              reply.raw.end('Internal Server Error');
+            },
           },
-          onFinish: async (initialDataResolved: unknown) => {
-            reply.raw.write(`<script nonce="${cspNonce}">window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')}</script>`);
-            reply.raw.write(afterBody);
-            reply.raw.end();
-          },
-          onError: (error: unknown) => {
-            console.error('Critical rendering onError:', error);
-            reply.raw.end('Internal Server Error');
-          },
-        },
-        initialDataPromise,
-        req.url!,
-        bootstrapModule,
-        attr?.meta,
-        cspNonce,
-      );
+          initialDataInput,
+          req.url!,
+          shouldHydrate ? bootstrapModule : undefined,
+          attr?.meta,
+          cspNonce,
+          ac.signal,
+        );
+
+        writable.on('finish', () => {
+          if (abortedState.aborted || reply.raw.writableEnded) return;
+
+          const data = finalData ?? {};
+          const initialDataScript = `<script${nonceAttr}>window.__INITIAL_DATA__ = ${JSON.stringify(data).replace(/</g, '\\u003c')}; window.dispatchEvent(new Event('taujs:data-ready'));</script>`;
+
+          reply.raw.write(initialDataScript);
+          reply.raw.write(templateParts.afterBody);
+          reply.raw.end();
+        });
+      } catch (err) {
+        throw normaliseServiceError(err, 'infra', logger);
+      }
     }
-  } catch (error) {
-    console.error('Error setting up SSR stream:', error);
+  } catch (err) {
+    const serviceError = normaliseServiceError(err, 'infra', logger);
 
-    if (!reply.raw.headersSent) reply.raw.writeHead(500, { 'Content-Type': 'text/plain' });
+    logger.error('Error in handleRender:', {
+      error: serviceError,
+      url: req.url,
+      headers: req.headers,
+      route: (req as any).routeOptions?.url,
+    });
+
+    if (!reply.raw.headersSent) reply.raw.writeHead(serviceError.httpStatus ?? 500, { 'Content-Type': 'text/plain' });
 
     reply.raw.end('Internal Server Error');
   }

@@ -4,7 +4,7 @@ import pc from 'picocolors';
 
 import { __dirname } from './System';
 import { overrideCSSHMRConsoleError } from './Templates';
-import { createLogger } from './Logger';
+import { createLogger, debugLog } from './Logger';
 
 import type { FastifyInstance } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -32,14 +32,14 @@ export const setupDevServer = async (
       ...(isDebug
         ? [
             {
-              name: 'taujs-development-server-debug-logging',
+              name: 'τjs-development-server-debug-logging',
               configureServer(server: ViteDevServer) {
-                logger.log(pc.green('τjs development server debug started.'));
+                debugLog(logger, pc.green('development server debug started.'));
 
                 server.middlewares.use((req, res, next) => {
-                  logger.log(pc.cyan(`← rx: ${req.url}`));
+                  debugLog(logger, pc.cyan(`← rx: ${req.url}`));
 
-                  res.on('finish', () => logger.log(pc.yellow(`→ tx: ${req.url}`)));
+                  res.on('finish', () => debugLog(logger, pc.yellow(`→ tx: ${req.url}`)));
 
                   next();
                 });

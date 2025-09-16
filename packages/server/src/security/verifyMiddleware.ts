@@ -1,13 +1,15 @@
+import pc from 'picocolors';
+
 import { createLogger, debugLog } from '../utils/Logger';
 
 import type { FastifyInstance } from 'fastify';
-import type { Route } from '../SSRServer';
+import type { Route } from '../types';
 
 type MiddlewareContract = {
+  errorMessage: string;
   key: string;
   required: (route: Route) => boolean;
   verify: (app: FastifyInstance) => boolean;
-  errorMessage: string;
 };
 
 // these have to be extracted and exported for vitest to pick them up! 0_o
@@ -21,7 +23,7 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
     const isUsed = routes.some(contract.required);
 
     if (!isUsed) {
-      debugLog(logger, `Middleware "${contract.key}" not used in any routes`);
+      if (isDebug) debugLog(logger, pc.cyan(`No routes require "${contract.key}" middleware, skipping verification`));
       continue;
     }
 

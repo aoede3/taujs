@@ -1,8 +1,9 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest';
+
 import { verifyContracts, isAuthRequired, hasAuthenticate } from '../verifyMiddleware';
 
 import type { FastifyInstance } from 'fastify';
-import type { Route } from '../../SSRServer';
+import type { Route } from '../../types';
 
 const logSpy = vi.fn();
 const errorSpy = vi.fn();

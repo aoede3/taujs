@@ -2,14 +2,14 @@ import fp from 'fastify-plugin';
 import crypto from 'crypto';
 
 import { DEV_CSP_DIRECTIVES } from '../constants';
-import { isDevelopment } from '../utils';
+import { isDevelopment } from '../utils/System';
 
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
 
-export interface CSPPluginOptions {
+export type CSPPluginOptions = {
   directives?: CSPDirectives;
   generateCSP?: (directives: CSPDirectives, nonce: string) => string;
-}
+};
 
 export type CSPDirectives = Record<string, string[]>;
 

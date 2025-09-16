@@ -2,29 +2,29 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
+import { ServiceError, normaliseServiceError } from './Error';
 import { isDevelopment } from './System';
 import { getCssLinks, renderPreloadLinks } from './Templates';
+import { createLogger } from './Logger';
 
 import type { Manifest } from 'vite';
 import type { TEMPLATE } from '../constants';
 import type { RenderModule, SSRManifest, Config, ProcessedConfig } from '../types';
+import type { Logger } from './Logger';
 
-export const createMaps = () => {
-  return {
-    bootstrapModules: new Map<string, string>(),
-    cssLinks: new Map<string, string>(),
-    manifests: new Map<string, Manifest>(),
-    preloadLinks: new Map<string, string>(),
-    renderModules: new Map<string, RenderModule>(),
-    ssrManifests: new Map<string, SSRManifest>(),
-    templates: new Map<string, string>(),
-  };
-};
+export const createMaps = () => ({
+  bootstrapModules: new Map<string, string>(),
+  cssLinks: new Map<string, string>(),
+  manifests: new Map<string, Manifest>(),
+  preloadLinks: new Map<string, string>(),
+  renderModules: new Map<string, RenderModule>(),
+  ssrManifests: new Map<string, SSRManifest>(),
+  templates: new Map<string, string>(),
+});
 
 export const processConfigs = (configs: Config[], baseClientRoot: string, templateDefaults: typeof TEMPLATE): ProcessedConfig[] => {
   return configs.map((config) => {
     const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
-
     return {
       clientRoot,
       entryPoint: config.entryPoint,
@@ -46,52 +46,73 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
+  opts: { debug?: boolean; logger?: Partial<Logger> } = {},
 ) => {
+  const { debug = false, logger: customLogger } = opts;
+  const logger = createLogger(debug, customLogger);
+
   for (const config of processedConfigs) {
     const { clientRoot, entryClient, entryServer, htmlTemplate } = config;
 
-    const templateHtmlPath = path.join(clientRoot, htmlTemplate);
-    const templateHtml = await readFile(templateHtmlPath, 'utf-8');
-    templates.set(clientRoot, templateHtml);
+    try {
+      const templateHtmlPath = path.join(clientRoot, htmlTemplate);
+      const templateHtml = await readFile(templateHtmlPath, 'utf-8');
+      templates.set(clientRoot, templateHtml);
 
-    const relativeBasePath = path.relative(baseClientRoot, clientRoot).replace(/\\/g, '/');
-    const adjustedRelativePath = relativeBasePath ? `/${relativeBasePath}` : '';
+      const relativeBasePath = path.relative(baseClientRoot, clientRoot).replace(/\\/g, '/');
+      const adjustedRelativePath = relativeBasePath ? `/${relativeBasePath}` : '';
 
-    if (!isDevelopment) {
-      const manifestPath = path.join(clientRoot, '.vite/manifest.json');
-      const manifestContent = await readFile(manifestPath, 'utf-8');
-      const manifest = JSON.parse(manifestContent) as Manifest;
-      manifests.set(clientRoot, manifest);
+      if (!isDevelopment) {
+        try {
+          const manifestPath = path.join(clientRoot, '.vite/manifest.json');
+          const manifestContent = await readFile(manifestPath, 'utf-8');
+          const manifest = JSON.parse(manifestContent) as Manifest;
+          manifests.set(clientRoot, manifest);
 
-      const ssrManifestPath = path.join(clientRoot, '.vite/ssr-manifest.json');
-      const ssrManifestContent = await readFile(ssrManifestPath, 'utf-8');
-      const ssrManifest = JSON.parse(ssrManifestContent) as SSRManifest;
-      ssrManifests.set(clientRoot, ssrManifest);
+          const ssrManifestPath = path.join(clientRoot, '.vite/ssr-manifest.json');
+          const ssrManifestContent = await readFile(ssrManifestPath, 'utf-8');
+          const ssrManifest = JSON.parse(ssrManifestContent) as SSRManifest;
+          ssrManifests.set(clientRoot, ssrManifest);
 
-      const entryClientFile = manifest[`${entryClient}.tsx`]?.file;
-      if (!entryClientFile) throw new Error(`Entry client file not found in manifest for ${entryClient}.tsx`);
+          const entryClientFile = manifest[`${entryClient}.tsx`]?.file;
+          if (!entryClientFile) {
+            throw ServiceError.infra(`Entry client file not found in manifest for ${entryClient}.tsx`, {
+              details: { clientRoot, entryClient, availableKeys: Object.keys(manifest) },
+            });
+          }
 
-      const bootstrapModule = `/${adjustedRelativePath}/${entryClientFile}`.replace(/\/{2,}/g, '/');
-      bootstrapModules.set(clientRoot, bootstrapModule);
+          const bootstrapModule = `/${adjustedRelativePath}/${entryClientFile}`.replace(/\/{2,}/g, '/');
+          bootstrapModules.set(clientRoot, bootstrapModule);
 
-      const preloadLink = renderPreloadLinks(ssrManifest, adjustedRelativePath);
-      preloadLinks.set(clientRoot, preloadLink);
+          const preloadLink = renderPreloadLinks(ssrManifest, adjustedRelativePath);
+          preloadLinks.set(clientRoot, preloadLink);
 
-      const cssLink = getCssLinks(manifest, adjustedRelativePath);
-      cssLinks.set(clientRoot, cssLink);
+          const cssLink = getCssLinks(manifest, adjustedRelativePath);
+          cssLinks.set(clientRoot, cssLink);
 
-      const renderModulePath = path.join(clientRoot, `${entryServer}.js`);
-      const moduleUrl = pathToFileURL(renderModulePath).href;
+          const renderModulePath = path.join(clientRoot, `${entryServer}.js`);
+          const moduleUrl = pathToFileURL(renderModulePath).href;
 
-      try {
-        const importedModule = await import(moduleUrl);
-        renderModules.set(clientRoot, importedModule as RenderModule);
-      } catch (error) {
-        throw new Error(`Failed to load render module ${renderModulePath}: ${error}`);
+          try {
+            const importedModule = await import(moduleUrl);
+            renderModules.set(clientRoot, importedModule as RenderModule);
+          } catch (err) {
+            throw ServiceError.infra(`Failed to load render module ${renderModulePath}`, {
+              cause: err,
+              details: { moduleUrl, clientRoot, entryServer },
+            });
+          }
+        } catch (err) {
+          throw normaliseServiceError(err, 'infra', logger);
+        }
+      } else {
+        const bootstrapModule = `/${adjustedRelativePath}/${entryClient}`.replace(/\/{2,}/g, '/');
+        bootstrapModules.set(clientRoot, bootstrapModule);
       }
-    } else {
-      const bootstrapModule = `/${adjustedRelativePath}/${entryClient}`.replace(/\/{2,}/g, '/');
-      bootstrapModules.set(clientRoot, bootstrapModule);
+    } catch (err) {
+      const serviceError = normaliseServiceError(err, 'infra', logger);
+      logger.error('Failed to process config:', { clientRoot, error: serviceError });
+      throw serviceError;
     }
   }
 };

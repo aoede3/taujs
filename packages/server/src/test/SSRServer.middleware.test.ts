@@ -2,7 +2,7 @@ import { describe, expect, test, vi, beforeEach } from 'vitest';
 import { verifyContracts } from '../security/verifyMiddleware';
 
 import type { FastifyInstance } from 'fastify';
-import type { Route } from '../SSRServer';
+import type { Route } from '../types';
 
 const mockLogger = {
   error: vi.fn(),
@@ -86,7 +86,7 @@ describe('verifyContracts full coverage', () => {
         {
           key: 'auth',
           required: (r) => r.attr?.middleware?.auth?.required === true,
-          verify: () => false, // won't be called
+          verify: () => false,
           errorMessage: 'should not be thrown',
         },
       ],

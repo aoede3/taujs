@@ -1,3 +1,5 @@
+import { normaliseServiceError, ServiceError } from './Error';
+
 type Schema<T> = (input: unknown) => T;
 
 type LooseSpec = Readonly<
@@ -72,21 +74,25 @@ export async function callServiceMethod(
   params: Record<string, unknown>,
   ctx: ServiceContext,
 ): Promise<Record<string, unknown>> {
-  if (ctx.signal?.aborted) throw new Error('Request canceled');
+  if (ctx.signal?.aborted) throw ServiceError.timeout('Request canceled');
 
   const service = registry[serviceName];
-  if (!service) throw new Error(`Unknown service: ${serviceName}`);
+  if (!service) throw ServiceError.notFound(`Unknown service: ${serviceName}`);
 
   const desc = service[methodName];
-  if (!desc) throw new Error(`Unknown method: ${serviceName}.${methodName}`);
+  if (!desc) throw ServiceError.notFound(`Unknown method: ${serviceName}.${methodName}`);
 
-  const p = desc.parsers?.params ? desc.parsers.params(params) : params;
-  const data = await desc.handler(p, ctx);
-  const out = desc.parsers?.result ? desc.parsers.result(data) : data;
+  try {
+    const p = desc.parsers?.params ? desc.parsers.params(params) : params;
+    const data = await desc.handler(p, ctx);
+    const out = desc.parsers?.result ? desc.parsers.result(data) : data;
 
-  if (typeof out !== 'object' || out === null) throw new Error(`Non-object result from ${serviceName}.${methodName}`);
+    if (typeof out !== 'object' || out === null) throw ServiceError.infra(`Non-object result from ${serviceName}.${methodName}`);
 
-  return out;
+    return out;
+  } catch (error) {
+    throw normaliseServiceError(error, 'infra', ctx.logger);
+  }
 }
 
 export const isServiceDescriptor = (obj: unknown): obj is ServiceDescriptor => {

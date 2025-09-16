@@ -1,8 +1,8 @@
-import type { ServerResponse } from 'http';
 import type { FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 import type { PluginOption } from 'vite';
 import type { CSPDirectives } from './security/csp';
-import type { ServiceRegistry } from './utils';
+import type { ServiceRegistry } from './utils/DataServices';
+import type { DebugCategory, DebugConfig, Logger } from './utils/Logger';
 
 export type Config = {
   appId: string;
@@ -40,13 +40,15 @@ export type SSRServerOptions = {
         plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
         options?: Record<string, unknown>;
       };
-  isDebug?: boolean;
+  isDebug?: DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>);
+  logger?: Partial<Logger>;
 };
 
-export type RenderCallbacks = {
-  onHead: (headContent: string) => void;
-  onFinish: (initialDataResolved: unknown) => void;
-  onError: (error: unknown) => void;
+export type RenderCallbacks<T = unknown> = {
+  onHead?: (headContent: string) => void;
+  onShellReady?: () => void; // fallback flushed; pipe starts in renderer
+  onAllReady?: (initialData: T) => void; // resolved subtree flushed; safe to inject data/bootstrap
+  onError?: (error: unknown) => void;
 };
 
 export type SSRManifest = { [key: string]: string[] };
@@ -72,14 +74,15 @@ export type RenderSSR = (
 }>;
 
 export type RenderStream = (
-  serverResponse: ServerResponse,
+  serverResponse: NodeJS.WritableStream,
   callbacks: RenderCallbacks,
-  initialDataPromise: Promise<Record<string, unknown>>,
+  initialData: Record<string, unknown> | Promise<Record<string, unknown>> | (() => Promise<Record<string, unknown>>),
   location: string,
   bootstrapModules?: string,
   meta?: Record<string, unknown>,
   cspNonce?: string,
-) => void;
+  signal?: AbortSignal,
+) => { abort(): void };
 
 export type RenderModule = {
   renderSSR: RenderSSR;
@@ -113,6 +116,8 @@ export type DataHandler<Params extends PathToRegExpParams> = (
   },
 ) => Promise<DataResult>;
 
+export type PathToRegExpParams = Partial<Record<string, string | string[]>>;
+
 export type RouteAttributes<Params extends PathToRegExpParams = PathToRegExpParams, Middleware = BaseMiddleware> =
   | {
       render: 'ssr';
@@ -123,15 +128,12 @@ export type RouteAttributes<Params extends PathToRegExpParams = PathToRegExpPara
     }
   | {
       render: 'streaming';
-      hydrate?: never;
+      hydrate?: boolean;
       meta: Record<string, unknown>;
       middleware?: Middleware;
       data?: DataHandler<Params>;
     };
-// Define a specific type for the params object from path-to-regexp
-export type PathToRegExpParams = Partial<Record<string, string | string[]>>;
 
-// Now, use this specific type in your Route and RouteAttributes definitions
 export type Route<Params extends PathToRegExpParams = PathToRegExpParams> = {
   attr?: RouteAttributes<Params>;
   path: string;
@@ -142,7 +144,5 @@ export interface InitialRouteParams extends Record<string, unknown> {
   serviceName?: string;
   serviceMethod?: string;
 }
-
-// export type RouteParams = InitialRouteParams & Record<string, unknown>;
 
 export type RoutePathsAndAttributes<Params extends PathToRegExpParams = PathToRegExpParams> = Omit<Route<Params>, 'element'>;
