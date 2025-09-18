@@ -41,7 +41,7 @@ export const extractBuildConfigs = (config: { apps: { appId: string; entryPoint:
 };
 
 export const extractRoutes = (taujsConfig: TaujsConfig): Route<PathToRegExpParams>[] => {
-  console.log(pc.bold('Preparing τjs [taujs]'));
+  console.log(pc.bold('Preparing τjs routes...'));
   const t0 = performance.now();
 
   try {

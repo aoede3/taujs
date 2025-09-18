@@ -2,15 +2,15 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
-import { ServiceError, normaliseServiceError } from './Error';
+import { ServiceError } from './ServiceError';
 import { isDevelopment } from './System';
 import { getCssLinks, renderPreloadLinks } from './Templates';
 import { createLogger } from './Logger';
 
 import type { Manifest } from 'vite';
 import type { TEMPLATE } from '../constants';
+import type { DebugConfig, Logger } from './Logger';
 import type { RenderModule, SSRManifest, Config, ProcessedConfig } from '../types';
-import type { Logger } from './Logger';
 
 export const createMaps = () => ({
   bootstrapModules: new Map<string, string>(),
@@ -46,7 +46,7 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
-  opts: { debug?: boolean; logger?: Partial<Logger> } = {},
+  opts: { debug?: DebugConfig; logger?: Partial<Logger> } = {},
 ) => {
   const { debug = false, logger: customLogger } = opts;
   const logger = createLogger(debug, customLogger);
@@ -77,7 +77,11 @@ export const loadAssets = async (
           const entryClientFile = manifest[`${entryClient}.tsx`]?.file;
           if (!entryClientFile) {
             throw ServiceError.infra(`Entry client file not found in manifest for ${entryClient}.tsx`, {
-              details: { clientRoot, entryClient, availableKeys: Object.keys(manifest) },
+              details: {
+                clientRoot,
+                entryClient,
+                availableKeys: Object.keys(manifest),
+              },
             });
           }
 
@@ -103,16 +107,20 @@ export const loadAssets = async (
             });
           }
         } catch (err) {
-          throw normaliseServiceError(err, 'infra', logger);
+          logger.serviceError(err, {
+            stage: 'loadAssets:production',
+            clientRoot,
+            entryClient,
+            entryServer,
+          });
         }
       } else {
         const bootstrapModule = `/${adjustedRelativePath}/${entryClient}`.replace(/\/{2,}/g, '/');
         bootstrapModules.set(clientRoot, bootstrapModule);
       }
     } catch (err) {
-      const serviceError = normaliseServiceError(err, 'infra', logger);
-      logger.error('Failed to process config:', { clientRoot, error: serviceError });
-      throw serviceError;
+      logger.error('Failed to process config', { clientRoot });
+      logger.serviceError(err, { stage: 'loadAssets:config', clientRoot });
     }
   }
 };

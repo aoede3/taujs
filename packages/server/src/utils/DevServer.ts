@@ -6,14 +6,16 @@ import { __dirname } from './System';
 import { overrideCSSHMRConsoleError } from './Templates';
 import { createLogger, debugLog } from './Logger';
 
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import type { ViteDevServer } from 'vite';
+import type { DebugConfig } from './Logger';
 
 export const setupDevServer = async (
   app: FastifyInstance,
   baseClientRoot: string,
   alias?: Record<string, string>,
-  isDebug?: boolean,
+  isDebug?: DebugConfig,
 ): Promise<ViteDevServer> => {
   const logger = createLogger(isDebug ?? false);
   const { createServer } = await import('vite');
@@ -34,12 +36,14 @@ export const setupDevServer = async (
             {
               name: 'τjs-development-server-debug-logging',
               configureServer(server: ViteDevServer) {
-                debugLog(logger, pc.green('development server debug started.'));
+                logger.log(pc.green('τjs development server debug started.'));
 
-                server.middlewares.use((req, res, next) => {
-                  debugLog(logger, pc.cyan(`← rx: ${req.url}`));
+                server.middlewares.use((req: IncomingMessage, res: ServerResponse, next) => {
+                  debugLog(logger, 'trx', '← rx', isDebug, req);
 
-                  res.on('finish', () => debugLog(logger, pc.yellow(`→ tx: ${req.url}`)));
+                  res.on('finish', () => {
+                    debugLog(logger, 'trx', '→ tx', isDebug, req);
+                  });
 
                   next();
                 });

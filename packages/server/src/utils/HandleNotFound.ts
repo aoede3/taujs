@@ -1,12 +1,12 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
-import { ServiceError, normaliseServiceError } from './Error';
+import { ServiceError } from './ServiceError';
 import { createLogger } from './Logger';
 import { isDevelopment } from './System';
 import { ensureNonNull } from './Templates';
 import { SSRTAG } from '../constants';
 
-import type { Logger } from './Logger';
+import type { DebugConfig, Logger } from './Logger';
 import type { ProcessedConfig } from '../types';
 
 export const handleNotFound = async (
@@ -19,7 +19,7 @@ export const handleNotFound = async (
     templates: Map<string, string>;
   },
   opts: {
-    debug?: boolean;
+    debug?: DebugConfig;
     logger?: Partial<Logger>;
   } = {},
 ) => {
@@ -46,7 +46,9 @@ export const handleNotFound = async (
 
     let processedTemplate = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
 
-    if (!isDevelopment && cssLink) processedTemplate = processedTemplate.replace('</head>', `${cssLink}</head>`);
+    if (!isDevelopment && cssLink) {
+      processedTemplate = processedTemplate.replace('</head>', `${cssLink}</head>`);
+    }
 
     if (bootstrapModule) {
       const initialDataScript = `<script${cspNonce ? ` nonce="${cspNonce}"` : ''}>
@@ -57,16 +59,15 @@ export const handleNotFound = async (
         `${initialDataScript}<script${cspNonce ? ` nonce="${cspNonce}"` : ''} type="module" src="${bootstrapModule}" defer></script></body>`,
       );
     }
+
     reply.status(200).type('text/html').send(processedTemplate);
   } catch (err) {
-    const serviceError = normaliseServiceError(err, 'infra', logger);
-
-    logger.error('Failed to serve clientHtmlTemplate:', {
-      error: serviceError,
+    logger.serviceError(err, {
+      stage: 'handleNotFound',
       url: req.raw.url,
       clientRoot: processedConfigs[0]?.clientRoot,
     });
 
-    reply.status(serviceError.httpStatus ?? 500).send('Internal Server Error');
+    reply.status(500).send('Internal Server Error');
   }
 };

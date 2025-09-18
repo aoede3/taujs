@@ -1,4 +1,4 @@
-import { normaliseServiceError, ServiceError } from './Error';
+import { ServiceError } from './ServiceError';
 
 type Schema<T> = (input: unknown) => T;
 
@@ -19,7 +19,11 @@ export type ServiceContext = {
   signal?: AbortSignal;
   deadlineMs?: number;
   traceId?: string;
-  logger?: { info: (...a: unknown[]) => void; error: (...a: unknown[]) => void };
+  logger?: {
+    info?: (...a: unknown[]) => void;
+    error?: (...a: unknown[]) => void;
+    serviceError?: (err: unknown, context?: Record<string, unknown>) => void;
+  };
   user?: { id: string; roles: string[] } | null;
 };
 
@@ -90,8 +94,13 @@ export async function callServiceMethod(
     if (typeof out !== 'object' || out === null) throw ServiceError.infra(`Non-object result from ${serviceName}.${methodName}`);
 
     return out;
-  } catch (error) {
-    throw normaliseServiceError(error, 'infra', ctx.logger);
+  } catch (err) {
+    ctx.logger?.serviceError?.(err, {
+      service: serviceName,
+      method: methodName,
+      params,
+    });
+    throw err;
   }
 }
 

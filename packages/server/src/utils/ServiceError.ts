@@ -1,5 +1,3 @@
-import type { Logger } from './Logger';
-
 const DEFAULT_HTTP_STATUS: Record<ServiceErrorKind, number> = {
   infra: 500,
   upstream: 502,
@@ -7,7 +5,7 @@ const DEFAULT_HTTP_STATUS: Record<ServiceErrorKind, number> = {
   validation: 400,
   canceled: 499,
   timeout: 504,
-};
+} as const;
 
 export type ServiceErrorKind =
   | 'infra' // internal infra failures: timeouts, DB down, coding bugs
@@ -19,17 +17,20 @@ export type ServiceErrorKind =
 
 export class ServiceError extends Error {
   kind: ServiceErrorKind;
-  httpStatus?: number;
-  details?: unknown; // opaque diagnostic payload (validation issues, upstream body, etc.)
+  httpStatus: number;
+  details?: unknown;
   override cause?: unknown;
+  safeMessage: string;
 
-  constructor(message: string, kind: ServiceErrorKind, opts: { httpStatus?: number; details?: unknown; cause?: unknown } = {}) {
+  constructor(message: string, kind: ServiceErrorKind, opts: { httpStatus?: number; details?: unknown; cause?: unknown; safeMessage?: string } = {}) {
     super(message);
     this.name = 'ServiceError';
     this.kind = kind;
     this.httpStatus = opts.httpStatus ?? DEFAULT_HTTP_STATUS[kind];
     this.details = opts.details;
     if (opts.cause !== undefined) this.cause = opts.cause;
+
+    this.safeMessage = opts.safeMessage ?? (kind === 'domain' || kind === 'validation' ? message : 'Internal Server Error');
   }
 
   static notFound(message: string, details?: unknown) {
@@ -48,33 +49,36 @@ export class ServiceError extends Error {
     return new ServiceError(message, 'timeout', { details });
   }
 
-  static infra(message: string, details?: unknown, cause?: unknown) {
-    return new ServiceError(message, 'infra', { details, cause });
+  static infra(message: string, opts: { details?: unknown; cause?: unknown } = {}) {
+    return new ServiceError(message, 'infra', opts);
+  }
+
+  static upstream(message: string, opts: { details?: unknown; cause?: unknown } = {}) {
+    return new ServiceError(message, 'upstream', opts);
   }
 }
 
-export const isServiceError = (e: unknown): e is ServiceError => e instanceof ServiceError;
+export const isServiceError = (err: unknown): err is ServiceError => err instanceof ServiceError;
 
-export function normaliseServiceError(
-  e: unknown,
-  fallback: ServiceErrorKind = 'infra',
-  logger?: { info?: (...a: unknown[]) => void; error?: (...a: unknown[]) => void },
-): ServiceError {
-  const serviceError =
-    e instanceof ServiceError
-      ? e
-      : (e as any)?.name === 'AbortError'
-        ? new ServiceError('Request canceled', 'canceled', { httpStatus: 499, cause: e })
-        : new ServiceError((e as any)?.message ?? 'Service failed', fallback, { cause: e });
+export const normaliseServiceError = (err: unknown, fallback: ServiceErrorKind = 'infra'): ServiceError => {
+  if (err instanceof ServiceError) return err;
 
-  if (logger?.error) {
-    logger.error(`ServiceError [${serviceError.kind}]`, {
-      message: serviceError.message,
-      httpStatus: serviceError.httpStatus,
-      details: serviceError.details,
-      cause: serviceError.cause,
+  if ((err as any)?.name === 'AbortError') {
+    return new ServiceError('Request canceled', 'canceled', {
+      httpStatus: 499,
+      cause: err,
     });
   }
 
-  return serviceError;
-}
+  return new ServiceError((err as any)?.message ?? 'Service failed', fallback, {
+    cause: err,
+  });
+};
+
+export const logServiceError = (logger: { error: (...a: unknown[]) => void }, err: ServiceError) => {
+  logger.error(`[service:${err.kind}] ${err.message}`, {
+    httpStatus: err.httpStatus,
+    details: err.details,
+    cause: err.cause,
+  });
+};

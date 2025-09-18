@@ -1,10 +1,11 @@
-import { debugLog, createLogger } from '../utils/Logger';
+import { debugLog, createLogger, normaliseDebug } from '../utils/Logger';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { DebugCategory } from '../utils/Logger';
 import type { Route } from '../types';
 
-export const createAuthHook = (routes: Route[], isDebug?: boolean) => {
-  const logger = createLogger(Boolean(isDebug));
+export const createAuthHook = (routes: Route[], debug: Record<DebugCategory, boolean>) => {
+  const logger = createLogger(debug);
 
   return async function authHook(req: FastifyRequest, reply: FastifyReply) {
     const url = new URL(req.url, `http://${req.headers.host}`).pathname;
@@ -12,23 +13,23 @@ export const createAuthHook = (routes: Route[], isDebug?: boolean) => {
     const authConfig = matched?.attr?.middleware?.auth;
 
     if (!authConfig?.required) {
-      if (isDebug && !req.url.startsWith('/assets/')) debugLog(logger, `(auth not required)`, req);
-
+      if (debug.auth && !req.url.startsWith('/assets/')) {
+        debugLog(logger, 'auth', '(auth not required)', debug, req);
+      }
       return;
     }
 
     if (typeof req.server.authenticate !== 'function') {
       req.log.warn('Route requires auth but no "authenticate" decorator is defined on Fastify.');
-
       return reply.status(500).send('Server misconfiguration: auth decorator missing.');
     }
 
     try {
-      debugLog(logger, 'Invoking authenticate(...)', req);
+      debugLog(logger, 'auth', 'Invoking authenticate(...)', debug, req);
       await req.server.authenticate(req, reply);
-      debugLog(logger, 'Authentication successful', req);
+      debugLog(logger, 'auth', 'Authentication successful', debug, req);
     } catch (err) {
-      debugLog(logger, 'Authentication failed', req);
+      debugLog(logger, 'auth', 'Authentication failed', debug, req);
       return reply.send(err);
     }
   };
