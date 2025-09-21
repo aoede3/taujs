@@ -36,6 +36,14 @@ export const createLogger = (debug: DebugConfig = false, custom?: Partial<Logger
 };
 
 export const normaliseDebug = (config: DebugConfig | undefined): Record<DebugCategory, boolean> => {
+  const allOff: Record<DebugCategory, false> = {
+    routes: false,
+    trx: false,
+    vite: false,
+    auth: false,
+    errors: false,
+  };
+
   const allOn: Record<DebugCategory, true> = {
     routes: true,
     trx: true,
@@ -44,7 +52,7 @@ export const normaliseDebug = (config: DebugConfig | undefined): Record<DebugCat
     errors: true,
   };
 
-  if (config === undefined) return { ...allOn, errors: true };
+  if (config === undefined) return { ...allOff, errors: true };
 
   if (typeof config === 'boolean') return Object.fromEntries(Object.keys(allOn).map((k) => [k, config])) as Record<DebugCategory, boolean>;
 

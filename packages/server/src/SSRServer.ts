@@ -13,7 +13,6 @@ import fp from 'fastify-plugin';
 import { TEMPLATE } from './constants';
 import { createAuthHook } from './security/auth';
 import { cspPlugin } from './security/csp';
-import { hasAuthenticate, isAuthRequired, verifyContracts } from './security/verifyMiddleware';
 import { __dirname, isDevelopment } from './utils/System';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
@@ -56,23 +55,8 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       },
     );
 
-    verifyContracts(
-      app,
-      routes,
-      [
-        {
-          key: 'auth',
-          required: isAuthRequired,
-          verify: hasAuthenticate,
-          errorMessage: 'Routes require auth but Fastify instance is missing `.authenticate` decorator.',
-        },
-      ],
-      debugConfig,
-    );
-
     if (opts.registerStaticAssets && typeof opts.registerStaticAssets === 'object') {
       const { plugin, options } = opts.registerStaticAssets;
-
       await app.register(plugin as FastifyPluginCallback<any>, {
         root: baseClientRoot,
         prefix: '/',
@@ -87,9 +71,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       generateCSP: opts.security?.csp?.generateCSP,
     });
 
-    if (isDevelopment) {
-      viteDevServer = await setupDevServer(app, baseClientRoot, alias, debugConfig);
-    }
+    if (isDevelopment) viteDevServer = await setupDevServer(app, baseClientRoot, alias, opts.isDebug);
 
     app.addHook('onRequest', createAuthHook(routes, debugConfig));
 

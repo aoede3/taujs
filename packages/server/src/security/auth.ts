@@ -1,4 +1,4 @@
-import { debugLog, createLogger, normaliseDebug } from '../utils/Logger';
+import { debugLog, createLogger } from '../utils/Logger';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { DebugCategory } from '../utils/Logger';
@@ -12,10 +12,9 @@ export const createAuthHook = (routes: Route[], debug: Record<DebugCategory, boo
     const matched = routes.find((r) => r.path === url);
     const authConfig = matched?.attr?.middleware?.auth;
 
-    if (!authConfig?.required) {
-      if (debug.auth && !req.url.startsWith('/assets/')) {
-        debugLog(logger, 'auth', '(auth not required)', debug, req);
-      }
+    if (!authConfig) {
+      if (debug.auth) debugLog(logger, 'auth', '(auth not required)', debug, req);
+
       return;
     }
 

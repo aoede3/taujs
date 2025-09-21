@@ -1,9 +1,4 @@
-import pc from 'picocolors';
-
-import { createLogger, debugLog } from '../utils/Logger';
-
 import type { FastifyInstance } from 'fastify';
-import type { DebugConfig } from '../utils/Logger';
 import type { Route } from '../types';
 
 type MiddlewareContract = {
@@ -13,27 +8,44 @@ type MiddlewareContract = {
   verify: (app: FastifyInstance) => boolean;
 };
 
-// these have to be extracted and exported for vitest to pick them up! 0_o
-export const isAuthRequired = (route: Route) => route.attr?.middleware?.auth?.required === true;
-export const hasAuthenticate = (app: FastifyInstance) => typeof app.authenticate === 'function';
+export type ContractCheck = {
+  key: string;
+  status: 'verified' | 'skipped' | 'error';
+  message: string;
+};
 
-export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts: MiddlewareContract[], isDebug: DebugConfig) => {
-  const logger = createLogger(Boolean(isDebug));
+// these have to be exported for vitest to pick them up! 0_o
+export const isAuthRequired = (route: Route) => Boolean(route.attr?.middleware?.auth);
+export const hasAuthenticate = (app: FastifyInstance) => typeof app.authenticate === 'function';
+export const isCSPDeclared = (route: Route) => Boolean(route.attr?.middleware?.csp);
+
+export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts: MiddlewareContract[]): ContractCheck[] => {
+  const results: ContractCheck[] = [];
 
   for (const contract of contracts) {
     const isUsed = routes.some(contract.required);
 
     if (!isUsed) {
-      debugLog(logger, 'auth', pc.cyan(`No routes require "${contract.key}" middleware, skipping verification`), isDebug);
+      results.push({
+        key: contract.key,
+        status: 'skipped',
+        message: `No routes require "${contract.key}" middleware`,
+      });
       continue;
     }
 
     if (!contract.verify(app)) {
-      const error = new Error(`[τjs] ${contract.errorMessage}`);
-      logger.error(error.message);
-      throw error;
+      const msg = `[τjs] ${contract.errorMessage}`;
+      results.push({ key: contract.key, status: 'error', message: msg });
+      throw new Error(msg);
     }
 
-    debugLog(logger, 'auth', `Middleware "${contract.key}" verified ✓`, isDebug);
+    results.push({
+      key: contract.key,
+      status: 'verified',
+      message: `Middleware "${contract.key}" verified ✓`,
+    });
   }
+
+  return results;
 };

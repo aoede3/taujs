@@ -175,14 +175,10 @@ export const handleRender = async (
 
       const writable = new PassThrough();
       writable.on('error', (err) => {
-        if (!isBenignSocketAbort(err)) {
-          console.error('PassThrough error:', err);
-        }
+        if (!isBenignSocketAbort(err)) console.error('PassThrough error:', err);
       });
       reply.raw.on('error', (err) => {
-        if (!isBenignSocketAbort(err)) {
-          console.error('HTTP socket error:', err);
-        }
+        if (!isBenignSocketAbort(err)) console.error('HTTP socket error:', err);
       });
       writable.pipe(reply.raw, { end: false });
 

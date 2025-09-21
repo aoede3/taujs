@@ -93,10 +93,12 @@ export type GenericPlugin = FastifyPluginCallback<Record<string, unknown>> | Fas
 
 export type BaseMiddleware = {
   auth?: {
-    required: boolean;
     redirect?: string;
     roles?: string[];
     strategy?: string;
+  };
+  csp?: {
+    directives?: Record<string, string[]>;
   };
 };
 

@@ -9,13 +9,13 @@ import { createLogger, debugLog } from './Logger';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { DebugConfig } from './Logger';
+import type { DebugCategory, DebugConfig } from './Logger';
 
 export const setupDevServer = async (
   app: FastifyInstance,
   baseClientRoot: string,
   alias?: Record<string, string>,
-  isDebug?: DebugConfig,
+  isDebug?: DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>),
 ): Promise<ViteDevServer> => {
   const logger = createLogger(isDebug ?? false);
   const { createServer } = await import('vite');
@@ -36,14 +36,12 @@ export const setupDevServer = async (
             {
               name: 'τjs-development-server-debug-logging',
               configureServer(server: ViteDevServer) {
-                logger.log(pc.green('τjs development server debug started.'));
+                logger.log(pc.yellow('[τjs] [debug] Development server debug started'));
 
                 server.middlewares.use((req: IncomingMessage, res: ServerResponse, next) => {
                   debugLog(logger, 'trx', '← rx', isDebug, req);
 
-                  res.on('finish', () => {
-                    debugLog(logger, 'trx', '→ tx', isDebug, req);
-                  });
+                  res.on('finish', () => debugLog(logger, 'trx', '→ tx', isDebug, req));
 
                   next();
                 });

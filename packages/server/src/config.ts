@@ -32,6 +32,14 @@ export type TaujsConfig = {
   apps: AppConfig[];
 };
 
+export type ExtractRoutesResult = {
+  routes: Route<PathToRegExpParams>[];
+  apps: { appId: string; routeCount: number }[];
+  totalRoutes: number;
+  durationMs: number;
+  warnings: string[];
+};
+
 export const extractBuildConfigs = (config: { apps: { appId: string; entryPoint: string; plugins?: PluginOption[] }[] }): AppConfig[] => {
   return config.apps.map(({ appId, entryPoint, plugins }) => ({
     appId,
@@ -40,45 +48,42 @@ export const extractBuildConfigs = (config: { apps: { appId: string; entryPoint:
   }));
 };
 
-export const extractRoutes = (taujsConfig: TaujsConfig): Route<PathToRegExpParams>[] => {
-  console.log(pc.bold('Preparing τjs routes...'));
+export const extractRoutes = (taujsConfig: TaujsConfig): ExtractRoutesResult => {
   const t0 = performance.now();
 
-  try {
-    const allRoutes: Route<PathToRegExpParams>[] = [];
-    const pathTracker = new Map<string, string[]>();
-    let totalRoutes = 0;
+  const allRoutes: Route<PathToRegExpParams>[] = [];
+  const apps: { appId: string; routeCount: number }[] = [];
+  const warnings: string[] = [];
+  const pathTracker = new Map<string, string[]>();
 
-    for (const app of taujsConfig.apps) {
-      const appRoutes = (app.routes ?? []).map((route) => {
-        const fullRoute: Route<PathToRegExpParams> = { ...route, appId: app.appId };
+  for (const app of taujsConfig.apps) {
+    const appRoutes = (app.routes ?? []).map((route) => {
+      const fullRoute: Route<PathToRegExpParams> = { ...route, appId: app.appId };
+      if (!pathTracker.has(route.path)) pathTracker.set(route.path, []);
+      pathTracker.get(route.path)!.push(app.appId);
+      return fullRoute;
+    });
 
-        if (!pathTracker.has(route.path)) pathTracker.set(route.path, []);
-        pathTracker.get(route.path)!.push(app.appId);
-
-        return fullRoute;
-      });
-
-      console.log(pc.gray(` • ${app.appId}: ${appRoutes.length} route(s)`));
-
-      allRoutes.push(...appRoutes);
-      totalRoutes += appRoutes.length;
-    }
-
-    for (const [path, appIds] of pathTracker.entries()) {
-      if (appIds.length > 1) console.warn(pc.yellow(`⚠️ Route path "${path}" is declared in multiple apps: ${appIds.join(', ')} – order may affect matching`));
-    }
-
-    const sortedRoutes = allRoutes.sort((a, b) => computeScore(b.path) - computeScore(a.path));
-    const t1 = performance.now();
-
-    console.log(pc.green(`Prepared ${totalRoutes} route(s) in ${(t1 - t0).toFixed(1)}ms`));
-
-    return sortedRoutes;
-  } catch (err) {
-    console.log(pc.red('Failed to prepare routes'));
-    throw err;
+    apps.push({ appId: app.appId, routeCount: appRoutes.length });
+    allRoutes.push(...appRoutes);
   }
+
+  for (const [path, appIds] of pathTracker.entries()) {
+    if (appIds.length > 1) {
+      warnings.push(`Route path "${path}" is declared in multiple apps: ${appIds.join(', ')}`);
+    }
+  }
+
+  const sortedRoutes = allRoutes.sort((a, b) => computeScore(b.path) - computeScore(a.path));
+  const durationMs = performance.now() - t0;
+
+  return {
+    routes: sortedRoutes,
+    apps,
+    totalRoutes: allRoutes.length,
+    durationMs,
+    warnings,
+  };
 };
 
 const computeScore = (path: string): number => {
