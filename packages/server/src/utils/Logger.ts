@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 
 import { normaliseServiceError, logServiceError } from './ServiceError';
+import { DEBUG } from '../constants';
 
 export type Logger = {
   log: (...args: unknown[]) => void;
@@ -9,7 +10,8 @@ export type Logger = {
   serviceError: (err: unknown, context?: Record<string, unknown>) => never;
 };
 
-export type DebugCategory = 'auth' | 'errors' | 'routes' | 'trx' | 'vite';
+export type DebugCategory = keyof typeof DEBUG;
+export type DebugColour = (typeof DEBUG)[keyof typeof DEBUG]['colour'];
 
 export type DebugConfig = boolean | Partial<Record<DebugCategory, boolean>> | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>);
 
@@ -28,7 +30,6 @@ export const createLogger = (debug: DebugConfig = false, custom?: Partial<Logger
     const se = normaliseServiceError(err, 'infra');
     logServiceError(base, se);
     base.error(pc.red('Service failure'), { ...context, error: se });
-
     throw se;
   };
 
@@ -36,25 +37,14 @@ export const createLogger = (debug: DebugConfig = false, custom?: Partial<Logger
 };
 
 export const normaliseDebug = (config: DebugConfig | undefined): Record<DebugCategory, boolean> => {
-  const allOff: Record<DebugCategory, false> = {
-    routes: false,
-    trx: false,
-    vite: false,
-    auth: false,
-    errors: false,
-  };
-
-  const allOn: Record<DebugCategory, true> = {
-    routes: true,
-    trx: true,
-    vite: true,
-    auth: true,
-    errors: true,
-  };
+  const allOff = Object.fromEntries(Object.keys(DEBUG).map((k) => [k, false])) as Record<DebugCategory, false>;
+  const allOn = Object.fromEntries(Object.keys(DEBUG).map((k) => [k, true])) as Record<DebugCategory, true>;
 
   if (config === undefined) return { ...allOff, errors: true };
 
-  if (typeof config === 'boolean') return Object.fromEntries(Object.keys(allOn).map((k) => [k, config])) as Record<DebugCategory, boolean>;
+  if (typeof config === 'boolean') {
+    return Object.fromEntries(Object.keys(allOn).map((k) => [k, config])) as Record<DebugCategory, boolean>;
+  }
 
   if ('all' in config) {
     const base = Object.fromEntries(Object.keys(allOn).map((k) => [k, config.all])) as Record<DebugCategory, boolean>;
@@ -68,11 +58,13 @@ export const debugLog = (logger: Logger, category: DebugCategory, message: strin
   if (debug === undefined) return;
 
   const cfg = normaliseDebug(debug);
-
   if (!cfg[category]) return;
 
   const ts = pc.gray(new Date().toLocaleTimeString());
-  const parts = [ts, pc.yellow(`[${category}]`), message];
+  const color = DEBUG[category].colour;
+  const tag = color(`[${category}]`);
+
+  const parts = [ts, tag, message];
 
   if (req?.method && req?.url) {
     parts.push(`${req.method} ${req.url}`);

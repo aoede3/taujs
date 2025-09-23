@@ -13,7 +13,7 @@ export const createAuthHook = (routes: Route[], debug: Record<DebugCategory, boo
     const authConfig = matched?.attr?.middleware?.auth;
 
     if (!authConfig) {
-      if (debug.auth) debugLog(logger, 'auth', '(auth not required)', debug, req);
+      if (debug.auth) debugLog(logger, 'auth', '(none)', debug, req);
 
       return;
     }

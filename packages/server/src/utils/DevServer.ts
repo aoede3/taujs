@@ -5,6 +5,7 @@ import pc from 'picocolors';
 import { __dirname } from './System';
 import { overrideCSSHMRConsoleError } from './Templates';
 import { createLogger, debugLog } from './Logger';
+import { CONTENT } from '../constants';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
@@ -16,8 +17,11 @@ export const setupDevServer = async (
   baseClientRoot: string,
   alias?: Record<string, string>,
   isDebug?: DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>),
+  devNet?: { host: string; hmrPort: number },
 ): Promise<ViteDevServer> => {
   const logger = createLogger(isDebug ?? false);
+  const host = devNet?.host ?? process.env.HOST?.trim() ?? process.env.FASTIFY_ADDRESS?.trim() ?? 'localhost';
+  const hmrPort = devNet?.hmrPort ?? (Number(process.env.HMR_PORT) || 5174);
   const { createServer } = await import('vite');
 
   const viteDevServer = await createServer({
@@ -36,7 +40,7 @@ export const setupDevServer = async (
             {
               name: 'τjs-development-server-debug-logging',
               configureServer(server: ViteDevServer) {
-                logger.log(pc.yellow('[τjs] [debug] Development server debug started'));
+                logger.log(pc.yellow(`${CONTENT.TAG} [debug] Development server debug started`));
 
                 server.middlewares.use((req: IncomingMessage, res: ServerResponse, next) => {
                   debugLog(logger, 'trx', '← rx', isDebug, req);
@@ -62,7 +66,10 @@ export const setupDevServer = async (
     server: {
       middlewareMode: true,
       hmr: {
-        port: 5174,
+        clientPort: hmrPort,
+        host: host !== 'localhost' ? host : undefined,
+        port: hmrPort,
+        protocol: 'ws',
       },
     },
   });

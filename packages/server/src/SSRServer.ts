@@ -71,7 +71,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       generateCSP: opts.security?.csp?.generateCSP,
     });
 
-    if (isDevelopment) viteDevServer = await setupDevServer(app, baseClientRoot, alias, opts.isDebug);
+    if (isDevelopment) viteDevServer = await setupDevServer(app, baseClientRoot, alias, opts.isDebug, opts.devNet);
 
     app.addHook('onRequest', createAuthHook(routes, debugConfig));
 

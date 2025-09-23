@@ -10,8 +10,6 @@
 
 import { performance } from 'node:perf_hooks';
 
-import pc from 'picocolors';
-
 import type { PluginOption } from 'vite';
 import type { PathToRegExpParams, Route, RouteAttributes } from './types';
 
@@ -29,6 +27,7 @@ export type AppConfig = {
 };
 
 export type TaujsConfig = {
+  server?: { host?: string; port?: number; hmrPort?: number };
   apps: AppConfig[];
 };
 
@@ -92,3 +91,9 @@ const computeScore = (path: string): number => {
     .filter(Boolean)
     .reduce((score, segment) => score + (segment.startsWith(':') ? 1 : 10), 0);
 };
+
+export function createConfig<T extends TaujsConfig>(config: T): T {
+  if (!config.apps || config.apps.length === 0) throw new Error('At least one app must be configured');
+
+  return config;
+}

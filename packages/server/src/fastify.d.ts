@@ -18,5 +18,6 @@ declare module 'fastify' {
      * ```
      */
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    showBanner(): void;
   }
 }

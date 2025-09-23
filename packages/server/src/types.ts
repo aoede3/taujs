@@ -3,6 +3,7 @@ import type { PluginOption } from 'vite';
 import type { CSPDirectives } from './security/csp';
 import type { ServiceRegistry } from './utils/DataServices';
 import type { DebugCategory, DebugConfig, Logger } from './utils/Logger';
+import type { AppConfig } from './config';
 
 export type Config = {
   appId: string;
@@ -25,7 +26,7 @@ export type ProcessedConfig = {
 export type SSRServerOptions = {
   alias?: Record<string, string>;
   clientRoot: string;
-  configs: Config[];
+  configs: AppConfig[];
   routes: Route<PathToRegExpParams>[];
   serviceRegistry: ServiceRegistry;
   security?: {
@@ -42,6 +43,7 @@ export type SSRServerOptions = {
       };
   isDebug?: DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>);
   logger?: Partial<Logger>;
+  devNet?: { host: string; hmrPort: number };
 };
 
 export type RenderCallbacks<T = unknown> = {
