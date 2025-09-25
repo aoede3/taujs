@@ -19,6 +19,7 @@ import type { TaujsConfig } from './config';
 import type { NetResolved } from './network/cli';
 import type { ServiceRegistry } from './utils/DataServices';
 import type { DebugCategory, DebugConfig } from './utils/Logger';
+import type { CSPDirectives } from './security/csp';
 
 type StaticAssetsRegistration = {
   plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
@@ -34,6 +35,12 @@ type CreateServerOptions = {
   isDebug?: boolean | DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>);
   registerStaticAssets?: false | StaticAssetsRegistration;
   port?: number;
+  security?: {
+    csp?: {
+      directives?: CSPDirectives;
+      generateCSP?: (d: CSPDirectives, nonce: string) => string;
+    };
+  };
 };
 
 type CreateServerResult = { app?: FastifyInstance; net: NetResolved };
@@ -92,7 +99,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       registerStaticAssets: opts.registerStaticAssets !== undefined ? opts.registerStaticAssets : { plugin: fastifyStatic },
       isDebug: opts.isDebug,
       alias: opts.alias,
-
+      security: opts.security,
       // 🔹 pass net to SSR so DevServer can set HMR host/port consistently
       devNet: { host: net.host, hmrPort: net.hmrPort }, // <— add this option to SSRServer options
     });

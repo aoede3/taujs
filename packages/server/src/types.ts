@@ -1,9 +1,18 @@
-import type { FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
+import type { FastifyPluginAsync, FastifyPluginCallback, FastifyRequest } from 'fastify';
 import type { PluginOption } from 'vite';
 import type { CSPDirectives } from './security/csp';
 import type { ServiceRegistry } from './utils/DataServices';
 import type { DebugCategory, DebugConfig, Logger } from './utils/Logger';
 import type { AppConfig } from './config';
+
+export type RouteCSPConfig = {
+  disabled?: boolean;
+  mode?: 'merge' | 'replace';
+  directives?:
+    | CSPDirectives
+    | ((args: { url: string; params: Record<string, string>; headers: FastifyRequest['headers']; req: FastifyRequest }) => CSPDirectives);
+  generateCSP?: (directives: CSPDirectives, nonce: string, req: FastifyRequest) => string;
+};
 
 export type Config = {
   appId: string;
@@ -99,9 +108,7 @@ export type BaseMiddleware = {
     roles?: string[];
     strategy?: string;
   };
-  csp?: {
-    directives?: Record<string, string[]>;
-  };
+  csp?: RouteCSPConfig | false;
 };
 
 export type ServiceCall = {

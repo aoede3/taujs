@@ -5,6 +5,7 @@ import { DEV_CSP_DIRECTIVES } from '../constants';
 import { isDevelopment } from '../utils/System';
 
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
+import type { RouteCSPConfig } from '../types';
 
 export type CSPPluginOptions = {
   directives?: CSPDirectives;
@@ -59,3 +60,44 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
     name: 'taujs-csp-plugin',
   },
 );
+
+export const mergeDirectives = (base: CSPDirectives, add: CSPDirectives): CSPDirectives => {
+  const out: CSPDirectives = { ...base };
+  for (const [k, vals] of Object.entries(add)) {
+    const existing = out[k] ?? [];
+    out[k] = Array.from(new Set([...existing, ...vals]));
+  }
+  return out;
+};
+
+export const resolveRouteDirectives = (
+  routeCsp: RouteCSPConfig,
+  req: FastifyRequest,
+  params: Record<string, string>,
+  globalDirectives?: CSPDirectives,
+): CSPDirectives | null => {
+  if (routeCsp.disabled) return null;
+
+  const local =
+    typeof routeCsp.directives === 'function' ? routeCsp.directives({ url: req.url, params, headers: req.headers, req }) : (routeCsp.directives ?? {});
+
+  return routeCsp.mode === 'replace' ? local : mergeDirectives(globalDirectives ?? {}, local);
+};
+
+export const buildCSPHeader = (
+  effective: CSPDirectives | null,
+  req: FastifyRequest,
+  opts: {
+    globalGenerate?: (d: CSPDirectives, nonce: string) => string;
+    routeGenerate?: RouteCSPConfig['generateCSP'];
+  },
+): { name: 'Content-Security-Policy'; value: string } | null => {
+  if (!effective) return null;
+
+  const nonce = (req as any).cspNonce ?? generateNonce();
+  const gen =
+    opts.routeGenerate ??
+    (opts.globalGenerate ? (d: CSPDirectives, n: string) => opts.globalGenerate!(d, n) : (d: CSPDirectives, n: string) => defaultGenerateCSP(d, n));
+
+  return { name: 'Content-Security-Policy', value: gen(effective, nonce, req) };
+};

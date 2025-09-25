@@ -12,19 +12,20 @@ import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
 import { createAuthHook } from './security/auth';
-import { cspPlugin } from './security/csp';
+import { buildCSPHeader, cspPlugin, resolveRouteDirectives, type CSPDirectives } from './security/csp';
 import { __dirname, isDevelopment } from './utils/System';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
-import { createRouteMatchers } from './utils/DataRoutes';
+import { createRouteMatchers, matchRoute } from './utils/DataRoutes';
 import { createLogger, normaliseDebug } from './utils/Logger';
 import { isServiceError, ServiceError } from './utils/ServiceError';
 
 import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { SSRServerOptions } from './types';
+import type { RouteCSPConfig, SSRServerOptions } from './types';
+import { requestPathname } from './network/http';
 
 export { TEMPLATE };
 
@@ -69,6 +70,36 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     app.register(cspPlugin, {
       directives: opts.security?.csp?.directives,
       generateCSP: opts.security?.csp?.generateCSP,
+    });
+
+    const globalDirectives: CSPDirectives | undefined = opts.security?.csp?.directives;
+    const globalGenerate = opts.security?.csp?.generateCSP;
+
+    app.addHook('preHandler', (req, reply, done) => {
+      const pathname = requestPathname(req);
+      const resolved = matchRoute(pathname, routeMatchers);
+      const routeCsp = resolved?.route?.attr?.middleware?.csp;
+
+      if (routeCsp === false) {
+        reply.removeHeader('Content-Security-Policy');
+        return done();
+      }
+
+      if (routeCsp && typeof routeCsp === 'object') {
+        const effective = resolveRouteDirectives(routeCsp as RouteCSPConfig, req, (resolved?.params as Record<string, string>) ?? {}, globalDirectives);
+
+        if (routeCsp.disabled) {
+          reply.removeHeader('Content-Security-Policy');
+        } else {
+          const header = buildCSPHeader(effective, req, {
+            globalGenerate,
+            routeGenerate: routeCsp.generateCSP,
+          });
+          if (header) reply.header(header.name, header.value);
+        }
+      }
+
+      done();
     });
 
     if (isDevelopment) viteDevServer = await setupDevServer(app, baseClientRoot, alias, opts.isDebug, opts.devNet);
