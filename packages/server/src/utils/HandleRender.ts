@@ -2,6 +2,7 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
 import { fetchInitialData, matchRoute } from './DataRoutes';
+import { Logger } from './Logger';
 import { ServiceError } from './ServiceError';
 import { isDevelopment } from './System';
 import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
@@ -11,7 +12,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
 import type { RouteMatcher } from './DataRoutes';
 import type { ServiceRegistry } from './DataServices';
-import type { DebugConfig, Logger } from './Logger';
+import type { DebugConfig, Logs } from './Logger';
 import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../types';
 
 export const handleRender = async (
@@ -31,11 +32,16 @@ export const handleRender = async (
   },
   opts: {
     debug?: DebugConfig;
-    logger?: Partial<Logger>;
+    logger?: Logs;
     viteDevServer?: ViteDevServer;
   } = {},
 ) => {
   const { viteDevServer } = opts;
+
+  const baseLogger = opts.logger ?? new Logger();
+  if (opts.debug !== undefined) baseLogger.configure(opts.debug);
+  const requestId = (req.headers['x-request-id'] as string) || (req as any).id;
+  const logger = baseLogger.child({ component: 'renderer', url: req.url, requestId });
 
   try {
     // fastify/static wildcard: false and /* => checks for .assets here and routes 404
@@ -175,10 +181,10 @@ export const handleRender = async (
 
       const writable = new PassThrough();
       writable.on('error', (err) => {
-        if (!isBenignSocketAbort(err)) console.error('PassThrough error:', err);
+        if (!isBenignSocketAbort(err)) logger.error('PassThrough error:', { error: err });
       });
       reply.raw.on('error', (err) => {
-        if (!isBenignSocketAbort(err)) console.error('HTTP socket error:', err);
+        if (!isBenignSocketAbort(err)) logger.error('HTTP socket error:', { error: err });
       });
       writable.pipe(reply.raw, { end: false });
 
@@ -199,7 +205,7 @@ export const handleRender = async (
           },
           onError: (err) => {
             if (abortedState.aborted || isBenignSocketAbort(err)) {
-              console.warn('Client disconnected before stream finished');
+              logger.warn('Client disconnected before stream finished');
               try {
                 if (!reply.raw.writableEnded) reply.raw.destroy();
               } catch {}
@@ -234,6 +240,7 @@ export const handleRender = async (
       });
     }
   } catch (err) {
+    // Surface a normalized infra error up to Fastify error handler
     throw ServiceError.infra('handleRender failed', {
       cause: err,
       details: {

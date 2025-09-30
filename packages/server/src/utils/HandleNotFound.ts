@@ -1,12 +1,11 @@
-import type { FastifyRequest, FastifyReply } from 'fastify';
-
+import { Logger } from './Logger';
 import { ServiceError } from './ServiceError';
-import { createLogger } from './Logger';
 import { isDevelopment } from './System';
 import { ensureNonNull } from './Templates';
 import { SSRTAG } from '../constants';
 
-import type { DebugConfig, Logger } from './Logger';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { DebugConfig, Logs } from './Logger';
 import type { ProcessedConfig } from '../types';
 
 export const handleNotFound = async (
@@ -20,11 +19,12 @@ export const handleNotFound = async (
   },
   opts: {
     debug?: DebugConfig;
-    logger?: Partial<Logger>;
+    logger?: Logs;
   } = {},
 ) => {
-  const { debug = false, logger: customLogger } = opts;
-  const logger = createLogger(debug, customLogger);
+  const baseLogger = opts.logger ?? new Logger();
+  if (opts.debug !== undefined) baseLogger.configure(opts.debug);
+  const logger = baseLogger.child({ component: 'handleNotFound' });
 
   try {
     if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
@@ -37,7 +37,7 @@ export const handleNotFound = async (
     }
 
     const { clientRoot } = defaultConfig;
-    const cspNonce = req.cspNonce;
+    const cspNonce: string | undefined = (req as any).cspNonce ?? undefined;
 
     const template = ensureNonNull(maps.templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
 
@@ -46,26 +46,27 @@ export const handleNotFound = async (
 
     let processedTemplate = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
 
-    if (!isDevelopment && cssLink) {
-      processedTemplate = processedTemplate.replace('</head>', `${cssLink}</head>`);
-    }
+    if (!isDevelopment && cssLink) processedTemplate = processedTemplate.replace('</head>', `${cssLink}</head>`);
 
     if (bootstrapModule) {
-      const initialDataScript = `<script${cspNonce ? ` nonce="${cspNonce}"` : ''}>
-    window.__INITIAL_DATA__ = {};
-  </script>`;
+      const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
+      const initialDataScript = `<script${nonceAttr}>
+        window.__INITIAL_DATA__ = {};
+      </script>`;
+
       processedTemplate = processedTemplate.replace(
         '</body>',
-        `${initialDataScript}<script${cspNonce ? ` nonce="${cspNonce}"` : ''} type="module" src="${bootstrapModule}" defer></script></body>`,
+        `${initialDataScript}<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script></body>`,
       );
     }
 
     reply.status(200).type('text/html').send(processedTemplate);
   } catch (err) {
-    logger.serviceError(err, {
+    logger.error('handleNotFound failed', {
       stage: 'handleNotFound',
       url: req.raw.url,
       clientRoot: processedConfigs[0]?.clientRoot,
+      error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
     });
 
     reply.status(500).send('Internal Server Error');

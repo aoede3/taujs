@@ -2,15 +2,21 @@ import type { FastifyPluginAsync, FastifyPluginCallback, FastifyRequest } from '
 import type { PluginOption } from 'vite';
 import type { CSPDirectives } from './security/csp';
 import type { ServiceRegistry } from './utils/DataServices';
-import type { DebugCategory, DebugConfig, Logger } from './utils/Logger';
-import type { AppConfig } from './config';
+import type { CSPViolationReport, DebugCategory, DebugConfig, Logger, Logs } from './utils/Logger';
+import type { AppConfig, SecurityConfig } from './config';
 
+// Update your existing RouteCSPConfig to use PathToRegExpParams
 export type RouteCSPConfig = {
   disabled?: boolean;
   mode?: 'merge' | 'replace';
   directives?:
     | CSPDirectives
-    | ((args: { url: string; params: Record<string, string>; headers: FastifyRequest['headers']; req: FastifyRequest }) => CSPDirectives);
+    | ((args: {
+        url: string;
+        params: PathToRegExpParams; // Changed from Record<string, string>
+        headers: FastifyRequest['headers'];
+        req: FastifyRequest;
+      }) => CSPDirectives);
   generateCSP?: (directives: CSPDirectives, nonce: string, req: FastifyRequest) => string;
 };
 
@@ -32,18 +38,14 @@ export type ProcessedConfig = {
   plugins?: PluginOption[];
 };
 
+// Update your existing SSRServerOptions to include security config from DSL
 export type SSRServerOptions = {
   alias?: Record<string, string>;
   clientRoot: string;
   configs: AppConfig[];
   routes: Route<PathToRegExpParams>[];
   serviceRegistry: ServiceRegistry;
-  security?: {
-    csp?: {
-      directives?: CSPDirectives;
-      generateCSP?: (directives: CSPDirectives, cspNonce: string) => string;
-    };
-  };
+  security?: SecurityConfig; // Now comes from config DSL extraction
   registerStaticAssets?:
     | false
     | {
@@ -51,7 +53,7 @@ export type SSRServerOptions = {
         options?: Record<string, unknown>;
       };
   isDebug?: DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>);
-  logger?: Partial<Logger>;
+  logger?: Logs;
   devNet?: { host: string; hmrPort: number };
 };
 

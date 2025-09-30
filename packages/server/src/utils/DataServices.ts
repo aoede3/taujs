@@ -1,5 +1,7 @@
 import { ServiceError } from './ServiceError';
 
+import type { Logs } from './Logger';
+
 type Schema<T> = (input: unknown) => T;
 
 type LooseSpec = Readonly<
@@ -19,11 +21,7 @@ export type ServiceContext = {
   signal?: AbortSignal;
   deadlineMs?: number;
   traceId?: string;
-  logger?: {
-    info?: (...a: unknown[]) => void;
-    error?: (...a: unknown[]) => void;
-    serviceError?: (err: unknown, context?: Record<string, unknown>) => void;
-  };
+  logger?: Logs;
   user?: { id: string; roles: string[] } | null;
 };
 
@@ -86,6 +84,13 @@ export async function callServiceMethod(
   const desc = service[methodName];
   if (!desc) throw ServiceError.notFound(`Unknown method: ${serviceName}.${methodName}`);
 
+  const log = ctx.logger?.child({
+    component: 'service-call',
+    service: serviceName,
+    method: methodName,
+    traceId: ctx.traceId,
+  });
+
   try {
     const p = desc.parsers?.params ? desc.parsers.params(params) : params;
     const data = await desc.handler(p, ctx);
@@ -95,10 +100,9 @@ export async function callServiceMethod(
 
     return out;
   } catch (err) {
-    ctx.logger?.serviceError?.(err, {
-      service: serviceName,
-      method: methodName,
+    log?.error('Service method failed', {
       params,
+      error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
     });
     throw err;
   }

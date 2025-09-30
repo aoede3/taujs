@@ -1,11 +1,20 @@
-import { debugLog, createLogger } from '../utils/Logger';
-
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import type { DebugCategory } from '../utils/Logger';
+
+import { Logger, type DebugConfig, type Logs } from '../utils/Logger';
 import type { Route } from '../types';
 
-export const createAuthHook = (routes: Route[], debug: Record<DebugCategory, boolean>) => {
-  const logger = createLogger(debug);
+/**
+ * Create an auth hook that uses the shared Logger instance.
+ * Optionally pass a DebugConfig to adjust category flags for this instance.
+ */
+export const createAuthHook = (routes: Route[], baseLogger: Logs, isDebug?: DebugConfig) => {
+  // If the caller supplied a debug config, apply it to the provided logger
+  if (isDebug !== undefined) {
+    baseLogger.configure(isDebug);
+  }
+
+  // Child logger with component context
+  const logger = baseLogger.child({ component: 'auth-hook' });
 
   return async function authHook(req: FastifyRequest, reply: FastifyReply) {
     const url = new URL(req.url, `http://${req.headers.host}`).pathname;
@@ -13,22 +22,22 @@ export const createAuthHook = (routes: Route[], debug: Record<DebugCategory, boo
     const authConfig = matched?.attr?.middleware?.auth;
 
     if (!authConfig) {
-      if (debug.auth) debugLog(logger, 'auth', '(none)', debug, req);
-
+      // Category-aware debug; only emits if 'auth' is enabled via configure(...)
+      logger.info('(none)', { method: req.method, url: req.url, ip: req.ip });
       return;
     }
 
     if (typeof req.server.authenticate !== 'function') {
-      req.log.warn('Route requires auth but no "authenticate" decorator is defined on Fastify.');
+      logger.warn('Route requires auth but Fastify authenticate decorator is missing', { path: url });
       return reply.status(500).send('Server misconfiguration: auth decorator missing.');
     }
 
     try {
-      debugLog(logger, 'auth', 'Invoking authenticate(...)', debug, req);
+      logger.info('Invoking authenticate(...)', { method: req.method, url: req.url, ip: req.ip });
       await req.server.authenticate(req, reply);
-      debugLog(logger, 'auth', 'Authentication successful', debug, req);
+      logger.info('Authentication successful', { method: req.method, url: req.url, ip: req.ip });
     } catch (err) {
-      debugLog(logger, 'auth', 'Authentication failed', debug, req);
+      logger.info('Authentication failed', { method: req.method, url: req.url, ip: req.ip });
       return reply.send(err);
     }
   };

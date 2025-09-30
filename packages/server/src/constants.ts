@@ -31,8 +31,10 @@ export const CONTENT = {
 
 export const DEBUG = {
   auth: { label: 'auth', colour: pc.blue },
+  csp: { label: 'csp', colour: pc.yellow },
   errors: { label: 'errors', colour: pc.red },
   routes: { label: 'routes', colour: pc.cyan },
+  security: { label: 'security', colour: pc.yellow },
   trx: { label: 'trx', colour: pc.magenta },
   vite: { label: 'vite', colour: pc.yellow },
 } as const;

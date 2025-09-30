@@ -1,14 +1,22 @@
 import pc from 'picocolors';
 import { networkInterfaces } from 'node:os';
-import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+
 import { CONTENT } from '../constants';
+import { Logger } from '../utils/Logger';
 import { isPrivateIPv4 } from '../utils/System';
-import { normaliseDebug, type DebugConfig } from '../utils/Logger';
+
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import type { DebugConfig } from '../utils/Logger';
 
 type BannerPluginOpts = { debug?: DebugConfig | boolean };
 
 export const bannerPlugin: FastifyPluginAsync<BannerPluginOpts> = async (fastify, options) => {
-  const dbg = normaliseDebug(options.debug);
+  const logger = new Logger();
+  if (options.debug !== undefined) {
+    // Accepts: boolean | DebugCategory[] | { all?: boolean, [cat]: boolean }
+    logger.configure(options.debug);
+  }
+  const dbgNetwork = logger.isDebugEnabled('network');
 
   fastify.decorate('showBanner', function showBanner(this: FastifyInstance) {
     const addr = this.server.address();
@@ -43,10 +51,12 @@ export const bannerPlugin: FastifyPluginAsync<BannerPluginOpts> = async (fastify
 
     if (networkAddress) {
       console.log(`┃ Network  http://${networkAddress}:${port}/\n`);
-      if ((dbg as any)?.network || (dbg as any)?.all)
-        console.log(pc.yellow(`${CONTENT.TAG} [network] Dev server exposed on network — for local testing only.`));
+      if (dbgNetwork) {
+        logger.warn(pc.yellow(`${CONTENT.TAG} [network] Dev server exposed on network — for local testing only.`));
+      }
     }
-    console.log(pc.green(`${CONTENT.TAG} [network] Bound to host: ${boundHost}`));
+
+    logger.info(pc.green(`${CONTENT.TAG} [network] Bound to host: ${boundHost}`));
   });
 
   fastify.addHook('onReady', async function () {

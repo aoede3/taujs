@@ -1,51 +1,93 @@
 import type { FastifyInstance } from 'fastify';
 import type { Route } from '../types';
+import type { SecurityConfig } from '../config';
 
-type MiddlewareContract = {
-  errorMessage: string;
+export type ContractItem = {
   key: string;
-  required: (route: Route) => boolean;
-  verify: (app: FastifyInstance) => boolean;
-};
-
-export type ContractCheck = {
-  key: string;
-  status: 'verified' | 'skipped' | 'error';
+  status: 'verified' | 'skipped' | 'error' | 'warning';
   message: string;
 };
 
-// these have to be exported for vitest to pick them up! 0_o
-export const isAuthRequired = (route: Route) => Boolean(route.attr?.middleware?.auth);
-export const hasAuthenticate = (app: FastifyInstance) => typeof app.authenticate === 'function';
-export const isCSPDeclared = (route: Route) => Boolean(route.attr?.middleware?.csp);
+export type ContractReport = {
+  items: ContractItem[];
+};
 
-export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts: MiddlewareContract[]): ContractCheck[] => {
-  const results: ContractCheck[] = [];
+export const isAuthRequired = (route: Route): boolean => Boolean(route.attr?.middleware?.auth);
+export const hasAuthenticate = (app: FastifyInstance): boolean => typeof (app as any).authenticate === 'function';
+export const hasCSPSupport = (_app: FastifyInstance): boolean => true;
+
+type MiddlewareContract = {
+  key: string;
+  errorMessage: string;
+  required: (routes: Route[], security?: SecurityConfig) => boolean;
+  verify: (app: FastifyInstance) => boolean;
+};
+
+export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts: MiddlewareContract[], security?: SecurityConfig): ContractReport => {
+  const items: ContractItem[] = [];
 
   for (const contract of contracts) {
-    const isUsed = routes.some(contract.required);
+    const isRequired = contract.required(routes, security);
 
-    if (!isUsed) {
-      results.push({
+    if (!isRequired) {
+      items.push({
         key: contract.key,
         status: 'skipped',
-        message: `No routes require "${contract.key}" middleware`,
+        message: `No routes require "${contract.key}"`,
       });
       continue;
     }
 
     if (!contract.verify(app)) {
       const msg = `[τjs] ${contract.errorMessage}`;
-      results.push({ key: contract.key, status: 'error', message: msg });
+      items.push({ key: contract.key, status: 'error', message: msg });
       throw new Error(msg);
     }
 
-    results.push({
-      key: contract.key,
-      status: 'verified',
-      message: `Middleware "${contract.key}" verified ✓`,
-    });
+    // Detailed verification messages
+    if (contract.key === 'csp') {
+      const total = routes.length;
+      const disabled = routes.filter((r) => r.attr?.middleware?.csp === false).length;
+      const custom = routes.filter((r) => {
+        const v = r.attr?.middleware?.csp;
+        return v !== undefined && v !== false;
+      }).length;
+      const enabled = total - disabled;
+      const hasGlobal = !!security?.csp;
+
+      let status: ContractItem['status'] = 'verified';
+      let tail = '';
+      if (!hasGlobal && process.env.NODE_ENV === 'production') {
+        status = 'warning';
+        tail = ' (consider adding global CSP for production)';
+      }
+
+      items.push({
+        key: 'csp',
+        status,
+        message: `✓ Verified (${enabled} enabled, ${disabled} disabled, ${total} total). ` + tail,
+      });
+      items.push({
+        key: 'csp',
+        status,
+        message:
+          (hasGlobal
+            ? custom > 0
+              ? `Global config with ${custom} route override(s)`
+              : 'Using global config'
+            : custom > 0
+              ? `Dev defaults with ${custom} route override(s)`
+              : 'Using dev defaults') + tail,
+      });
+    } else {
+      const count = routes.filter((r) => contract.required([r], security)).length;
+      items.push({
+        key: contract.key,
+        status: 'verified',
+        message: `✓ ${count} route(s)`,
+      });
+    }
   }
 
-  return results;
+  return { items };
 };

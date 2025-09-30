@@ -2,14 +2,14 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
+import { Logger } from './Logger';
 import { ServiceError } from './ServiceError';
 import { isDevelopment } from './System';
 import { getCssLinks, renderPreloadLinks } from './Templates';
-import { createLogger } from './Logger';
 
 import type { Manifest } from 'vite';
 import type { TEMPLATE } from '../constants';
-import type { DebugConfig, Logger } from './Logger';
+import type { DebugConfig, Logs } from './Logger';
 import type { RenderModule, SSRManifest, Config, ProcessedConfig } from '../types';
 
 export const createMaps = () => ({
@@ -25,6 +25,7 @@ export const createMaps = () => ({
 export const processConfigs = (configs: Config[], baseClientRoot: string, templateDefaults: typeof TEMPLATE): ProcessedConfig[] => {
   return configs.map((config) => {
     const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
+
     return {
       clientRoot,
       entryPoint: config.entryPoint,
@@ -46,13 +47,16 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
-  opts: { debug?: DebugConfig; logger?: Partial<Logger> } = {},
+  opts: { debug?: DebugConfig; logger?: Logs } = {},
 ) => {
-  const { debug = false, logger: customLogger } = opts;
-  const logger = createLogger(debug, customLogger);
+  const { debug, logger: providedLogger } = opts;
+  const baseLogger = providedLogger ?? new Logger();
+  if (debug !== undefined) baseLogger.configure(debug);
+  const logger = baseLogger.child({ component: 'asset-loader' });
 
   for (const config of processedConfigs) {
     const { clientRoot, entryClient, entryServer, htmlTemplate } = config;
+    const log = logger.child({ clientRoot, entryClient, entryServer });
 
     try {
       const templateHtmlPath = path.join(clientRoot, htmlTemplate);
@@ -107,20 +111,27 @@ export const loadAssets = async (
             });
           }
         } catch (err) {
-          logger.serviceError(err, {
-            stage: 'loadAssets:production',
-            clientRoot,
-            entryClient,
-            entryServer,
-          });
+          if (err instanceof ServiceError) {
+            log.error('Asset load failed (production)', {
+              error: { name: err.name, message: err.message, stack: err.stack, code: (err as any).code },
+              stage: 'loadAssets:production',
+            });
+          } else {
+            log.error('Asset load failed (production)', {
+              error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+              stage: 'loadAssets:production',
+            });
+          }
         }
       } else {
         const bootstrapModule = `/${adjustedRelativePath}/${entryClient}`.replace(/\/{2,}/g, '/');
         bootstrapModules.set(clientRoot, bootstrapModule);
       }
     } catch (err) {
-      logger.error('Failed to process config', { clientRoot });
-      logger.serviceError(err, { stage: 'loadAssets:config', clientRoot });
+      log.error('Failed to process config', {
+        error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+        stage: 'loadAssets:config',
+      });
     }
   }
 };

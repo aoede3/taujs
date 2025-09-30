@@ -1,16 +1,15 @@
 import path from 'node:path';
-
 import pc from 'picocolors';
 
+import { Logger } from './Logger';
 import { __dirname } from './System';
 import { overrideCSSHMRConsoleError } from './Templates';
-import { createLogger, debugLog } from './Logger';
 import { CONTENT } from '../constants';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { DebugCategory, DebugConfig } from './Logger';
+import type { DebugConfig, DebugCategory } from './Logger';
 
 export const setupDevServer = async (
   app: FastifyInstance,
@@ -19,9 +18,12 @@ export const setupDevServer = async (
   isDebug?: DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>),
   devNet?: { host: string; hmrPort: number },
 ): Promise<ViteDevServer> => {
-  const logger = createLogger(isDebug ?? false);
+  const logger = new Logger();
+  if (isDebug !== undefined) logger.configure(isDebug);
+
   const host = devNet?.host ?? process.env.HOST?.trim() ?? process.env.FASTIFY_ADDRESS?.trim() ?? 'localhost';
   const hmrPort = devNet?.hmrPort ?? (Number(process.env.HMR_PORT) || 5174);
+
   const { createServer } = await import('vite');
 
   const viteDevServer = await createServer({
@@ -40,12 +42,23 @@ export const setupDevServer = async (
             {
               name: 'τjs-development-server-debug-logging',
               configureServer(server: ViteDevServer) {
-                logger.log(pc.yellow(`${CONTENT.TAG} [debug] Development server debug started`));
+                logger.debug('vite', `${CONTENT.TAG} Development server debug started`);
 
                 server.middlewares.use((req: IncomingMessage, res: ServerResponse, next) => {
-                  debugLog(logger, 'trx', '← rx', isDebug, req);
+                  logger.debug('network', '← rx', {
+                    method: req.method,
+                    url: req.url,
+                    host: req.headers.host,
+                    ua: req.headers['user-agent'],
+                  });
 
-                  res.on('finish', () => debugLog(logger, 'trx', '→ tx', isDebug, req));
+                  res.on('finish', () => {
+                    logger.debug('network', '→ tx', {
+                      method: req.method,
+                      url: req.url,
+                      statusCode: res.statusCode,
+                    });
+                  });
 
                   next();
                 });
@@ -83,6 +96,8 @@ export const setupDevServer = async (
       });
     });
   });
+
+  logger.info(pc.yellow(`${CONTENT.TAG} Dev server ready (HMR ${host}:${hmrPort})`));
 
   return viteDevServer;
 };
