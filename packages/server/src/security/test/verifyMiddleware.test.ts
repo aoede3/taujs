@@ -1,6 +1,6 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest';
 
-import { verifyContracts, isAuthRequired, hasAuthenticate } from '../verifyMiddleware';
+import { verifyContracts, isAuthRequired, hasAuthenticate } from '../VerifyMiddleware';
 
 import type { FastifyInstance } from 'fastify';
 import type { Route } from '../../types';
@@ -9,7 +9,7 @@ const logSpy = vi.fn();
 const errorSpy = vi.fn();
 
 vi.mock('../../utils/Logger', async () => {
-  const actual = await vi.importActual<typeof import('../../utils/Logger')>('../../utils/Logger');
+  const actual = await vi.importActual<typeof import('../../logging/Logger')>('../../utils/Logger');
 
   return {
     ...actual,

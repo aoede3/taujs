@@ -1,6 +1,6 @@
-import { ServiceError } from './ServiceError';
+import { AppError } from '../logging/AppError';
 
-import type { Logs } from './Logger';
+import type { Logs } from '../logging/Logger';
 
 type Schema<T> = (input: unknown) => T;
 
@@ -76,15 +76,15 @@ export async function callServiceMethod(
   params: Record<string, unknown>,
   ctx: ServiceContext,
 ): Promise<Record<string, unknown>> {
-  if (ctx.signal?.aborted) throw ServiceError.timeout('Request canceled');
+  if (ctx.signal?.aborted) throw AppError.timeout('Request canceled');
 
   const service = registry[serviceName];
-  if (!service) throw ServiceError.notFound(`Unknown service: ${serviceName}`);
+  if (!service) throw AppError.notFound(`Unknown service: ${serviceName}`);
 
   const desc = service[methodName];
-  if (!desc) throw ServiceError.notFound(`Unknown method: ${serviceName}.${methodName}`);
+  if (!desc) throw AppError.notFound(`Unknown method: ${serviceName}.${methodName}`);
 
-  const log = ctx.logger?.child({
+  const logger = ctx.logger?.child({
     component: 'service-call',
     service: serviceName,
     method: methodName,
@@ -96,11 +96,11 @@ export async function callServiceMethod(
     const data = await desc.handler(p, ctx);
     const out = desc.parsers?.result ? desc.parsers.result(data) : data;
 
-    if (typeof out !== 'object' || out === null) throw ServiceError.infra(`Non-object result from ${serviceName}.${methodName}`);
+    if (typeof out !== 'object' || out === null) throw AppError.internal(`Non-object result from ${serviceName}.${methodName}`);
 
     return out;
   } catch (err) {
-    log?.error('Service method failed', {
+    logger?.error('Service method failed', {
       params,
       error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
     });

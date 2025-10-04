@@ -4,19 +4,19 @@ import crypto from 'crypto';
 import { DEV_CSP_DIRECTIVES } from '../constants';
 import { isDevelopment } from '../utils/System';
 import { createRouteMatchers, matchRoute } from '../utils/DataRoutes';
-import { Logger } from '../utils/Logger';
+import { createLogger } from '../logging/Logger';
 
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
 import type { Route, PathToRegExpParams } from '../types';
 import type { CommonRouteMatcher } from '../utils/DataRoutes';
-import type { DebugConfig } from '../utils/Logger';
+import type { DebugInput } from '../logging/Parser';
 
 export type CSPPluginOptions = {
   directives?: CSPDirectives;
   generateCSP?: (directives: CSPDirectives, nonce: string, req?: FastifyRequest) => string;
   routes?: Route[];
   routeMatchers?: CommonRouteMatcher[];
-  isDebug?: DebugConfig;
+  debug?: DebugInput;
 };
 
 export type CSPDirectives = Record<string, string[]>;
@@ -70,14 +70,14 @@ const findMatchingRoute = (routeMatchers: CommonRouteMatcher[] | null, path: str
 
 export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
   async (fastify, opts: CSPPluginOptions) => {
-    const { generateCSP = defaultGenerateCSP, routes = [], routeMatchers, isDebug } = opts;
+    const { generateCSP = defaultGenerateCSP, routes = [], routeMatchers, debug } = opts;
     const globalDirectives = opts.directives || DEV_CSP_DIRECTIVES;
     const matchers = routeMatchers || (routes.length > 0 ? createRouteMatchers(routes) : null);
 
-    // New Logger: instance + optional debug config + scoped child
-    const baseLogger = new Logger();
-    if (isDebug !== undefined) baseLogger.configure(isDebug);
-    const logger = baseLogger.child({ component: 'csp-plugin' });
+    const logger = createLogger({
+      debug,
+      context: { component: 'csp-plugin' },
+    });
 
     fastify.addHook('onRequest', (req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) => {
       const nonce = generateNonce();
@@ -88,19 +88,16 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
         const routeCSP = routeMatch?.route.attr?.middleware?.csp;
 
         if (routeCSP === false) {
-          // CSP disabled for this route; do nothing.
           done();
           return;
         }
 
         let finalDirectives = globalDirectives;
 
-        // Handle route-specific CSP configuration
         if (routeCSP && typeof routeCSP === 'object') {
           if (!routeCSP.disabled) {
             let routeDirectives: CSPDirectives;
 
-            // Handle function-based directives with extracted params
             if (typeof routeCSP.directives === 'function') {
               const params = routeMatch?.params || {};
 
@@ -131,7 +128,6 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
 
         reply.header('Content-Security-Policy', cspHeader);
       } catch (error) {
-        // Log error but don't fail the request - fall back to global CSP
         logger.error('CSP plugin error', {
           url: req.url,
           error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),

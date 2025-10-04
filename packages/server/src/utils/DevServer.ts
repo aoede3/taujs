@@ -1,7 +1,6 @@
 import path from 'node:path';
-import pc from 'picocolors';
 
-import { Logger } from './Logger';
+import { createLogger } from '../logging/Logger';
 import { __dirname } from './System';
 import { overrideCSSHMRConsoleError } from './Templates';
 import { CONTENT } from '../constants';
@@ -9,17 +8,20 @@ import { CONTENT } from '../constants';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { DebugConfig, DebugCategory } from './Logger';
+import type { DebugInput } from '../logging/Parser';
 
 export const setupDevServer = async (
   app: FastifyInstance,
   baseClientRoot: string,
   alias?: Record<string, string>,
-  isDebug?: DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>),
+  debug?: DebugInput,
   devNet?: { host: string; hmrPort: number },
 ): Promise<ViteDevServer> => {
-  const logger = new Logger();
-  if (isDebug !== undefined) logger.configure(isDebug);
+  const logger = createLogger({
+    context: { service: 'setupDevServer' },
+    debug,
+    minLevel: 'debug',
+  });
 
   const host = devNet?.host ?? process.env.HOST?.trim() ?? process.env.FASTIFY_ADDRESS?.trim() ?? 'localhost';
   const hmrPort = devNet?.hmrPort ?? (Number(process.env.HMR_PORT) || 5174);
@@ -37,7 +39,7 @@ export const setupDevServer = async (
     },
     mode: 'development',
     plugins: [
-      ...(isDebug
+      ...(debug
         ? [
             {
               name: 'τjs-development-server-debug-logging',
@@ -45,7 +47,7 @@ export const setupDevServer = async (
                 logger.debug('vite', `${CONTENT.TAG} Development server debug started`);
 
                 server.middlewares.use((req: IncomingMessage, res: ServerResponse, next) => {
-                  logger.debug('network', '← rx', {
+                  logger.debug('vite', '← rx', {
                     method: req.method,
                     url: req.url,
                     host: req.headers.host,
@@ -53,7 +55,7 @@ export const setupDevServer = async (
                   });
 
                   res.on('finish', () => {
-                    logger.debug('network', '→ tx', {
+                    logger.debug('vite', '→ tx', {
                       method: req.method,
                       url: req.url,
                       statusCode: res.statusCode,
@@ -96,8 +98,6 @@ export const setupDevServer = async (
       });
     });
   });
-
-  logger.info(pc.yellow(`${CONTENT.TAG} Dev server ready (HMR ${host}:${hmrPort})`));
 
   return viteDevServer;
 };

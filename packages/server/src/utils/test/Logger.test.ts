@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-import { createLogger, debugLog } from '../Logger';
+import { createLogger, debugLog } from '../../logging/Logger';
 
 describe('createLogger', () => {
   it('should log to console when debug is true', () => {

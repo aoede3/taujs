@@ -1,18 +1,12 @@
-// @taujs/server/security/reporting.ts
-// Framework-agnostic CSP violation report processing
-
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 
-import { ServiceError } from '../utils/ServiceError';
-import { Logger } from '../utils/Logger';
+import { AppError } from '../logging/AppError';
+import { createLogger, Logger } from '../logging/Logger';
 
-import type { DebugConfig, Logs } from '../utils/Logger';
+import type { Logs } from '../logging/Logger';
+import type { DebugInput } from '../logging/Parser';
 
-/**
- * CSP Violation Report (normalized union of legacy and modern shapes)
- * Matches the fields commonly sent by browsers, normalized to the legacy names.
- */
 export type CSPViolationReport = {
   'document-uri': string;
   'violated-directive': string;
@@ -44,7 +38,7 @@ export type CSPReportOptions = {
    * Optional debug configuration to apply to the active logger (instance-level).
    * If you pass your own logger, we only call .configure() when this is provided.
    */
-  isDebug?: DebugConfig;
+  debug?: DebugInput;
   /**
    * Optional logger instance to use. Defaults to a new Logger instance.
    */
@@ -57,15 +51,14 @@ export type CSPReportOptions = {
 };
 
 /**
- * Minimal/safe context projection for logging (avoid dumping full headers)
+ * Minimal/safe context projection for logging (avoiding dumping full headers)
  */
-function sanitizeContext(ctx: CSPViolationContext) {
+function sanitiseContext(ctx: CSPViolationContext) {
   return {
     userAgent: ctx.userAgent,
     ip: ctx.ip,
     referer: ctx.referer,
     timestamp: ctx.timestamp,
-    // If you *really* want headers in logs, make it an explicit decision:
     // headers: ctx.headers,
   };
 }
@@ -94,13 +87,12 @@ function logCspViolation(logger: Logs, report: CSPViolationReport, context: CSPV
 
 export const processCSPReport = (body: unknown, context: CSPViolationContext, logger: Logs): void => {
   try {
-    // Handle legacy: { "csp-report": { ... } } and modern: { "documentURL": ... }
     const reportData = (body as any)?.['csp-report'] || body;
 
     if (!reportData || typeof reportData !== 'object') {
       logger.warn('Ignoring malformed CSP report', {
         bodyType: typeof body,
-        context: sanitizeContext(context),
+        context: sanitiseContext(context),
       });
 
       return;
@@ -113,7 +105,7 @@ export const processCSPReport = (body: unknown, context: CSPViolationContext, lo
       logger.warn('Ignoring incomplete CSP report', {
         hasDocumentUri: !!documentUri,
         hasViolatedDirective: !!violatedDirective,
-        context: sanitizeContext(context),
+        context: sanitiseContext(context),
       });
 
       return;
@@ -136,15 +128,11 @@ export const processCSPReport = (body: unknown, context: CSPViolationContext, lo
     logger.warn('CSP report processing failed', {
       error: processingError instanceof Error ? processingError.message : String(processingError),
       bodyType: typeof body,
-      context: sanitizeContext(context),
+      context: sanitiseContext(context),
     });
   }
 };
 
-/**
- * Factory for creating CSP report handlers for any runtime
- * Returns a function that can be called with request data
- */
 export const createCSPReportProcessor = (logger: Logger): CSPReportProcessor => {
   return {
     processReport: (body: unknown, context: CSPViolationContext) => {
@@ -159,33 +147,29 @@ export const createCSPReportProcessor = (logger: Logger): CSPReportProcessor => 
  */
 export const cspReportPlugin: FastifyPluginAsync<CSPReportOptions> = fp(
   async (fastify: FastifyInstance, opts: CSPReportOptions) => {
-    const { path, isDebug, logger: providedLogger, onViolation } = opts;
+    const { onViolation } = opts;
 
-    if (!path || typeof path !== 'string') throw ServiceError.badRequest('CSP report path is required and must be a string');
+    if (!opts.path || typeof opts.path !== 'string') throw AppError.badRequest('CSP report path is required and must be a string');
 
-    // Choose the active logger: provided instance or a fresh instance.
-    const baseLogger = providedLogger ?? new Logger();
-    if (isDebug !== undefined) baseLogger.configure(isDebug);
+    const logger = createLogger({
+      debug: opts.debug,
+      context: { service: 'csp' },
+      minLevel: 'info',
+    });
 
-    // Derive a scoped logger for this plugin/component
-    const logger = baseLogger.child({ component: 'csp-reporting' });
-
-    fastify.post(path, async (req: FastifyRequest, reply: FastifyReply) => {
-      // Build context object from Fastify request
+    fastify.post(opts.path, async (req: FastifyRequest, reply: FastifyReply) => {
       const context: CSPViolationContext & { __fastifyRequest?: FastifyRequest } = {
         userAgent: req.headers['user-agent'] as string,
         ip: req.ip,
         referer: req.headers.referer as string,
         timestamp: new Date().toISOString(),
         headers: req.headers as Record<string, unknown>,
-        __fastifyRequest: req, // Attach request for onViolation callback
+        __fastifyRequest: req, // onViolation callback
       };
 
       try {
-        // Run processing (logs violation or warns on malformed input)
         processCSPReport(req.body, context, logger);
 
-        // If caller wants a custom hook and we have a valid-ish payload, try to call it:
         const reportData = (req.body as any)?.['csp-report'] || req.body;
         if (onViolation && reportData && typeof reportData === 'object') {
           const documentUri = (reportData as any)['document-uri'] ?? (reportData as any)['documentURL'];
@@ -213,16 +197,13 @@ export const cspReportPlugin: FastifyPluginAsync<CSPReportOptions> = fp(
         });
       }
 
-      // Always return 204 - browsers expect this for CSP reports
       reply.code(204).send();
     });
   },
   { name: 'taujs-csp-report-plugin' },
 );
 
-/**
- * Helper to add report-uri directive to CSP directives
- */
+// HELPERS
 export const addCSPReporting = (directives: Record<string, string[]>, reportUri: string): Record<string, string[]> => {
   return {
     ...directives,
@@ -230,9 +211,6 @@ export const addCSPReporting = (directives: Record<string, string[]>, reportUri:
   };
 };
 
-/**
- * Helper to add both report-uri and report-to for maximum browser compatibility
- */
 export const addCSPReportingBoth = (directives: Record<string, string[]>, reportUri: string, reportToEndpoint: string): Record<string, string[]> => {
   return {
     ...directives,

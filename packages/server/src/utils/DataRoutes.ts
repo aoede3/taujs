@@ -1,13 +1,13 @@
 import { match, pathToRegexp } from 'path-to-regexp';
 
 import { callServiceMethod, isServiceDescriptor } from './DataServices';
-import { ServiceError } from './ServiceError';
+import { AppError } from '../logging/AppError';
 
 import type { MatchFunction, Key } from 'path-to-regexp';
 import type { ServiceContext, ServiceRegistry } from './DataServices';
 import type { Route, RouteAttributes, PathToRegExpParams } from '../types';
 
-type RequestCtx = ServiceContext & { headers?: Record<string, string> };
+type RequestCtx = ServiceContext & { headers?: Record<string, string | string[]> };
 
 type CallServiceOn<R extends ServiceRegistry> = (
   registry: R,
@@ -44,6 +44,7 @@ const cleanPath = (path: string): string => {
   if (!path) return '/';
   const basePart = path.split('?')[0];
   const base = basePart ? basePart.split('#')[0] : '/';
+
   return base || '/';
 };
 
@@ -53,20 +54,15 @@ const calculateSpecificity = (path: string): number => {
 
   for (const segment of segments) {
     if (segment.startsWith(':')) {
-      // Parameter segments are less specific
       score += 1;
-      // Optional params, repeats, wildcards are even less specific
       if (/[?+*]$/.test(segment)) score -= 0.5;
     } else if (segment === '*') {
-      // Wildcard segments are least specific
       score += 0.1;
     } else {
-      // Static segments are most specific
       score += 10;
     }
   }
 
-  // Longer paths are generally more specific
   score += segments.length * 0.1;
 
   return score;
@@ -171,36 +167,21 @@ export const fetchInitialData = async <Params extends PathToRegExpParams, R exte
 
     if (isPlainObject(result)) return result;
 
-    throw ServiceError.badRequest('attr.data must return a plain object or a ServiceDescriptor');
+    throw AppError.badRequest('attr.data must return a plain object or a ServiceDescriptor');
   } catch (err: unknown) {
-    const log = ctx.logger?.child({
+    const e = AppError.from(err);
+    const level: 'warn' | 'error' = e.kind === 'domain' || e.kind === 'validation' || e.kind === 'auth' ? 'warn' : 'error';
+
+    ctx.logger?.[level](e.message, {
       component: 'fetch-initial-data',
-      stage: 'fetchInitialData',
-    });
-
-    if (err instanceof ServiceError) {
-      log?.error('ServiceError during fetchInitialData', {
-        params,
-        error: {
-          name: err.name,
-          message: err.message,
-          stack: err.stack,
-          kind: (err as any).kind,
-          code: (err as any).code,
-        },
-      });
-      throw err;
-    }
-
-    const wrapped = ServiceError.infra('Failed to fetch initial data', {
-      cause: err,
-    });
-
-    log?.error('Unexpected error during fetchInitialData', {
+      kind: e.kind,
+      httpStatus: e.httpStatus,
+      ...(e.code && { code: e.code }),
+      details: e.details,
       params,
-      error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+      traceId: ctx.traceId,
     });
 
-    throw wrapped;
+    throw e;
   }
 };

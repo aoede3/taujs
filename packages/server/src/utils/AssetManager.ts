@@ -2,14 +2,15 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
-import { Logger } from './Logger';
-import { ServiceError } from './ServiceError';
+import { AppError } from '../logging/AppError';
+import { createLogger } from '../logging/Logger';
 import { isDevelopment } from './System';
 import { getCssLinks, renderPreloadLinks } from './Templates';
 
 import type { Manifest } from 'vite';
 import type { TEMPLATE } from '../constants';
-import type { DebugConfig, Logs } from './Logger';
+import type { Logs } from '../logging/Logger';
+import type { DebugInput } from '../logging/Parser';
 import type { RenderModule, SSRManifest, Config, ProcessedConfig } from '../types';
 
 export const createMaps = () => ({
@@ -47,16 +48,13 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
-  opts: { debug?: DebugConfig; logger?: Logs } = {},
+  opts: { debug?: DebugInput; logger?: Logs } = {},
 ) => {
   const { debug, logger: providedLogger } = opts;
-  const baseLogger = providedLogger ?? new Logger();
-  if (debug !== undefined) baseLogger.configure(debug);
-  const logger = baseLogger.child({ component: 'asset-loader' });
+  const logger: Logs = providedLogger ?? createLogger({ debug });
 
   for (const config of processedConfigs) {
     const { clientRoot, entryClient, entryServer, htmlTemplate } = config;
-    const log = logger.child({ clientRoot, entryClient, entryServer });
 
     try {
       const templateHtmlPath = path.join(clientRoot, htmlTemplate);
@@ -80,7 +78,7 @@ export const loadAssets = async (
 
           const entryClientFile = manifest[`${entryClient}.tsx`]?.file;
           if (!entryClientFile) {
-            throw ServiceError.infra(`Entry client file not found in manifest for ${entryClient}.tsx`, {
+            throw AppError.internal(`Entry client file not found in manifest for ${entryClient}.tsx`, {
               details: {
                 clientRoot,
                 entryClient,
@@ -105,19 +103,19 @@ export const loadAssets = async (
             const importedModule = await import(moduleUrl);
             renderModules.set(clientRoot, importedModule as RenderModule);
           } catch (err) {
-            throw ServiceError.infra(`Failed to load render module ${renderModulePath}`, {
+            throw AppError.internal(`Failed to load render module ${renderModulePath}`, {
               cause: err,
               details: { moduleUrl, clientRoot, entryServer },
             });
           }
         } catch (err) {
-          if (err instanceof ServiceError) {
-            log.error('Asset load failed (production)', {
+          if (err instanceof AppError) {
+            logger.error('Asset load failed', {
               error: { name: err.name, message: err.message, stack: err.stack, code: (err as any).code },
               stage: 'loadAssets:production',
             });
           } else {
-            log.error('Asset load failed (production)', {
+            logger.error('Asset load failed', {
               error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
               stage: 'loadAssets:production',
             });
@@ -128,7 +126,7 @@ export const loadAssets = async (
         bootstrapModules.set(clientRoot, bootstrapModule);
       }
     } catch (err) {
-      log.error('Failed to process config', {
+      logger.error('Failed to process config', {
         error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
         stage: 'loadAssets:config',
       });

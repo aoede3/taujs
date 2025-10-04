@@ -11,17 +11,18 @@
 import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
-import { createAuthHook } from './security/auth';
-import { cspPlugin } from './security/csp';
+import { AppError } from './logging/AppError';
+import { toHttp } from './logging/utils';
+import { createAuthHook } from './security/Auth';
+import { cspPlugin } from './security/CSP';
 import { isDevelopment } from './utils/System';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { createRouteMatchers } from './utils/DataRoutes';
-import { isServiceError, ServiceError } from './utils/ServiceError';
-import { cspReportPlugin } from './utils/Reporting';
-import { Logger } from './utils/Logger';
+import { cspReportPlugin } from './security/CSPReporting';
+import { createLogger } from './logging/Logger';
 
 import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -33,10 +34,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
     const { alias, configs, routes, serviceRegistry, clientRoot: baseClientRoot, security } = opts;
 
-    // Establish a base logger and apply any debug configuration
-    const baseLogger = opts.logger ?? new Logger();
-    if (opts.isDebug !== undefined) baseLogger.configure(opts.isDebug);
-    const logger = baseLogger.child({ component: 'SSRServer' });
+    const logger = createLogger({
+      debug: opts.debug,
+      context: { component: 'ssr-server' },
+      minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+      includeContext: true,
+    });
 
     const maps = createMaps();
     const processedConfigs = processConfigs(configs, baseClientRoot, TEMPLATE);
@@ -54,13 +57,14 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       maps.ssrManifests,
       maps.templates,
       {
-        debug: opts.isDebug,
-        logger: baseLogger,
+        debug: opts.debug,
+        logger,
       },
     );
 
     if (opts.registerStaticAssets && typeof opts.registerStaticAssets === 'object') {
       const { plugin, options } = opts.registerStaticAssets;
+
       await app.register(plugin as FastifyPluginCallback<any>, {
         root: baseClientRoot,
         prefix: '/',
@@ -73,8 +77,8 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     if (security?.csp?.reporting) {
       app.register(cspReportPlugin, {
         path: security.csp.reporting.endpoint,
-        isDebug: opts.isDebug,
-        logger: baseLogger,
+        debug: opts.debug,
+        logger,
         onViolation: security.csp.reporting.onViolation,
       });
     }
@@ -83,19 +87,17 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       directives: opts.security?.csp?.directives,
       generateCSP: opts.security?.csp?.generateCSP,
       routeMatchers,
-      isDebug: opts.isDebug,
+      debug: opts.debug,
     });
 
-    if (isDevelopment) {
-      viteDevServer = await setupDevServer(app, baseClientRoot, alias, opts.isDebug, opts.devNet);
-    }
+    if (isDevelopment) viteDevServer = await setupDevServer(app, baseClientRoot, alias, opts.debug, opts.devNet);
 
-    app.addHook('onRequest', createAuthHook(routes, baseLogger, opts.isDebug));
+    app.addHook('onRequest', createAuthHook(routeMatchers, logger));
 
     app.get('/*', async (req, reply) => {
       await handleRender(req, reply, routeMatchers, processedConfigs, serviceRegistry, maps, {
-        debug: opts.isDebug,
-        logger: baseLogger,
+        debug: opts.debug,
+        logger,
         viteDevServer,
       });
     });
@@ -111,34 +113,29 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
           templates: maps.templates,
         },
         {
-          debug: opts.isDebug,
-          logger: baseLogger,
+          debug: opts.debug,
+          logger,
         },
       );
     });
 
     app.setErrorHandler((err, req, reply) => {
-      const serviceErr = isServiceError(err) ? err : ServiceError.infra((err as any)?.message ?? 'Unhandled error', { cause: err });
+      const e = AppError.from(err);
 
-      const ctx = {
-        url: req.url,
+      logger.error(e.message, {
+        kind: e.kind,
+        httpStatus: e.httpStatus,
+        ...(e.code && { code: e.code }),
+        details: e.details,
         method: req.method,
+        url: req.url,
         route: (req as any).routeOptions?.url,
-        headers: req.headers,
-      };
-
-      // Proper message + meta (do not pass Error as the first arg)
-      logger.error('Request failed', {
-        error: serviceErr.message,
-        safeMessage: serviceErr.safeMessage,
-        httpStatus: serviceErr.httpStatus,
-        code: (serviceErr as any).code, // if your ServiceError exposes a code
-        details: (serviceErr as any).details,
-        ...ctx,
       });
 
+      const { status, body } = toHttp(e);
+
       if (!reply.raw.headersSent) {
-        reply.status(serviceErr.httpStatus).send(serviceErr.safeMessage);
+        reply.status(status).send(body);
       } else {
         reply.raw.end();
       }

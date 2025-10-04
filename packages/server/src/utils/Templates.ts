@@ -151,14 +151,11 @@ export const cleanTemplateWhitespace = (templateParts: { beforeHead: string; aft
 };
 
 export function processTemplate(template: string) {
-  const [headSplit, bodySplit] = template.split('<!--ssr-head-->');
-  if (typeof bodySplit === 'undefined') {
-    throw new Error("Template is missing '<!--ssr-head-->' marker.");
-  }
-  const [beforeBody, afterBody] = bodySplit.split('<!--ssr-html-->');
-  if (typeof beforeBody === 'undefined' || typeof afterBody === 'undefined') {
-    throw new Error("Template is missing '<!--ssr-html-->' marker.");
-  }
+  const [headSplit, bodySplit] = template.split(SSRTAG.ssrHead);
+  if (typeof bodySplit === 'undefined') throw new Error(`Template is missing ${SSRTAG.ssrHead} marker.`);
+
+  const [beforeBody, afterBody] = bodySplit.split(SSRTAG.ssrHtml);
+  if (typeof beforeBody === 'undefined' || typeof afterBody === 'undefined') throw new Error(`Template is missing ${SSRTAG.ssrHtml} marker.`);
 
   return {
     beforeHead: headSplit,

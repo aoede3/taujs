@@ -1,5 +1,5 @@
 import { describe, it, vi, expect } from 'vitest';
-import { createAuthHook } from '../auth';
+import { createAuthHook } from '../Auth';
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Route } from '../../types';

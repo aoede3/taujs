@@ -1,22 +1,14 @@
 import type { FastifyPluginAsync, FastifyPluginCallback, FastifyRequest } from 'fastify';
 import type { PluginOption } from 'vite';
-import type { CSPDirectives } from './security/csp';
+import type { CSPDirectives } from './security/CSP';
 import type { ServiceRegistry } from './utils/DataServices';
-import type { CSPViolationReport, DebugCategory, DebugConfig, Logger, Logs } from './utils/Logger';
 import type { AppConfig, SecurityConfig } from './config';
+import type { DebugInput } from './logging/Parser';
 
-// Update your existing RouteCSPConfig to use PathToRegExpParams
 export type RouteCSPConfig = {
   disabled?: boolean;
   mode?: 'merge' | 'replace';
-  directives?:
-    | CSPDirectives
-    | ((args: {
-        url: string;
-        params: PathToRegExpParams; // Changed from Record<string, string>
-        headers: FastifyRequest['headers'];
-        req: FastifyRequest;
-      }) => CSPDirectives);
+  directives?: CSPDirectives | ((args: { url: string; params: PathToRegExpParams; headers: FastifyRequest['headers']; req: FastifyRequest }) => CSPDirectives);
   generateCSP?: (directives: CSPDirectives, nonce: string, req: FastifyRequest) => string;
 };
 
@@ -38,22 +30,20 @@ export type ProcessedConfig = {
   plugins?: PluginOption[];
 };
 
-// Update your existing SSRServerOptions to include security config from DSL
 export type SSRServerOptions = {
   alias?: Record<string, string>;
   clientRoot: string;
   configs: AppConfig[];
   routes: Route<PathToRegExpParams>[];
   serviceRegistry: ServiceRegistry;
-  security?: SecurityConfig; // Now comes from config DSL extraction
+  security?: SecurityConfig;
   registerStaticAssets?:
     | false
     | {
         plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
         options?: Record<string, unknown>;
       };
-  isDebug?: DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>);
-  logger?: Logs;
+  debug?: DebugInput;
   devNet?: { host: string; hmrPort: number };
 };
 
@@ -124,7 +114,7 @@ export type DataResult = Record<string, unknown> | ServiceCall;
 export type DataHandler<Params extends PathToRegExpParams> = (
   params: Params,
   ctx: {
-    headers: Record<string, string>;
+    headers?: Record<string, string | string[]>;
     [key: string]: unknown;
   },
 ) => Promise<DataResult>;

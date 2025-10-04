@@ -1,12 +1,13 @@
-import { Logger } from './Logger';
-import { ServiceError } from './ServiceError';
+import { AppError } from '../logging/AppError';
+import { createLogger } from '../logging/Logger';
 import { isDevelopment } from './System';
 import { ensureNonNull } from './Templates';
 import { SSRTAG } from '../constants';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import type { DebugConfig, Logs } from './Logger';
+import type { Logs } from '../logging/Logger';
 import type { ProcessedConfig } from '../types';
+import type { DebugInput } from '../logging/Parser';
 
 export const handleNotFound = async (
   req: FastifyRequest,
@@ -18,20 +19,23 @@ export const handleNotFound = async (
     templates: Map<string, string>;
   },
   opts: {
-    debug?: DebugConfig;
+    debug?: DebugInput;
     logger?: Logs;
   } = {},
 ) => {
-  const baseLogger = opts.logger ?? new Logger();
-  if (opts.debug !== undefined) baseLogger.configure(opts.debug);
-  const logger = baseLogger.child({ component: 'handleNotFound' });
+  const logger: Logs =
+    opts.logger ??
+    createLogger({
+      debug: opts.debug,
+      includeContext: true,
+    });
 
   try {
     if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
 
     const defaultConfig = processedConfigs[0];
     if (!defaultConfig) {
-      throw ServiceError.infra('No default configuration found', {
+      throw AppError.internal('No default configuration found', {
         details: { configCount: processedConfigs.length, url: req.raw.url },
       });
     }
@@ -62,13 +66,10 @@ export const handleNotFound = async (
 
     reply.status(200).type('text/html').send(processedTemplate);
   } catch (err) {
-    logger.error('handleNotFound failed', {
+    throw AppError.internal('handleNotFound failed', err, {
       stage: 'handleNotFound',
-      url: req.raw.url,
+      url: req.url,
       clientRoot: processedConfigs[0]?.clientRoot,
-      error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
     });
-
-    reply.status(500).send('Internal Server Error');
   }
 };

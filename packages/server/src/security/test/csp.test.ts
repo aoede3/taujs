@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify from 'fastify';
 
-import { cspPlugin, defaultGenerateCSP, generateNonce } from '../csp';
+import { cspPlugin, defaultGenerateCSP, generateNonce } from '../CSP';
 
 import type { FastifyRequest } from 'fastify';
-import type { CSPDirectives } from '../csp';
+import type { CSPDirectives } from '../CSP';
 
 let isDevelopmentValue = true;
 
@@ -61,7 +61,7 @@ describe('defaultGenerateCSP', () => {
   it('adds nonce and dev fallbacks to script-src, connect-src, and style-src', async () => {
     isDevelopmentValue = true;
 
-    const { defaultGenerateCSP } = await import('../csp');
+    const { defaultGenerateCSP } = await import('../CSP');
 
     const nonce = 'test-nonce';
     const input = {

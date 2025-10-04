@@ -14,7 +14,6 @@ export type ContractReport = {
 
 export const isAuthRequired = (route: Route): boolean => Boolean(route.attr?.middleware?.auth);
 export const hasAuthenticate = (app: FastifyInstance): boolean => typeof (app as any).authenticate === 'function';
-export const hasCSPSupport = (_app: FastifyInstance): boolean => true;
 
 type MiddlewareContract = {
   key: string;
@@ -35,21 +34,23 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
         status: 'skipped',
         message: `No routes require "${contract.key}"`,
       });
+
       continue;
     }
 
     if (!contract.verify(app)) {
       const msg = `[τjs] ${contract.errorMessage}`;
       items.push({ key: contract.key, status: 'error', message: msg });
+
       throw new Error(msg);
     }
 
-    // Detailed verification messages
     if (contract.key === 'csp') {
       const total = routes.length;
       const disabled = routes.filter((r) => r.attr?.middleware?.csp === false).length;
       const custom = routes.filter((r) => {
         const v = r.attr?.middleware?.csp;
+
         return v !== undefined && v !== false;
       }).length;
       const enabled = total - disabled;
@@ -57,6 +58,7 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
 
       let status: ContractItem['status'] = 'verified';
       let tail = '';
+
       if (!hasGlobal && process.env.NODE_ENV === 'production') {
         status = 'warning';
         tail = ' (consider adding global CSP for production)';
@@ -65,19 +67,20 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
       items.push({
         key: 'csp',
         status,
-        message: `✓ Verified (${enabled} enabled, ${disabled} disabled, ${total} total). ` + tail,
-      });
-      items.push({
-        key: 'csp',
-        status,
         message:
           (hasGlobal
             ? custom > 0
-              ? `Global config with ${custom} route override(s)`
-              : 'Using global config'
+              ? `Loaded global config with ${custom} route override(s)`
+              : 'Loaded global config'
             : custom > 0
-              ? `Dev defaults with ${custom} route override(s)`
-              : 'Using dev defaults') + tail,
+              ? `Loaded development defaults with ${custom} route override(s)`
+              : 'Loaded development defaults') + tail,
+      });
+
+      items.push({
+        key: 'csp',
+        status,
+        message: `✓ Verified (${enabled} enabled, ${disabled} disabled, ${total} total). ` + tail,
       });
     } else {
       const count = routes.filter((r) => contract.required([r], security)).length;

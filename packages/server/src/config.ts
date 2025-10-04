@@ -10,38 +10,29 @@
 
 import { performance } from 'node:perf_hooks';
 
-import pc from 'picocolors';
-
 import { CONTENT } from './constants';
 
-import type { ContractReport } from './security/verifyMiddleware';
+import type { ContractReport } from './security/VerifyMiddleware';
 import type { FastifyRequest } from 'fastify';
 import type { PluginOption } from 'vite';
-import type { CSPDirectives } from './security/csp';
+import type { CSPDirectives } from './security/CSP';
 import type { PathToRegExpParams, Route, RouteAttributes } from './types';
-import type { Logger, Logs } from './utils/Logger';
-import type { CSPViolationReport } from './utils/Reporting';
+import type { DebugCategory, DebugConfig, Logger, Logs } from './logging/Logger';
+import type { CSPViolationReport } from './security/CSPReporting';
 
 export { defineServiceRegistry, defineService } from './utils/DataServices';
 
 export type SecurityConfig = {
   csp?: {
-    defaultMode?: 'merge' | 'replace'; // default: 'merge'
-    directives?: CSPDirectives; // global base (object or function already supported elsewhere)
+    defaultMode?: 'merge' | 'replace';
+    directives?: CSPDirectives;
     generateCSP?: (directives: CSPDirectives, nonce: string, req?: FastifyRequest) => string;
     reporting?: {
-      endpoint: string; // required if reporting enabled
+      endpoint: string;
       onViolation?: (report: CSPViolationReport, req: FastifyRequest) => void;
-      reportOnly?: boolean; // default: false
+      reportOnly?: boolean;
     };
   };
-};
-
-export type SecuritySummary = {
-  mode: 'explicit' | 'dev-defaults';
-  defaultMode: 'merge' | 'replace';
-  hasReporting: boolean;
-  reportOnly: boolean;
 };
 
 export type ExtractSecurityResult = {
@@ -102,8 +93,10 @@ export const extractRoutes = (taujsConfig: TaujsConfig): ExtractRoutesResult => 
   for (const app of taujsConfig.apps) {
     const appRoutes = (app.routes ?? []).map((route) => {
       const fullRoute: Route<PathToRegExpParams> = { ...route, appId: app.appId };
+
       if (!pathTracker.has(route.path)) pathTracker.set(route.path, []);
       pathTracker.get(route.path)!.push(app.appId);
+
       return fullRoute;
     });
 
@@ -112,9 +105,7 @@ export const extractRoutes = (taujsConfig: TaujsConfig): ExtractRoutesResult => 
   }
 
   for (const [path, appIds] of pathTracker.entries()) {
-    if (appIds.length > 1) {
-      warnings.push(`Route path "${path}" is declared in multiple apps: ${appIds.join(', ')}`);
-    }
+    if (appIds.length > 1) warnings.push(`Route path "${path}" is declared in multiple apps: ${appIds.join(', ')}`);
   }
 
   const sortedRoutes = allRoutes.sort((a, b) => computeScore(b.path) - computeScore(a.path));
@@ -136,12 +127,11 @@ export const extractSecurity = (taujsConfig: TaujsConfig): ExtractSecurityResult
 
   const hasExplicitCSP = !!userCsp;
 
-  // Normalize CSP defaults
   const normalisedCsp = userCsp
     ? {
         defaultMode: userCsp.defaultMode ?? 'merge',
-        directives: userCsp.directives, // leave as-is (object or function; resolver happens at request time)
-        generateCSP: userCsp.generateCSP, // optional; SSRServer must fall back to default generator
+        directives: userCsp.directives,
+        generateCSP: userCsp.generateCSP,
         reporting: userCsp.reporting
           ? {
               endpoint: userCsp.reporting.endpoint,
@@ -180,21 +170,18 @@ export type SecurityStartupLine = {
 };
 
 export function printConfigSummary(
-  logger: Logs,
+  logger: Logger,
   apps: { appId: string; routeCount: number }[],
-  dbgRoutes: boolean,
   configsCount: number,
   totalRoutes: number,
   durationMs: number,
   warnings: string[],
 ) {
-  logger.info(pc.cyan(`${CONTENT.TAG} [config] Loaded ${configsCount} app(s), ${totalRoutes} route(s) in ${durationMs.toFixed(1)}ms`));
+  logger.info(`${CONTENT.TAG} [config] Loaded ${configsCount} app(s), ${totalRoutes} route(s) in ${durationMs.toFixed(1)}ms`);
 
-  if (dbgRoutes) {
-    apps.forEach((a) => logger.info(`• ${a.appId}: ${a.routeCount} route(s)`));
-  }
+  apps.forEach((a) => logger.debug('routes', `• ${a.appId}: ${a.routeCount} route(s)`));
 
-  warnings.forEach((w) => logger.warn(pc.yellow(`${CONTENT.TAG} [warn] ${w}`)));
+  warnings.forEach((w) => logger.warn(`${CONTENT.TAG} [warn] ${w}`));
 }
 
 export function printSecuritySummary(logger: Logger, routes: Route[], security: SecurityConfig, hasExplicitCSP: boolean, securityDurationMs: number) {
@@ -217,31 +204,27 @@ export function printSecuritySummary(logger: Logger, routes: Route[], security: 
     if (hasReporting) detail += ', reporting';
     if (custom > 0) detail += `, ${custom} route override(s)`;
   } else {
-    if (process.env.NODE_ENV === 'production') detail += ' (consider explicit config for production)';
+    if (process.env.NODE_ENV === 'production') {
+      logger.warn('(consider explicit config for production)');
+    }
   }
 
-  const color = hasExplicitCSP ? pc.cyan : pc.yellow;
-  logger.info(color(`${CONTENT.TAG} [security] CSP ${status} (${enabled}/${total} routes) - ${detail} [${securityDurationMs.toFixed(1)}ms]`));
+  logger.info(`${CONTENT.TAG} [security] CSP ${status} (${enabled}/${total} routes) in ${securityDurationMs.toFixed(1)}ms`);
 }
 
 export function printContractReport(logger: Logger, report: ContractReport) {
-  const colors = {
-    error: pc.red,
-    warning: pc.yellow,
-    skipped: pc.cyan,
-    verified: pc.green,
-  } as const;
-
-  const loggers = {
-    error: (msg: string) => logger.error(msg),
-    warning: (msg: string) => logger.warn(msg),
-    skipped: (msg: string) => logger.warn(msg),
-    verified: (msg: string) => logger.info(msg),
-  };
-
   for (const r of report.items) {
     const line = `${CONTENT.TAG} [${r.key}] ${r.message}`;
-    loggers[r.status](colors[r.status](line));
+
+    if (r.status === 'error') {
+      logger.error(line);
+    } else if (r.status === 'warning') {
+      logger.warn(line);
+    } else if (r.status === 'skipped') {
+      logger.debug(r.key as DebugCategory, line);
+    } else {
+      logger.info(line);
+    }
   }
 }
 
@@ -254,5 +237,6 @@ const computeScore = (path: string): number => {
 
 export function createConfig<T extends TaujsConfig>(config: T): T {
   if (!config.apps || config.apps.length === 0) throw new Error('At least one app must be configured');
+
   return config;
 }

@@ -157,7 +157,7 @@ describe('SSRServer Plugin', () => {
       configs: [defaultConfig],
       routes: [{ path: '/dev-ssr', attr: { render: RENDERTYPE.ssr } }],
       serviceRegistry: {},
-      isDebug: false,
+      debug: false,
     };
     isDevelopmentValue = true;
     mockVitePlugins = [];

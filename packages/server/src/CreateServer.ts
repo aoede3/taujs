@@ -7,16 +7,17 @@ import pc from 'picocolors';
 
 import { extractBuildConfigs, extractRoutes, extractSecurity, printConfigSummary, printContractReport, printSecuritySummary } from './config';
 import { CONTENT } from './constants';
-import { bannerPlugin } from './network/network';
-import { resolveNet } from './network/cli';
-import { verifyContracts, isAuthRequired, hasAuthenticate, hasCSPSupport } from './security/verifyMiddleware';
+import { bannerPlugin } from './network/Network';
+import { resolveNet } from './network/Cli';
+import { verifyContracts, isAuthRequired, hasAuthenticate } from './security/VerifyMiddleware';
 import { SSRServer } from './SSRServer';
-import { createLogger, Logger, type DebugCategory, type DebugConfig } from './utils/Logger';
+import { createLogger } from './logging/Logger';
 
 import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 import type { TaujsConfig } from './config';
-import type { NetResolved } from './network/cli';
+import type { NetResolved } from './network/Cli';
 import type { ServiceRegistry } from './utils/DataServices';
+import type { DebugInput } from './logging/Parser';
 
 type StaticAssetsRegistration = {
   plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
@@ -29,7 +30,7 @@ type CreateServerOptions = {
   clientRoot?: string;
   alias?: Record<string, string>;
   fastify?: FastifyInstance;
-  isDebug?: boolean | DebugConfig | ({ all: boolean } & Partial<Record<DebugCategory, boolean>>);
+  debug?: DebugInput;
   registerStaticAssets?: false | StaticAssetsRegistration;
   port?: number;
 };
@@ -39,50 +40,28 @@ type CreateServerResult = {
   net: NetResolved;
 };
 
-// derive whether a specific debug category (e.g. "routes") is enabled
-function isDebugCategoryEnabled(debug: CreateServerOptions['isDebug'], category: DebugCategory): boolean {
-  if (!debug) return false;
-  if (debug === true) return true;
-  if (Array.isArray(debug)) return debug.includes(category);
-  if (typeof debug === 'object') {
-    if ('all' in debug && debug.all) return true;
-    return Boolean((debug as Partial<Record<DebugCategory, boolean>>)[category]);
-  }
-  return false;
-}
-
 export const createServer = async (opts: CreateServerOptions): Promise<CreateServerResult> => {
   const t0 = performance.now();
   const clientRoot = opts.clientRoot ?? path.resolve(process.cwd(), 'client');
   const app = opts.fastify ?? Fastify({ logger: false });
 
-  await app.register(bannerPlugin, { debug: opts.isDebug });
-
-  // instantiate and configure the logger
-  const logger = createLogger({
-    debug: opts.isDebug, // can be true | "auth,routes,-vite" | your DebugConfig
-    context: { service: 'taujs' },
-    minLevel: 'info',
+  const net = resolveNet(opts.config.server);
+  await app.register(bannerPlugin, {
+    debug: opts.debug,
+    hmr: { host: net.host, port: net.hmrPort },
   });
 
-  const net = resolveNet(opts.config.server);
+  const logger = createLogger({
+    debug: opts.debug,
+    minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+    includeContext: true,
+  });
 
   const configs = extractBuildConfigs(opts.config);
   const { routes, apps, totalRoutes, durationMs, warnings } = extractRoutes(opts.config);
-  const { security, durationMs: securityDuration, hasExplicitCSP, summary } = extractSecurity(opts.config);
+  const { security, durationMs: securityDuration, hasExplicitCSP } = extractSecurity(opts.config);
 
-  // these helpers expect a "logger" with .log/.warn/.error;
-  // map to our structured logger methods (log -> info)
-  // const adapter: Logger = {
-  //   log: (msg: string, meta?: unknown) => logger.info(msg, meta),
-  //   warn: (msg: string, meta?: unknown) => logger.warn(msg, meta),
-  //   error: (msg: string, meta?: unknown) => logger.error(msg, meta),
-  // } as unknown as Logger;
-
-  const routesDebug = isDebugCategoryEnabled(opts.isDebug, 'routes');
-
-  // summaries
-  printConfigSummary(logger, apps, routesDebug, configs.length, totalRoutes, durationMs, warnings);
+  printConfigSummary(logger, apps, configs.length, totalRoutes, durationMs, warnings);
   printSecuritySummary(logger, routes, security, hasExplicitCSP, securityDuration);
 
   const report = verifyContracts(
@@ -98,7 +77,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       {
         key: 'csp',
         required: () => true,
-        verify: hasCSPSupport,
+        verify: () => true,
         errorMessage: 'CSP plugin failed to register.',
       },
     ],
@@ -114,7 +93,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       routes,
       serviceRegistry: opts.serviceRegistry,
       registerStaticAssets: opts.registerStaticAssets !== undefined ? opts.registerStaticAssets : { plugin: fastifyStatic },
-      isDebug: opts.isDebug,
+      debug: opts.debug,
       alias: opts.alias,
       security,
       devNet: { host: net.host, hmrPort: net.hmrPort },
@@ -127,7 +106,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   }
 
   const t1 = performance.now();
-  logger.info(`\n${pc.bgGreen(pc.black(` ${CONTENT.TAG} `))} configured in ${(t1 - t0).toFixed(0)}ms\n`);
+  console.log(`\n${pc.bgGreen(pc.black(` ${CONTENT.TAG} `))} configured in ${(t1 - t0).toFixed(0)}ms\n`);
 
   if (opts.fastify) return { net } as const;
   return { app, net } as const;

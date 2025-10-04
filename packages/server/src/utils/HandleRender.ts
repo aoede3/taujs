@@ -2,8 +2,7 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
 import { fetchInitialData, matchRoute } from './DataRoutes';
-import { Logger } from './Logger';
-import { ServiceError } from './ServiceError';
+import { createLogger } from '../logging/Logger';
 import { isDevelopment } from './System';
 import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
 import { RENDERTYPE } from '../constants';
@@ -12,8 +11,10 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
 import type { RouteMatcher } from './DataRoutes';
 import type { ServiceRegistry } from './DataServices';
-import type { DebugConfig, Logs } from './Logger';
+import type { Logs } from '../logging/Logger';
+import type { DebugInput } from '../logging/Parser';
 import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../types';
+import { AppError } from '../logging/AppError';
 
 export const handleRender = async (
   req: FastifyRequest,
@@ -31,17 +32,21 @@ export const handleRender = async (
     templates: Map<string, string>;
   },
   opts: {
-    debug?: DebugConfig;
+    debug?: DebugInput;
     logger?: Logs;
     viteDevServer?: ViteDevServer;
   } = {},
 ) => {
   const { viteDevServer } = opts;
 
-  const baseLogger = opts.logger ?? new Logger();
-  if (opts.debug !== undefined) baseLogger.configure(opts.debug);
-  const requestId = (req.headers['x-request-id'] as string) || (req as any).id;
-  const logger = baseLogger.child({ component: 'renderer', url: req.url, requestId });
+  const logger =
+    (opts.logger as any) ??
+    createLogger({
+      debug: opts.debug,
+      minLevel: isDevelopment ? 'debug' : 'info',
+      includeContext: true,
+      includeStack: (lvl) => lvl === 'error' || isDevelopment,
+    });
 
   try {
     // fastify/static wildcard: false and /* => checks for .assets here and routes 404
@@ -62,9 +67,9 @@ export const handleRender = async (
     const { route, params } = matchedRoute;
     const { attr, appId } = route;
 
-    const config = processedConfigs.find((c) => c.appId === appId) ?? processedConfigs[0];
+    const config = processedConfigs.find((c) => c.appId === appId);
     if (!config) {
-      throw ServiceError.infra('No configuration found for the request', {
+      throw AppError.internal('No configuration found for the request', {
         details: {
           appId,
           availableAppIds: processedConfigs.map((c) => c.appId),
@@ -99,16 +104,11 @@ export const handleRender = async (
 
         template = await viteDevServer.transformIndexHtml(url, template);
       } catch (error) {
-        throw ServiceError.infra('Failed to load dev assets', {
-          cause: error,
-          details: { clientRoot, entryServer, url },
-        });
+        throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServer, url } });
       }
     } else {
       renderModule = maps.renderModules.get(clientRoot) as RenderModule;
-      if (!renderModule) {
-        throw ServiceError.infra(`Render module not found for clientRoot: ${clientRoot}. Module should have been preloaded.`);
-      }
+      if (!renderModule) throw AppError.internal(`Render module not found for clientRoot: ${clientRoot}. Module should have been preloaded.`);
     }
 
     const renderType = attr?.render ?? RENDERTYPE.ssr;
@@ -118,7 +118,7 @@ export const handleRender = async (
     try {
       initialDataInput = () => fetchInitialData(attr, params, serviceRegistry);
     } catch (err) {
-      throw ServiceError.infra('Failed to build initial data input', {
+      throw AppError.internal('Failed to build initial data input', {
         cause: err,
         details: { appId, url },
       });
@@ -126,11 +126,8 @@ export const handleRender = async (
 
     if (renderType === RENDERTYPE.ssr) {
       const { renderSSR } = renderModule;
-      if (!renderSSR) {
-        throw ServiceError.infra('renderSSR function not found in module', {
-          details: { clientRoot, availableFunctions: Object.keys(renderModule) },
-        });
-      }
+      if (!renderSSR)
+        throw AppError.internal('renderSSR function not found in module', { details: { clientRoot, availableFunctions: Object.keys(renderModule) } });
 
       const initialDataResolved = await initialDataInput();
       const initialDataScript = `<script${nonceAttr}>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')};</script>`;
@@ -151,7 +148,7 @@ export const handleRender = async (
     } else {
       const { renderStream } = renderModule;
       if (!renderStream) {
-        throw ServiceError.infra('renderStream function not found in module', {
+        throw AppError.internal('renderStream function not found in module', {
           details: { clientRoot, availableFunctions: Object.keys(renderModule) },
         });
       }
@@ -211,7 +208,7 @@ export const handleRender = async (
               } catch {}
               return;
             }
-            throw ServiceError.infra('Critical rendering onError', {
+            throw AppError.internal('Critical rendering onError', {
               cause: err,
               details: { clientRoot },
             });
@@ -240,14 +237,11 @@ export const handleRender = async (
       });
     }
   } catch (err) {
-    // Surface a normalized infra error up to Fastify error handler
-    throw ServiceError.infra('handleRender failed', {
-      cause: err,
-      details: {
-        url: req.url,
-        headers: req.headers,
-        route: (req as any).routeOptions?.url,
-      },
+    if (err instanceof AppError) throw err;
+
+    throw AppError.internal('handleRender failed', err, {
+      url: req.url,
+      route: (req as any).routeOptions?.url,
     });
   }
 };

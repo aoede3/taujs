@@ -1,6 +1,6 @@
 import pc from 'picocolors';
 
-import type { CSPDirectives } from './security/csp';
+import type { CSPDirectives } from './security/CSP';
 
 export const RENDERTYPE = {
   ssr: 'ssr',
