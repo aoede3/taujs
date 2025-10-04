@@ -1,5 +1,4 @@
 import { AppError } from '../logging/AppError';
-import { createLogger } from '../logging/Logger';
 import { isDevelopment } from './System';
 import { ensureNonNull } from './Templates';
 import { SSRTAG } from '../constants';
@@ -23,13 +22,6 @@ export const handleNotFound = async (
     logger?: Logs;
   } = {},
 ) => {
-  const logger: Logs =
-    opts.logger ??
-    createLogger({
-      debug: opts.debug,
-      includeContext: true,
-    });
-
   try {
     if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
 

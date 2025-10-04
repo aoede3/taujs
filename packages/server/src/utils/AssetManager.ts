@@ -9,8 +9,7 @@ import { getCssLinks, renderPreloadLinks } from './Templates';
 
 import type { Manifest } from 'vite';
 import type { TEMPLATE } from '../constants';
-import type { Logs } from '../logging/Logger';
-import type { DebugInput } from '../logging/Parser';
+import type { DebugConfig, Logs } from '../logging/Logger';
 import type { RenderModule, SSRManifest, Config, ProcessedConfig } from '../types';
 
 export const createMaps = () => ({
@@ -48,10 +47,14 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
-  opts: { debug?: DebugInput; logger?: Logs } = {},
+  opts: { debug?: DebugConfig; logger?: Logs } = {},
 ) => {
-  const { debug, logger: providedLogger } = opts;
-  const logger: Logs = providedLogger ?? createLogger({ debug });
+  const logger: Logs =
+    opts.logger ??
+    createLogger({
+      debug: opts.debug,
+      includeContext: true,
+    });
 
   for (const config of processedConfigs) {
     const { clientRoot, entryClient, entryServer, htmlTemplate } = config;

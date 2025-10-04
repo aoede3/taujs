@@ -3,7 +3,7 @@ import type { PluginOption } from 'vite';
 import type { CSPDirectives } from './security/CSP';
 import type { ServiceRegistry } from './utils/DataServices';
 import type { AppConfig, SecurityConfig } from './config';
-import type { DebugInput } from './logging/Parser';
+import type { DebugConfig } from './logging/Logger';
 
 export type RouteCSPConfig = {
   disabled?: boolean;
@@ -43,7 +43,7 @@ export type SSRServerOptions = {
         plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
         options?: Record<string, unknown>;
       };
-  debug?: DebugInput;
+  debug?: DebugConfig;
   devNet?: { host: string; hmrPort: number };
 };
 

@@ -17,7 +17,7 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 
 import type { TaujsConfig } from './config';
 import type { NetResolved } from './network/Cli';
 import type { ServiceRegistry } from './utils/DataServices';
-import type { DebugInput } from './logging/Parser';
+import type { CustomLogger, DebugConfig } from './logging/Logger';
 
 type StaticAssetsRegistration = {
   plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
@@ -30,7 +30,8 @@ type CreateServerOptions = {
   clientRoot?: string;
   alias?: Record<string, string>;
   fastify?: FastifyInstance;
-  debug?: DebugInput;
+  debug?: DebugConfig;
+  logger?: CustomLogger;
   registerStaticAssets?: false | StaticAssetsRegistration;
   port?: number;
 };
@@ -53,6 +54,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
 
   const logger = createLogger({
     debug: opts.debug,
+    custom: opts.logger,
     minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
     includeContext: true,
   });

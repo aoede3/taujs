@@ -130,6 +130,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         method: req.method,
         url: req.url,
         route: (req as any).routeOptions?.url,
+        stack: e.stack,
       });
 
       const { status, body } = toHttp(e);

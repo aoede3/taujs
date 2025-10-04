@@ -9,14 +9,14 @@ import { createLogger } from '../logging/Logger';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
 import type { Route, PathToRegExpParams } from '../types';
 import type { CommonRouteMatcher } from '../utils/DataRoutes';
-import type { DebugInput } from '../logging/Parser';
+import type { DebugConfig } from '../logging/Logger';
 
 export type CSPPluginOptions = {
   directives?: CSPDirectives;
   generateCSP?: (directives: CSPDirectives, nonce: string, req?: FastifyRequest) => string;
   routes?: Route[];
   routeMatchers?: CommonRouteMatcher[];
-  debug?: DebugInput;
+  debug?: DebugConfig;
 };
 
 export type CSPDirectives = Record<string, string[]>;

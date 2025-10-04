@@ -1,14 +1,19 @@
 import type { CustomLogger } from './Logger';
 
-export function pinoAdapter(pino: any, baseCtx?: Record<string, unknown>): CustomLogger {
-  const logger = pino.child(baseCtx ?? {});
-  const isObjectFirst = (msgOrObj: unknown, meta: unknown) =>
-    meta === undefined && msgOrObj != null && typeof msgOrObj === 'object' && !Array.isArray(msgOrObj);
-
+export function pinoAdapter(pino: any): CustomLogger {
   return {
-    debug: (msgOrObj: any, meta?: unknown) => (isObjectFirst(msgOrObj, meta) ? logger.debug(msgOrObj) : logger.debug(meta ?? {}, msgOrObj as string)),
-    info: (msgOrObj: any, meta?: unknown) => (isObjectFirst(msgOrObj, meta) ? logger.info(msgOrObj) : logger.info(meta ?? {}, msgOrObj as string)),
-    warn: (msgOrObj: any, meta?: unknown) => (isObjectFirst(msgOrObj, meta) ? logger.warn(msgOrObj) : logger.warn(meta ?? {}, msgOrObj as string)),
-    error: (msgOrObj: any, meta?: unknown) => (isObjectFirst(msgOrObj, meta) ? logger.error(msgOrObj) : logger.error(meta ?? {}, msgOrObj as string)),
+    debug: (message: string, meta?: unknown) => pino.debug(meta ?? {}, message),
+    info: (message: string, meta?: unknown) => pino.info(meta ?? {}, message),
+    warn: (message: string, meta?: unknown) => pino.warn(meta ?? {}, message),
+    error: (message: string, meta?: unknown) => pino.error(meta ?? {}, message),
+  };
+}
+
+export function winstonAdapter(winston: any): CustomLogger {
+  return {
+    debug: (msg: string, meta?: unknown) => winston.debug(msg, meta),
+    info: (msg: string, meta?: unknown) => winston.info(msg, meta),
+    warn: (msg: string, meta?: unknown) => winston.warn(msg, meta),
+    error: (msg: string, meta?: unknown) => winston.error(msg, meta),
   };
 }

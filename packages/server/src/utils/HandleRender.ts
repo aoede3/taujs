@@ -2,6 +2,7 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
 import { fetchInitialData, matchRoute } from './DataRoutes';
+import { AppError } from '../logging/AppError';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from './System';
 import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
@@ -11,10 +12,8 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
 import type { RouteMatcher } from './DataRoutes';
 import type { ServiceRegistry } from './DataServices';
-import type { Logs } from '../logging/Logger';
-import type { DebugInput } from '../logging/Parser';
+import type { DebugConfig, Logs } from '../logging/Logger';
 import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../types';
-import { AppError } from '../logging/AppError';
 
 export const handleRender = async (
   req: FastifyRequest,
@@ -32,7 +31,7 @@ export const handleRender = async (
     templates: Map<string, string>;
   },
   opts: {
-    debug?: DebugInput;
+    debug?: DebugConfig;
     logger?: Logs;
     viteDevServer?: ViteDevServer;
   } = {},

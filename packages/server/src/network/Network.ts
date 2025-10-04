@@ -5,10 +5,10 @@ import { CONTENT } from '../constants';
 import { createLogger } from '../logging/Logger';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import type { DebugInput } from '../logging/Parser';
+import type { DebugConfig } from '../logging/Logger';
 
 type BannerPluginOpts = {
-  debug?: DebugInput;
+  debug?: DebugConfig;
   hmr?: { host: string; port: number };
 };
 

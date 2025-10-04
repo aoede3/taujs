@@ -8,13 +8,13 @@ import { CONTENT } from '../constants';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { DebugInput } from '../logging/Parser';
+import type { DebugConfig } from '../logging/Logger';
 
 export const setupDevServer = async (
   app: FastifyInstance,
   baseClientRoot: string,
   alias?: Record<string, string>,
-  debug?: DebugInput,
+  debug?: DebugConfig,
   devNet?: { host: string; hmrPort: number },
 ): Promise<ViteDevServer> => {
   const logger = createLogger({

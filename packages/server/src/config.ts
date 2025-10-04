@@ -17,7 +17,7 @@ import type { FastifyRequest } from 'fastify';
 import type { PluginOption } from 'vite';
 import type { CSPDirectives } from './security/CSP';
 import type { PathToRegExpParams, Route, RouteAttributes } from './types';
-import type { DebugCategory, DebugConfig, Logger, Logs } from './logging/Logger';
+import type { DebugCategory, Logger } from './logging/Logger';
 import type { CSPViolationReport } from './security/CSPReporting';
 
 export { defineServiceRegistry, defineService } from './utils/DataServices';
@@ -161,14 +161,6 @@ export const extractSecurity = (taujsConfig: TaujsConfig): ExtractSecurityResult
   };
 };
 
-export type SecurityStartupLine = {
-  hasExplicitCSP: boolean;
-  securityDurationMs: number;
-  defaultMode: 'merge' | 'replace';
-  hasReporting: boolean;
-  reportOnly: boolean;
-};
-
 export function printConfigSummary(
   logger: Logger,
   apps: { appId: string; routeCount: number }[],
@@ -214,7 +206,7 @@ export function printSecuritySummary(logger: Logger, routes: Route[], security: 
 
 export function printContractReport(logger: Logger, report: ContractReport) {
   for (const r of report.items) {
-    const line = `${CONTENT.TAG} [${r.key}] ${r.message}`;
+    const line = `${CONTENT.TAG} [security][${r.key}] ${r.message}`;
 
     if (r.status === 'error') {
       logger.error(line);

@@ -2,23 +2,6 @@ import { AppError } from '../AppError';
 
 import type { ErrorKind } from '../AppError';
 
-export type Redactor = (key: string, value: unknown) => unknown;
-
-export const noRedaction: Redactor = (_key, value) => value;
-
-export const composeRedactors =
-  (...redactors: Redactor[]): Redactor =>
-  (key, value) =>
-    redactors.reduce((acc, r) => r(key, acc), value);
-
-export const maskKeys =
-  (keys: (string | RegExp)[], mask = '[REDACTED]'): Redactor =>
-  (key, value) =>
-    keys.some((p) => (typeof p === 'string' ? key === p : p.test(key))) ? mask : value;
-
-export const pick = <T extends object, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> =>
-  keys.reduce((acc, key) => ((acc[key] = obj[key]), acc), {} as Pick<T, K>);
-
 export const httpStatusFrom = (err: unknown, fallback = 500): number => (err instanceof AppError ? err.httpStatus : fallback);
 
 export const toHttp = (err: unknown): { status: number; body: Record<string, unknown> } => {

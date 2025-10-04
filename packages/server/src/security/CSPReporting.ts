@@ -4,8 +4,7 @@ import fp from 'fastify-plugin';
 import { AppError } from '../logging/AppError';
 import { createLogger, Logger } from '../logging/Logger';
 
-import type { Logs } from '../logging/Logger';
-import type { DebugInput } from '../logging/Parser';
+import type { DebugConfig, Logs } from '../logging/Logger';
 
 export type CSPViolationReport = {
   'document-uri': string;
@@ -38,7 +37,7 @@ export type CSPReportOptions = {
    * Optional debug configuration to apply to the active logger (instance-level).
    * If you pass your own logger, we only call .configure() when this is provided.
    */
-  debug?: DebugInput;
+  debug?: DebugConfig;
   /**
    * Optional logger instance to use. Defaults to a new Logger instance.
    */
@@ -153,7 +152,7 @@ export const cspReportPlugin: FastifyPluginAsync<CSPReportOptions> = fp(
 
     const logger = createLogger({
       debug: opts.debug,
-      context: { service: 'csp' },
+      context: { service: 'csp-reporting' },
       minLevel: 'info',
     });
 
