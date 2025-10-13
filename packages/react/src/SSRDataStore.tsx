@@ -13,9 +13,9 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
   let currentData: T | undefined;
   let status: 'pending' | 'success' | 'error';
   let lastError: Error | undefined;
+  let serverDataPromise: Promise<void>;
 
   const subscribers = new Set<() => void>();
-  let serverDataPromise: Promise<void>;
 
   const notify = () => subscribers.forEach((cb) => cb());
 
@@ -62,6 +62,7 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
 
   const subscribe = (callback: () => void) => {
     subscribers.add(callback);
+
     return () => subscribers.delete(callback);
   };
 
@@ -69,6 +70,7 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     if (status === 'pending') throw serverDataPromise;
     if (status === 'error') throw new Error(`SSR data fetch failed: ${lastError?.message || 'Unknown error'}`);
     if (currentData === undefined) throw new Error('SSR data is undefined - store initialisation problem');
+
     return currentData;
   };
 
@@ -76,13 +78,13 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     if (status === 'pending') throw serverDataPromise;
     if (status === 'error') throw new Error(`Server-side data fetch failed: ${lastError?.message || 'Unknown error'}`);
     if (currentData === undefined) throw new Error('Server data not available - check SSR configuration');
+
     return currentData;
   };
 
   return { getSnapshot, getServerSnapshot, setData, subscribe, status, lastError };
 }
 
-// Generic context avoids type errors in Provider
 const SSRStoreContext = createContext<SSRStore<any> | null>(null);
 
 export const SSRStoreProvider = <T,>({ store, children }: React.PropsWithChildren<{ store: SSRStore<T> }>) => (
@@ -91,6 +93,8 @@ export const SSRStoreProvider = <T,>({ store, children }: React.PropsWithChildre
 
 export const useSSRStore = <T,>(): T => {
   const store = useContext(SSRStoreContext) as SSRStore<T> | null;
+
   if (!store) throw new Error('useSSRStore must be used within a SSRStoreProvider');
+
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
 };

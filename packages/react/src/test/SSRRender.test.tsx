@@ -1,534 +1,764 @@
-import { ServerResponse } from 'node:http';
-import { Writable } from 'node:stream';
-
+// @vitest-environment node
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { renderToPipeableStream, renderToString } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
 
-import { createRenderer, createRenderStream, resolveHeadContent } from '../SSRRender';
+vi.mock('react-dom/server', () => {
+  let lastOpts: any;
+  const renderToString = vi.fn(() => '<div>html</div>');
+  const renderToPipeableStream = vi.fn((_el: any, opts: any) => {
+    lastOpts = opts;
 
-import type { JSX } from 'react';
-import type { Mock } from 'vitest';
+    return {
+      abort: vi.fn(),
+      pipe: vi.fn(), // called after head write / drain
+      __opts: lastOpts,
+    };
+  });
+  return {
+    renderToString,
+    renderToPipeableStream,
+    __getLastOpts: () => lastOpts,
+  };
+});
 
-vi.mock('react-dom/server', () => ({
-  renderToPipeableStream: vi.fn(),
-  renderToString: vi.fn(),
-}));
+vi.mock('../SSRDataStore', () => {
+  let snapshotImpl: (() => any) | null = null;
+  const createSSRStore = vi.fn((data: any) => ({
+    getSnapshot: () => {
+      if (snapshotImpl) return snapshotImpl();
+      return data;
+    },
+  }));
+  const SSRStoreProvider = ({ children }: { children: React.ReactNode }) => <>{children}</>;
 
-describe('resolveHeadContent', () => {
-  it('should return the headContent string when headContent is a string', () => {
-    const headContent = '<title>Test</title>';
-    const initialDataResolved = { data: 'test' };
-    expect(resolveHeadContent(headContent, initialDataResolved)).toBe(headContent);
+  return {
+    createSSRStore,
+    SSRStoreProvider,
+    __setSnapshotImpl: (fn: (() => any) | null) => {
+      snapshotImpl = fn;
+    },
+  };
+});
+
+vi.mock('../utils/Streaming', () => {
+  const createStreamController = vi.fn((_w: any, _logger: any) => {
+    let resolved!: () => void;
+    let rejected!: (e: any) => void;
+    const done = new Promise<void>((res, rej) => {
+      resolved = res;
+      rejected = rej;
+    });
+    const ctrl = {
+      isAborted: false,
+      done,
+      setStreamAbort: vi.fn(),
+      setStopShellTimer: vi.fn(),
+      setRemoveAbortListener: vi.fn(),
+      setGuardsCleanup: vi.fn(),
+      benignAbort: vi.fn((_) => {
+        ctrl.isAborted = true;
+        resolved();
+      }),
+      fatalAbort: vi.fn((e) => {
+        ctrl.isAborted = true;
+        rejected(e);
+      }),
+    };
+    return ctrl;
   });
 
-  it('should return the result of calling headContent function when headContent is a function', () => {
-    const headContentFn = vi.fn((data) => `<title>${data.title}</title>`);
-    const initialDataResolved = { title: 'Test Title' };
-    expect(resolveHeadContent(headContentFn, initialDataResolved)).toBe('<title>Test Title</title>');
-    expect(headContentFn).toHaveBeenCalledWith(initialDataResolved);
+  // startShellTimer: capture the timeout handler so tests can trigger it
+  let lastTimeoutHandler: (() => void) | undefined;
+  const startShellTimer = vi.fn((_ms: number, onTimeout: () => void) => {
+    lastTimeoutHandler = onTimeout;
+    return vi.fn(); // stop function; we only assert it is called
+  });
+
+  // wireWritableGuards: return no-op cleanup (we verify it’s set, not effects)
+  const wireWritableGuards = vi.fn((_w: any, _cfg: any) => ({ cleanup: vi.fn() }));
+
+  // benign predicate configurable per test
+  const isBenignStreamErr = vi.fn(() => false);
+
+  return {
+    DEFAULT_BENIGN_ERRORS: /x/i,
+    createStreamController,
+    startShellTimer,
+    wireWritableGuards,
+    isBenignStreamErr,
+    __getLastTimeoutHandler: () => lastTimeoutHandler,
+  };
+});
+
+import { createRenderer } from '../SSRRender';
+import * as RDS from 'react-dom/server';
+import * as Store from '../SSRDataStore';
+import * as Streaming from '../utils/Streaming';
+
+type DrainableWritable = {
+  write: (chunk: any) => boolean;
+  once: (ev: string, fn: (...a: any[]) => void) => void;
+  cork?: () => void;
+  uncork?: () => void;
+};
+
+function makeWritable({ willBackpressure = false, supportCork = false }: { willBackpressure?: boolean; supportCork?: boolean } = {}) {
+  let drainHandler: (() => void) | null = null;
+  const w: DrainableWritable = {
+    write: vi.fn(() => !willBackpressure),
+    once: vi.fn((ev: string, fn: any) => {
+      if (ev === 'drain') drainHandler = fn;
+    }),
+    ...(supportCork ? { cork: vi.fn(), uncork: vi.fn() } : {}),
+  };
+  return {
+    writable: w,
+    triggerDrain: () => {
+      drainHandler?.();
+      drainHandler = null;
+    },
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  // reset dynamic snapshot impl
+  (Store as any).__setSnapshotImpl(null);
+  // ensure Node Writable supports cork in tests that need it
+  // (we'll set per-test explicitly via makeWritable)
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('createRenderer.renderSSR', () => {
+  it('renders head + html and logs around render', async () => {
+    const log = vi.fn();
+    const renderer = createRenderer<any>({
+      appComponent: ({ location }) => <div>{location}</div>,
+      headContent: ({ data, meta }) => `<head>${data.title}-${meta.x}</head>`,
+      debug: true,
+      logger: { log },
+    });
+
+    const out = await renderer.renderSSR({ title: 'T' } as any, '/home', { x: 1 });
+    expect(Store.createSSRStore).toHaveBeenCalledWith({ title: 'T' });
+    expect(RDS.renderToString).toHaveBeenCalledTimes(1);
+    expect(out.headContent).toBe('<head>T-1</head>');
+    expect(out.appHtml).toBe('<div>html</div>');
+    expect(log).toHaveBeenCalledWith('Starting renderSSR with location:', '/home');
+    expect(log).toHaveBeenCalledWith('Completed renderSSR for location:', '/home');
   });
 });
 
-describe('createRenderer', () => {
-  describe('renderSSR', () => {
-    it('should render the app to string and return headContent, appHtml, and initialDataScript', async () => {
-      const mockAppComponent = () => <div>Test</div>;
-      const mockHeadContent = '<title>Test</title>';
-      const mockInitialData = { data: 'test' };
+describe('createRenderer.renderStream', () => {
+  it('happy path: shell ready -> head write -> pipe -> all ready -> callbacks & finish; stop timer; done resolves', async () => {
+    const { writable } = makeWritable();
+    const log = vi.fn(),
+      warn = vi.fn(),
+      error = vi.fn();
+    const onHead = vi.fn(),
+      onShellReady = vi.fn(),
+      onAllReady = vi.fn(),
+      onFinish = vi.fn();
 
-      const renderToStringMock = vi.fn().mockReturnValue('<div>Rendered App</div>');
-      (renderToString as Mock).mockImplementation(renderToStringMock);
-
-      const { renderSSR } = createRenderer({
-        appComponent: mockAppComponent,
-        headContent: mockHeadContent,
-      });
-
-      const result = await renderSSR(mockInitialData, '/test', {});
-
-      expect(renderToStringMock).toHaveBeenCalled();
-      expect(result).toEqual({
-        headContent: mockHeadContent,
-        appHtml: '<div>Rendered App</div>',
-      });
+    const { renderStream } = createRenderer<any>({
+      appComponent: ({ location }) => <div>{location}</div>,
+      headContent: () => '<head>ok</head>',
+      debug: true,
+      logger: { log, warn, error },
     });
 
-    it('should handle headContent as a function', async () => {
-      const mockAppComponent = () => <div>Test</div>;
-      const headContentFn = vi.fn((data) => `<title>${data.title}</title>`);
-      const mockInitialData = { title: 'Test Title' };
+    const { done } = renderStream(writable as any, { onHead, onShellReady, onAllReady, onFinish }, { data: 1 }, '/x', '/boot.js', { m: 1 }, 'nonce-1');
 
-      const renderToStringMock = vi.fn().mockReturnValue('<div>Rendered App</div>');
-      (renderToString as Mock).mockImplementation(renderToStringMock);
+    const opts = (RDS as any).__getLastOpts();
+    expect(opts.bootstrapModules).toEqual(['/boot.js']);
+    opts.onShellReady();
+    opts.onAllReady();
 
-      const { renderSSR } = createRenderer({
-        appComponent: mockAppComponent,
-        headContent: headContentFn,
-      });
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('test-complete');
+    await expect(done).resolves.toBeUndefined();
 
-      const result = await renderSSR(mockInitialData, '/test', {});
+    expect(log).toHaveBeenCalledWith('Shell ready for location:', '/x');
+    expect(onHead).toHaveBeenCalledWith('<head>ok</head>');
 
-      expect(renderToStringMock).toHaveBeenCalled();
-      expect(headContentFn).toHaveBeenCalledWith(mockInitialData);
-      expect(result).toEqual({
-        headContent: '<title>Test Title</title>',
-        appHtml: '<div>Rendered App</div>',
-      });
-    });
+    expect((writable.write as any).mock.calls.length).toBe(1);
 
-    it('should use initialDataResolved when it has properties', async () => {
-      const mockAppComponent = () => <div>Test</div>;
-      const mockHeadContent = vi.fn((data) => `<title>${data.title}</title>`);
-      const initialDataResolved = { title: 'Initial Data Title' };
-      const meta = { title: 'Meta Title' };
+    const streamInstance = (RDS.renderToPipeableStream as any).mock.results[0].value;
+    expect(streamInstance.pipe).toHaveBeenCalledWith(writable);
+    expect(onShellReady).toHaveBeenCalledTimes(1);
 
-      const { renderSSR } = createRenderer({
-        appComponent: mockAppComponent,
-        headContent: mockHeadContent,
-      });
+    expect(onAllReady).toHaveBeenCalledWith({ data: 1 });
+    expect(onFinish).toHaveBeenCalledWith({ data: 1 });
 
-      await renderSSR(initialDataResolved, '/test', meta);
-
-      expect(mockHeadContent).toHaveBeenCalledWith(initialDataResolved);
-    });
-
-    it('should use meta when initialDataResolved is empty', async () => {
-      const mockAppComponent = () => <div>Test</div>;
-      const mockHeadContent = vi.fn((data) => `<title>${data.title}</title>`);
-      const initialDataResolved = {};
-      const meta = { title: 'Meta Title' };
-
-      const { renderSSR } = createRenderer({
-        appComponent: mockAppComponent,
-        headContent: mockHeadContent,
-      });
-
-      await renderSSR(initialDataResolved, '/test', meta);
-
-      expect(mockHeadContent).toHaveBeenCalledWith(meta);
-    });
+    await expect(done).resolves.toBeUndefined();
   });
 
-  describe('renderStream', () => {
-    it('should render the stream and call callbacks correctly', async () => {
-      const mockAppComponent = () => <div>Test</div>;
-      const mockHeadContent = '<title>Test</title>';
-      const mockInitialData = { data: 'test' };
-      const mockBootstrapModules = 'test-module';
+  it('backpressure: waits for drain before piping; cork/uncork used when supported', async () => {
+    const { writable, triggerDrain } = makeWritable({ willBackpressure: true, supportCork: true });
+    const log = vi.fn();
 
-      const onHead = vi.fn();
-      const onFinish = vi.fn();
-      const onError = vi.fn();
-
-      const serverResponse = new Writable({
-        write(_chunk, _encoding, callback) {
-          setImmediate(callback);
-        },
-      });
-
-      const writeSpy = vi.spyOn(serverResponse, 'write');
-
-      const onFinishPromise = new Promise<void>((resolve) => {
-        onFinish.mockImplementation(() => {
-          resolve();
-        });
-      });
-
-      const renderToPipeableStreamMock = vi.fn((_appElement: React.JSX.Element, options: { onShellReady: () => void; onAllReady: () => void }) => {
-        const stream = {
-          pipe: (writable: Writable) => {
-            writable.write(Buffer.from('Test chunk'), (err) => {
-              if (err) throw err;
-              writable.end();
-            });
-          },
-        };
-
-        setImmediate(() => {
-          options.onShellReady();
-          options.onAllReady();
-        });
-
-        return stream;
-      });
-
-      (renderToPipeableStream as Mock).mockImplementation(renderToPipeableStreamMock);
-
-      const { renderStream } = createRenderer({
-        appComponent: mockAppComponent,
-        headContent: mockHeadContent,
-      });
-
-      renderStream(serverResponse as any, { onHead, onFinish, onError }, mockInitialData, '/test', mockBootstrapModules);
-
-      await onFinishPromise;
-
-      expect(renderToPipeableStreamMock).toHaveBeenCalled();
-      expect(onHead).toHaveBeenCalledWith(mockHeadContent);
-
-      const chunk = Buffer.from('Test chunk');
-      expect(writeSpy).toHaveBeenCalledWith(chunk, expect.any(Function));
-
-      expect(onFinish).toHaveBeenCalledWith(mockInitialData);
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div>z</div>,
+      headContent: () => '<head>bp</head>',
+      debug: true,
+      logger: { log },
+      streamOptions: { useCork: true },
     });
 
-    it('should handle errors in rendering', () => {
-      const mockAppComponent = () => <div>Test</div>;
-      const mockHeadContent = '<title>Test</title>';
-      const mockInitialData = { data: 'test' };
+    const { done } = renderStream(writable as any, {}, {}, '/bp');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellReady(); // causes head write returning false and sets drain handler
 
-      const serverResponse = {
-        write: vi.fn(),
-      } as unknown as ServerResponse;
+    // corked
+    expect((writable as any).cork).toHaveBeenCalledTimes(1);
+    expect((writable as any).uncork).toHaveBeenCalledTimes(1);
 
-      const onHead = vi.fn();
-      const onFinish = vi.fn();
-      const onError = vi.fn();
+    // no pipe yet
+    const streamInstance = (RDS.renderToPipeableStream as any).mock.results[0].value;
+    expect(streamInstance.pipe).not.toHaveBeenCalled();
 
-      (renderToPipeableStream as Mock).mockImplementation((_appElement: JSX.Element, { onError }: { onError: (error: Error) => void }) => {
-        onError(new Error('Test Error'));
-        return { pipe: vi.fn() };
-      });
+    // drain fires -> then pipe
+    triggerDrain();
+    expect(streamInstance.pipe).toHaveBeenCalledWith(writable);
 
-      const { renderStream } = createRenderer({
-        appComponent: mockAppComponent,
-        headContent: mockHeadContent,
-      });
-
-      renderStream(serverResponse, { onHead, onFinish, onError }, mockInitialData, '/test');
-
-      expect(onError).toHaveBeenCalledWith(expect.any(Error));
-      expect(onError.mock.calls[0]?.[0].message).toBe('Test Error');
-    });
-
-    it('should handle headContent as a function', async () => {
-      const mockAppComponent = ({ location }: { location: string }) => <div>Location: {location}</div>;
-      const headContentFn = vi.fn((data) => `<title>${data.title}</title>`);
-      const mockInitialData = { title: 'Test Title' };
-      const mockLocation = 'test';
-      const mockBootstrapModules = 'test-module';
-
-      const onHead = vi.fn();
-      const onFinish = vi.fn();
-      const onError = vi.fn();
-
-      const serverResponse = new Writable({
-        write(_chunk, _encoding, callback) {
-          setImmediate(callback);
-        },
-      });
-
-      const writeSpy = vi.spyOn(serverResponse, 'write');
-
-      const onFinishPromise = new Promise<void>((resolve) => {
-        onFinish.mockImplementation(() => {
-          resolve();
-        });
-      });
-
-      const renderToPipeableStreamMock = vi.fn((_appElement: React.JSX.Element, options: { onShellReady: () => void; onAllReady: () => void }) => {
-        const stream = {
-          pipe: (writable: Writable) => {
-            writable.write(Buffer.from('Test chunk'), (err) => {
-              if (err) throw err;
-              writable.end();
-            });
-          },
-        };
-
-        setImmediate(() => {
-          options.onShellReady();
-          options.onAllReady();
-        });
-
-        return stream;
-      });
-
-      (renderToPipeableStream as Mock).mockImplementation(renderToPipeableStreamMock);
-
-      createRenderStream(
-        serverResponse as any,
-        { onHead, onFinish, onError },
-        {
-          appComponent: mockAppComponent,
-          headContent: headContentFn,
-          initialDataPromise: mockInitialData,
-          location: mockLocation,
-          bootstrapModules: mockBootstrapModules,
-        },
-      );
-
-      await onFinishPromise;
-
-      expect(renderToPipeableStreamMock).toHaveBeenCalled();
-      expect(headContentFn).toHaveBeenCalledWith(mockInitialData);
-      expect(onHead).toHaveBeenCalledWith('<title>Test Title</title>');
-
-      const chunk = Buffer.from('Test chunk');
-      expect(writeSpy).toHaveBeenCalledWith(chunk, expect.any(Function));
-
-      expect(onFinish).toHaveBeenCalledWith(mockInitialData);
-    });
+    opts.onAllReady();
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('test-complete');
+    await expect(done).resolves.toBeUndefined();
   });
-});
 
-describe('SSR v Streaming SSR rendering consistency', () => {
-  it('should render consistent output between renderSSR and renderStream', async () => {
-    (renderToPipeableStream as Mock).mockImplementation((_appElement: React.JSX.Element, options: { onShellReady: () => void; onAllReady: () => void }) => {
-      const stream = {
-        pipe: (writable: Writable) => {
-          console.log('pipe called');
-          writable.write(Buffer.from('<div>Hello /test-page</div>'), (err) => {
-            if (err) throw err;
-            writable.end();
-          });
-        },
-      };
-
-      setImmediate(() => {
-        options.onShellReady?.();
-        options.onAllReady?.();
-      });
-
-      return stream;
-    });
-
-    const { renderSSR, renderStream } = createRenderer({
-      appComponent: ({ location }) => <div>Hello {location}</div>,
-      headContent: (data) => `<title>${data.pageTitle}</title>`,
-    });
-
-    const initialData = { pageTitle: 'Test Page' };
-    const location = '/test-page';
-
-    (renderToString as Mock).mockImplementation(() => '<div>Hello /test-page</div>');
-
-    const { headContent, appHtml } = await renderSSR(initialData, location, initialData);
-
-    let streamedHtml = '';
-    let streamedHead = '';
-
-    const onFinishPromise = new Promise<void>((resolve) => {
-      const serverResponse = new Writable({
-        write(chunk, _encoding, callback) {
-          streamedHtml += chunk.toString();
-          callback();
-        },
-      });
-
-      renderStream(
-        serverResponse as any,
-        {
-          onHead: (head) => {
-            streamedHead = head;
-          },
-          onFinish: () => resolve(),
-          onError: (err) => {
-            console.error('renderStream error:', err);
-            throw err;
-          },
-        },
-        initialData,
-        location,
-        undefined,
-        initialData,
-      );
-    });
-
-    await onFinishPromise;
-
-    const normalize = (html: string) =>
-      html
-        .replace(/\s+/g, ' ')
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
-        .trim();
-
-    expect(normalize(appHtml)).toBe(normalize(streamedHtml));
-    expect(normalize(headContent)).toBe(normalize(streamedHead));
-  });
-});
-
-describe('CSP nonce & bootstrapModules wiring', () => {
-  it('createRenderer.renderStream: passes cspNonce and bootstrapModules to renderToPipeableStream', async () => {
-    const mockAppComponent = () => <div>Test</div>;
-    const mockHeadContent = '<title>Test</title>';
-    const mockInitialData = { data: 'test' };
-
-    const onHead = vi.fn();
-    const onFinish = vi.fn();
+  it('headContent throws inside onShellReady → onError + fatalAbort; done rejects', async () => {
+    const { writable } = makeWritable();
     const onError = vi.fn();
 
-    const serverResponse = new Writable({
-      write(_chunk, _encoding, callback) {
-        setImmediate(callback);
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div>z</div>,
+      headContent: () => {
+        throw new Error('head boom');
       },
+      debug: true,
+      logger: {},
     });
 
-    let capturedOptions: any;
-    const onFinishPromise = new Promise<void>((resolve) => {
-      onFinish.mockImplementation(() => resolve());
+    const { done } = renderStream(writable as any, { onError }, {}, '/err');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellReady();
+
+    await expect(done).rejects.toBeInstanceOf(Error);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    const ctrl = (Streaming.createStreamController as any).mock.results[0].value;
+    expect(ctrl.fatalAbort).toHaveBeenCalled();
+  });
+
+  it('onAllReady: getSnapshot throws a thenable first → resolves then re-delivers; non-thenable throws → fatal', async () => {
+    const { writable } = makeWritable();
+    let delivered = 0;
+    (Store as any).__setSnapshotImpl(() => {
+      if (delivered === 0) {
+        delivered++;
+        let resume!: () => void;
+        const p = new Promise<void>((r) => (resume = r));
+        Promise.resolve().then(() => resume());
+
+        throw p;
+      }
+      return { ok: true };
     });
 
-    (renderToPipeableStream as Mock).mockImplementation((_appElement: React.JSX.Element, options: any) => {
-      capturedOptions = options;
-
-      const stream = {
-        pipe: (writable: Writable) => {
-          writable.write(Buffer.from('nonce test'), (err) => {
-            if (err) throw err;
-            writable.end();
-          });
-        },
-      };
-
-      setImmediate(() => {
-        options.onShellReady?.();
-        options.onAllReady?.();
-      });
-
-      return stream;
+    const onAllReady = vi.fn(),
+      onFinish = vi.fn(),
+      onError = vi.fn();
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      debug: true,
     });
 
-    const { renderStream } = createRenderer({
-      appComponent: mockAppComponent,
-      headContent: mockHeadContent,
+    const { done } = renderStream(writable as any, { onAllReady, onFinish, onError }, {}, '/thenable');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellReady();
+    opts.onAllReady();
+
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('test-complete');
+    await expect(done).resolves.toBeUndefined();
+
+    await expect(done).resolves.toBeUndefined();
+    expect(onAllReady).toHaveBeenCalledWith({ ok: true });
+    expect(onFinish).toHaveBeenCalledWith({ ok: true });
+    expect(onError).not.toHaveBeenCalled();
+
+    (Store as any).__setSnapshotImpl(() => {
+      throw new Error('bad');
+    });
+    const { done: done2 } = renderStream(writable as any, { onError }, {}, '/bad');
+    const opts2 = (RDS as any).__getLastOpts();
+    opts2.onShellReady();
+    opts2.onAllReady();
+
+    const ctrl1 = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl1.benignAbort('test-complete');
+    await expect(done).resolves.toBeUndefined();
+
+    await expect(done2).rejects.toBeInstanceOf(Error);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('onShellError → fatalAbort + done rejects', async () => {
+    const { writable } = makeWritable();
+    const onError = vi.fn();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
     });
 
-    const cspNonce = 'nonce-123';
-    const bootstrapModules = '/static/entry-client.js';
+    const { done } = renderStream(writable as any, { onError }, {}, '/shellerror');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellError(new Error('shell bad'));
 
-    renderStream(
-      serverResponse as any,
-      { onHead, onFinish, onError },
-      mockInitialData,
-      '/test',
-      bootstrapModules,
-      undefined, // meta
-      cspNonce,
+    await expect(done).rejects.toBeInstanceOf(Error);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('onError benign → benignAbort resolves; onError fatal → fatalAbort rejects', async () => {
+    const { writable } = makeWritable();
+    const onError = vi.fn();
+
+    (Streaming.isBenignStreamErr as any).mockReturnValueOnce(true);
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const r1 = renderStream(writable as any, { onError }, {}, '/benign');
+    let opts = (RDS as any).__getLastOpts();
+    opts.onError(new Error('ECONNRESET'));
+
+    await expect(r1.done).resolves.toBeUndefined();
+
+    // fatal case
+    const r2 = renderStream(writable as any, { onError }, {}, '/fatal');
+    opts = (RDS as any).__getLastOpts();
+    opts.onError(new Error('boom'));
+
+    await expect(r2.done).rejects.toBeInstanceOf(Error);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('AbortSignal already aborted: benign abort & no stream render; manual abort works', async () => {
+    const { writable } = makeWritable();
+    const ac = new AbortController();
+    ac.abort(); // already aborted
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const r = renderStream(writable as any, {}, {}, '/sig', undefined, {}, undefined, ac.signal);
+    expect(RDS.renderToPipeableStream).not.toHaveBeenCalled();
+    await expect(r.done).resolves.toBeUndefined();
+
+    const r2 = renderStream(writable as any, {}, {}, '/manual');
+    r2.abort();
+    await expect(r2.done).resolves.toBeUndefined();
+  });
+
+  it('AbortSignal triggers later and is removed via controller hook', async () => {
+    const { writable } = makeWritable();
+    const ac = new AbortController();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const r = renderStream(writable as any, {}, {}, '/later', undefined, {}, undefined, ac.signal);
+    ac.abort();
+    await expect(r.done).resolves.toBeUndefined();
+
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1).value;
+    expect(ctrl.setRemoveAbortListener).toHaveBeenCalledTimes(1);
+  });
+
+  it('AbortSignal already aborted → returns dummy {abort, done}; abort is a no-op; controller.benignAbort called once; no render', async () => {
+    const ac = new AbortController();
+    ac.abort(); // already aborted
+    const { writable } = makeWritable();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const r = renderStream(writable as any, {}, {}, '/aborted-early', undefined, {}, undefined, ac.signal);
+
+    // controller.benignAbort called once by handleAbortSignal
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    expect(ctrl.benignAbort).toHaveBeenCalledTimes(1);
+
+    // returned interface is the dummy
+    expect(typeof r.abort).toBe('function');
+    await expect(r.done).resolves.toBeUndefined();
+
+    // Calling r.abort() is a no-op (does NOT call controller.benignAbort again)
+    r.abort();
+    expect(ctrl.benignAbort).toHaveBeenCalledTimes(1);
+
+    // No streaming attempted
+    expect(RDS.renderToPipeableStream).not.toHaveBeenCalled();
+  });
+
+  it('shell timeout fires when shell never becomes ready → fatalAbort', async () => {
+    const { writable } = makeWritable();
+    const onError = vi.fn();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      streamOptions: { shellTimeoutMs: 1234 },
+    });
+
+    const r = renderStream(writable as any, { onError }, {}, '/timeout');
+    const timeoutFn = (Streaming as any).__getLastTimeoutHandler() as (() => void) | undefined;
+    expect(typeof timeoutFn).toBe('function');
+    timeoutFn!();
+
+    await expect(r.done).rejects.toBeInstanceOf(Error);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('per-call options override renderer defaults (shellTimeout / useCork=false)', async () => {
+    const { writable } = makeWritable({ willBackpressure: true, supportCork: true });
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      streamOptions: { shellTimeoutMs: 10, useCork: true },
+    });
+
+    // override useCork -> false; also override shellTimeout
+    renderStream(writable as any, {}, {}, '/opts', undefined, {}, undefined, undefined, { shellTimeoutMs: 1, useCork: false });
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellReady();
+
+    // uncork/cork should NOT be used because per-call useCork=false
+    expect((writable as any).cork).toBeDefined();
+    expect((writable as any).cork).not.toHaveBeenCalled();
+    expect((writable as any).uncork).not.toHaveBeenCalled();
+  });
+
+  it('setRemoveAbortListener uses try/catch around signal.removeEventListener and swallows errors', async () => {
+    const { writable } = makeWritable();
+    const ac = new AbortController();
+
+    const removeSpy = vi.spyOn(ac.signal, 'removeEventListener').mockImplementationOnce(() => {
+      throw new Error('remove boom');
+    });
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    renderStream(writable as any, {}, {}, '/later', undefined, {}, undefined, ac.signal);
+
+    // Grab the function registered via controller.setRemoveAbortListener(...)
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    expect(ctrl.setRemoveAbortListener).toHaveBeenCalledTimes(1);
+    const remover = ctrl.setRemoveAbortListener.mock.calls[0]![0] as () => void;
+
+    // Should NOT throw even though removeEventListener throws
+    expect(() => remover()).not.toThrow();
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+
+  it('wireWritableGuards: benignAbort(why) → controller.benignAbort(why)', () => {
+    const { writable } = makeWritable();
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    renderStream(writable as any, {}, {}, '/guards-benign');
+
+    // { benignAbort, fatalAbort, onError } to wireWritableGuards
+    const cfg = (Streaming.wireWritableGuards as any).mock.calls.at(-1)![1];
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+
+    cfg.benignAbort('client left'); // simulate guard firing
+    expect(ctrl.benignAbort).toHaveBeenCalledWith('client left');
+  });
+
+  it('wireWritableGuards: fatalAbort(err) → calls onError and controller.fatalAbort(err)', async () => {
+    const { writable } = makeWritable();
+    const onError = vi.fn();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    renderStream(writable as any, { onError }, {}, '/guards-fatal');
+    const { done } = renderStream(writable as any, { onError }, {}, '/guards-fatal');
+
+    const cfg = (Streaming.wireWritableGuards as any).mock.calls.at(-1)![1];
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+
+    const err = new Error('boom');
+    cfg.fatalAbort(err);
+
+    expect(onError).toHaveBeenCalledWith(err);
+    expect(ctrl.fatalAbort).toHaveBeenCalledWith(err);
+    await expect(done).rejects.toThrow('boom');
+  });
+
+  it('onShellReady callback throws → warns but does not fatal', async () => {
+    const { writable } = makeWritable();
+    const warn = vi.fn();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      debug: true,
+      logger: { warn },
+    });
+
+    const onShellReady = vi.fn(() => {
+      throw new Error('cb boom');
+    });
+    const { done } = renderStream(
+      writable as any,
+      { onShellReady }, // this will throw inside the try/catch
+      {},
+      '/cb-throws',
     );
 
-    await onFinishPromise;
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellReady(); // triggers the throwing callback (wrapped)
 
-    expect(capturedOptions?.nonce).toBe(cspNonce);
-    expect(capturedOptions?.bootstrapModules).toEqual([bootstrapModules]);
+    // warned, and NOT fatal-aborted
+    expect(warn).toHaveBeenCalledWith('onShellReady callback threw:', expect.any(Error));
+
+    // finish the stream explicitly so `done` resolves
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('test-complete');
+    await expect(done).resolves.toBeUndefined();
   });
 
-  it('createRenderer.renderStream: omits bootstrapModules and nonce when not provided', async () => {
-    const mockAppComponent = () => <div>Test</div>;
-    const mockHeadContent = '<title>Test</title>';
-    const mockInitialData = { data: 'test' };
+  it('onAllReady → getSnapshot throws rejecting thenable → logs error, onError, fatalAbort (rejects)', async () => {
+    const { writable } = makeWritable();
 
-    const onHead = vi.fn();
-    const onFinish = vi.fn();
+    // Throw a Promise that REJECTS later
+    (Store as any).__setSnapshotImpl(() => {
+      let reject!: (e: any) => void;
+      const p = new Promise((_res, rej) => {
+        reject = rej;
+      });
+      // reject in microtask
+      Promise.resolve().then(() => reject(new Error('nope')));
+      throw p; // Suspense-style thenable
+    });
+
+    const errorLog = vi.fn();
     const onError = vi.fn();
 
-    const serverResponse = new Writable({
-      write(_chunk, _encoding, callback) {
-        setImmediate(callback);
-      },
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      debug: true,
+      logger: { error: errorLog },
     });
 
-    let capturedOptions: any;
-    const onFinishPromise = new Promise<void>((resolve) => {
-      onFinish.mockImplementation(() => resolve());
-    });
+    const { done } = renderStream(writable as any, { onError }, {}, '/rejecting-thenable');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellReady();
+    opts.onAllReady(); // deliver() runs; thenable rejects → catch path
 
-    (renderToPipeableStream as Mock).mockImplementation((_appElement: React.JSX.Element, options: any) => {
-      capturedOptions = options;
-
-      const stream = {
-        pipe: (writable: Writable) => {
-          writable.write(Buffer.from('no bootstrap/no nonce'), (err) => {
-            if (err) throw err;
-            writable.end();
-          });
-        },
-      };
-
-      setImmediate(() => {
-        options.onShellReady?.();
-        options.onAllReady?.();
-      });
-
-      return stream;
-    });
-
-    const { renderStream } = createRenderer({
-      appComponent: mockAppComponent,
-      headContent: mockHeadContent,
-    });
-
-    // No bootstrapModules, no cspNonce
-    renderStream(serverResponse as any, { onHead, onFinish, onError }, mockInitialData, '/test');
-
-    await onFinishPromise;
-
-    expect(capturedOptions?.bootstrapModules).toBeUndefined();
-    expect(capturedOptions?.nonce).toBeUndefined();
+    await expect(done).rejects.toBeInstanceOf(Error);
+    expect(errorLog).toHaveBeenCalledWith('Data promise rejected:', expect.any(Error));
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
-  it('createRenderStream: directly passes nonce and wraps bootstrapModules as array', async () => {
-    const mockAppComponent = ({ location }: { location: string }) => <div>Location: {location}</div>;
-    const headContentFn = (data: Record<string, unknown>) => `<title>${data?.title ?? ''}</title>`;
-    const mockInitialData = { title: 'Stream Nonce' };
-    const mockLocation = '/nonce';
-    const mockBootstrapModules = '/entry-client.mjs';
-    const cspNonce = 'abc123';
-
-    const onHead = vi.fn();
-    const onFinish = vi.fn();
+  it('renderToPipeableStream throws synchronously → onError + fatalAbort (rejects)', async () => {
+    const { writable } = makeWritable();
     const onError = vi.fn();
 
-    const serverResponse = new Writable({
-      write(_chunk, _encoding, callback) {
-        setImmediate(callback);
-      },
+    // First call throws synchronously when createRenderer tries to start streaming
+    (RDS.renderToPipeableStream as any).mockImplementationOnce((_el: any, _opts: any) => {
+      throw new Error('sync explode');
     });
 
-    let capturedOptions: any;
-    const onFinishPromise = new Promise<void>((resolve) => {
-      onFinish.mockImplementation(() => resolve());
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
     });
 
-    (renderToPipeableStream as Mock).mockImplementation((_appElement: React.JSX.Element, options: any) => {
-      capturedOptions = options;
+    const { done } = renderStream(writable as any, { onError }, {}, '/sync-throw');
 
-      const stream = {
-        pipe: (writable: Writable) => {
-          writable.write(Buffer.from('nonce pass-through'), (err) => {
-            if (err) throw err;
-            writable.end();
-          });
-        },
-      };
+    await expect(done).rejects.toBeInstanceOf(Error);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
 
-      setImmediate(() => {
-        options.onShellReady?.();
-        options.onAllReady?.();
+  it('callbacks no-op when controller is already aborted (early return guards)', async () => {
+    const { writable } = makeWritable();
+    const headSpy = vi.fn();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: headSpy,
+    });
+
+    const { done } = renderStream(writable as any, {}, {}, '/aborted-callbacks');
+
+    // flip to aborted before invoking any callbacks
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.isAborted = true;
+
+    const opts = (RDS as any).__getLastOpts();
+    // none of these should do anything or throw
+    expect(() => opts.onShellReady()).not.toThrow();
+    expect(() => opts.onAllReady()).not.toThrow();
+    expect(() => opts.onShellError(new Error('x'))).not.toThrow();
+    expect(() => opts.onError(new Error('y'))).not.toThrow();
+
+    // no head calculation, no writes, no extra aborts
+    expect(headSpy).not.toHaveBeenCalled();
+    expect(writable.write as any).not.toHaveBeenCalled();
+    expect(ctrl.benignAbort).not.toHaveBeenCalled();
+    expect(ctrl.fatalAbort).not.toHaveBeenCalled();
+
+    // finish explicitly to settle done
+    ctrl.benignAbort('test-complete');
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('stopShellTimer throwing in onShellReady is swallowed (catch {})', async () => {
+    const { writable } = makeWritable();
+    // Make startShellTimer return a stop function that throws
+    (Streaming.startShellTimer as any).mockImplementationOnce((_ms: number, _cb: () => void) => {
+      return vi.fn(() => {
+        throw new Error('stop fail');
       });
-
-      return stream;
     });
 
-    createRenderStream(
-      serverResponse as any,
-      { onHead, onFinish, onError },
-      {
-        appComponent: mockAppComponent,
-        headContent: headContentFn,
-        initialDataPromise: mockInitialData,
-        location: mockLocation,
-        bootstrapModules: mockBootstrapModules,
-      },
-      cspNonce,
-    );
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
 
-    await onFinishPromise;
+    const { done } = renderStream(writable as any, {}, {}, '/stop-throws');
+    const opts = (RDS as any).__getLastOpts();
 
-    expect(capturedOptions?.nonce).toBe(cspNonce);
-    expect(capturedOptions?.bootstrapModules).toEqual([mockBootstrapModules]);
-    // sanity check: head computed from initialDataPromise (not meta) in onShellReady
-    expect(onHead).toHaveBeenCalledWith('<title>Stream Nonce</title>');
+    // Should not throw out of onShellReady despite stop throwing
+    expect(() => opts.onShellReady()).not.toThrow();
+
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('complete');
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('uncork throwing is swallowed in finally block (catch {})', async () => {
+    const { writable } = makeWritable({ willBackpressure: false, supportCork: true });
+    // Make uncork throw
+    (writable as any).uncork = vi.fn(() => {
+      throw new Error('uncork boom');
+    });
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      streamOptions: { useCork: true },
+    });
+
+    const { done } = renderStream(writable as any, {}, {}, '/uncork-throws');
+    const opts = (RDS as any).__getLastOpts();
+
+    // Should not throw out of onShellReady even though uncork throws in finally
+    expect(() => opts.onShellReady()).not.toThrow();
+
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('complete');
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it("onError with object lacking message (err?.message ?? '') and non-benign → fatalAbort", async () => {
+    const { writable } = makeWritable();
+    const onErrorCb = vi.fn();
+
+    (Streaming.isBenignStreamErr as any).mockReturnValue(false);
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const { done } = renderStream(writable as any, { onError: onErrorCb }, {}, '/no-message');
+    const opts = (RDS as any).__getLastOpts();
+
+    // Pass exactly once: an object with no .message to hit (err?.message ?? '')
+    const errObj: any = {}; // no .message
+    opts.onError(errObj);
+
+    await expect(done).rejects.toBe(errObj); // rejects with the same object
+    expect(onErrorCb).toHaveBeenCalledWith(errObj);
+  });
+
+  it('onShellError triggers stopShellTimer catch and fatalAbort', async () => {
+    const { writable } = makeWritable();
+    const onError = vi.fn();
+    // stop function throws to hit catch in onShellError
+    (Streaming.startShellTimer as any).mockImplementationOnce((_ms: number, _cb: () => void) => {
+      return vi.fn(() => {
+        throw new Error('stop fail');
+      });
+    });
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const { done } = renderStream(writable as any, { onError }, {}, '/shell-error-stop');
+    const opts = (RDS as any).__getLastOpts();
+
+    expect(() => opts.onShellError(new Error('boom'))).not.toThrow();
+    await expect(done).rejects.toBeInstanceOf(Error);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('shell timeout handler early-returns when controller is already aborted', async () => {
+    const { writable } = makeWritable();
+    const onError = vi.fn();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      streamOptions: { shellTimeoutMs: 111 }, // any value; we’ll invoke the handler manually
+    });
+
+    const { done } = renderStream(writable as any, { onError }, {}, '/timeout-already-aborted');
+
+    // grab controller + the captured timeout handler
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    const timeoutFn = (Streaming as any).__getLastTimeoutHandler() as (() => void) | undefined;
+    expect(typeof timeoutFn).toBe('function');
+
+    // simulate that the stream was aborted before the timer fires
+    ctrl.isAborted = true;
+
+    // invoking the timer should do nothing (early return), i.e., no onError/fatalAbort
+    timeoutFn!();
+    expect(onError).not.toHaveBeenCalled();
+    expect(ctrl.fatalAbort).not.toHaveBeenCalled();
+
+    // settle the promise to keep the test from hanging
+    ctrl.benignAbort('test-complete');
+    await expect(done).resolves.toBeUndefined();
   });
 });

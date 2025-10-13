@@ -382,4 +382,53 @@ describe('SSRStoreProvider and useSSRStore', () => {
 
     console.error = consoleError;
   });
+
+  it('getSnapshot uses "Unknown error" when error.message is empty', async () => {
+    const err = new Error(''); // empty message → || 'Unknown error'
+    const p = Promise.reject(err);
+    const store = createSSRStore(p);
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await p.catch(() => {}); // let the promise reject
+    await new Promise((r) => setImmediate(r)); // allow handleError to run
+
+    expect(() => store.getSnapshot()).toThrow('SSR data fetch failed: Unknown error');
+
+    spy.mockRestore();
+  });
+
+  it('getServerSnapshot uses "Unknown error" when error.message is empty', async () => {
+    const err = new Error('');
+    const p = Promise.reject(err);
+    const store = createSSRStore(p);
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await p.catch(() => {});
+    await new Promise((r) => setImmediate(r));
+
+    expect(() => store.getServerSnapshot()).toThrow('Server-side data fetch failed: Unknown error');
+
+    spy.mockRestore();
+  });
+
+  it('getSnapshot throws when status=success but data is undefined (real path)', async () => {
+    // resolves to undefined → status = 'success', currentData = undefined
+    const p = Promise.resolve(undefined as any);
+    const store = createSSRStore(p);
+
+    await p; // wait for success state
+
+    expect(() => store.getSnapshot()).toThrow('SSR data is undefined - store initialisation problem');
+  });
+
+  it('getServerSnapshot throws when status=success but data is undefined (real path)', async () => {
+    const p = Promise.resolve(undefined as any);
+    const store = createSSRStore(p);
+
+    await p;
+
+    expect(() => store.getServerSnapshot()).toThrow('Server data not available - check SSR configuration');
+  });
 });

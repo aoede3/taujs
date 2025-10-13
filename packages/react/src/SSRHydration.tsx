@@ -62,7 +62,6 @@ export function hydrateApp<T>({
       onHydrationError?.(err);
       warn('Falling back to SPA rendering.');
 
-      // Clear the root element before creating new root
       rootElement.innerHTML = '';
       const root = createRoot(rootElement);
       root.render(<React.StrictMode>{appComponent}</React.StrictMode>);
@@ -73,7 +72,6 @@ export function hydrateApp<T>({
     const maybe = (window as any)[dataKey] as T | undefined;
 
     if (maybe === undefined) {
-      // IMPORTANT: do NOT SPA fallback here; wait for server data.
       warn(`No initial SSR data found under key "${dataKey}". Waiting for server data.`);
       const onReady = () => {
         const data = (window as any)[dataKey] as T | undefined;

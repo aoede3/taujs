@@ -19,15 +19,3 @@ export function createLogger(debug: boolean, custom?: Partial<Logger>): Logger {
     },
   };
 }
-
-// export const createLogger = (debug: boolean): Logger => ({
-//   log: (...args: unknown[]) => {
-//     if (debug) console.log(...args);
-//   },
-//   warn: (...args: unknown[]) => {
-//     if (debug) console.warn(...args);
-//   },
-//   error: (...args: unknown[]) => {
-//     if (debug) console.error(...args);
-//   },
-// });
