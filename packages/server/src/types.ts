@@ -2,8 +2,9 @@ import type { FastifyPluginAsync, FastifyPluginCallback, FastifyRequest } from '
 import type { PluginOption } from 'vite';
 import type { CSPDirectives } from './security/CSP';
 import type { ServiceRegistry } from './utils/DataServices';
-import type { AppConfig, SecurityConfig } from './config';
-import type { DebugConfig } from './logging/Logger';
+import type { AppConfig, SecurityConfig } from './Config';
+import type { DebugConfig, Logs } from './logging/Logger';
+import type { RequestContext } from './utils/Telemetry';
 
 export type RouteCSPConfig = {
   disabled?: boolean;
@@ -71,6 +72,8 @@ export type RenderSSR = (
   initialDataResolved: Record<string, unknown>,
   location: string,
   meta?: Record<string, unknown>,
+  signal?: AbortSignal,
+  opts?: { logger?: Logs },
 ) => Promise<{
   headContent: string;
   appHtml: string;
@@ -85,6 +88,7 @@ export type RenderStream = (
   meta?: Record<string, unknown>,
   cspNonce?: string,
   signal?: AbortSignal,
+  opts?: { logger?: Logs },
 ) => { abort(): void };
 
 export type RenderModule = {
@@ -111,30 +115,27 @@ export type ServiceCall = {
 
 export type DataResult = Record<string, unknown> | ServiceCall;
 
-export type DataHandler<Params extends PathToRegExpParams> = (
+export type DataHandler<Params extends PathToRegExpParams, L extends Logs = Logs> = (
   params: Params,
-  ctx: {
-    headers?: Record<string, string | string[]>;
-    [key: string]: unknown;
-  },
+  ctx: RequestContext<L> & { [key: string]: unknown },
 ) => Promise<DataResult>;
 
 export type PathToRegExpParams = Partial<Record<string, string | string[]>>;
 
-export type RouteAttributes<Params extends PathToRegExpParams = PathToRegExpParams, Middleware = BaseMiddleware> =
+export type RouteAttributes<Params extends PathToRegExpParams = PathToRegExpParams, Middleware = BaseMiddleware, L extends Logs = Logs> =
   | {
       render: 'ssr';
       hydrate?: boolean;
       meta?: Record<string, unknown>;
       middleware?: Middleware;
-      data?: DataHandler<Params>;
+      data?: DataHandler<Params, L>;
     }
   | {
       render: 'streaming';
       hydrate?: boolean;
       meta: Record<string, unknown>;
       middleware?: Middleware;
-      data?: DataHandler<Params>;
+      data?: DataHandler<Params, L>;
     };
 
 export type Route<Params extends PathToRegExpParams = PathToRegExpParams> = {

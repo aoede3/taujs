@@ -24,6 +24,7 @@ function readFlag(argv: readonly string[], keys: readonly string[], bareValue?: 
       }
     }
   }
+
   return undefined;
 }
 
@@ -52,7 +53,7 @@ export function resolveNet(input?: { host?: string; port?: number; hmrPort?: num
   if (cliHost) host = cliHost;
   if (cliPort) port = Number(cliPort) || port;
   if (cliHMR) hmrPort = Number(cliHMR) || hmrPort;
-
   if (host === 'true' || host === '') host = '0.0.0.0';
+
   return { host, port, hmrPort };
 }

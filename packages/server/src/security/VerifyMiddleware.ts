@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { SecurityConfig } from '../config';
+import type { SecurityConfig } from '../Config';
 import type { Route } from '../types';
 
 export type ContractItem = {
@@ -21,6 +21,13 @@ type MiddlewareContract = {
   required: (routes: Route[], security?: SecurityConfig) => boolean;
   verify: (app: FastifyInstance) => boolean;
 };
+
+export function formatCspLoadedMsg(hasGlobal: boolean, custom: number) {
+  if (hasGlobal) {
+    return custom > 0 ? `Loaded global config with ${custom} route override(s)` : 'Loaded global config';
+  }
+  return custom > 0 ? `Loaded development defaults with ${custom} route override(s)` : 'Loaded development defaults';
+}
 
 export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts: MiddlewareContract[], security?: SecurityConfig): ContractReport => {
   const items: ContractItem[] = [];
@@ -64,17 +71,11 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
         tail = ' (consider adding global CSP for production)';
       }
 
+      const baseMsg = formatCspLoadedMsg(hasGlobal, custom);
       items.push({
         key: 'csp',
         status,
-        message:
-          (hasGlobal
-            ? custom > 0
-              ? `Loaded global config with ${custom} route override(s)`
-              : 'Loaded global config'
-            : custom > 0
-              ? `Loaded development defaults with ${custom} route override(s)`
-              : 'Loaded development defaults') + tail,
+        message: baseMsg + tail,
       });
 
       items.push({

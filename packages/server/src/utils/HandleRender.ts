@@ -2,11 +2,11 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
 import { fetchInitialData, matchRoute } from './DataRoutes';
-import { AppError } from '../logging/AppError';
+import { AppError, normaliseError, toReason } from '../logging/AppError';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from './System';
 import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
-import { RENDERTYPE } from '../constants';
+import { REGEX, RENDERTYPE } from '../constants';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -14,6 +14,7 @@ import type { RouteMatcher } from './DataRoutes';
 import type { ServiceRegistry } from './DataServices';
 import type { DebugConfig, Logs } from '../logging/Logger';
 import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../types';
+import { createRequestContext } from './Telemetry';
 
 export const handleRender = async (
   req: FastifyRequest,
@@ -56,7 +57,6 @@ export const handleRender = async (
 
     const rawNonce = (req as any).cspNonce as string | undefined | null;
     const cspNonce = rawNonce && rawNonce.length > 0 ? rawNonce : undefined;
-    const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
 
     if (!matchedRoute) {
       reply.callNotFound();
@@ -99,7 +99,8 @@ export const handleRender = async (
         renderModule = executedModule as RenderModule;
 
         const styles = await collectStyle(viteDevServer, [entryServerPath]);
-        template = template?.replace('</head>', `<style type="text/css">${styles}</style></head>`);
+        const styleNonce = cspNonce ? ` nonce="${cspNonce}"` : '';
+        template = template?.replace('</head>', `<style type="text/css"${styleNonce}>${styles}</style></head>`);
 
         template = await viteDevServer.transformIndexHtml(url, template);
       } catch (error) {
@@ -113,37 +114,78 @@ export const handleRender = async (
     const renderType = attr?.render ?? RENDERTYPE.ssr;
     const templateParts = processTemplate(template);
 
-    let initialDataInput: () => Promise<Record<string, unknown>>;
-    try {
-      initialDataInput = () => fetchInitialData(attr, params, serviceRegistry);
-    } catch (err) {
-      throw AppError.internal('Failed to build initial data input', {
-        cause: err,
-        details: { appId, url },
-      });
-    }
+    const baseLogger = (opts.logger ?? logger) as Logs;
+    const { traceId, logger: reqLogger, headers } = createRequestContext(req, reply, baseLogger);
+    const ctx = { traceId, logger: reqLogger, headers };
+    const initialDataInput = () => fetchInitialData(attr, params, serviceRegistry, ctx);
 
     if (renderType === RENDERTYPE.ssr) {
       const { renderSSR } = renderModule;
-      if (!renderSSR)
-        throw AppError.internal('renderSSR function not found in module', { details: { clientRoot, availableFunctions: Object.keys(renderModule) } });
+      if (!renderSSR) {
+        throw AppError.internal('renderSSR function not found in module', {
+          details: { clientRoot, availableFunctions: Object.keys(renderModule) },
+        });
+      }
+
+      const ac = new AbortController();
+      const onAborted = () => ac.abort('client_aborted');
+
+      req.raw.on('aborted', onAborted);
+      reply.raw.on('close', () => {
+        if (!reply.raw.writableEnded) ac.abort('socket_closed');
+      });
+      reply.raw.on('finish', () => req.raw.off('aborted', onAborted));
+
+      if (ac.signal.aborted) {
+        logger.warn('SSR skipped; already aborted', { url: req.url });
+        return;
+      }
 
       const initialDataResolved = await initialDataInput();
-      const initialDataScript = `<script${nonceAttr}>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')};</script>`;
 
-      const { headContent, appHtml } = await renderSSR(initialDataResolved, req.url!, attr?.meta);
+      let headContent = '';
+      let appHtml = '';
+      try {
+        const res = await renderSSR(initialDataResolved, req.url!, attr?.meta, ac.signal, { logger: reqLogger });
+        headContent = res.headContent;
+        appHtml = res.appHtml;
+      } catch (err) {
+        const msg = String((err as any)?.message ?? err ?? '');
+        const benign = REGEX.BENIGN_NET_ERR.test(msg);
+
+        if (ac.signal.aborted || benign) {
+          logger.warn('SSR aborted mid-render (benign)', { url: req.url, reason: msg });
+          return;
+        }
+
+        logger.error('SSR render failed', { url: req.url, error: normaliseError(err) });
+        throw err;
+      }
 
       let aggregateHeadContent = headContent;
       if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
       if (manifest && cssLink) aggregateHeadContent += cssLink;
 
       const shouldHydrate = attr?.hydrate !== false;
-      const bootstrapScriptTag = shouldHydrate && bootstrapModule ? `<script nonce="${cspNonce}" type="module" src="${bootstrapModule}" defer></script>` : '';
+      const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
+      const initialDataScript = `<script${nonceAttr}>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')};</script>`;
+
+      const bootstrapScriptTag = shouldHydrate && bootstrapModule ? `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script>` : '';
 
       const safeAppHtml = appHtml.trim();
       const fullHtml = rebuildTemplate(templateParts, aggregateHeadContent, `${safeAppHtml}${initialDataScript}${bootstrapScriptTag}`);
 
-      return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
+      try {
+        return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
+      } catch (err) {
+        const msg = String((err as any)?.message ?? err ?? '');
+        const benign = REGEX.BENIGN_NET_ERR.test(msg);
+
+        if (!benign) logger.error('SSR send failed', { url: req.url, error: normaliseError(err) });
+        else logger.warn('SSR send aborted (benign)', { url: req.url, reason: msg });
+
+        return;
+      }
     } else {
       const { renderStream } = renderModule;
       if (!renderStream) {
@@ -172,7 +214,7 @@ export const handleRender = async (
 
       const isBenignSocketAbort = (e: unknown) => {
         const msg = String((e as any)?.message ?? e ?? '');
-        return /ECONNRESET|EPIPE|socket hang up|aborted|premature/i.test(msg);
+        return REGEX.BENIGN_NET_ERR.test(msg);
       };
 
       const writable = new PassThrough();
@@ -199,18 +241,38 @@ export const handleRender = async (
           onAllReady: (data: unknown) => {
             if (!abortedState.aborted) finalData = data;
           },
-          onError: (err) => {
+          onError: (err: unknown) => {
             if (abortedState.aborted || isBenignSocketAbort(err)) {
               logger.warn('Client disconnected before stream finished');
               try {
-                if (!reply.raw.writableEnded) reply.raw.destroy();
-              } catch {}
+                if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
+              } catch (e) {
+                logger.debug?.('stream teardown: destroy() failed', { error: normaliseError(e) });
+              }
               return;
             }
-            throw AppError.internal('Critical rendering onError', {
-              cause: err,
-              details: { clientRoot },
+
+            abortedState.aborted = true;
+
+            logger.error('Critical rendering error during stream', {
+              error: normaliseError(err),
+              clientRoot,
+              url: req.url,
             });
+
+            try {
+              ac?.abort?.();
+            } catch (e) {
+              logger.debug?.('stream teardown: abort() failed', { error: normaliseError(e) });
+            }
+
+            const reason = toReason(err);
+
+            try {
+              if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy(reason);
+            } catch (e) {
+              logger.debug?.('stream teardown: destroy() failed', { error: normaliseError(e) });
+            }
           },
         },
         initialDataInput,
@@ -219,13 +281,14 @@ export const handleRender = async (
         attr?.meta,
         cspNonce,
         ac.signal,
+        { logger: reqLogger },
       );
 
       writable.on('finish', () => {
         if (abortedState.aborted || reply.raw.writableEnded) return;
 
         const data = finalData ?? {};
-        const initialDataScript = `<script${nonceAttr}>window.__INITIAL_DATA__ = ${JSON.stringify(data).replace(
+        const initialDataScript = `<script${cspNonce ? ` nonce="${cspNonce}"` : ''}>window.__INITIAL_DATA__ = ${JSON.stringify(data).replace(
           /</g,
           '\\u003c',
         )}; window.dispatchEvent(new Event('taujs:data-ready'));</script>`;

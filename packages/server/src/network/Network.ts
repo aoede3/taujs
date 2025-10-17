@@ -15,7 +15,7 @@ type BannerPluginOpts = {
 // RFC1918 ranges
 const isPrivateIPv4 = (addr: string): boolean => {
   if (!/^\d+\.\d+\.\d+\.\d+$/.test(addr)) return false;
-  const [a, b, c, d] = addr.split('.').map(Number) as [number, number, number, number];
+  const [a, b, _c, _d] = addr.split('.').map(Number) as [number, number, number, number];
 
   if (a === 10) return true; // 10.0.0.0/8
   if (a === 192 && b === 168) return true; // 192.168.0.0/16
@@ -62,7 +62,7 @@ export const bannerPlugin: FastifyPluginAsync<BannerPluginOpts> = async (fastify
 
     if (networkAddress) {
       console.log(`┃ Network  http://${networkAddress}:${port}/\n`);
-      if (dbgNetwork) logger.warn(pc.yellow(`${CONTENT.TAG} [network] Dev server exposed on network — for local testing only.`));
+      if (dbgNetwork) logger.warn(pc.yellow(`${CONTENT.TAG} [network] Dev server exposed on network - for local testing only.`));
     }
 
     logger.info(pc.green(`${CONTENT.TAG} [network] Bound to host: ${boundHost}`));

@@ -1,4 +1,4 @@
-import { match, pathToRegexp } from 'path-to-regexp';
+import { match } from 'path-to-regexp';
 
 import { callServiceMethod, isServiceDescriptor } from './DataServices';
 import { AppError } from '../logging/AppError';
@@ -6,8 +6,8 @@ import { AppError } from '../logging/AppError';
 import type { MatchFunction, Key } from 'path-to-regexp';
 import type { ServiceContext, ServiceRegistry } from './DataServices';
 import type { Route, RouteAttributes, PathToRegExpParams } from '../types';
-
-type RequestCtx = ServiceContext & { headers?: Record<string, string | string[]> };
+import type { RequestContext } from './Telemetry';
+import type { Logs } from '../logging/Logger';
 
 type CallServiceOn<R extends ServiceRegistry> = (
   registry: R,
@@ -74,10 +74,9 @@ export const createRouteMatchers = <Params extends PathToRegExpParams>(routes: R
   const sortedRoutes = [...routes].sort((a, b) => calculateSpecificity(b.path) - calculateSpecificity(a.path));
 
   return sortedRoutes.map((route) => {
-    const result = pathToRegexp(route.path);
-    const keys = result.keys || [];
     const matcher = match<Params>(route.path, { decode: safeDecode });
     const specificity = calculateSpecificity(route.path);
+    const keys: Key[] = [];
 
     return { route, matcher, keys, specificity };
   });
@@ -143,11 +142,11 @@ export const matchAllRoutes = <Params extends PathToRegExpParams>(url: string, r
   return matches;
 };
 
-export const fetchInitialData = async <Params extends PathToRegExpParams, R extends ServiceRegistry>(
+export const fetchInitialData = async <Params extends PathToRegExpParams, R extends ServiceRegistry, L extends Logs = Logs>(
   attr: RouteAttributes<Params> | undefined,
   params: Params,
   serviceRegistry: R,
-  ctx: RequestCtx = { headers: {} },
+  ctx: RequestContext<L>,
   callServiceMethodImpl: CallServiceOn<R> = callServiceMethod as CallServiceOn<R>,
 ): Promise<Record<string, unknown>> => {
   const dataHandler = attr?.data;

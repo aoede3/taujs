@@ -47,7 +47,7 @@ export class AppError extends Error {
     return kind === 'domain' || kind === 'validation' || kind === 'auth' ? message : 'Internal Server Error';
   }
 
-  private serializeValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  private serialiseValue(value: unknown, seen = new WeakSet<object>()): unknown {
     if (value === null || value === undefined) return value;
     if (typeof value !== 'object') return value;
     if (seen.has(value as object)) return '[circular]';
@@ -66,11 +66,11 @@ export class AppError extends Error {
       };
     }
 
-    if (Array.isArray(value)) value.map((item) => this.serializeValue(item, seen));
+    if (Array.isArray(value)) return value.map((item) => this.serialiseValue(item, seen));
 
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-      result[key] = this.serializeValue(val, seen);
+      result[key] = this.serialiseValue(val, seen);
     }
 
     return result;
@@ -84,10 +84,10 @@ export class AppError extends Error {
       safeMessage: this.safeMessage,
       httpStatus: this.httpStatus,
       ...(this.code && { code: this.code }),
-      details: this.serializeValue(this.details),
+      details: this.serialiseValue(this.details),
       stack: this.stack,
       ...((this as any).cause && {
-        cause: this.serializeValue((this as any).cause),
+        cause: this.serialiseValue((this as any).cause),
       }),
     };
   }
@@ -131,4 +131,27 @@ export class AppError extends Error {
   static from(err: unknown, fallback = 'Internal error'): AppError {
     return err instanceof AppError ? err : AppError.internal((err as any)?.message ?? fallback, err);
   }
+}
+
+type ErrorShape = { name: string; message: string; stack?: string };
+
+export function normaliseError(e: unknown): ErrorShape {
+  if (e instanceof Error) return { name: e.name, message: e.message, stack: e.stack };
+
+  const hasMessageProp = e != null && typeof (e as any).message !== 'undefined';
+  const msg = hasMessageProp ? String((e as any).message) : String(e);
+
+  return { name: 'Error', message: msg };
+}
+
+export function toReason(e: unknown): Error {
+  if (e instanceof Error) return e;
+
+  if (e === null) return new Error('null');
+  if (typeof e === 'undefined') return new Error('Unknown render error');
+
+  const maybeMsg = (e as any)?.message;
+  if (typeof maybeMsg !== 'undefined') return new Error(String(maybeMsg));
+
+  return new Error(String(e));
 }

@@ -2,27 +2,34 @@ import pc from 'picocolors';
 
 import { parseDebugInput } from './Parser';
 
-export const DEBUG_CATEGORIES = ['auth', 'routes', 'errors', 'vite', 'network'] as const;
+export const DEBUG_CATEGORIES = ['auth', 'routes', 'errors', 'vite', 'network', 'ssr'] as const;
 export type DebugCategory = (typeof DEBUG_CATEGORIES)[number];
 export type DebugConfig = boolean | DebugCategory[] | ({ all?: boolean } & Partial<Record<DebugCategory, boolean>>);
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
-export type CustomLogger = {
-  debug?: (message: string, meta?: unknown) => void;
-  info?: (message: string, meta?: unknown) => void;
-  warn?: (message: string, meta?: unknown) => void;
-  error?: (message: string, meta?: unknown) => void;
-  log?: (message: string, meta?: unknown) => void;
-};
+export interface BaseLogger {
+  debug?(message: string, meta?: unknown): void;
+  info?(message: string, meta?: unknown): void;
+  warn?(message: string, meta?: unknown): void;
+  error?(message: string, meta?: unknown): void;
+  log?(message: string, meta?: unknown): void;
+}
 
-export type Logs = {
+export interface ChildLogger<L = any> extends BaseLogger {
+  child?(context: Record<string, unknown>): L;
+}
+
+export interface Logs extends BaseLogger {
+  debug(message: string, meta?: unknown): void;
+  debug(category: DebugCategory, message: string, meta?: unknown): void;
+
   info(message: string, meta?: unknown): void;
   warn(message: string, meta?: unknown): void;
   error(message: string, meta?: unknown): void;
-  debug(category: DebugCategory, message: string, meta?: unknown): void;
+
   child(context: Record<string, unknown>): Logs;
   isDebugEnabled(category: DebugCategory): boolean;
-};
+}
 
 export class Logger implements Logs {
   private debugEnabled = new Set<DebugCategory>();
@@ -30,21 +37,24 @@ export class Logger implements Logs {
 
   constructor(
     private config: {
-      custom?: CustomLogger;
+      custom?: BaseLogger;
       context?: Record<string, unknown>;
       minLevel?: LogLevel;
       includeStack?: boolean | ((level: LogLevel) => boolean);
       includeContext?: boolean | ((level: LogLevel) => boolean);
+      singleLine?: boolean;
     } = {},
   ) {
     if (config.context) this.context = { ...config.context };
   }
 
   child(context: Record<string, unknown>): Logger {
-    return new Logger({
+    const child = new Logger({
       ...this.config,
       context: { ...this.context, ...context },
     });
+    child.debugEnabled = new Set(this.debugEnabled);
+    return child;
   }
 
   configure(debug?: DebugConfig): void {
@@ -55,9 +65,8 @@ export class Logger implements Logs {
     } else if (Array.isArray(debug)) {
       this.debugEnabled = new Set(debug);
     } else if (typeof debug === 'object' && debug) {
-      if (debug.all) {
-        this.debugEnabled = new Set(DEBUG_CATEGORIES);
-      }
+      if (debug.all) this.debugEnabled = new Set(DEBUG_CATEGORIES);
+
       Object.entries(debug).forEach(([key, value]) => {
         if (key !== 'all' && typeof value === 'boolean') {
           if (value) this.debugEnabled.add(key as DebugCategory);
@@ -74,15 +83,17 @@ export class Logger implements Logs {
   private shouldEmit(level: LogLevel): boolean {
     const order: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
     const minLevel = this.config.minLevel ?? 'info';
+
     return order[level] >= order[minLevel];
   }
 
   private shouldIncludeStack(level: LogLevel): boolean {
     const include = this.config.includeStack;
-    if (include === undefined) {
-      return level === 'error' || (level === 'warn' && process.env.NODE_ENV !== 'production');
-    }
+
+    if (include === undefined) return level === 'error' || (level === 'warn' && process.env.NODE_ENV !== 'production');
+
     if (typeof include === 'boolean') return include;
+
     return include(level);
   }
 
@@ -107,9 +118,7 @@ export class Logger implements Logs {
 
   private formatTimestamp(): string {
     const now = new Date();
-    if (process.env.NODE_ENV === 'production') {
-      return now.toISOString();
-    }
+    if (process.env.NODE_ENV === 'production') return now.toISOString();
 
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
@@ -160,6 +169,13 @@ export class Logger implements Logs {
 
     const formatted = `${timestamp} ${coloredLevel} ${message}`;
 
+    if (this.config.singleLine && hasMeta) {
+      const metaStr = JSON.stringify(finalMeta).replace(/\n/g, '\\n');
+      sink(`${formatted} ${metaStr}`);
+
+      return;
+    }
+
     if (customSink) {
       if (hasMeta) sink(formatted, finalMeta);
       else sink(formatted);
@@ -183,17 +199,19 @@ export class Logger implements Logs {
 
   debug(category: DebugCategory, message: string, meta?: unknown): void {
     if (!this.debugEnabled.has(category)) return;
+
     this.emit('debug', message, meta, category);
   }
 }
 
 export function createLogger(opts?: {
   debug?: DebugConfig | string | boolean;
-  custom?: CustomLogger;
+  custom?: BaseLogger;
   context?: Record<string, unknown>;
   minLevel?: LogLevel;
   includeStack?: boolean | ((level: LogLevel) => boolean);
   includeContext?: boolean | ((level: LogLevel) => boolean);
+  singleLine?: boolean;
 }): Logger {
   const logger = new Logger({
     custom: opts?.custom,
@@ -201,12 +219,11 @@ export function createLogger(opts?: {
     minLevel: opts?.minLevel,
     includeStack: opts?.includeStack,
     includeContext: opts?.includeContext,
+    singleLine: opts?.singleLine,
   });
 
   const parsed = parseDebugInput(opts?.debug);
-  if (parsed !== undefined) {
-    logger.configure(parsed);
-  }
+  if (parsed !== undefined) logger.configure(parsed);
 
   return logger;
 }

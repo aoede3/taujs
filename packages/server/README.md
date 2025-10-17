@@ -1,6 +1,8 @@
 # @taujs/server
 
-This package is part of the taujs [ τjs ] orchestration system, authored by John Smith | Aoede, 2024-present. Attribution is appreciated.
+https://www.taujs.dev
+
+This package is part of the τjs [ taujs ] orchestration system, authored by John Smith | Aoede, 2024-present. Attribution is appreciated.
 
 `npm install @taujs/server`
 
@@ -24,7 +26,7 @@ Supported application structure and composition:
 
 Assemble independent frontends at build time incorporating flexible per-route SPA-MPA hybrid with CSR, SSR, and Streaming SSR, rendering options.
 
-Fastify Plugin for integration with taujs [ τjs ] template https://github.com/aoede3/taujs
+Fastify Plugin for integration with τjs [ taujs ] template https://github.com/aoede3/taujs
 
 - Production: Fastify, React
 - Development: Fastify, React, tsx, Vite
@@ -55,7 +57,7 @@ Integrated Vite HMR run alongside tsx (TS eXecute) providing fast responsive dev
 
 https://github.com/aoede3/taujs/blob/main/src/server/index.ts
 
-Not utilising taujs [ τjs ] template? Add in your own ts `alias` object for your own particular directory setup e.g. `alias: { object }`
+Not utilising τjs [ taujs ] template? Add in your own ts `alias` object for your own particular directory setup e.g. `alias: { object }`
 
 ### React 'entry-client.tsx'
 

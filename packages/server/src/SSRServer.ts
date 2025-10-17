@@ -1,10 +1,10 @@
 /**
- * taujs [ τjs ] Orchestration System
+ * τjs [ taujs ] Orchestration System
  * (c) 2024-present Aoede Ltd
  * Author: John Smith
  *
- * Licensed under the MIT License — attribution appreciated.
- * Part of the taujs [ τjs ] system for declarative, build-time orchestration of microfrontend applications,
+ * Licensed under the MIT License - attribution appreciated.
+ * Part of the τjs [ taujs ] system for declarative, build-time orchestration of microfrontend applications,
  * including CSR, SSR, streaming, and middleware composition.
  */
 
@@ -39,6 +39,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       context: { component: 'ssr-server' },
       minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
       includeContext: true,
+      singleLine: true,
     });
 
     const maps = createMaps();
@@ -133,9 +134,8 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         stack: e.stack,
       });
 
-      const { status, body } = toHttp(e);
-
       if (!reply.raw.headersSent) {
+        const { status, body } = toHttp(e);
         reply.status(status).send(body);
       } else {
         reply.raw.end();

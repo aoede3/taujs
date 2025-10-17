@@ -1,6 +1,6 @@
-import type { CustomLogger } from './Logger';
+import type { BaseLogger } from './Logger';
 
-export function pinoAdapter(pino: any): CustomLogger {
+export function pinoAdapter(pino: any): BaseLogger {
   return {
     debug: (message: string, meta?: unknown) => pino.debug(meta ?? {}, message),
     info: (message: string, meta?: unknown) => pino.info(meta ?? {}, message),
@@ -9,7 +9,7 @@ export function pinoAdapter(pino: any): CustomLogger {
   };
 }
 
-export function winstonAdapter(winston: any): CustomLogger {
+export function winstonAdapter(winston: any): BaseLogger {
   return {
     debug: (msg: string, meta?: unknown) => winston.debug(msg, meta),
     info: (msg: string, meta?: unknown) => winston.info(msg, meta),

@@ -5,19 +5,20 @@ import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import pc from 'picocolors';
 
-import { extractBuildConfigs, extractRoutes, extractSecurity, printConfigSummary, printContractReport, printSecuritySummary } from './config';
+import { extractBuildConfigs, extractRoutes, extractSecurity, printConfigSummary, printContractReport, printSecuritySummary } from './Config';
 import { CONTENT } from './constants';
 import { bannerPlugin } from './network/Network';
-import { resolveNet } from './network/Cli';
+import { resolveNet } from './network/CLI';
 import { verifyContracts, isAuthRequired, hasAuthenticate } from './security/VerifyMiddleware';
 import { SSRServer } from './SSRServer';
+import { normaliseError } from './logging/AppError';
 import { createLogger } from './logging/Logger';
 
 import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
-import type { TaujsConfig } from './config';
-import type { NetResolved } from './network/Cli';
+import type { TaujsConfig } from './Config';
+import type { NetResolved } from './network/CLI';
 import type { ServiceRegistry } from './utils/DataServices';
-import type { CustomLogger, DebugConfig } from './logging/Logger';
+import type { BaseLogger, DebugConfig } from './logging/Logger';
 
 type StaticAssetsRegistration = {
   plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
@@ -31,7 +32,7 @@ type CreateServerOptions = {
   alias?: Record<string, string>;
   fastify?: FastifyInstance;
   debug?: DebugConfig;
-  logger?: CustomLogger;
+  logger?: BaseLogger;
   registerStaticAssets?: false | StaticAssetsRegistration;
   port?: number;
 };
@@ -103,7 +104,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   } catch (err) {
     logger.error('Failed to register SSRServer', {
       step: 'register:SSRServer',
-      error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+      error: normaliseError(err),
     });
   }
 

@@ -1,10 +1,10 @@
 /**
- * taujs [ τjs ] Orchestration System
+ * τjs [ taujs ] Orchestration System
  * (c) 2024-present Aoede Ltd
  * Author: John Smith
  *
- * Licensed under the MIT License — attribution appreciated.
- * Part of the taujs [ τjs ] system for declarative, build-time orchestration of microfrontend applications,
+ * Licensed under the MIT License - attribution appreciated.
+ * Part of the τjs [ taujs ] system for declarative, build-time orchestration of microfrontend applications,
  * including CSR, SSR, streaming, and middleware composition.
  */
 
