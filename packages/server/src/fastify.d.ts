@@ -1,11 +1,10 @@
 import 'fastify';
 
-import type { FastifyRequest, FastifyReply } from 'fastify';
-
 declare module 'fastify' {
   interface FastifyRequest {
     cspNonce?: string;
   }
+
   interface FastifyInstance {
     /**
      * Optional authentication hook to be used by the taujs SSRServer.
@@ -19,5 +18,7 @@ declare module 'fastify' {
      * ```
      */
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    showBanner(): void;
+    cspNonce?: string;
   }
 }

@@ -1,16 +1,8 @@
-import { dirname, join } from 'node:path';
-import path from 'node:path'; /* separated import due to Istanbul coverage bug */
-import { fileURLToPath } from 'node:url';
-
-import { match } from 'path-to-regexp';
-
-import type { MatchFunction } from 'path-to-regexp';
 import type { ViteDevServer } from 'vite';
-import type { Manifest, Route, RouteAttributes, RouteParams, ServiceMethod, ServiceRegistry, SSRManifest } from '../SSRServer';
 
-export const isDevelopment = process.env.NODE_ENV === 'development';
-export const __filename = fileURLToPath(import.meta.url);
-export const __dirname = join(dirname(__filename), !isDevelopment ? './' : '..');
+import { SSRTAG } from '../constants';
+
+import type { Manifest, SSRManifest } from '../types';
 
 // https://github.com/vitejs/vite/issues/16515
 // https://github.com/hi-ogawa/vite-plugins/blob/main/packages/ssr-css/src/collect.ts
@@ -105,83 +97,6 @@ export function renderPreloadLink(file: string): string {
   }
 }
 
-// Internal `Command Descriptor with Dynamic Dispatch over a Service Registry`
-// Resolves a command descriptor by dispatching it against the service registry
-// Supports dynamic data fetching based on route-level declarations
-export const callServiceMethod = async <S extends keyof ServiceRegistry, M extends keyof ServiceRegistry[S]>(
-  registry: ServiceRegistry,
-  serviceName: S,
-  methodName: M,
-  params: Parameters<ServiceRegistry[S][M]>[0],
-): Promise<Awaited<ReturnType<ServiceRegistry[S][M]>>> => {
-  const service = registry[serviceName];
-  if (!service) throw new Error(`Service ${String(serviceName)} does not exist in the registry`);
-
-  const method = service[methodName];
-
-  if (typeof method !== 'function') throw new Error(`Service method ${String(methodName)} does not exist on ${String(serviceName)}`);
-
-  const data = await method(params);
-
-  if (typeof data !== 'object' || data === null)
-    throw new Error(`Expected object response from ${String(serviceName)}.${String(methodName)}, but got ${typeof data}`);
-
-  return data;
-};
-
-type ServiceDescriptor = {
-  serviceName: string;
-  serviceMethod: string;
-  args?: Record<string, unknown>;
-};
-
-export const isServiceDescriptor = (obj: unknown): obj is ServiceDescriptor => {
-  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return false;
-
-  const maybe = obj as Record<string, unknown>;
-
-  return typeof maybe.serviceName === 'string' && typeof maybe.serviceMethod === 'string';
-};
-
-export const fetchInitialData = async (
-  attr: RouteAttributes<RouteParams> | undefined,
-  params: Partial<Record<string, string | string[]>>,
-  serviceRegistry: ServiceRegistry,
-  ctx: { headers: Record<string, string>; [key: string]: unknown } = { headers: {} },
-  callServiceMethodImpl: typeof callServiceMethod = callServiceMethod,
-): Promise<Record<string, unknown>> => {
-  const dataHandler = attr?.data;
-
-  if (!dataHandler || typeof dataHandler !== 'function') return Promise.resolve({});
-
-  return dataHandler(params, ctx).then(async (result) => {
-    if (isServiceDescriptor(result)) {
-      const { serviceName, serviceMethod, args } = result;
-
-      if (serviceRegistry[serviceName]?.[serviceMethod]) return callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {});
-
-      throw new Error(`Invalid service: serviceName=${String(serviceName)}, method=${String(serviceMethod)}`);
-    }
-
-    if (typeof result === 'object' && result !== null) return result as Record<string, unknown>;
-
-    throw new Error('Invalid result from attr.data');
-  });
-};
-
-export const matchRoute = <Params extends Partial<Record<string, string | string[]>>>(url: string, renderRoutes: Route<RouteParams>[]) => {
-  for (const route of renderRoutes) {
-    const matcher: MatchFunction<Params> = match(route.path, {
-      decode: decodeURIComponent,
-    });
-    const matched = matcher(url);
-
-    if (matched) return { route, params: matched.params };
-  }
-
-  return null;
-};
-
 export function getCssLinks(manifest: Manifest, basePath = ''): string {
   const seen = new Set<string>();
   const styles = [];
@@ -217,4 +132,44 @@ export const ensureNonNull = <T>(value: T | null | undefined, errorMessage: stri
   if (value === undefined || value === null) throw new Error(errorMessage);
 
   return value;
+};
+
+export const cleanTemplateWhitespace = (templateParts: { beforeHead: string; afterHead: string; beforeBody: string; afterBody: string }) => {
+  const { beforeHead, afterHead, beforeBody, afterBody } = templateParts;
+
+  const cleanBeforeHead = beforeHead.replace(/\s*$/, '');
+  const cleanAfterHead = afterHead.replace(/^\s*/, '');
+  const cleanBeforeBody = beforeBody.replace(/\s*$/, '');
+  const cleanAfterBody = afterBody.replace(/^\s*/, '');
+
+  return {
+    beforeHead: cleanBeforeHead,
+    afterHead: cleanAfterHead,
+    beforeBody: cleanBeforeBody,
+    afterBody: cleanAfterBody,
+  };
+};
+
+export function processTemplate(template: string) {
+  const [headSplit, bodySplit] = template.split(SSRTAG.ssrHead);
+  if (typeof bodySplit === 'undefined') throw new Error(`Template is missing ${SSRTAG.ssrHead} marker.`);
+
+  const [beforeBody, afterBody] = bodySplit.split(SSRTAG.ssrHtml);
+  if (typeof beforeBody === 'undefined' || typeof afterBody === 'undefined') throw new Error(`Template is missing ${SSRTAG.ssrHtml} marker.`);
+
+  return {
+    beforeHead: headSplit,
+    afterHead: '',
+    beforeBody: beforeBody.replace(/\s*$/, ''),
+    afterBody: afterBody.replace(/^\s*/, ''),
+  };
+}
+
+export const rebuildTemplate = (parts: ReturnType<typeof processTemplate>, headContent: string, bodyContent: string) => {
+  return `${parts.beforeHead}${headContent}${parts.afterHead}${parts.beforeBody}${bodyContent}${parts.afterBody}`;
+};
+
+export const addNonceToInlineScripts = (html: string, nonce?: string) => {
+  if (!nonce) return html;
+  return html.replace(/<script(?![^>]*\bnonce=)([^>]*)>/g, `<script nonce="${nonce}"$1>`);
 };

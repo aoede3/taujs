@@ -35,7 +35,7 @@ feat: url matching; test; cleanup
 v0.3.0 - 10/07/2025 - Orchestration Foundations
 
 - Introduced middleware as an orchestration-layer primitive
-- Added attribution notice and clarified taujs [ τjs ] system scope
+- Added attribution notice and clarified τjs [ taujs ] system scope
 - Consolidated route and config handling under `taujs.config.ts`
 - Moving toward a formal build-time orchestration model
 

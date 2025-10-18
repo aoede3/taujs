@@ -2,32 +2,24 @@ import path from 'node:path';
 import * as vite from 'vite';
 import { describe, it, beforeEach, vi, expect } from 'vitest';
 
-import { taujsBuild } from '../build';
-
-import type { AppConfig } from '../config';
+import type { AppConfig } from '../Config';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal();
-
-  return {
-    ...(actual as Record<string, unknown>),
-    rm: vi.fn(),
-  };
+  return { ...(actual as Record<string, unknown>), rm: vi.fn() };
 });
 
 vi.mock('vite', async () => {
-  return {
-    build: vi.fn().mockResolvedValue(undefined),
-  };
+  return { build: vi.fn().mockResolvedValue(undefined) };
 });
 
-vi.mock('../SSRServer', async () => {
-  const original = await vi.importActual('../SSRServer');
+vi.mock('../utils/AssetManager', async () => {
+  const actual = await vi.importActual<any>('../utils/AssetManager');
 
-  const mockProcessConfigs = vi.fn((configs: AppConfig[]) =>
+  const __mocked_processConfigs = vi.fn((configs: AppConfig[], clientBaseDir: string) =>
     configs.map((cfg) => ({
       ...cfg,
-      clientRoot: path.resolve('test-client', cfg.entryPoint),
+      clientRoot: path.resolve('test-client', cfg.entryPoint || ''),
       entryClient: 'entry-client',
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
@@ -35,27 +27,27 @@ vi.mock('../SSRServer', async () => {
   );
 
   return {
-    ...original,
-    processConfigs: mockProcessConfigs,
-    TEMPLATE: {},
-    __mocked_processConfigs: mockProcessConfigs,
+    ...actual,
+    processConfigs: __mocked_processConfigs,
+    __mocked_processConfigs,
   };
 });
 
-import * as SSR from '../SSRServer';
+vi.mock('../constants', () => ({ TEMPLATE: {} }));
 
-declare module '../SSRServer' {
+import { taujsBuild } from '../Build';
+import * as AM from '../utils/AssetManager';
+
+declare module '../utils/AssetManager' {
   export const __mocked_processConfigs: ReturnType<typeof vi.fn>;
 }
 
-const mockProcessConfigs = SSR.__mocked_processConfigs as ReturnType<typeof vi.fn>;
+const mockProcessConfigs = (AM as any).__mocked_processConfigs as ReturnType<typeof vi.fn>;
+
+// ----------------------------------------------------------------
 
 describe('taujsBuild', () => {
-  const baseConfig: AppConfig = {
-    appId: 'test-app',
-    entryPoint: 'test-entry',
-  };
-
+  const baseConfig: AppConfig = { appId: 'test-app', entryPoint: 'test-entry' };
   const root = path.resolve();
   const clientBase = path.resolve('test-client');
 
@@ -124,7 +116,8 @@ describe('taujsBuild', () => {
       isSSRBuild: false,
     });
 
-    expect(vite.build).toHaveBeenCalledWith(
+    const lastCallArg = (vite.build as unknown as import('vitest').Mock).mock.calls.at(-1)?.[0];
+    expect(lastCallArg).toEqual(
       expect.objectContaining({
         plugins: expect.arrayContaining([expect.objectContaining({ name: 'customPlugin' })]),
       }),
@@ -169,7 +162,7 @@ describe('taujsBuild', () => {
     (vite.build as any).mockRejectedValueOnce(error);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit was called'); // stop test
+      throw new Error('process.exit was called');
     });
 
     await expect(() =>
