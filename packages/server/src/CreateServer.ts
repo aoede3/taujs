@@ -5,7 +5,7 @@ import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import pc from 'picocolors';
 
-import { extractBuildConfigs, extractRoutes, extractSecurity, printConfigSummary, printContractReport, printSecuritySummary } from './Config';
+import { extractBuildConfigs, extractRoutes, extractSecurity, printConfigSummary, printContractReport, printSecuritySummary } from './Setup';
 import { CONTENT } from './constants';
 import { bannerPlugin } from './network/Network';
 import { resolveNet } from './network/CLI';

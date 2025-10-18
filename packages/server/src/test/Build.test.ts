@@ -35,7 +35,7 @@ vi.mock('../utils/AssetManager', async () => {
 
 vi.mock('../constants', () => ({ TEMPLATE: {} }));
 
-import { taujsBuild } from '../build';
+import { taujsBuild } from '../Build';
 import * as AM from '../utils/AssetManager';
 
 declare module '../utils/AssetManager' {

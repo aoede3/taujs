@@ -1,7 +1,5 @@
 import { AppError } from '../AppError';
 
-import type { ErrorKind } from '../AppError';
-
 export const httpStatusFrom = (err: unknown, fallback = 500): number => (err instanceof AppError ? err.httpStatus : fallback);
 
 export const toHttp = (err: unknown): { status: number; body: Record<string, unknown> } => {
@@ -18,12 +16,7 @@ export const toHttp = (err: unknown): { status: number; body: Record<string, unk
   };
 };
 
-export function toClientError(err: unknown): { error: string; code?: string } {
-  const app = AppError.from(err);
-  return { error: app.safeMessage, ...(app.code && { code: app.code }) };
-}
-
-export function statusText(status: number): string {
+export const statusText = (status: number): string => {
   const map = {
     400: 'Bad Request',
     401: 'Unauthorized',
@@ -40,20 +33,4 @@ export function statusText(status: number): string {
     504: 'Gateway Timeout',
   } as const satisfies Record<number, string>;
   return map[status as keyof typeof map] ?? 'Error';
-}
-
-export function errorCategory(kind: ErrorKind): 'client' | 'server' {
-  switch (kind) {
-    case 'domain':
-    case 'validation':
-    case 'auth':
-      return 'client';
-    case 'infra':
-    case 'upstream':
-    case 'timeout':
-    case 'canceled':
-      return 'server';
-    default:
-      throw new Error(`Unreachable: ${kind}`);
-  }
-}
+};

@@ -100,7 +100,7 @@ const extractSecuritySpy = vi.fn(() => ({
 const printConfigSummarySpy = vi.fn();
 const printSecuritySummarySpy = vi.fn();
 const printContractReportSpy = vi.fn();
-vi.mock('../config', () => ({
+vi.mock('../Setup', () => ({
   extractBuildConfigs: extractBuildConfigsSpy,
   extractRoutes: extractRoutesSpy,
   extractSecurity: extractSecuritySpy,
