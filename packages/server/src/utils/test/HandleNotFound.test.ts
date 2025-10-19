@@ -9,7 +9,7 @@ describe('handleNotFound', () => {
   let req: any;
   let reply: any;
 
-  const makeTemplate = () => `<html><head>${SSRTAG.ssrHead}</head><body>${SSRTAG.ssrHtml}</body></html>`;
+  const makeTemplate = () => `<html><head>${SSRTAG.ssrHead}</head><body><div id="root">${SSRTAG.ssrHtml}</div></body></html>`;
 
   beforeEach(() => {
     vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(false);
@@ -70,11 +70,10 @@ describe('handleNotFound', () => {
   });
 
   it('injects css in production and no scripts when no bootstrapModule', async () => {
-    // prod
     vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(false);
 
     const cssLinks = new Map([['/app', '<link rel="stylesheet" href="/prod.css">']]);
-    const bootstrapModules = new Map(); // no bootstrap => no scripts
+    const bootstrapModules = new Map();
     const templates = new Map([['/app', makeTemplate()]]);
 
     await handleNotFound(
@@ -97,18 +96,14 @@ describe('handleNotFound', () => {
     expect(reply.type).toHaveBeenCalledWith('text/html');
 
     const html = reply.send.mock.calls[0][0] as string;
-    // css injected before </head>
     expect(html).toContain('<link rel="stylesheet" href="/prod.css"></head>');
-    // no script tags since no bootstrap
     expect(html).not.toMatch(/<script[^>]*src=/);
     expect(html).not.toContain('window.__INITIAL_DATA__');
   });
 
   it('does not inject css in development, but injects initial data + bootstrap with nonce when provided', async () => {
-    // dev
     vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
 
-    // CSP nonce on request
     (req as any).cspNonce = 'nonce-xyz';
 
     const cssLinks = new Map([['/app', '<link rel="stylesheet" href="/dev.css">']]);
@@ -133,12 +128,8 @@ describe('handleNotFound', () => {
 
     const html = reply.send.mock.calls[0][0] as string;
 
-    // dev -> no css injection
     expect(html).not.toContain('/dev.css');
-
-    // initial data + bootstrap script present with nonce
-    expect(html).toContain('<script nonce="nonce-xyz">');
-    expect(html).toContain('window.__INITIAL_DATA__ = {}');
+    expect(html).not.toContain('window.__INITIAL_DATA__');
     expect(html).toContain('<script nonce="nonce-xyz" type="module" src="/assets/client.js" defer>');
   });
 
@@ -220,5 +211,83 @@ describe('handleNotFound', () => {
 
     expect(reply.status).toHaveBeenCalledWith(200);
     expect(reply.send).toHaveBeenCalled();
+  });
+
+  it('dev: does NOT inject CSS and does NOT set __INITIAL_DATA__, but injects bootstrap with nonce', async () => {
+    // dev
+    vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+
+    // CSP nonce on request
+    (req as any).cspNonce = 'nonce-xyz';
+
+    const cssLinks = new Map([['/app', '<link rel="stylesheet" href="/dev.css">']]);
+    const bootstrapModules = new Map([['/app', '/assets/client.js']]);
+    const templates = new Map([['/app', makeTemplate()]]);
+
+    await handleNotFound(
+      req,
+      reply,
+      [
+        {
+          clientRoot: '/app',
+          appId: 'a',
+          entryPoint: 'x',
+          entryClient: 'e',
+          entryServer: 's',
+          htmlTemplate: 'index.html',
+        } as any,
+      ],
+      { cssLinks, bootstrapModules, templates },
+    );
+
+    const html = reply.send.mock.calls[0][0] as string;
+
+    expect(html).not.toContain('/dev.css');
+
+    expect(html).not.toContain('window.__INITIAL_DATA__');
+
+    expect(html).toContain('<script nonce="nonce-xyz" type="module" src="/assets/client.js" defer>');
+
+    expect(html).not.toContain('<!--ssr-head-->');
+    expect(html).not.toContain('<!--ssr-html-->');
+    expect(html).toMatch(/<div id="root"><\/div>/);
+  });
+
+  it('prod: injects CSS, does NOT set __INITIAL_DATA__, and injects bootstrap with nonce', async () => {
+    vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(false);
+
+    (req as any).cspNonce = 'nonce-abc';
+
+    const cssLinks = new Map([['/app', '<link rel="stylesheet" href="/prod.css">']]);
+    const bootstrapModules = new Map([['/app', '/assets/client.js']]);
+    const templates = new Map([['/app', makeTemplate()]]);
+
+    await handleNotFound(
+      req,
+      reply,
+      [
+        {
+          clientRoot: '/app',
+          appId: 'a',
+          entryPoint: 'x',
+          entryClient: 'e',
+          entryServer: 's',
+          htmlTemplate: 'index.html',
+        } as any,
+      ],
+      { cssLinks, bootstrapModules, templates },
+    );
+
+    const html = reply.send.mock.calls[0][0] as string;
+
+    expect(html).toContain('<link rel="stylesheet" href="/prod.css">');
+
+    expect(html).not.toContain('window.__INITIAL_DATA__');
+
+    expect(html).toContain('<script nonce="nonce-abc" type="module" src="/assets/client.js" defer>');
+
+    expect(html).not.toContain('<!--ssr-head-->');
+    expect(html).not.toContain('<!--ssr-html-->');
+    expect(html).toMatch(/<div id="root"><\/div>/);
   });
 });

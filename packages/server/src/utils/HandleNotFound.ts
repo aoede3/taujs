@@ -46,14 +46,7 @@ export const handleNotFound = async (
 
     if (bootstrapModule) {
       const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
-      const initialDataScript = `<script${nonceAttr}>
-        window.__INITIAL_DATA__ = {};
-      </script>`;
-
-      processedTemplate = processedTemplate.replace(
-        '</body>',
-        `${initialDataScript}<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script></body>`,
-      );
+      processedTemplate = processedTemplate.replace('</body>', `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script></body>`);
     }
 
     reply.status(200).type('text/html').send(processedTemplate);
