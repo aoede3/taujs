@@ -5,6 +5,7 @@ import { fetchInitialData, matchRoute } from './DataRoutes';
 import { AppError, normaliseError, toReason } from '../logging/AppError';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from './System';
+import { createRequestContext } from './Telemetry';
 import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
 import { REGEX, RENDERTYPE } from '../constants';
 
@@ -14,7 +15,6 @@ import type { RouteMatcher } from './DataRoutes';
 import type { ServiceRegistry } from './DataServices';
 import type { DebugConfig, Logs } from '../logging/Logger';
 import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../types';
-import { createRequestContext } from './Telemetry';
 
 export const handleRender = async (
   req: FastifyRequest,
