@@ -235,7 +235,7 @@ export const handleRender = async (
             let aggregateHeadContent = headContent;
             if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
             if (manifest && cssLink) aggregateHeadContent += cssLink;
-            reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}`);
+            return reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}`);
           },
           onShellReady: () => {},
           onAllReady: (data: unknown) => {
