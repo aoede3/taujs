@@ -1,6 +1,8 @@
-# taujs | τjs
+# τjs | taujs
 
-taujs [ τjs ] template
+https://www.taujs.dev
+
+τjs [taujs] template
 
 > τjs is in development. Expect some breaking changes on the road towards a stable v1 release. Some features may or may not be missing!
 

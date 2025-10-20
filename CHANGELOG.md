@@ -1,5 +1,10 @@
 # @taujs
 
+v0.3.0 - 20/10/2025
+
+chore: update fastify; @fastify/static; vite
+chore: align naming; defineConfig; defineServiceRegistry; createServer
+
 v0.2.8 - 16/08/2025
 
 chore(deps): @taujs/server; @taujs/react
@@ -119,4 +124,4 @@ v0.0.2 - 22/09/2024
 
 v0.0.1 - 08/09/2024
 
-taujs [ τjs ] template - initial commit
+τjs [taujs] template - initial commit
