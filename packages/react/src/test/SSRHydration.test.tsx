@@ -1,164 +1,220 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { createRoot, hydrateRoot } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { hydrateApp } from '../SSRHydration';
-import { createSSRStore } from '../SSRDataStore';
-import { createLogger } from '../utils/Logger';
-
-import type { Mock } from 'vitest';
 
 vi.mock('react-dom/client', () => {
-  const mockRender = vi.fn();
+  let capturedRecoverable: ((err: any, info: any) => void) | undefined;
+
+  const hydrateRoot = vi.fn((el: any, node: any, opts?: { onRecoverableError?: (e: any, info?: any) => void }) => {
+    capturedRecoverable = opts?.onRecoverableError;
+    return {}; // ReactRoot-ish
+  });
+
+  const createRoot = vi.fn((el: any) => {
+    return { render: vi.fn() };
+  });
+
   return {
-    hydrateRoot: vi.fn(),
-    createRoot: vi.fn(() => ({
-      render: mockRender,
-    })),
+    hydrateRoot,
+    createRoot,
+    __getCapturedRecoverable: () => capturedRecoverable,
   };
 });
 
-vi.mock('../SSRDataStore', () => ({
-  createSSRStore: vi.fn(),
-  SSRStoreProvider: ({ children }: Record<string, unknown>) => <>{children}</>,
-}));
+vi.mock('../SSRDataStore', () => {
+  const createSSRStore = vi.fn((data: any) => ({ __store: data }));
+  const SSRStoreProvider = ({ children }: { children: React.ReactNode }) => <>{children}</>;
+  return { createSSRStore, SSRStoreProvider };
+});
 
-vi.mock('../utils/Logger', () => ({
-  createLogger: vi.fn(),
-}));
+import { hydrateApp } from '../SSRHydration';
+import * as RDC from 'react-dom/client';
+import * as Store from '../SSRDataStore';
 
-declare global {
-  interface Window {
-    __INITIAL_DATA__?: Record<string, unknown>;
-    __CUSTOM_DATA__?: Record<string, unknown>;
-  }
+function setReadyState(state: DocumentReadyState) {
+  Object.defineProperty(document, 'readyState', { configurable: true, get: () => state });
 }
 
-describe('hydrateApp', () => {
-  let logMock: Mock<() => void>;
-  let warnMock: Mock<() => void>;
-  let errorMock: Mock<() => void>;
-  let appComponent: React.ReactElement;
-  let mockRender: Mock;
+function resetDom() {
+  document.body.innerHTML = '';
+  (window as any).__INITIAL_DATA__ = undefined;
+}
 
+function addRoot(id = 'root') {
+  const el = document.createElement('div');
+  el.id = id;
+  document.body.appendChild(el);
+  return el;
+}
+
+describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
   beforeEach(() => {
-    logMock = vi.fn();
-    warnMock = vi.fn();
-    errorMock = vi.fn();
-    appComponent = <div>Test Component</div>;
+    vi.clearAllMocks();
+    resetDom();
+    setReadyState('complete');
+  });
 
-    (createLogger as unknown as Mock).mockReturnValue({
-      log: logMock,
-      warn: warnMock,
-      error: errorMock,
+  afterEach(() => vi.restoreAllMocks());
+
+  it('hydrates successfully; calls onStart/onSuccess and wires recoverable handler', () => {
+    const root = addRoot('root');
+    (window as any).__INITIAL_DATA__ = { hello: 'world' };
+
+    const log = vi.fn(),
+      warn = vi.fn(),
+      error = vi.fn();
+    const onStart = vi.fn(),
+      onSuccess = vi.fn();
+
+    hydrateApp({
+      appComponent: <div>App</div>,
+      enableDebug: true,
+      logger: { log, warn, error },
+      onStart,
+      onSuccess,
     });
 
-    mockRender = vi.fn();
-    (createRoot as Mock).mockReturnValue({ render: mockRender });
+    // logs + store + hydrate
+    expect(log).toHaveBeenCalledWith('Hydration started');
+    expect(Store.createSSRStore).toHaveBeenCalledWith({ hello: 'world' });
+    expect(RDC.hydrateRoot).toHaveBeenCalledTimes(1);
+    expect((RDC.hydrateRoot as any).mock.calls[0]![0]).toBe(root);
+
+    // recoverable error path
+    const getRec = (RDC as any).__getCapturedRecoverable as () => ((e: any, info: any) => void) | undefined;
+    const rec = getRec();
+    expect(typeof rec).toBe('function');
+    rec?.(new Error('rec'), { digest: 'x' });
+    expect(warn).toHaveBeenCalledWith('Recoverable hydration error:', expect.any(Error), expect.objectContaining({ digest: 'x' }));
+
+    // finished
+    expect(log).toHaveBeenCalledWith('Hydration completed');
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+
+    // no CSR here
+    expect(RDC.createRoot).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
-    document.body.innerHTML = '';
+  it('logs error and aborts when root element is missing', () => {
+    (window as any).__INITIAL_DATA__ = { a: 1 };
+    const error = vi.fn();
+
+    hydrateApp({ appComponent: <div>App</div>, enableDebug: true, logger: { error } });
+
+    expect(error).toHaveBeenCalledWith('Root element with id "root" not found.');
+    expect(RDC.hydrateRoot).not.toHaveBeenCalled();
+    expect(RDC.createRoot).not.toHaveBeenCalled();
   });
 
-  it('should log and hydrate when root element and initial data are present', () => {
-    const mockElement = document.createElement('div');
-    mockElement.id = 'root';
-    document.body.appendChild(mockElement);
+  it('hard hydration error → logs, calls onHydrationError', () => {
+    const root = addRoot('root');
+    (window as any).__INITIAL_DATA__ = { a: 2 };
+    root.innerHTML = '<span>pre</span>';
 
-    window.__INITIAL_DATA__ = { some: 'data' };
+    // Make hydrateRoot throw
+    (RDC.hydrateRoot as any).mockImplementationOnce((_el: any, _node: any, _opts?: any) => {
+      throw new Error('kaboom');
+    });
 
-    hydrateApp({ appComponent });
+    const warn = vi.fn(),
+      error = vi.fn(),
+      onHydrationError = vi.fn();
 
-    expect(logMock).toHaveBeenCalledWith('Hydration started');
-    expect(logMock).toHaveBeenCalledWith('Initial data loaded:', { some: 'data' });
-    expect(createSSRStore).toHaveBeenCalledWith(Promise.resolve({ some: 'data' }));
-    expect(hydrateRoot).toHaveBeenCalledWith(mockElement, expect.anything());
-    expect(logMock).toHaveBeenCalledWith('Hydration completed');
+    hydrateApp({
+      appComponent: <div>App</div>,
+      enableDebug: true,
+      logger: { warn, error },
+      onHydrationError,
+    });
+
+    expect(error).toHaveBeenCalledTimes(1);
+    const [label, errObj] = (error as any).mock.calls[0]!;
+    expect(label).toContain('Hydration error:');
+    expect(errObj).toBeInstanceOf(Error);
+    expect((errObj as Error).message).toBe('kaboom');
+
+    expect(onHydrationError).toHaveBeenCalledWith(expect.any(Error));
   });
 
-  it('should warn if initial data key is undefined on window', () => {
-    const mockElement = document.createElement('div');
-    mockElement.id = 'root';
-    document.body.appendChild(mockElement);
+  it('no SSR data → mounts CSR immediately; logs warn in debug; does NOT call hydrate', () => {
+    const root = addRoot();
+    root.innerHTML = '<i>server-stuff</i>';
 
-    delete window.__INITIAL_DATA__;
+    const warn = vi.fn(),
+      log = vi.fn();
+    const addSpy = vi.spyOn(window, 'addEventListener');
 
-    hydrateApp({ appComponent });
+    hydrateApp({ appComponent: <div>App</div>, enableDebug: true, logger: { warn, log } });
 
-    expect(warnMock).toHaveBeenCalledWith('Initial data key "__INITIAL_DATA__" is undefined on window. Defaulting to SPA createRoot');
-    expect(createRoot).toHaveBeenCalledWith(mockElement);
-    expect(mockRender).toHaveBeenCalledWith(<React.StrictMode>{appComponent}</React.StrictMode>);
+    expect(warn).toHaveBeenCalledWith('No initial SSR data at window["__INITIAL_DATA__"]. Mounting CSR.');
+    expect(RDC.hydrateRoot).not.toHaveBeenCalled();
+
+    // CSR render path
+    expect(root.innerHTML).toBe('');
+    expect(RDC.createRoot).toHaveBeenCalledWith(root);
+    const rootInstance = (RDC.createRoot as any).mock.results[0]!.value;
+    expect(rootInstance.render).toHaveBeenCalledTimes(1);
+
+    // No waiting for custom window events in new code
+    expect(addSpy).not.toHaveBeenCalledWith('taujs:data-ready', expect.any(Function), expect.anything());
   });
 
-  it('should log an error if root element is not found', () => {
-    const getElementByIdSpy = vi.spyOn(document, 'getElementById').mockReturnValue(null);
+  it('defers to DOMContentLoaded when document is still loading (once)', () => {
+    setReadyState('loading');
+    const root = addRoot();
+    (window as any).__INITIAL_DATA__ = { soon: true };
 
-    hydrateApp({ appComponent });
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    hydrateApp({ appComponent: <div>App</div>, enableDebug: true });
 
-    expect(errorMock).toHaveBeenCalledWith('Root element with id "root" not found.');
+    // defers
+    expect(addSpy).toHaveBeenCalled();
+    const [eventName, cb, opts] = addSpy.mock.calls[0]!;
+    expect(eventName).toBe('DOMContentLoaded');
+    // ensure once:true is set
+    expect(opts).toEqual({ once: true });
 
-    getElementByIdSpy.mockRestore();
+    // fire it
+    (cb as EventListener)(new Event('DOMContentLoaded'));
+
+    // hydration occurs after DOM ready
+    expect(RDC.hydrateRoot).toHaveBeenCalledTimes(1);
+    expect((RDC.hydrateRoot as any).mock.calls[0]![0]).toBe(root);
   });
 
-  it('should defer hydration until DOMContentLoaded if document is still loading', () => {
-    const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
+  it('supports custom rootElementId and dataKey', () => {
+    const el = addRoot('app');
+    (window as any).FOO_DATA = { z: 9 };
 
-    vi.spyOn(document, 'readyState', 'get').mockReturnValue('loading');
+    const error = vi.fn(),
+      log = vi.fn();
 
-    hydrateApp({ appComponent });
+    hydrateApp({
+      appComponent: <div>App</div>,
+      rootElementId: 'app',
+      dataKey: 'FOO_DATA',
+      enableDebug: true,
+      logger: { error, log },
+    });
 
-    expect(addEventListenerSpy).toHaveBeenCalledWith('DOMContentLoaded', expect.any(Function));
+    expect(RDC.hydrateRoot).toHaveBeenCalledTimes(1);
+    expect((RDC.hydrateRoot as any).mock.calls[0]![0]).toBe(el);
+    expect(Store.createSSRStore).toHaveBeenCalledWith({ z: 9 });
+    expect(log).toHaveBeenCalledWith('Hydration started');
+    expect(error).not.toHaveBeenCalled();
   });
 
-  it('should immediately bootstrap if document is already loaded', () => {
-    const mockElement = document.createElement('div');
-    mockElement.id = 'root';
-    document.body.appendChild(mockElement);
+  it('does NOT call onStart/onSuccess in CSR mode (no SSR data)', () => {
+    addRoot();
+    const onStart = vi.fn(),
+      onSuccess = vi.fn();
+    hydrateApp({ appComponent: <div>App</div>, onStart, onSuccess });
 
-    vi.spyOn(document, 'readyState', 'get').mockReturnValue('complete');
-
-    hydrateApp({ appComponent });
-
-    expect(logMock).toHaveBeenCalledWith('Hydration started');
-  });
-
-  it('should use custom initialDataKey if provided', () => {
-    const mockElement = document.createElement('div');
-    mockElement.id = 'root';
-    document.body.appendChild(mockElement);
-
-    window.__CUSTOM_DATA__ = { custom: 'data' };
-
-    hydrateApp({ appComponent, initialDataKey: '__CUSTOM_DATA__' });
-
-    expect(logMock).toHaveBeenCalledWith('Initial data loaded:', { custom: 'data' });
-  });
-
-  it('should fallback to createRoot if hydrateRoot is unavailable', () => {
-    const mockElement = document.createElement('div');
-    mockElement.id = 'root';
-    document.body.appendChild(mockElement);
-
-    window.__INITIAL_DATA__ = undefined;
-
-    hydrateApp({ appComponent });
-
-    expect(createRoot).toHaveBeenCalledWith(mockElement);
-    expect(mockRender).toHaveBeenCalledWith(<React.StrictMode>{appComponent}</React.StrictMode>);
-  });
-
-  it('should call bootstrap when DOMContentLoaded fires if document is loading', () => {
-    const mockElement = document.createElement('div');
-    mockElement.id = 'root';
-    document.body.appendChild(mockElement);
-
-    vi.spyOn(document, 'readyState', 'get').mockReturnValue('loading');
-    const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
-
-    hydrateApp({ appComponent });
-
-    expect(addEventListenerSpy).toHaveBeenCalledWith('DOMContentLoaded', expect.any(Function));
+    expect(onStart).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(RDC.createRoot).toHaveBeenCalledTimes(1);
+    expect(RDC.hydrateRoot).not.toHaveBeenCalled();
   });
 });
