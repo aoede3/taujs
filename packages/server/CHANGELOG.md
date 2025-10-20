@@ -1,5 +1,26 @@
 # @taujs/server
 
+v0.4.0 - 20/10/2025
+
+chore: update vite
+chore: update packages vite; vitest; tests
+feat: HandleNotFound logger
+feat: onHead raw.write callback return
+chore: sorting import hierarchy
+feat: csr rendering; tests
+chore: package updates
+feat: Associated file updates; tests; project details
+feat: Associated file updates; tests; project details
+feat: Logger; AppError, Parser; associated file updates
+feat: Logger; associated file updates
+feat: csp routes; observability
+feat: createConfig; network; banner; debug
+feat: CreateServer; logging; verification; startup; types
+feat: Logging / Telemetry
+feat: file splitting; optimisation
+feat: file splitting; optimisation
+feat: data; services, schema addition
+
 v0.3.7 - 16/08/2025
 
 chore(deps): bump tmp and @changesets/cli
