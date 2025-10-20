@@ -60,14 +60,14 @@
     "prettier": "^3.3.3",
     "tsup": "^8.2.4",
     "typescript": "^5.5.4",
-    "vite": "^6.4.1",
+    "vite": "^7.1.11",
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
     "@fastify/static": "^8.3.0",
     "fastify": "^5.6.1",
     "typescript": "^5.5.4",
-    "vite": "^6.4.1"
+    "vite": "^7.1.11"
   },
   "peerDependenciesMeta": {
     "@fastify/static": {
