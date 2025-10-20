@@ -61,8 +61,6 @@ export function hydrateApp<T>({
     } catch (err) {
       error('Hydration error:', err);
       onHydrationError?.(err);
-      warn('Falling back to SPA rendering.');
-      mountCSR(rootEl);
     }
   };
 

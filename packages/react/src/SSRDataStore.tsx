@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useSyncExternalStore } from 'react';
+import React, { createContext, useContext, useSyncExternalStore, useDeferredValue, useMemo } from 'react';
 
 export type SSRStore<T> = {
   getSnapshot: () => T;
@@ -82,7 +82,14 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     return currentData;
   };
 
-  return { getSnapshot, getServerSnapshot, setData, subscribe, status, lastError };
+  return {
+    getSnapshot,
+    getServerSnapshot,
+    setData,
+    subscribe,
+    status,
+    lastError,
+  };
 }
 
 const SSRStoreContext = createContext<SSRStore<any> | null>(null);
@@ -96,5 +103,8 @@ export const useSSRStore = <T,>(): T => {
 
   if (!store) throw new Error('useSSRStore must be used within a SSRStoreProvider');
 
-  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
+  const syncVal = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
+  const deferred = useDeferredValue(syncVal);
+
+  return useMemo(() => deferred, [deferred]);
 };

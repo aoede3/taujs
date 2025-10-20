@@ -108,7 +108,7 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     expect(RDC.createRoot).not.toHaveBeenCalled();
   });
 
-  it('hard hydration error → logs, calls onHydrationError, warns, falls back to CSR (clears HTML)', () => {
+  it('hard hydration error → logs, calls onHydrationError', () => {
     const root = addRoot('root');
     (window as any).__INITIAL_DATA__ = { a: 2 };
     root.innerHTML = '<span>pre</span>';
@@ -136,14 +136,6 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     expect((errObj as Error).message).toBe('kaboom');
 
     expect(onHydrationError).toHaveBeenCalledWith(expect.any(Error));
-    expect(warn).toHaveBeenCalledWith('Falling back to SPA rendering.');
-
-    // CSR render happened and server HTML cleared
-    expect(root.innerHTML).toBe('');
-    expect(RDC.createRoot).toHaveBeenCalledWith(root);
-    const rootInstance = (RDC.createRoot as any).mock.results[0]!.value;
-    expect(rootInstance.render).toBeTypeOf('function');
-    expect(rootInstance.render).toHaveBeenCalledTimes(1);
   });
 
   it('no SSR data → mounts CSR immediately; logs warn in debug; does NOT call hydrate', () => {

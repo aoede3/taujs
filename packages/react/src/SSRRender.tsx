@@ -176,7 +176,20 @@ export function createRenderer<T extends Record<string, unknown>>({
           log('Shell ready:', location);
 
           try {
-            const head = headContent({ data: {} as T, meta });
+            // Prefer current snapshot if available (sync path).
+            let headData: T | undefined;
+            try {
+              headData = store.getSnapshot();
+            } catch (thrown) {
+              // In async/lazy cases, snapshot may not be ready yet. That's fine.
+              // If it's a promise (thenable), attach a rejection handler to prevent unhandled rejection
+              if (thrown && typeof (thrown as any).then === 'function') {
+                (thrown as Promise<unknown>).catch(() => {
+                  // error swallowed here and will be handled in onAllReady
+                });
+              }
+            }
+            const head = headContent({ data: headData ?? ({} as T), meta });
 
             // Enable only when both requested and supported
             const canCork = effectiveUseCork && typeof (writable as any)?.cork === 'function' && typeof (writable as any)?.uncork === 'function';
