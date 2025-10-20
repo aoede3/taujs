@@ -1,12 +1,12 @@
 import { AppError } from '../logging/AppError';
+import { createLogger } from '../logging/Logger';
 import { isDevelopment } from './System';
 import { ensureNonNull } from './Templates';
 import { SSRTAG } from '../constants';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import type { Logs } from '../logging/Logger';
+import type { DebugConfig, Logs } from '../logging/Logger';
 import type { ProcessedConfig } from '../types';
-import type { DebugInput } from '../logging/Parser';
 
 export const handleNotFound = async (
   req: FastifyRequest,
@@ -18,15 +18,26 @@ export const handleNotFound = async (
     templates: Map<string, string>;
   },
   opts: {
-    debug?: DebugInput;
+    debug?: DebugConfig;
     logger?: Logs;
   } = {},
 ) => {
+  const logger =
+    opts.logger ??
+    createLogger({
+      debug: opts.debug,
+      context: { component: 'handle-not-found', url: req.url, method: req.method, traceId: (req as any).id },
+    });
+
   try {
-    if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
+    if (/\.\w+$/.test(req.raw.url ?? '')) {
+      logger.debug?.('ssr', 'Delegating asset-like request to Fastify notFound handler', { url: req.raw.url });
+      return reply.callNotFound();
+    }
 
     const defaultConfig = processedConfigs[0];
     if (!defaultConfig) {
+      logger.error?.('No default configuration found', { configCount: processedConfigs.length, url: req.raw.url });
       throw AppError.internal('No default configuration found', {
         details: { configCount: processedConfigs.length, url: req.raw.url },
       });
@@ -40,24 +51,29 @@ export const handleNotFound = async (
     const cssLink = maps.cssLinks.get(clientRoot);
     const bootstrapModule = maps.bootstrapModules.get(clientRoot);
 
+    logger.debug?.('ssr', 'Preparing not-found fallback HTML', {
+      clientRoot,
+      hasCssLink: Boolean(cssLink),
+      hasBootstrapModule: Boolean(bootstrapModule),
+      isDevelopment,
+      hasCspNonce: Boolean(cspNonce),
+    });
+
     let processedTemplate = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
 
-    if (!isDevelopment && cssLink) processedTemplate = processedTemplate.replace('</head>', `${cssLink}</head>`);
+    if (!isDevelopment && cssLink) {
+      processedTemplate = processedTemplate.replace('</head>', `${cssLink}</head>`);
+    }
 
     if (bootstrapModule) {
       const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
-      const initialDataScript = `<script${nonceAttr}>
-        window.__INITIAL_DATA__ = {};
-      </script>`;
-
-      processedTemplate = processedTemplate.replace(
-        '</body>',
-        `${initialDataScript}<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script></body>`,
-      );
+      processedTemplate = processedTemplate.replace('</body>', `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script></body>`);
     }
 
-    reply.status(200).type('text/html').send(processedTemplate);
+    logger.debug?.('ssr', 'Sending not-found fallback HTML', { status: 200 });
+    return reply.status(200).type('text/html').send(processedTemplate);
   } catch (err) {
+    logger.error?.('handleNotFound failed', { error: err, url: req.url, clientRoot: processedConfigs[0]?.clientRoot });
     throw AppError.internal('handleNotFound failed', err, {
       stage: 'handleNotFound',
       url: req.url,
