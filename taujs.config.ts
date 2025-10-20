@@ -1,18 +1,17 @@
 /**
- * taujs [ τjs ] Orchestration System
+ * τjs [taujs] Orchestration System
  * (c) 2024-present Aoede Ltd
  * Author: John Smith
  *
  * Licensed under the MIT License — attribution appreciated.
- * Part of the taujs [ τjs ] system for declarative, build-time orchestration of microfrontend applications,
+ * Part of the τjs [taujs] system for declarative, build-time orchestration of microfrontend applications,
  * including CSR, SSR, streaming, and middleware composition.
  */
 
 import { pluginReact } from '@taujs/react/plugin';
+import { defineConfig } from '@taujs/server/config';
 
-import type { TaujsConfig } from '@taujs/server/config';
-
-export const taujsConfig: TaujsConfig = {
+export default defineConfig({
   apps: [
     {
       appId: 'root',
@@ -30,6 +29,17 @@ export const taujsConfig: TaujsConfig = {
 
               return data;
             },
+            middleware: {
+              csp: {
+                directives: ({ params }) => {
+                  const userId = params.id as string;
+
+                  return {
+                    'script-src': ["'self'", `https://user-${userId}.example.com`],
+                  };
+                },
+              },
+            },
             render: 'ssr',
           },
         },
@@ -42,7 +52,7 @@ export const taujsConfig: TaujsConfig = {
               serviceName: 'ServiceExample',
             }),
             meta: {
-              title: 'taujs [ τjs ] - streaming',
+              title: 'τjs [taujs] - streaming',
               description: 'Streaming page description from route meta',
             },
             render: 'streaming',
@@ -72,4 +82,4 @@ export const taujsConfig: TaujsConfig = {
       ],
     },
   ],
-};
+});

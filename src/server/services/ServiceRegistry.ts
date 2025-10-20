@@ -1,8 +1,5 @@
+import { defineServiceRegistry } from '@taujs/server/config';
+
 import { ServiceExample } from './ServiceExample';
 
-import type { ServiceRegistry } from '@taujs/server';
-
-export const serviceRegistry: ServiceRegistry = {
-  ServiceExample,
-} as const satisfies ServiceRegistry;
-
+export const serviceRegistry = defineServiceRegistry({ ServiceExample });

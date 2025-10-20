@@ -3,4 +3,4 @@ import { hydrateApp } from '@taujs/react';
 
 import AppBootstrap from './AppBootstrap';
 
-hydrateApp({ appComponent: <AppBootstrap />, debug: true });
+hydrateApp({ appComponent: <AppBootstrap />, enableDebug: false });
