@@ -1,5 +1,14 @@
 # @taujs/react
 
+v0.1.0 - 20/10/2025
+
+feat: optimisation
+feat: Streaming backpressure; semantics; coverage
+feat: Logger; streaming updates; coverage
+feat: useDeferredValue in store; render head data snapshots
+feat: debug logger; associated tests
+chore: update vite; vitest
+
 v0.0.8 - 15/08/2025
 
 feat: cspNonce addition + tests
