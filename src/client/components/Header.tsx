@@ -8,11 +8,11 @@ const Header = () => {
     <>
       <div className="container__taujs">
         <div className="logo-wrapper">
-          <a href="https://taujs.dev" target="_blank" title="taujs [ &tau;js ]" rel="noreferrer">
-            <img src="/taujs.svg" className="logo &tau;js" alt="&tau;js logo" />
+          <a href="https://taujs.dev" target="_blank" title="τjs [taujs]" rel="noreferrer">
+            <img src="/taujs.svg" className="logo taujs" alt="τjs logo" />
           </a>
         </div>
-        <h1 className="&tau;js">taujs [ &tau;js ]</h1>
+        <h1 className="taujs">τjs [taujs]</h1>
         <h2 className="rendering">CSR; SSR; Streaming SSR; Hydration</h2>
         <h2 className="smpa">Single and or Multiple Page Application(s)</h2>
         <h2 className="">Flexible 'build-time' &amp; server orchestrated micro-frontend(s)</h2>

@@ -18,7 +18,6 @@ export const App: React.FC = () => {
   return (
     <>
       <Header />
-
       <div className="card">
         <nav className="navigation">
           <a className="btn" href="/">
