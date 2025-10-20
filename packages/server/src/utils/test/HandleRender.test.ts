@@ -665,7 +665,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
       await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer })).rejects.toThrow(
-        /boom/,
+        'handleRender failed',
       );
 
       expect(mockLogger.error).toHaveBeenCalledWith(
@@ -789,9 +789,9 @@ describe('handleRender', () => {
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await expect(
-        handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer }),
-      ).rejects.toBeUndefined();
+      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer })).rejects.toEqual(
+        expect.objectContaining({ message: 'handleRender failed' }),
+      );
 
       expect(mockLogger.error).toHaveBeenCalledWith('SSR render failed', expect.objectContaining({ url: mockReq.url, error: expect.any(Object) }));
     });
