@@ -68,7 +68,7 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
 
     hydrateApp({
       appComponent: <div>App</div>,
-      debug: true,
+      enableDebug: true,
       logger: { log, warn, error },
       onStart,
       onSuccess,
@@ -101,7 +101,7 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     (window as any).__INITIAL_DATA__ = { a: 1 };
     const error = vi.fn();
 
-    hydrateApp({ appComponent: <div>App</div>, debug: true, logger: { error } });
+    hydrateApp({ appComponent: <div>App</div>, enableDebug: true, logger: { error } });
 
     expect(error).toHaveBeenCalledWith('Root element with id "root" not found.');
     expect(RDC.hydrateRoot).not.toHaveBeenCalled();
@@ -124,7 +124,7 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
 
     hydrateApp({
       appComponent: <div>App</div>,
-      debug: true,
+      enableDebug: true,
       logger: { warn, error },
       onHydrationError,
     });
@@ -146,7 +146,7 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
       log = vi.fn();
     const addSpy = vi.spyOn(window, 'addEventListener');
 
-    hydrateApp({ appComponent: <div>App</div>, debug: true, logger: { warn, log } });
+    hydrateApp({ appComponent: <div>App</div>, enableDebug: true, logger: { warn, log } });
 
     expect(warn).toHaveBeenCalledWith('No initial SSR data at window["__INITIAL_DATA__"]. Mounting CSR.');
     expect(RDC.hydrateRoot).not.toHaveBeenCalled();
@@ -167,7 +167,7 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     (window as any).__INITIAL_DATA__ = { soon: true };
 
     const addSpy = vi.spyOn(document, 'addEventListener');
-    hydrateApp({ appComponent: <div>App</div>, debug: true });
+    hydrateApp({ appComponent: <div>App</div>, enableDebug: true });
 
     // defers
     expect(addSpy).toHaveBeenCalled();
@@ -195,7 +195,7 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
       appComponent: <div>App</div>,
       rootElementId: 'app',
       dataKey: 'FOO_DATA',
-      debug: true,
+      enableDebug: true,
       logger: { error, log },
     });
 

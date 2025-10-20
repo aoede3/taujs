@@ -9,7 +9,7 @@ import type { LoggerLike } from './utils/Logger';
 export type HydrateAppOptions<T> = {
   appComponent: React.ReactElement;
   rootElementId?: string;
-  debug?: boolean;
+  enableDebug?: boolean;
   logger?: LoggerLike;
   dataKey?: string;
   onHydrationError?: (err: unknown) => void;
@@ -20,14 +20,14 @@ export type HydrateAppOptions<T> = {
 export function hydrateApp<T>({
   appComponent,
   rootElementId = 'root',
-  debug = false,
+  enableDebug = false,
   logger,
   dataKey = '__INITIAL_DATA__',
   onHydrationError,
   onStart,
   onSuccess,
 }: HydrateAppOptions<T>) {
-  const { log, warn, error } = createUILogger(logger, { debugCategory: 'ssr', context: { scope: 'react-hydration' } });
+  const { log, warn, error } = createUILogger(logger, { debugCategory: 'ssr', context: { scope: 'react-hydration' }, enableDebug });
 
   const mountCSR = (rootEl: HTMLElement) => {
     rootEl.innerHTML = '';
@@ -36,13 +36,13 @@ export function hydrateApp<T>({
   };
 
   const startHydration = (rootEl: HTMLElement, initialData: T) => {
-    if (debug) log('Hydration started');
+    if (enableDebug) log('Hydration started');
     onStart?.();
 
-    if (debug) log('Initial data loaded:', initialData);
+    if (enableDebug) log('Initial data loaded:', initialData);
 
     const store = createSSRStore(initialData);
-    if (debug) log('Store created:', store);
+    if (enableDebug) log('Store created:', store);
 
     try {
       hydrateRoot(
@@ -56,7 +56,7 @@ export function hydrateApp<T>({
           },
         },
       );
-      if (debug) log('Hydration completed');
+      if (enableDebug) log('Hydration completed');
       onSuccess?.();
     } catch (err) {
       error('Hydration error:', err);
@@ -75,7 +75,7 @@ export function hydrateApp<T>({
     const data = (window as any)[dataKey] as T | undefined;
 
     if (data === undefined) {
-      if (debug) warn(`No initial SSR data at window["${dataKey}"]. Mounting CSR.`);
+      if (enableDebug) warn(`No initial SSR data at window["${dataKey}"]. Mounting CSR.`);
       mountCSR(rootEl);
 
       return;

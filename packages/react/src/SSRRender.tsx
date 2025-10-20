@@ -1,4 +1,3 @@
-import { Writable as NodeWritable } from 'node:stream';
 import React from 'react';
 import { renderToPipeableStream, renderToString } from 'react-dom/server';
 
@@ -34,17 +33,15 @@ export function createRenderer<T extends Record<string, unknown>>({
   headContent,
   streamOptions = {},
   logger,
+  enableDebug = false,
 }: {
   appComponent: (props: { location: string }) => React.ReactElement;
   headContent: (ctx: { data: T; meta: Record<string, unknown> }) => string;
-  debug?: boolean;
+  enableDebug?: boolean;
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
 }) {
   const { shellTimeoutMs = 10_000, useCork = true } = streamOptions;
-
-  // Precompute cork support once per renderer
-  const nodeSupportsCork = typeof (NodeWritable as any)?.prototype?.cork === 'function' && typeof (NodeWritable as any)?.prototype?.uncork === 'function';
 
   const renderSSR = async (
     initialData: T,
@@ -56,6 +53,7 @@ export function createRenderer<T extends Record<string, unknown>>({
     const { log, warn } = createUILogger(opts?.logger ?? logger, {
       debugCategory: 'ssr',
       context: { scope: 'react-ssr' },
+      enableDebug,
     });
 
     if (signal?.aborted) {
@@ -106,6 +104,7 @@ export function createRenderer<T extends Record<string, unknown>>({
     const { log, warn, error } = createUILogger(opts?.logger ?? logger, {
       debugCategory: 'ssr',
       context: { scope: 'react-streaming' },
+      enableDebug,
     });
 
     // Merge renderer defaults with per-call overrides

@@ -141,7 +141,7 @@ describe('createRenderer.renderSSR', () => {
     const renderer = createRenderer<any>({
       appComponent: ({ location }) => <div>{location}</div>,
       headContent: ({ data, meta }) => `<head>${data.title}-${meta.x}</head>`,
-      debug: true,
+      enableDebug: true,
       logger: { log },
     });
 
@@ -167,7 +167,7 @@ describe('createRenderer.renderSSR', () => {
     const renderer = createRenderer<any>({
       appComponent: ({ location }) => <div>{location}</div>,
       headContent: () => '<head>x</head>',
-      debug: true,
+      enableDebug: true,
       logger: { warn },
     });
 
@@ -192,7 +192,7 @@ describe('createRenderer.renderSSR', () => {
     const renderer = createRenderer<any>({
       appComponent: ({ location }) => <div>{location}</div>,
       headContent: () => '<head>y</head>',
-      debug: true,
+      enableDebug: true,
       logger: { warn },
     });
 
@@ -245,6 +245,7 @@ describe('createRenderer.renderSSR', () => {
     const renderer = createRenderer<any>({
       appComponent: () => <div>ok</div>,
       headContent: () => '<head/>',
+      enableDebug: true,
       logger: { log: topLog }, // renderer-level
     });
 
@@ -266,6 +267,7 @@ describe('createRenderer.renderSSR', () => {
     const renderer = createRenderer<any>({
       appComponent: () => <div>ok</div>,
       headContent: () => '<head/>',
+      enableDebug: true,
       logger: { log: topLog }, // default
     });
 
@@ -297,7 +299,7 @@ describe('createRenderer.renderStream', () => {
     const { renderStream } = createRenderer<any>({
       appComponent: ({ location }) => <div>{location}</div>,
       headContent: () => '<head>ok</head>',
-      debug: true,
+      enableDebug: true,
       logger: { log, warn, error },
     });
 
@@ -334,7 +336,7 @@ describe('createRenderer.renderStream', () => {
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div>z</div>,
       headContent: () => '<head>bp</head>',
-      debug: true,
+      enableDebug: true,
       logger: { log },
       streamOptions: { useCork: true },
     });
@@ -370,7 +372,7 @@ describe('createRenderer.renderStream', () => {
       headContent: () => {
         throw new Error('head boom');
       },
-      debug: true,
+      enableDebug: true,
       logger: {},
     });
 
@@ -405,7 +407,7 @@ describe('createRenderer.renderStream', () => {
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
       headContent: () => '<head/>',
-      debug: true,
+      enableDebug: true,
     });
 
     const { done } = renderStream(writable as any, { onAllReady, onFinish, onError }, {}, '/thenable');
@@ -675,7 +677,7 @@ describe('createRenderer.renderStream', () => {
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
       headContent: () => '<head/>',
-      debug: true,
+      enableDebug: true,
       logger: { warn },
     });
 
@@ -725,7 +727,7 @@ describe('createRenderer.renderStream', () => {
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
       headContent: () => '<head/>',
-      debug: true,
+      enableDebug: true,
       logger: { error: errorLog },
     });
 
@@ -987,6 +989,7 @@ describe('createRenderer.renderStream', () => {
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
       headContent: () => '<head/>',
+      enableDebug: true,
       logger: { warn },
     });
 

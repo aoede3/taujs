@@ -15,7 +15,7 @@ export type ServerLogs = {
 
 export type LoggerLike = Partial<UILogger> | Partial<ServerLogs>;
 
-type Opts = { debugCategory?: string; context?: Record<string, unknown>; preferDebug?: boolean };
+type Opts = { debugCategory?: string; context?: Record<string, unknown>; preferDebug?: boolean; enableDebug?: boolean };
 
 const toJSONString = (v: unknown) => (typeof v === 'string' ? v : v instanceof Error ? (v.stack ?? v.message) : JSON.stringify(v));
 
@@ -31,7 +31,9 @@ const splitMsgAndMeta = (args: unknown[]) => {
 };
 
 export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
-  const { debugCategory = 'ssr', context, preferDebug = false } = opts;
+  const { debugCategory = 'ssr', context, preferDebug = false, enableDebug = false } = opts;
+
+  if (!enableDebug) return { log: () => {}, warn: () => {}, error: () => {} };
 
   const looksServer = !!logger && ('info' in logger || 'debug' in logger || 'child' in logger || 'isDebugEnabled' in logger);
 
@@ -47,6 +49,7 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
     const info = s.info ? s.info.bind(s) : (m: string, meta?: unknown) => (meta ? console.log(m, meta) : console.log(m));
     const warn = s.warn ? s.warn.bind(s) : (m: string, meta?: unknown) => (meta ? console.warn(m, meta) : console.warn(m));
     const error = s.error ? s.error.bind(s) : (m: string, meta?: unknown) => (meta ? console.error(m, meta) : console.error(m));
+
     const debug = s.debug ? s.debug.bind(s) : undefined;
     const isDebugEnabled = s.isDebugEnabled ? s.isDebugEnabled.bind(s) : undefined;
 
