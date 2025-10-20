@@ -214,6 +214,22 @@ describe('wireWritableGuards', () => {
     expect(benignAbort).not.toHaveBeenCalled();
     expect(fatalAbort).not.toHaveBeenCalled();
   });
+
+  it('calls onFinish when provided and does not call benignAbort', () => {
+    const w = makeWritableMock();
+    const benignAbort = vi.fn();
+    const fatalAbort = vi.fn();
+    const onFinish = vi.fn();
+
+    wireWritableGuards(w, { benignAbort, fatalAbort, onFinish });
+
+    // simulate normal completion
+    w.emit('finish');
+
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(benignAbort).not.toHaveBeenCalled();
+    expect(fatalAbort).not.toHaveBeenCalled();
+  });
 });
 
 describe('createStreamController', () => {
@@ -384,5 +400,81 @@ describe('createStreamController', () => {
     // Second call should early-return and NOT log again
     c.fatalAbort(new Error('later'));
     expect(errorSpy).not.toHaveBeenCalled(); // none during fatal path
+  });
+
+  it('logs optional message via log when available, runs cleanups, resolves', async () => {
+    const w = makeWritableMock();
+
+    const log = vi.fn(); // provide log to exercise (log ?? warn)
+    const warn = vi.fn();
+    const error = vi.fn();
+    const c = createStreamController(w, { log, warn, error });
+
+    const stopShellTimer = vi.fn();
+    const removeAbortListener = vi.fn();
+    const guardsCleanup = vi.fn();
+    const streamAbort = vi.fn();
+
+    c.setStopShellTimer(stopShellTimer);
+    c.setRemoveAbortListener(removeAbortListener);
+    c.setGuardsCleanup(guardsCleanup);
+    c.setStreamAbort(streamAbort);
+
+    c.complete('all good');
+
+    // completed + logged via log (not warn)
+    expect(c.isAborted).toBe(true);
+    expect(log).toHaveBeenCalledWith('all good');
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+
+    // cleanups + destroy
+    expect(stopShellTimer).toHaveBeenCalledTimes(1);
+    expect(removeAbortListener).toHaveBeenCalledTimes(1);
+    expect(guardsCleanup).toHaveBeenCalledTimes(1);
+    expect(streamAbort).toHaveBeenCalledTimes(1);
+    expect(w._destroyCalls).toBe(1);
+
+    await expect(c.done).resolves.toBeUndefined();
+
+    // idempotent: calling again does nothing
+    log.mockClear();
+    c.complete('ignored');
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('falls back to warn when log is undefined', async () => {
+    const w = makeWritableMock();
+
+    // omit log to hit (log ?? warn)
+    const warn = vi.fn();
+    const error = vi.fn();
+    const c = createStreamController(w, { warn, error });
+
+    c.complete('fallback warn');
+    expect(warn).toHaveBeenCalledWith('fallback warn');
+    expect(error).not.toHaveBeenCalled();
+    await expect(c.done).resolves.toBeUndefined();
+  });
+
+  it('is a no-op if already aborted', async () => {
+    const w = makeWritableMock();
+    const log = vi.fn();
+    const warn = vi.fn();
+    const error = vi.fn();
+    const c = createStreamController(w, { log, warn, error });
+
+    c.benignAbort('first'); // aborts
+    await expect(c.done).resolves.toBeUndefined();
+
+    log.mockClear();
+    warn.mockClear();
+    error.mockClear();
+
+    // Now complete should NO-OP
+    c.complete('should not log');
+    expect(log).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
   });
 });

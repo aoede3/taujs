@@ -2,15 +2,15 @@ import React from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
-import { createLogger } from './utils/Logger';
+import { createUILogger } from './utils/Logger';
 
-import type { Logger } from './utils/Logger';
+import type { LoggerLike } from './utils/Logger';
 
 export type HydrateAppOptions<T> = {
   appComponent: React.ReactElement;
   rootElementId?: string;
   debug?: boolean;
-  logger?: Partial<Logger>;
+  logger?: LoggerLike;
   dataKey?: string;
   onHydrationError?: (err: unknown) => void;
   onStart?: () => void;
@@ -27,64 +27,63 @@ export function hydrateApp<T>({
   onStart,
   onSuccess,
 }: HydrateAppOptions<T>) {
-  const { log, warn, error } = createLogger(debug, logger);
+  const { log, warn, error } = createUILogger(logger, { debugCategory: 'ssr', context: { scope: 'react-hydration' } });
 
-  const startHydration = (initialData: T) => {
-    log('Hydration started with initial data');
+  const mountCSR = (rootEl: HTMLElement) => {
+    rootEl.innerHTML = '';
+    const root = createRoot(rootEl);
+    root.render(<React.StrictMode>{appComponent}</React.StrictMode>);
+  };
 
-    const rootElement = document.getElementById(rootElementId);
-    if (!rootElement) {
-      error(`Root element with id "${rootElementId}" not found.`);
-      return;
-    }
+  const startHydration = (rootEl: HTMLElement, initialData: T) => {
+    if (debug) log('Hydration started');
+    onStart?.();
+
+    if (debug) log('Initial data loaded:', initialData);
+
+    const store = createSSRStore(initialData);
+    if (debug) log('Store created:', store);
 
     try {
-      onStart?.();
-
-      const store = createSSRStore(initialData);
-      const hydratedApp = (
+      hydrateRoot(
+        rootEl,
         <React.StrictMode>
           <SSRStoreProvider store={store}>{appComponent}</SSRStoreProvider>
-        </React.StrictMode>
-      );
-
-      hydrateRoot(rootElement, hydratedApp, {
-        onRecoverableError: (err, info) => {
-          warn('Recoverable hydration error:', err, info);
+        </React.StrictMode>,
+        {
+          onRecoverableError: (err, info) => {
+            warn('Recoverable hydration error:', err, info);
+          },
         },
-        identifierPrefix: undefined,
-      });
-
-      log('Hydration completed');
+      );
+      if (debug) log('Hydration completed');
       onSuccess?.();
     } catch (err) {
       error('Hydration error:', err);
       onHydrationError?.(err);
       warn('Falling back to SPA rendering.');
-
-      rootElement.innerHTML = '';
-      const root = createRoot(rootElement);
-      root.render(<React.StrictMode>{appComponent}</React.StrictMode>);
+      mountCSR(rootEl);
     }
   };
 
   const bootstrap = () => {
-    const maybe = (window as any)[dataKey] as T | undefined;
+    const rootEl = document.getElementById(rootElementId);
+    if (!rootEl) {
+      error(`Root element with id "${rootElementId}" not found.`);
 
-    if (maybe === undefined) {
-      warn(`No initial SSR data found under key "${dataKey}". Waiting for server data.`);
-      const onReady = () => {
-        const data = (window as any)[dataKey] as T | undefined;
-        if (data !== undefined) {
-          window.removeEventListener('taujs:data-ready', onReady);
-          startHydration(data);
-        }
-      };
-      window.addEventListener('taujs:data-ready', onReady, { once: true });
       return;
     }
 
-    startHydration(maybe);
+    const data = (window as any)[dataKey] as T | undefined;
+
+    if (data === undefined) {
+      if (debug) warn(`No initial SSR data at window["${dataKey}"]. Mounting CSR.`);
+      mountCSR(rootEl);
+
+      return;
+    }
+
+    startHydration(rootEl, data);
   };
 
   if (document.readyState !== 'loading') {

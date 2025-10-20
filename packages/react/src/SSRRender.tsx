@@ -3,18 +3,18 @@ import React from 'react';
 import { renderToPipeableStream, renderToString } from 'react-dom/server';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
-import { createLogger } from './utils/Logger';
+import { createUILogger } from './utils/Logger';
 
 import type { Writable } from 'node:stream';
-import type { Logger } from './utils/Logger';
+import type { LoggerLike } from './utils/Logger';
 
 import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming';
 
 export type RenderCallbacks<T> = {
-  onHead?: (head: string) => void;
+  onHead?: (head: string) => boolean | void;
   onShellReady?: () => void;
   onAllReady?: (data: T) => void;
-  onFinish?: (data: T) => void; // optional, fires when final data is available (onAllReady)
+  onFinish?: (data: T) => void; // optional, legacy fires when final data is available (onAllReady)
   onError?: (err: unknown) => void;
 };
 
@@ -25,32 +25,70 @@ export type StreamOptions = {
   useCork?: boolean;
 };
 
+type SSRResult = { headContent: string; appHtml: string; aborted: boolean };
+
+type StreamCallOptions = StreamOptions & { logger?: LoggerLike };
+
 export function createRenderer<T extends Record<string, unknown>>({
   appComponent,
   headContent,
-  debug = false,
-  logger,
   streamOptions = {},
+  logger,
 }: {
   appComponent: (props: { location: string }) => React.ReactElement;
   headContent: (ctx: { data: T; meta: Record<string, unknown> }) => string;
   debug?: boolean;
-  logger?: Partial<Logger>;
+  logger?: LoggerLike;
   streamOptions?: StreamOptions;
 }) {
-  const { log, warn, error } = createLogger(debug, logger);
   const { shellTimeoutMs = 10_000, useCork = true } = streamOptions;
 
   // Precompute cork support once per renderer
   const nodeSupportsCork = typeof (NodeWritable as any)?.prototype?.cork === 'function' && typeof (NodeWritable as any)?.prototype?.uncork === 'function';
 
-  const renderSSR = async (initialData: T, location: string, meta: Record<string, unknown> = {}) => {
-    log('Starting renderSSR with location:', location);
-    const dynamicHead = headContent({ data: initialData, meta });
-    const store = createSSRStore(initialData);
-    const html = renderToString(<SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>);
-    log('Completed renderSSR for location:', location);
-    return { headContent: dynamicHead, appHtml: html };
+  const renderSSR = async (
+    initialData: T,
+    location: string,
+    meta: Record<string, unknown> = {},
+    signal?: AbortSignal,
+    opts?: { logger?: LoggerLike },
+  ): Promise<SSRResult> => {
+    const { log, warn } = createUILogger(opts?.logger ?? logger, {
+      debugCategory: 'ssr',
+      context: { scope: 'react-ssr' },
+    });
+
+    if (signal?.aborted) {
+      warn('SSR skipped; already aborted', { location });
+
+      return { headContent: '', appHtml: '', aborted: true };
+    }
+
+    let aborted = false;
+    const onAbort = () => (aborted = true);
+    signal?.addEventListener('abort', onAbort, { once: true });
+
+    try {
+      log('Starting SSR:', location);
+
+      const dynamicHead = headContent({ data: initialData, meta });
+      const store = createSSRStore(initialData);
+      const html = renderToString(<SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>);
+
+      if (aborted) {
+        warn('SSR completed after client abort', { location });
+
+        return { headContent: '', appHtml: '', aborted: true };
+      }
+
+      log('Completed SSR:', location);
+
+      return { headContent: dynamicHead, appHtml: html, aborted: false };
+    } finally {
+      try {
+        signal?.removeEventListener('abort', onAbort);
+      } catch {}
+    }
   };
 
   const renderStream = (
@@ -62,16 +100,20 @@ export function createRenderer<T extends Record<string, unknown>>({
     meta: Record<string, unknown> = {},
     cspNonce?: string,
     signal?: AbortSignal,
-    opts?: Partial<StreamOptions>, // per-call override
+    opts?: StreamCallOptions, // per-call override
   ) => {
     const { onAllReady, onError, onHead, onShellReady, onFinish } = callbacks;
+    const { log, warn, error } = createUILogger(opts?.logger ?? logger, {
+      debugCategory: 'ssr',
+      context: { scope: 'react-streaming' },
+    });
 
     // Merge renderer defaults with per-call overrides
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
     const effectiveUseCork = opts?.useCork ?? useCork;
 
     // Stream controller centralises cleanup & settlement
-    const controller = createStreamController(writable, { warn, error });
+    const controller = createStreamController(writable, { log, warn, error });
 
     // Wire AbortSignal (benign cancel)
     if (signal) {
@@ -79,6 +121,7 @@ export function createRenderer<T extends Record<string, unknown>>({
 
       if (signal.aborted) {
         handleAbortSignal();
+
         return { abort: () => {}, done: Promise.resolve() };
       }
 
@@ -98,19 +141,21 @@ export function createRenderer<T extends Record<string, unknown>>({
         controller.fatalAbort(err);
       },
       onError,
+      onFinish: () => controller.complete('Stream finished (normal completion)'),
     });
     controller.setGuardsCleanup(guardsCleanup);
 
-    // Shell timeout (hang/suspend guard)
+    // Shell timeout guard
     const stopShellTimer = startShellTimer(effectiveShellTimeout, () => {
       if (controller.isAborted) return;
+
       const timeoutErr = new Error(`Shell not ready after ${effectiveShellTimeout}ms`);
       onError?.(timeoutErr);
       controller.fatalAbort(timeoutErr);
     });
     controller.setStopShellTimer(stopShellTimer);
 
-    log('Starting renderStream with location:', location);
+    log('Starting stream:', location);
 
     try {
       const store = createSSRStore(initialData);
@@ -123,55 +168,64 @@ export function createRenderer<T extends Record<string, unknown>>({
         onShellReady() {
           if (controller.isAborted) return;
 
-          // Shell ready — stop timeout
+          // best-effort stop 'n swallow errors
           try {
             stopShellTimer();
           } catch {}
-          log('Shell ready for location:', location);
+
+          log('Shell ready:', location);
 
           try {
             const head = headContent({ data: {} as T, meta });
-            onHead?.(head);
 
-            // Backpressure-aware head write with optional cork/uncork
-            let corked = false;
-            try {
-              if (effectiveUseCork && nodeSupportsCork && typeof (writable as any).cork === 'function') {
+            // Enable only when both requested and supported
+            const canCork = effectiveUseCork && typeof (writable as any)?.cork === 'function' && typeof (writable as any)?.uncork === 'function';
+
+            if (canCork) {
+              try {
                 (writable as any).cork();
-                corked = true;
-              }
+              } catch {}
+            }
 
-              const ok = writable.write(head);
-
-              const startPipe = () => {
-                if (!controller.isAborted) {
-                  stream.pipe(writable);
-                  try {
-                    onShellReady?.();
-                  } catch (cbErr) {
-                    warn('onShellReady callback threw:', cbErr);
-                  }
-                }
-              };
-
-              if (!ok) writable.once('drain', startPipe);
-              else startPipe();
+            let wroteOk = true;
+            try {
+              // single head write drives backpressure logic
+              const res = (writable as any)?.write ? (writable as any).write(head) : true;
+              wroteOk = res !== false;
             } finally {
-              if (corked && typeof (writable as any).uncork === 'function') {
+              if (canCork) {
                 try {
                   (writable as any).uncork();
                 } catch {}
               }
+            }
+
+            // Let onHead() *optionally* force waiting for 'drain'
+            let forceWait = false;
+            try {
+              const ret = onHead?.(head);
+              forceWait = ret === false;
+            } catch (cbErr) {
+              warn('onHead callback threw:', cbErr);
+            }
+
+            const startPipe = () => stream.pipe(writable);
+            if (forceWait || !wroteOk) (writable as any)?.once?.('drain', startPipe);
+            else startPipe();
+
+            try {
+              onShellReady?.();
+            } catch (cbErr) {
+              warn('onShellReady callback threw:', cbErr);
             }
           } catch (err) {
             onError?.(err);
             controller.fatalAbort(err);
           }
         },
-
         onAllReady() {
           if (controller.isAborted) return;
-          log('All content ready for location:', location);
+          log('All content ready:', location);
 
           const deliver = () => {
             try {
@@ -179,7 +233,7 @@ export function createRenderer<T extends Record<string, unknown>>({
               onAllReady?.(data);
               onFinish?.(data);
             } catch (thrown) {
-              // Suspense rethrow — retry after resolution
+              // Suspense rethrow - retry after resolution
               if (thrown && typeof (thrown as any).then === 'function') {
                 (thrown as Promise<unknown>).then(deliver).catch((e) => {
                   error('Data promise rejected:', e);
@@ -199,9 +253,11 @@ export function createRenderer<T extends Record<string, unknown>>({
 
         onShellError(err) {
           if (controller.isAborted) return;
+
           try {
             stopShellTimer();
           } catch {}
+
           onError?.(err);
           controller.fatalAbort(err);
         },
@@ -211,10 +267,14 @@ export function createRenderer<T extends Record<string, unknown>>({
           // wireWritableGuards handles most stream errors via 'error'/'close',
           // but React may surface errors here too; treat client disconnects as benign
           const msg = String((err as any)?.message ?? '');
+          warn?.('React stream error:', msg);
+
           if (isBenignStreamErr(err)) {
             controller.benignAbort('Client disconnected before stream finished');
+
             return;
           }
+
           onError?.(err);
           controller.fatalAbort(err);
         },

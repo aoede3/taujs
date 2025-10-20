@@ -7,7 +7,7 @@ vi.mock('react-dom/client', () => {
 
   const hydrateRoot = vi.fn((el: any, node: any, opts?: { onRecoverableError?: (e: any, info?: any) => void }) => {
     capturedRecoverable = opts?.onRecoverableError;
-    return {};
+    return {}; // ReactRoot-ish
   });
 
   const createRoot = vi.fn((el: any) => {
@@ -47,7 +47,7 @@ function addRoot(id = 'root') {
   return el;
 }
 
-describe('hydrateApp', () => {
+describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetDom();
@@ -56,7 +56,7 @@ describe('hydrateApp', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('hydrates successfully; calls onStart/onSuccess and recoverable handler', () => {
+  it('hydrates successfully; calls onStart/onSuccess and wires recoverable handler', () => {
     const root = addRoot('root');
     (window as any).__INITIAL_DATA__ = { hello: 'world' };
 
@@ -74,25 +74,30 @@ describe('hydrateApp', () => {
       onSuccess,
     });
 
-    expect(log).toHaveBeenCalledWith('Hydration started with initial data');
+    // logs + store + hydrate
+    expect(log).toHaveBeenCalledWith('Hydration started');
     expect(Store.createSSRStore).toHaveBeenCalledWith({ hello: 'world' });
     expect(RDC.hydrateRoot).toHaveBeenCalledTimes(1);
     expect((RDC.hydrateRoot as any).mock.calls[0]![0]).toBe(root);
 
-    // trigger recoverable hydration error
+    // recoverable error path
     const getRec = (RDC as any).__getCapturedRecoverable as () => ((e: any, info: any) => void) | undefined;
     const rec = getRec();
     expect(typeof rec).toBe('function');
     rec?.(new Error('rec'), { digest: 'x' });
     expect(warn).toHaveBeenCalledWith('Recoverable hydration error:', expect.any(Error), expect.objectContaining({ digest: 'x' }));
 
+    // finished
     expect(log).toHaveBeenCalledWith('Hydration completed');
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(onSuccess).toHaveBeenCalledTimes(1);
+
+    // no CSR here
+    expect(RDC.createRoot).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
   });
 
-  it('logs error when root element is missing and aborts', () => {
+  it('logs error and aborts when root element is missing', () => {
     (window as any).__INITIAL_DATA__ = { a: 1 };
     const error = vi.fn();
 
@@ -103,12 +108,12 @@ describe('hydrateApp', () => {
     expect(RDC.createRoot).not.toHaveBeenCalled();
   });
 
-  it('throws during hydration and falls back to SPA render; calls onHydrationError and clears HTML', () => {
+  it('hard hydration error → logs, calls onHydrationError, warns, falls back to CSR (clears HTML)', () => {
     const root = addRoot('root');
     (window as any).__INITIAL_DATA__ = { a: 2 };
     root.innerHTML = '<span>pre</span>';
 
-    // Make hydrateRoot throw once
+    // Make hydrateRoot throw
     (RDC.hydrateRoot as any).mockImplementationOnce((_el: any, _node: any, _opts?: any) => {
       throw new Error('kaboom');
     });
@@ -124,58 +129,67 @@ describe('hydrateApp', () => {
       onHydrationError,
     });
 
-    expect(error).toHaveBeenCalledWith('Hydration error:', expect.any(Error));
+    expect(error).toHaveBeenCalledTimes(1);
+    const [label, errObj] = (error as any).mock.calls[0]!;
+    expect(label).toContain('Hydration error:');
+    expect(errObj).toBeInstanceOf(Error);
+    expect((errObj as Error).message).toBe('kaboom');
+
     expect(onHydrationError).toHaveBeenCalledWith(expect.any(Error));
     expect(warn).toHaveBeenCalledWith('Falling back to SPA rendering.');
 
+    // CSR render happened and server HTML cleared
     expect(root.innerHTML).toBe('');
     expect(RDC.createRoot).toHaveBeenCalledWith(root);
-
-    const result0 = (RDC.createRoot as any).mock.results[0]!.value;
-    expect(result0.render).toBeTypeOf('function');
-    expect(result0.render).toHaveBeenCalledTimes(1);
+    const rootInstance = (RDC.createRoot as any).mock.results[0]!.value;
+    expect(rootInstance.render).toBeTypeOf('function');
+    expect(rootInstance.render).toHaveBeenCalledTimes(1);
   });
 
-  it('waits for data when none is present; starts after taujs:data-ready and removes the listener', () => {
-    addRoot();
+  it('no SSR data → mounts CSR immediately; logs warn in debug; does NOT call hydrate', () => {
+    const root = addRoot();
+    root.innerHTML = '<i>server-stuff</i>';
+
     const warn = vi.fn(),
       log = vi.fn();
-
     const addSpy = vi.spyOn(window, 'addEventListener');
-    const removeSpy = vi.spyOn(window, 'removeEventListener');
 
     hydrateApp({ appComponent: <div>App</div>, debug: true, logger: { warn, log } });
 
-    expect(warn).toHaveBeenCalledWith('No initial SSR data found under key "__INITIAL_DATA__". Waiting for server data.');
-    expect(addSpy).toHaveBeenCalled();
-    const firstAdd = addSpy.mock.calls[0]!;
-    expect(firstAdd[0]).toBe('taujs:data-ready');
+    expect(warn).toHaveBeenCalledWith('No initial SSR data at window["__INITIAL_DATA__"]. Mounting CSR.');
+    expect(RDC.hydrateRoot).not.toHaveBeenCalled();
 
-    (window as any).__INITIAL_DATA__ = { later: true };
-    const handler = firstAdd[1] as EventListener;
-    handler(new Event('taujs:data-ready'));
+    // CSR render path
+    expect(root.innerHTML).toBe('');
+    expect(RDC.createRoot).toHaveBeenCalledWith(root);
+    const rootInstance = (RDC.createRoot as any).mock.results[0]!.value;
+    expect(rootInstance.render).toHaveBeenCalledTimes(1);
 
-    expect(removeSpy).toHaveBeenCalledWith('taujs:data-ready', handler);
-    expect(RDC.hydrateRoot).toHaveBeenCalledTimes(1);
-    expect(log).toHaveBeenCalledWith('Hydration started with initial data');
+    // No waiting for custom window events in new code
+    expect(addSpy).not.toHaveBeenCalledWith('taujs:data-ready', expect.any(Function), expect.anything());
   });
 
-  it('defers to DOMContentLoaded when document is still loading', () => {
+  it('defers to DOMContentLoaded when document is still loading (once)', () => {
     setReadyState('loading');
-    addRoot();
+    const root = addRoot();
     (window as any).__INITIAL_DATA__ = { soon: true };
 
     const addSpy = vi.spyOn(document, 'addEventListener');
     hydrateApp({ appComponent: <div>App</div>, debug: true });
 
+    // defers
     expect(addSpy).toHaveBeenCalled();
-    const call = addSpy.mock.calls[0]!;
-    expect(call[0]).toBe('DOMContentLoaded');
+    const [eventName, cb, opts] = addSpy.mock.calls[0]!;
+    expect(eventName).toBe('DOMContentLoaded');
+    // ensure once:true is set
+    expect(opts).toEqual({ once: true });
 
-    const cb = call[1] as EventListener;
-    cb(new Event('DOMContentLoaded'));
+    // fire it
+    (cb as EventListener)(new Event('DOMContentLoaded'));
 
+    // hydration occurs after DOM ready
     expect(RDC.hydrateRoot).toHaveBeenCalledTimes(1);
+    expect((RDC.hydrateRoot as any).mock.calls[0]![0]).toBe(root);
   });
 
   it('supports custom rootElementId and dataKey', () => {
@@ -196,7 +210,19 @@ describe('hydrateApp', () => {
     expect(RDC.hydrateRoot).toHaveBeenCalledTimes(1);
     expect((RDC.hydrateRoot as any).mock.calls[0]![0]).toBe(el);
     expect(Store.createSSRStore).toHaveBeenCalledWith({ z: 9 });
-    expect(log).toHaveBeenCalledWith('Hydration started with initial data');
+    expect(log).toHaveBeenCalledWith('Hydration started');
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call onStart/onSuccess in CSR mode (no SSR data)', () => {
+    addRoot();
+    const onStart = vi.fn(),
+      onSuccess = vi.fn();
+    hydrateApp({ appComponent: <div>App</div>, onStart, onSuccess });
+
+    expect(onStart).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(RDC.createRoot).toHaveBeenCalledTimes(1);
+    expect(RDC.hydrateRoot).not.toHaveBeenCalled();
   });
 });

@@ -63,6 +63,9 @@ vi.mock('../utils/Streaming', () => {
         ctrl.isAborted = true;
         rejected(e);
       }),
+      complete: vi.fn((_why?: string) => {
+        resolved();
+      }),
     };
     return ctrl;
   });
@@ -125,7 +128,7 @@ beforeEach(() => {
   // reset dynamic snapshot impl
   (Store as any).__setSnapshotImpl(null);
   // ensure Node Writable supports cork in tests that need it
-  // (we'll set per-test explicitly via makeWritable)
+  // (set per-test explicitly via makeWritable)
 });
 
 afterEach(() => {
@@ -143,12 +146,140 @@ describe('createRenderer.renderSSR', () => {
     });
 
     const out = await renderer.renderSSR({ title: 'T' } as any, '/home', { x: 1 });
+
     expect(Store.createSSRStore).toHaveBeenCalledWith({ title: 'T' });
     expect(RDS.renderToString).toHaveBeenCalledTimes(1);
     expect(out.headContent).toBe('<head>T-1</head>');
     expect(out.appHtml).toBe('<div>html</div>');
-    expect(log).toHaveBeenCalledWith('Starting renderSSR with location:', '/home');
-    expect(log).toHaveBeenCalledWith('Completed renderSSR for location:', '/home');
+
+    expect(log).toHaveBeenCalledTimes(2);
+
+    expect(log).toHaveBeenNthCalledWith(1, 'Starting SSR:', '/home');
+
+    expect(log).toHaveBeenNthCalledWith(2, 'Completed SSR:', '/home');
+  });
+
+  it('skips immediately when AbortSignal is already aborted', async () => {
+    const warn = vi.fn();
+    const ac = new AbortController();
+    ac.abort(); // already aborted before call
+
+    const renderer = createRenderer<any>({
+      appComponent: ({ location }) => <div>{location}</div>,
+      headContent: () => '<head>x</head>',
+      debug: true,
+      logger: { warn },
+    });
+
+    const out = await renderer.renderSSR({ title: 'X' } as any, '/skip', {}, ac.signal);
+
+    // No render attempts
+    expect(Store.createSSRStore).not.toHaveBeenCalled();
+    expect(RDS.renderToString).not.toHaveBeenCalled();
+
+    // Warn with prefix + message + context
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [msg, meta] = (warn as any).mock.calls[0]!;
+    expect(msg).toContain('SSR skipped; already aborted');
+    expect(meta).toEqual({ location: '/skip' });
+    expect(out).toEqual({ headContent: '', appHtml: '', aborted: true });
+  });
+
+  it('aborts during SSR: warns and returns aborted=true', async () => {
+    const warn = vi.fn();
+    const ac = new AbortController();
+
+    const renderer = createRenderer<any>({
+      appComponent: ({ location }) => <div>{location}</div>,
+      headContent: () => '<head>y</head>',
+      debug: true,
+      logger: { warn },
+    });
+
+    // We’ll abort *after* render kicks off but before completion
+    // Mock renderToString to let us flip the signal in-between
+    // const orig = RDS.renderToString as unknown as jest.Mock | vi.Mock;
+    (RDS.renderToString as any).mockImplementationOnce(() => {
+      // abort right before returning html to flip `aborted = true`
+      ac.abort();
+      return '<div>html</div>';
+    });
+
+    const out = await renderer.renderSSR({ title: 'Y' } as any, '/mid', {}, ac.signal);
+
+    // Should have rendered, but then detected abort and returned aborted=true
+    expect(Store.createSSRStore).toHaveBeenCalledTimes(1);
+    expect(RDS.renderToString).toHaveBeenCalledTimes(1);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [msg, meta] = (warn as any).mock.calls[0]!;
+    expect(msg).toContain('SSR completed after client abort');
+    expect(meta).toEqual({ location: '/mid' });
+    expect(out).toEqual({ headContent: '', appHtml: '', aborted: true });
+  });
+
+  it('always removes abort listener in finally; errors from removeEventListener are swallowed', async () => {
+    const ac = new AbortController();
+    const spy = vi.spyOn(ac.signal, 'removeEventListener').mockImplementationOnce(() => {
+      throw new Error('remove boom');
+    });
+
+    const renderer = createRenderer<any>({
+      appComponent: () => <div>ok</div>,
+      headContent: () => '<head>ok</head>',
+    });
+
+    // Normal (non-aborted) run
+    const out = await renderer.renderSSR({ t: 1 } as any, '/ok', {}, ac.signal);
+
+    // We completed normally
+    expect(out.aborted).toBe(false);
+    // removeEventListener was called and its error didn’t escape
+    expect(spy).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+
+  it('renderSSR uses renderer-level logger when per-call opts.logger is not provided', async () => {
+    const topLog = vi.fn();
+    const overrideLog = vi.fn(); // should NOT be used
+
+    const renderer = createRenderer<any>({
+      appComponent: () => <div>ok</div>,
+      headContent: () => '<head/>',
+      logger: { log: topLog }, // renderer-level
+    });
+
+    await renderer.renderSSR({} as any, '/use-top', {});
+
+    // Called twice: "Starting SSR with location:" and "Completed SSR for location:"
+    expect(topLog).toHaveBeenCalledTimes(2);
+    expect(topLog).toHaveBeenNthCalledWith(1, 'Starting SSR:', '/use-top');
+    expect(topLog).toHaveBeenNthCalledWith(2, 'Completed SSR:', '/use-top');
+
+    expect(overrideLog).not.toHaveBeenCalled();
+  });
+
+  it('renderSSR prefers per-call opts.logger over renderer-level logger', async () => {
+    const topLog = vi.fn(); // renderer-level (should NOT be used)
+    const callLog = vi.fn(); // per-call (should be used)
+    const callWarn = vi.fn();
+
+    const renderer = createRenderer<any>({
+      appComponent: () => <div>ok</div>,
+      headContent: () => '<head/>',
+      logger: { log: topLog }, // default
+    });
+
+    await renderer.renderSSR({} as any, '/use-override', {}, undefined, { logger: { log: callLog, warn: callWarn } });
+
+    // Per-call logger gets both messages
+    expect(callLog).toHaveBeenCalledTimes(2);
+    expect(callLog).toHaveBeenNthCalledWith(1, 'Starting SSR:', '/use-override');
+    expect(callLog).toHaveBeenNthCalledWith(2, 'Completed SSR:', '/use-override');
+
+    // Renderer-level logger not touched
+    expect(topLog).not.toHaveBeenCalled();
+    // We didn’t hit any warn path here; just assert it wasn’t called spuriously
+    expect(callWarn).not.toHaveBeenCalled();
   });
 });
 
@@ -181,7 +312,7 @@ describe('createRenderer.renderStream', () => {
     ctrl.benignAbort('test-complete');
     await expect(done).resolves.toBeUndefined();
 
-    expect(log).toHaveBeenCalledWith('Shell ready for location:', '/x');
+    expect(log).toHaveBeenCalledWith('Shell ready:', '/x');
     expect(onHead).toHaveBeenCalledWith('<head>ok</head>');
 
     expect((writable.write as any).mock.calls.length).toBe(1);
@@ -518,6 +649,25 @@ describe('createRenderer.renderStream', () => {
     await expect(done).rejects.toThrow('boom');
   });
 
+  it('wireWritableGuards: onFinish() → controller.complete("Stream finished (normal completion)") and done resolves', async () => {
+    const { writable } = makeWritable();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const { done } = renderStream(writable as any, {}, {}, '/guards-finish');
+
+    const cfg = (Streaming.wireWritableGuards as any).mock.calls.at(-1)![1];
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+
+    cfg.onFinish();
+
+    await expect(done).resolves.toBeUndefined();
+    expect(ctrl.complete).toHaveBeenCalledWith('Stream finished (normal completion)');
+  });
+
   it('onShellReady callback throws → warns but does not fatal', async () => {
     const { writable } = makeWritable();
     const warn = vi.fn();
@@ -543,7 +693,11 @@ describe('createRenderer.renderStream', () => {
     opts.onShellReady(); // triggers the throwing callback (wrapped)
 
     // warned, and NOT fatal-aborted
-    expect(warn).toHaveBeenCalledWith('onShellReady callback threw:', expect.any(Error));
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [label, err] = (warn as any).mock.calls[0]!;
+    expect(label).toContain('onShellReady callback threw:');
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('cb boom');
 
     // finish the stream explicitly so `done` resolves
     const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
@@ -581,7 +735,11 @@ describe('createRenderer.renderStream', () => {
     opts.onAllReady(); // deliver() runs; thenable rejects → catch path
 
     await expect(done).rejects.toBeInstanceOf(Error);
-    expect(errorLog).toHaveBeenCalledWith('Data promise rejected:', expect.any(Error));
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    const [label, err] = (errorLog as any).mock.calls[0]!;
+    expect(label).toContain('Data promise rejected:');
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('nope');
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
@@ -739,7 +897,7 @@ describe('createRenderer.renderStream', () => {
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
       headContent: () => '<head/>',
-      streamOptions: { shellTimeoutMs: 111 }, // any value; we’ll invoke the handler manually
+      streamOptions: { shellTimeoutMs: 111 }, // any value and invoke handler manually
     });
 
     const { done } = renderStream(writable as any, { onError }, {}, '/timeout-already-aborted');
@@ -759,6 +917,98 @@ describe('createRenderer.renderStream', () => {
 
     // settle the promise to keep the test from hanging
     ctrl.benignAbort('test-complete');
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('onShellReady: cork() throws but is swallowed; uncork still called and stream proceeds', async () => {
+    // writable supports cork/uncork; make cork throw
+    const { writable } = makeWritable({ willBackpressure: false, supportCork: true });
+    (writable as any).cork = vi.fn(() => {
+      throw new Error('cork boom');
+    });
+    const warn = vi.fn(),
+      error = vi.fn(),
+      log = vi.fn();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      logger: { warn, error, log },
+      streamOptions: { useCork: true },
+    });
+
+    const { done } = renderStream(writable as any, {}, {}, '/cork-throws');
+    const opts = (RDS as any).__getLastOpts();
+
+    // Should NOT throw despite cork throwing
+    expect(() => opts.onShellReady()).not.toThrow();
+
+    // uncork still attempted in finally
+    expect((writable as any).uncork).toHaveBeenCalledTimes(1);
+
+    // streaming should continue (pipe called)
+    const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
+    expect(streamInstance.pipe).toHaveBeenCalledWith(writable);
+
+    // settle
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('complete');
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('onShellReady: writable has no write() → fallback true path pipes immediately', async () => {
+    // writable without write() to hit the "?: true" branch
+    const w: any = {
+      once: vi.fn(),
+      // no write, no cork/uncork
+    };
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const { done } = renderStream(w as any, {}, {}, '/no-write');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellReady(); // should not throw
+
+    // pipe was called immediately since wroteOk===true and onHead!==false
+    const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
+    expect(streamInstance.pipe).toHaveBeenCalledWith(w);
+    expect(w.once).not.toHaveBeenCalled(); // no drain waiting
+
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('done');
+    await expect(done).resolves.toBeUndefined();
+  });
+  it('onShellReady: onHead callback throws → warns and continues streaming', async () => {
+    const { writable } = makeWritable();
+    const warn = vi.fn();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      logger: { warn },
+    });
+
+    const onHead = vi.fn(() => {
+      throw new Error('head-cb boom');
+    });
+    const { done } = renderStream(writable as any, { onHead }, {}, '/onhead-throws');
+
+    const opts = (RDS as any).__getLastOpts();
+    expect(() => opts.onShellReady()).not.toThrow();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [msg, errObj] = (warn as any).mock.calls[0]!;
+    expect(msg).toContain('onHead callback threw:');
+    expect(errObj).toBeInstanceOf(Error);
+    expect((errObj as Error).message).toBe('head-cb boom');
+
+    const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
+    expect(streamInstance.pipe).toHaveBeenCalledWith(writable);
+
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('ok');
     await expect(done).resolves.toBeUndefined();
   });
 });

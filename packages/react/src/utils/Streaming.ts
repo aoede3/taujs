@@ -1,6 +1,7 @@
 import type { Writable } from 'node:stream';
 
 export type StreamLogger = {
+  log?: (msg: string, extra?: unknown) => void;
   warn: (msg: string, extra?: unknown) => void;
   error: (msg: string, extra?: unknown) => void;
 };
@@ -56,11 +57,13 @@ export function wireWritableGuards(
     benignAbort,
     fatalAbort,
     onError,
+    onFinish,
     benignErrorPattern = DEFAULT_BENIGN_ERRORS,
   }: {
     benignAbort: (why: string) => void;
     fatalAbort: (err: unknown) => void;
     onError?: (e: unknown) => void;
+    onFinish?: () => void;
     benignErrorPattern?: RegExp;
   },
 ): WritableGuards {
@@ -81,7 +84,11 @@ export function wireWritableGuards(
   });
 
   add('close', () => benignAbort('Writable closed early (likely client disconnect)'));
-  add('finish', () => benignAbort('Stream finished (normal completion)'));
+
+  add('finish', () => {
+    if (onFinish) onFinish();
+    else benignAbort('Stream finished (normal completion)');
+  });
 
   return {
     cleanup: () => {
@@ -102,6 +109,7 @@ export type StreamController = {
   setGuardsCleanup(fn: () => void): void;
 
   // termination APIs
+  complete(message?: string): void;
   benignAbort(why: string): void;
   fatalAbort(err: unknown): void;
 
@@ -111,7 +119,7 @@ export type StreamController = {
 };
 
 export function createStreamController(writable: Writable, logger: StreamLogger): StreamController {
-  const { warn, error } = logger;
+  const { log, warn, error } = logger;
 
   let aborted = false;
   const settle = createSettler();
@@ -166,14 +174,23 @@ export function createStreamController(writable: Writable, logger: StreamLogger)
       guardsCleanup = fn;
     },
 
+    complete(message?: string) {
+      if (aborted) return;
+
+      if (message) (log ?? warn)(message);
+      cleanup(true);
+    },
+
     benignAbort(why) {
       if (aborted) return;
+
       warn(why);
       cleanup(true);
     },
 
     fatalAbort(err) {
       if (aborted) return;
+
       error('Stream aborted with error:', err);
       cleanup(false, err);
     },
