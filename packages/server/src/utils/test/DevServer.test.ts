@@ -196,13 +196,13 @@ describe('setupDevServer', () => {
 
     // logs the incoming request
     expect(logger.debug).toHaveBeenCalledWith('vite', expect.stringContaining('Development server debug started'));
-    expect(logger.debug).toHaveBeenCalledWith('vite', '← rx', expect.objectContaining({ method: 'GET', url: '/hello', host: 'localhost:3000', ua: 'UA' }));
+    expect(logger.debug).toHaveBeenCalledWith('vite', expect.objectContaining({ method: 'GET', url: '/hello', host: 'localhost:3000', ua: 'UA' }), '← rx');
 
     // simulate response finish to trigger tx log
     const finishCbs = onListeners['finish'] ?? [];
     expect(finishCbs.length).toBeGreaterThan(0);
     finishCbs.forEach((cb) => cb());
-    expect(logger.debug).toHaveBeenCalledWith('vite', '→ tx', expect.objectContaining({ method: 'GET', url: '/hello', statusCode: 200 }));
+    expect(logger.debug).toHaveBeenCalledWith('vite', expect.objectContaining({ method: 'GET', url: '/hello', statusCode: 200 }), '→ tx');
 
     // middleware must call next()
     expect(next).toHaveBeenCalled();

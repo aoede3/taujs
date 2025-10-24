@@ -47,19 +47,27 @@ export const setupDevServer = async (
                 logger.debug('vite', `${CONTENT.TAG} Development server debug started`);
 
                 server.middlewares.use((req: IncomingMessage, res: ServerResponse, next) => {
-                  logger.debug('vite', '← rx', {
-                    method: req.method,
-                    url: req.url,
-                    host: req.headers.host,
-                    ua: req.headers['user-agent'],
-                  });
-
-                  res.on('finish', () => {
-                    logger.debug('vite', '→ tx', {
+                  logger.debug(
+                    'vite',
+                    {
                       method: req.method,
                       url: req.url,
-                      statusCode: res.statusCode,
-                    });
+                      host: req.headers.host,
+                      ua: req.headers['user-agent'],
+                    },
+                    '← rx',
+                  );
+
+                  res.on('finish', () => {
+                    logger.debug(
+                      'vite',
+                      {
+                        method: req.method,
+                        url: req.url,
+                        statusCode: res.statusCode,
+                      },
+                      '→ tx',
+                    );
                   });
 
                   next();

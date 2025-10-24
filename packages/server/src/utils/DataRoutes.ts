@@ -171,15 +171,17 @@ export const fetchInitialData = async <Params extends PathToRegExpParams, R exte
     const e = AppError.from(err);
     const level: 'warn' | 'error' = e.kind === 'domain' || e.kind === 'validation' || e.kind === 'auth' ? 'warn' : 'error';
 
-    ctx.logger?.[level](e.message, {
+    const meta: Record<string, unknown> = {
       component: 'fetch-initial-data',
       kind: e.kind,
       httpStatus: e.httpStatus,
-      ...(e.code && { code: e.code }),
-      details: e.details,
-      params,
+      ...(e.code ? { code: e.code } : {}),
+      ...(e.details ? { details: e.details } : {}),
+      ...(params ? { params } : {}),
       traceId: ctx.traceId,
-    });
+    };
+
+    ctx.logger?.[level](meta, e.message);
 
     throw e;
   }

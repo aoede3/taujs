@@ -143,7 +143,7 @@ describe('bannerPlugin', () => {
 
     expect(warn).toHaveBeenCalledTimes(1); // dbgNetwork = true
     expect(info).toHaveBeenCalledTimes(1);
-    expect((info as any).mock.calls[0][0]).toContain('[network] Bound to host: 0.0.0.0');
+    expect((info as any).mock.calls[0][1]).toContain('[network] Bound to host: 0.0.0.0');
   });
 
   it('non-local host, NO private IPv4 -> use first IPv4, no warn if dbg off, still info', async () => {
@@ -195,7 +195,7 @@ describe('bannerPlugin', () => {
 
     expect(warn).not.toHaveBeenCalled();
     expect(info).toHaveBeenCalledTimes(1);
-    expect((info as any).mock.calls[0][0]).toContain('Bound to host: ::');
+    expect((info as any).mock.calls[0][1]).toContain('Bound to host: ::');
   });
 
   it('onReady: calls showBanner immediately when already listening', async () => {
@@ -336,7 +336,7 @@ describe('bannerPlugin', () => {
 
     // Critically: info includes the mapped boundHost "0.0.0.0" (hits the specific ternary arm)
     expect(info).toHaveBeenCalledTimes(1);
-    expect((info as any).mock.calls[0][0]).toContain('[network] Bound to host: 0.0.0.0');
+    expect((info as any).mock.calls[0][1]).toContain('[network] Bound to host: 0.0.0.0');
 
     // No dbg warn
     expect(warn).not.toHaveBeenCalled();
@@ -363,7 +363,7 @@ describe('bannerPlugin', () => {
     expect((console.log as any).mock.calls[0][0]).toBe('┃ Local    http://localhost:8181/');
 
     // A Network line likely prints (but it's not required to prove the ternary branch)
-    const infoMsg = (info as any).mock.calls[0][0] as string;
+    const infoMsg = (info as any).mock.calls[0][1] as string;
 
     // Critically proves we used the ": address" arm
     expect(infoMsg).toContain('[network] Bound to host: 198.51.100.9');

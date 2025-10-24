@@ -128,10 +128,13 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
 
         reply.header('Content-Security-Policy', cspHeader);
       } catch (error) {
-        logger.error('CSP plugin error', {
-          url: req.url,
-          error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
-        });
+        logger.error(
+          {
+            url: req.url,
+            error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+          },
+          'CSP plugin error',
+        );
         const fallbackHeader = generateCSP(globalDirectives, nonce, req);
         reply.header('Content-Security-Policy', fallbackHeader);
       }

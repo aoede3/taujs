@@ -125,7 +125,7 @@ import { loadAssets } from '../utils/AssetManager';
 import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
 
-describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
+describe('SSRServer', () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
@@ -325,7 +325,6 @@ describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
 
     expect(AppErrorFake.from).toHaveBeenCalled();
     expect(mockLogger.error).toHaveBeenCalledWith(
-      expect.any(String),
       expect.objectContaining({
         httpStatus: 418,
         method: 'GET',
@@ -333,6 +332,7 @@ describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
         route: expect.anything(),
         stack: 'stack',
       }),
+      expect.any(String),
     );
     expect(toHttpMock).toHaveBeenCalled();
     expect(res.statusCode).toBe(499);
@@ -474,6 +474,6 @@ describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
 
     await app.inject({ method: 'GET', url: '/err2' });
 
-    expect(mockLogger.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'E42' }));
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ code: 'E42' }), expect.any(String));
   });
 });

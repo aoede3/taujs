@@ -62,10 +62,10 @@ export const bannerPlugin: FastifyPluginAsync<BannerPluginOpts> = async (fastify
 
     if (networkAddress) {
       console.log(`┃ Network  http://${networkAddress}:${port}/\n`);
-      if (dbgNetwork) logger.warn(pc.yellow(`${CONTENT.TAG} [network] Dev server exposed on network - for local testing only.`));
+      if (dbgNetwork) logger.warn({}, pc.yellow(`${CONTENT.TAG} [network] Dev server exposed on network - for local testing only.`));
     }
 
-    logger.info(pc.green(`${CONTENT.TAG} [network] Bound to host: ${boundHost}`));
+    logger.info({}, pc.green(`${CONTENT.TAG} [network] Bound to host: ${boundHost}`));
   });
 
   fastify.addHook('onReady', async function () {

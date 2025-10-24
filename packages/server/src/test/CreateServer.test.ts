@@ -230,7 +230,6 @@ describe('createServer', () => {
     expect(result).toEqual({ app: fakeFastifyInstance, net: netResolved });
 
     expect(loggerError).toHaveBeenCalledWith(
-      'Failed to register SSRServer',
       expect.objectContaining({
         step: 'register:SSRServer',
         error: expect.objectContaining({
@@ -238,6 +237,7 @@ describe('createServer', () => {
           message: 'SSR register failed',
         }),
       }),
+      'Failed to register SSRServer',
     );
   });
 

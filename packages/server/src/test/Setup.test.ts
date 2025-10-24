@@ -14,17 +14,25 @@ import type { Route } from '../types';
 function makeMemoryLogger(debug?: DebugConfig) {
   const records: Array<{ level: LogLevel; args: any[] }> = [];
 
+  const push = (level: LogLevel) => (meta?: unknown, message?: string) => {
+    const args = [] as any[];
+    if (message != null) args.push(message);
+    if (meta && typeof meta === 'object' && Object.keys(meta as object).length > 0) args.push(meta);
+    records.push({ level, args });
+  };
+
   const logger = createLogger({
     debug,
     minLevel: 'debug',
     custom: {
-      debug: (message, meta) => records.push({ level: 'debug', args: meta ? [message, meta] : [message] }),
-      info: (message, meta) => records.push({ level: 'info', args: meta ? [message, meta] : [message] }),
-      warn: (message, meta) => records.push({ level: 'warn', args: meta ? [message, meta] : [message] }),
-      error: (message, meta) => records.push({ level: 'error', args: meta ? [message, meta] : [message] }),
+      debug: push('debug'),
+      info: push('info'),
+      warn: push('warn'),
+      error: push('error'),
     },
     includeContext: false,
   });
+
   const reset = () => (records.length = 0);
   const take = (level: LogLevel) => records.filter((r) => r.level === level).map((r) => r.args);
   const all = () => records;

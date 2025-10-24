@@ -100,10 +100,13 @@ export async function callServiceMethod(
 
     return out;
   } catch (err) {
-    logger?.error('Service method failed', {
-      params,
-      error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
-    });
+    logger?.error(
+      {
+        params,
+        error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+      },
+      'Service method failed',
+    );
     throw err;
   }
 }

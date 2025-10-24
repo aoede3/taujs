@@ -17,26 +17,29 @@ export const createAuthHook = (routeMatchers: RouteMatcher<PathToRegExpParams>[]
     const authConfig = route.attr?.middleware?.auth;
 
     if (!authConfig) {
-      logger.debug('auth', '(none)', { method: req.method, url: req.url });
+      logger.debug('auth', { method: req.method, url: req.url }, '(none)');
       return;
     }
 
     if (typeof req.server.authenticate !== 'function') {
-      logger.warn('Route requires auth but Fastify authenticate decorator is missing', {
-        path: url,
-        appId: route.appId,
-      });
+      logger.warn(
+        {
+          path: url,
+          appId: route.appId,
+        },
+        'Route requires auth but Fastify authenticate decorator is missing',
+      );
       return reply.status(500).send('Server misconfiguration: auth decorator missing.');
     }
 
     try {
-      logger.debug('auth', 'Invoking authenticate(...)', { method: req.method, url: req.url });
+      logger.debug('auth', { method: req.method, url: req.url }, 'Invoking authenticate(...)');
 
       await req.server.authenticate(req, reply);
 
-      logger.debug('auth', 'Authentication successful', { method: req.method, url: req.url });
+      logger.debug('auth', { method: req.method, url: req.url }, 'Authentication successful');
     } catch (err) {
-      logger.debug('auth', 'Authentication failed', { method: req.method, url: req.url });
+      logger.debug('auth', { method: req.method, url: req.url }, 'Authentication failed');
 
       return reply.send(err);
     }

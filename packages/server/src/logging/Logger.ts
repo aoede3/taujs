@@ -8,24 +8,20 @@ export type DebugConfig = boolean | DebugCategory[] | ({ all?: boolean } & Parti
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export interface BaseLogger {
-  debug?(message: string, meta?: unknown): void;
-  info?(message: string, meta?: unknown): void;
-  warn?(message: string, meta?: unknown): void;
-  error?(message: string, meta?: unknown): void;
-  log?(message: string, meta?: unknown): void;
-}
-
-export interface ChildLogger<L = any> extends BaseLogger {
-  child?(context: Record<string, unknown>): L;
+  debug?(meta?: Record<string, unknown>, message?: string): void;
+  info?(meta?: Record<string, unknown>, message?: string): void;
+  warn?(meta?: Record<string, unknown>, message?: string): void;
+  error?(meta?: Record<string, unknown>, message?: string): void;
+  child?(context: Record<string, unknown>): BaseLogger;
 }
 
 export interface Logs extends BaseLogger {
-  debug(message: string, meta?: unknown): void;
-  debug(category: DebugCategory, message: string, meta?: unknown): void;
+  debug(meta?: unknown, message?: string): void;
+  debug(category: DebugCategory, meta?: unknown, message?: string): void;
 
-  info(message: string, meta?: unknown): void;
-  warn(message: string, meta?: unknown): void;
-  error(message: string, meta?: unknown): void;
+  info(meta?: unknown, message?: string): void;
+  warn(meta?: unknown, message?: string): void;
+  error(meta?: unknown, message?: string): void;
 
   child(context: Record<string, unknown>): Logs;
   isDebugEnabled(category: DebugCategory): boolean;
@@ -49,10 +45,8 @@ export class Logger implements Logs {
   }
 
   child(context: Record<string, unknown>): Logger {
-    const child = new Logger({
-      ...this.config,
-      context: { ...this.context, ...context },
-    });
+    const customChild = this.config.custom?.child?.(context) ?? this.config.custom;
+    const child = new Logger({ ...this.config, custom: customChild, context: { ...this.context, ...context } });
     child.debugEnabled = new Set(this.debugEnabled);
     return child;
   }
@@ -140,7 +134,7 @@ export class Logger implements Logs {
           ? this.config.includeContext(level)
           : this.config.includeContext;
 
-    const customSink = this.config.custom?.[level] ?? (level === 'debug' ? this.config.custom?.info : undefined) ?? this.config.custom?.log;
+    const customSink = this.config.custom?.[level];
 
     const consoleFallback = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
     const sink = customSink ?? consoleFallback;
@@ -151,56 +145,57 @@ export class Logger implements Logs {
     const finalMeta = this.shouldIncludeStack(level) ? withCtx : this.stripStacks(withCtx);
     const hasMeta = finalMeta && typeof finalMeta === 'object' ? Object.keys(finalMeta as any).length > 0 : false;
 
-    const coloredLevel = (() => {
-      const levelText = level.toLowerCase() + (category ? `:${category.toLowerCase()}` : '');
+    const levelText = level.toLowerCase() + (category ? `:${category.toLowerCase()}` : '');
+    const plainTag = `[${levelText}]`;
+    const coloredTag = (() => {
       switch (level) {
         case 'debug':
-          return pc.gray(`[${levelText}]`);
+          return pc.gray(plainTag);
         case 'info':
-          return pc.cyan(`[${levelText}]`);
+          return pc.cyan(plainTag);
         case 'warn':
-          return pc.yellow(`[${levelText}]`);
+          return pc.yellow(plainTag);
         case 'error':
-          return pc.red(`[${levelText}]`);
+          return pc.red(plainTag);
         default:
-          return `[${levelText}]`;
+          return plainTag;
       }
     })();
 
-    const formatted = `${timestamp} ${coloredLevel} ${message}`;
+    const tagForOutput = customSink ? plainTag : coloredTag;
+    const formatted = `${timestamp} ${tagForOutput} ${message}`;
 
-    if (this.config.singleLine && hasMeta) {
+    if (this.config.singleLine && hasMeta && !customSink) {
       const metaStr = JSON.stringify(finalMeta).replace(/\n/g, '\\n');
-      sink(`${formatted} ${metaStr}`);
+      consoleFallback(`${formatted} ${metaStr}`);
 
       return;
     }
 
     if (customSink) {
-      if (hasMeta) sink(formatted, finalMeta);
-      else sink(formatted);
+      const obj = hasMeta ? (finalMeta as Record<string, unknown>) : {};
+      customSink(obj, formatted);
     } else {
-      if (hasMeta) consoleFallback(formatted, finalMeta);
-      else consoleFallback(formatted);
+      hasMeta ? consoleFallback(formatted, finalMeta) : consoleFallback(formatted);
     }
   }
 
-  info(message: string, meta?: unknown): void {
-    this.emit('info', message, meta);
+  info(meta?: unknown, message?: string): void {
+    this.emit('info', message ?? '', meta);
   }
 
-  warn(message: string, meta?: unknown): void {
-    this.emit('warn', message, meta);
+  warn(meta?: unknown, message?: string): void {
+    this.emit('warn', message ?? '', meta);
   }
 
-  error(message: string, meta?: unknown): void {
-    this.emit('error', message, meta);
+  error(meta?: unknown, message?: string): void {
+    this.emit('error', message ?? '', meta);
   }
 
-  debug(category: DebugCategory, message: string, meta?: unknown): void {
+  debug(category: DebugCategory, meta?: unknown, message?: string): void {
     if (!this.debugEnabled.has(category)) return;
 
-    this.emit('debug', message, meta, category);
+    this.emit('debug', message ?? '', meta, category);
   }
 }
 

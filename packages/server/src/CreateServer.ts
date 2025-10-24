@@ -102,10 +102,13 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       devNet: { host: net.host, hmrPort: net.hmrPort },
     });
   } catch (err) {
-    logger.error('Failed to register SSRServer', {
-      step: 'register:SSRServer',
-      error: normaliseError(err),
-    });
+    logger.error(
+      {
+        step: 'register:SSRServer',
+        error: normaliseError(err),
+      },
+      'Failed to register SSRServer',
+    );
   }
 
   const t1 = performance.now();
