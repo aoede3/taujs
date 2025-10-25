@@ -168,7 +168,20 @@ export const fetchInitialData = async <Params extends PathToRegExpParams, R exte
 
     throw AppError.badRequest('attr.data must return a plain object or a ServiceDescriptor');
   } catch (err: unknown) {
-    const e = AppError.from(err);
+    let e = AppError.from(err);
+
+    const msg = String((err as any)?.message ?? '');
+    const looksLikeHtml = /<!DOCTYPE/i.test(msg) || /<html/i.test(msg) || /Unexpected token <.*JSON/i.test(msg);
+
+    if (looksLikeHtml) {
+      const prevDetails = (e as any).details && typeof (e as any).details === 'object' ? (e as any).details : {};
+      e = AppError.internal('attr.data expected JSON but received HTML. Likely cause: API route missing or returning HTML.', err, {
+        ...prevDetails,
+        hint: 'api-missing-or-content-type',
+        suggestion: 'Register api route so it returns JSON, or return a ServiceDescriptor from attr.data and use the ServiceRegistry.',
+        logged: true,
+      });
+    }
     const level: 'warn' | 'error' = e.kind === 'domain' || e.kind === 'validation' || e.kind === 'auth' ? 'warn' : 'error';
 
     const meta: Record<string, unknown> = {

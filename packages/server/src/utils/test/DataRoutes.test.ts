@@ -361,4 +361,92 @@ describe('fetchInitialData', () => {
     );
     expect(msg).toBe('boom2');
   });
+
+  it('falls back to empty message when err.message is undefined (covers ?.message ?? "")', async () => {
+    const attr = {
+      data: vi.fn(async () => {
+        throw { notMessage: 'nope' } as any;
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, {} as any, {} as any, mkCtx({ traceId: 'no-msg' }))).rejects.toThrow();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        component: 'fetch-initial-data',
+        kind: 'infra',
+        httpStatus: 500,
+        traceId: 'no-msg',
+      }),
+      expect.any(String),
+    );
+    const [meta] = (logger.error as any).mock.calls.pop();
+    expect(meta.details?.hint).toBeUndefined();
+    expect(meta.details?.logged).toBeUndefined();
+  });
+
+  it('HTML heuristic: merges existing object details and adds hint/suggestion/logged', async () => {
+    const base = AppError.internal('<!DOCTYPE html>', undefined, { prev: true });
+
+    const attr = {
+      data: vi.fn(async () => {
+        throw base;
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, { a: 1 } as any, {} as any, mkCtx({ traceId: 'html-obj' }))).rejects.toThrow(/expected JSON but received HTML/i);
+
+    expect(logger.error).toHaveBeenCalled();
+    const [meta, msg] = (logger.error as any).mock.calls.pop();
+
+    expect(msg).toMatch(/expected JSON but received HTML/i);
+    expect(meta.details).toEqual(
+      expect.objectContaining({
+        prev: true,
+        hint: 'api-missing-or-content-type',
+        suggestion: expect.stringMatching(/ServiceDescriptor/i),
+        logged: true,
+      }),
+    );
+  });
+
+  it('HTML heuristic: ignores non-object previous details and still adds hint/suggestion/logged', async () => {
+    const base = AppError.internal('<html>', undefined, 'oops' as any);
+
+    const attr = {
+      data: vi.fn(async () => {
+        throw base;
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, {} as any, {} as any, mkCtx({ traceId: 'html-nonobj' }))).rejects.toThrow(/expected JSON but received HTML/i);
+
+    const [meta] = (logger.error as any).mock.calls.pop();
+    expect(meta.details).toEqual(
+      expect.objectContaining({
+        hint: 'api-missing-or-content-type',
+        suggestion: expect.any(String),
+        logged: true,
+      }),
+    );
+    expect(meta.details.prev).toBeUndefined();
+  });
+
+  it('HTML heuristic: triggers on "Unexpected token < ... JSON" parser shape', async () => {
+    const attr = {
+      data: vi.fn(async () => {
+        throw new Error('Unexpected token < in JSON at position 0');
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, {} as any, {} as any, mkCtx({ traceId: 'html-unexp' }))).rejects.toThrow(/expected JSON but received HTML/i);
+
+    const [meta] = (logger.error as any).mock.calls.pop();
+    expect(meta.details).toEqual(
+      expect.objectContaining({
+        hint: 'api-missing-or-content-type',
+        logged: true,
+      }),
+    );
+  });
 });

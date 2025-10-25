@@ -123,19 +123,23 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     app.setErrorHandler((err, req, reply) => {
       const e = AppError.from(err);
 
-      logger.error(
-        {
-          kind: e.kind,
-          httpStatus: e.httpStatus,
-          ...(e.code ? { code: e.code } : {}),
-          ...(e.details ? { details: e.details } : {}),
-          method: req.method,
-          url: req.url,
-          route: (req as any).routeOptions?.url,
-          stack: e.stack,
-        },
-        e.message,
-      );
+      const alreadyLogged = !!(e as any)?.details && (e as any).details && (e as any).details.logged;
+
+      if (!alreadyLogged) {
+        logger.error(
+          {
+            kind: e.kind,
+            httpStatus: e.httpStatus,
+            ...(e.code ? { code: e.code } : {}),
+            ...(e.details ? { details: e.details } : {}),
+            method: req.method,
+            url: req.url,
+            route: (req as any).routeOptions?.url,
+            stack: e.stack,
+          },
+          e.message,
+        );
+      }
 
       if (!reply.raw.headersSent) {
         const { status, body } = toHttp(e);
