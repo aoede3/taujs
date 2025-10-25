@@ -28,6 +28,8 @@ type SSRResult = { headContent: string; appHtml: string; aborted: boolean };
 
 type StreamCallOptions = StreamOptions & { logger?: LoggerLike };
 
+const NOOP = () => {};
+
 export function createRenderer<T extends Record<string, unknown>>({
   appComponent,
   headContent,
@@ -100,7 +102,13 @@ export function createRenderer<T extends Record<string, unknown>>({
     signal?: AbortSignal,
     opts?: StreamCallOptions, // per-call override
   ) => {
-    const { onAllReady, onError, onHead, onShellReady, onFinish } = callbacks;
+    const cb = {
+      onHead: callbacks.onHead ?? NOOP,
+      onShellReady: callbacks.onShellReady ?? NOOP,
+      onAllReady: callbacks.onAllReady ?? NOOP,
+      onFinish: callbacks.onFinish ?? NOOP,
+      onError: callbacks.onError ?? NOOP,
+    };
     const { log, warn, error } = createUILogger(opts?.logger ?? logger, {
       debugCategory: 'ssr',
       context: { scope: 'react-streaming' },
@@ -136,10 +144,10 @@ export function createRenderer<T extends Record<string, unknown>>({
     const { cleanup: guardsCleanup } = wireWritableGuards(writable, {
       benignAbort: (why) => controller.benignAbort(why),
       fatalAbort: (err) => {
-        onError?.(err);
+        cb.onError(err);
         controller.fatalAbort(err);
       },
-      onError,
+      onError: cb.onError,
       onFinish: () => controller.complete('Stream finished (normal completion)'),
     });
     controller.setGuardsCleanup(guardsCleanup);
@@ -149,7 +157,7 @@ export function createRenderer<T extends Record<string, unknown>>({
       if (controller.isAborted) return;
 
       const timeoutErr = new Error(`Shell not ready after ${effectiveShellTimeout}ms`);
-      onError?.(timeoutErr);
+      cb.onError(timeoutErr);
       controller.fatalAbort(timeoutErr);
     });
     controller.setStopShellTimer(stopShellTimer);
@@ -167,7 +175,6 @@ export function createRenderer<T extends Record<string, unknown>>({
         onShellReady() {
           if (controller.isAborted) return;
 
-          // best-effort stop 'n swallow errors
           try {
             stopShellTimer();
           } catch {}
@@ -191,18 +198,20 @@ export function createRenderer<T extends Record<string, unknown>>({
             const head = headContent({ data: headData ?? ({} as T), meta });
 
             // Enable only when both requested and supported
-            const canCork = effectiveUseCork && typeof (writable as any)?.cork === 'function' && typeof (writable as any)?.uncork === 'function';
+            const canCork =
+              effectiveUseCork &&
+              typeof (writable as Writable & { cork?: () => void; uncork?: () => void }).cork === 'function' &&
+              typeof (writable as Writable & { cork?: () => void; uncork?: () => void }).uncork === 'function';
 
-            if (canCork) {
+            if (canCork)
               try {
                 (writable as any).cork();
               } catch {}
-            }
 
             let wroteOk = true;
             try {
               // single head write drives backpressure logic
-              const res = (writable as any)?.write ? (writable as any).write(head) : true;
+              const res = typeof (writable as any).write === 'function' ? (writable as any).write(head) : true;
               wroteOk = res !== false;
             } finally {
               if (canCork) {
@@ -215,23 +224,28 @@ export function createRenderer<T extends Record<string, unknown>>({
             // Let onHead() *optionally* force waiting for 'drain'
             let forceWait = false;
             try {
-              const ret = onHead?.(head);
-              forceWait = ret === false;
+              forceWait = cb.onHead(head) === false;
             } catch (cbErr) {
               warn('onHead callback threw:', cbErr);
             }
 
             const startPipe = () => stream.pipe(writable);
-            if (forceWait || !wroteOk) (writable as any)?.once?.('drain', startPipe);
-            else startPipe();
+            if (forceWait || !wroteOk) {
+              if (typeof (writable as any).once === 'function') {
+                (writable as any).once('drain', startPipe);
+              } else {
+                // no drain support; best effort start
+                startPipe();
+              }
+            } else startPipe();
 
             try {
-              onShellReady?.();
+              cb.onShellReady();
             } catch (cbErr) {
               warn('onShellReady callback threw:', cbErr);
             }
           } catch (err) {
-            onError?.(err);
+            cb.onError(err);
             controller.fatalAbort(err);
           }
         },
@@ -242,19 +256,19 @@ export function createRenderer<T extends Record<string, unknown>>({
           const deliver = () => {
             try {
               const data = store.getSnapshot();
-              onAllReady?.(data);
-              onFinish?.(data);
+              cb.onAllReady(data);
+              cb.onFinish(data);
             } catch (thrown) {
               // Suspense rethrow - retry after resolution
               if (thrown && typeof (thrown as any).then === 'function') {
                 (thrown as Promise<unknown>).then(deliver).catch((e) => {
                   error('Data promise rejected:', e);
-                  onError?.(e);
+                  cb.onError(e);
                   controller.fatalAbort(e);
                 });
               } else {
                 error('Unexpected throw from getSnapshot:', thrown);
-                onError?.(thrown);
+                cb.onError(thrown);
                 controller.fatalAbort(thrown);
               }
             }
@@ -270,7 +284,7 @@ export function createRenderer<T extends Record<string, unknown>>({
             stopShellTimer();
           } catch {}
 
-          onError?.(err);
+          cb.onError(err);
           controller.fatalAbort(err);
         },
 
@@ -279,7 +293,7 @@ export function createRenderer<T extends Record<string, unknown>>({
           // wireWritableGuards handles most stream errors via 'error'/'close',
           // but React may surface errors here too; treat client disconnects as benign
           const msg = String((err as any)?.message ?? '');
-          warn?.('React stream error:', msg);
+          warn('React stream error:', msg);
 
           if (isBenignStreamErr(err)) {
             controller.benignAbort('Client disconnected before stream finished');
@@ -287,14 +301,14 @@ export function createRenderer<T extends Record<string, unknown>>({
             return;
           }
 
-          onError?.(err);
+          cb.onError(err);
           controller.fatalAbort(err);
         },
       });
 
       controller.setStreamAbort(() => stream.abort());
     } catch (err) {
-      onError?.(err);
+      cb.onError(err);
       controller.fatalAbort(err);
     }
 
