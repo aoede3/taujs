@@ -1,5 +1,13 @@
 # @taujs/server
 
+v0.4.1 - 25/10/2025
+
+feat: Focus on Pino as first class logger; associated files, tests
+feat: Add friendly attr.data error; suppress duplicate errors when already logged by component
+feat: tightening api surface
+chore: update vite-plugin-node-polyfills
+feat: static asset registration; tests
+
 v0.4.0 - 20/10/2025
 
 chore: update vite
