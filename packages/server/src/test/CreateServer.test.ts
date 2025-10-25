@@ -146,7 +146,7 @@ describe('createServer', () => {
     process.env.NODE_ENV = 'test';
   });
 
-  it('creates Fastify instance, registers plugins, defaults registerStaticAssets to fastifyStatic, returns { app, net }', async () => {
+  it('creates Fastify instance, registers plugins, defaults staticAssets to fastifyStatic, returns { app, net }', async () => {
     const { createServer } = await importer();
 
     const result = await createServer({
@@ -180,7 +180,7 @@ describe('createServer', () => {
       2,
       SSRServerPlugin,
       expect.objectContaining({
-        registerStaticAssets: { plugin: fastifyStaticMock },
+        staticAssets: { plugin: fastifyStaticMock },
         clientRoot: expect.stringContaining('/client'),
         devNet: { host: netResolved.host, hmrPort: netResolved.hmrPort },
       }),
@@ -190,19 +190,19 @@ describe('createServer', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('configured in 675ms'));
   });
 
-  it('respects registerStaticAssets=false (passes false through to SSRServer)', async () => {
+  it('respects staticAssets=false (passes false through to SSRServer)', async () => {
     const { createServer } = await importer();
 
     await createServer({
       config: minimalConfig,
       serviceRegistry: dummyRegistry,
-      registerStaticAssets: false,
+      staticAssets: false,
     });
 
-    expect(registerMock).toHaveBeenNthCalledWith(2, SSRServerPlugin, expect.objectContaining({ registerStaticAssets: false }));
+    expect(registerMock).toHaveBeenNthCalledWith(2, SSRServerPlugin, expect.objectContaining({ staticAssets: false }));
   });
 
-  it('respects custom registerStaticAssets object', async () => {
+  it('respects custom staticAssets object', async () => {
     const { createServer } = await importer();
     const customPlugin: FastifyPluginCallback = (_instance, _opts, done) => {
       done();
@@ -212,10 +212,10 @@ describe('createServer', () => {
     await createServer({
       config: minimalConfig,
       serviceRegistry: dummyRegistry,
-      registerStaticAssets: custom,
+      staticAssets: custom,
     });
 
-    expect(registerMock).toHaveBeenNthCalledWith(2, SSRServerPlugin, expect.objectContaining({ registerStaticAssets: custom }));
+    expect(registerMock).toHaveBeenNthCalledWith(2, SSRServerPlugin, expect.objectContaining({ staticAssets: custom }));
   });
 
   it('logs an error if SSRServer registration throws, but continues and returns normally', async () => {

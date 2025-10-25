@@ -12,19 +12,20 @@ import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
 import { AppError } from './logging/AppError';
+import { createLogger } from './logging/Logger';
 import { toHttp } from './logging/utils';
 import { createAuthHook } from './security/Auth';
 import { cspPlugin } from './security/CSP';
-import { isDevelopment } from './utils/System';
+import { cspReportPlugin } from './security/CSPReporting';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { createRouteMatchers } from './utils/DataRoutes';
-import { cspReportPlugin } from './security/CSPReporting';
-import { createLogger } from './logging/Logger';
+import { registerStaticAssets } from './utils/StaticAssets';
+import { isDevelopment } from './utils/System';
 
-import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
 import type { SSRServerOptions } from './types';
 
@@ -63,17 +64,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       },
     );
 
-    if (opts.registerStaticAssets && typeof opts.registerStaticAssets === 'object') {
-      const { plugin, options } = opts.registerStaticAssets;
-
-      await app.register(plugin as FastifyPluginCallback<any>, {
-        root: baseClientRoot,
-        prefix: '/',
-        index: false,
-        wildcard: false,
-        ...(options ?? {}),
-      });
-    }
+    if (opts.staticAssets) await registerStaticAssets(app, baseClientRoot, opts.staticAssets);
 
     if (security?.csp?.reporting) {
       app.register(cspReportPlugin, {

@@ -231,7 +231,7 @@ describe('SSRServer', () => {
       serviceRegistry: {},
       clientRoot: '/pub',
       debug: true,
-      registerStaticAssets: { plugin: staticPlugin, options: { foo: 'bar' } },
+      staticAssets: { plugin: staticPlugin, options: { foo: 'bar' } },
     });
 
     const res = await app.inject({ method: 'GET', url: '/static-check' });
@@ -429,7 +429,7 @@ describe('SSRServer', () => {
       serviceRegistry: {},
       clientRoot: '/pub',
       debug: false,
-      registerStaticAssets: { plugin: staticPlugin }, // <-- no options
+      staticAssets: { plugin: staticPlugin }, // <-- no options
     });
 
     // plugin should have received our base fields + spread of {} (no crash)
@@ -448,7 +448,7 @@ describe('SSRServer', () => {
   });
 
   it('error handler includes {code} only when e.code is truthy', async () => {
-    const originalFrom = (AppErrorFake.from as Mock).mockImplementation;
+    // const originalFrom = (AppErrorFake.from as Mock).mockImplementation;
 
     (AppErrorFake.from as Mock).mockImplementation((err: any) =>
       Object.assign(new AppErrorFake(), {

@@ -4,6 +4,7 @@ import type { CSPDirectives } from './security/CSP';
 import type { ServiceRegistry } from './utils/DataServices';
 import type { AppConfig, SecurityConfig } from './Config';
 import type { DebugConfig, Logs } from './logging/Logger';
+import type { StaticAssetsRegistration } from './utils/StaticAssets';
 import type { RequestContext } from './utils/Telemetry';
 
 export type RouteCSPConfig = {
@@ -38,12 +39,7 @@ export type SSRServerOptions = {
   routes: Route<PathToRegExpParams>[];
   serviceRegistry: ServiceRegistry;
   security?: SecurityConfig;
-  registerStaticAssets?:
-    | false
-    | {
-        plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
-        options?: Record<string, unknown>;
-      };
+  staticAssets?: StaticAssetsRegistration;
   debug?: DebugConfig;
   devNet?: { host: string; hmrPort: number };
 };
