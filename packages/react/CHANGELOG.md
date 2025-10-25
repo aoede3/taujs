@@ -1,5 +1,9 @@
 # @taujs/react
 
+v0.1.1 - 25/10/2025
+
+feat: Optimise hot paths
+
 v0.1.0 - 20/10/2025
 
 feat: optimisation
