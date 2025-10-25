@@ -365,11 +365,11 @@ describe('cspPlugin', () => {
     await fastify._hooks.onRequest(req, reply, done);
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'CSP plugin error',
       expect.objectContaining({
         url: '/err',
         error: expect.objectContaining({ name: 'Error', message: 'boom' }),
       }),
+      'CSP plugin error',
     );
 
     // fallback header still applied
@@ -467,11 +467,11 @@ describe('cspPlugin', () => {
     await fastify._hooks.onRequest(req, reply, done);
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'CSP plugin error',
       expect.objectContaining({
         url: '/err-str',
         error: 'route-err-str', // ← String(error)
       }),
+      'CSP plugin error',
     );
 
     const header = (reply.header as any).mock.calls[0][1] as string;

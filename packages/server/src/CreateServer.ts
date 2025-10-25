@@ -14,16 +14,12 @@ import { SSRServer } from './SSRServer';
 import { normaliseError } from './logging/AppError';
 import { createLogger } from './logging/Logger';
 
-import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import type { TaujsConfig } from './Config';
+import type { BaseLogger, DebugConfig } from './logging/Logger';
 import type { NetResolved } from './network/CLI';
 import type { ServiceRegistry } from './utils/DataServices';
-import type { BaseLogger, DebugConfig } from './logging/Logger';
-
-type StaticAssetsRegistration = {
-  plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>;
-  options?: Record<string, unknown>;
-};
+import type { StaticAssetsRegistration } from './utils/StaticAssets';
 
 type CreateServerOptions = {
   config: TaujsConfig;
@@ -33,7 +29,7 @@ type CreateServerOptions = {
   fastify?: FastifyInstance;
   debug?: DebugConfig;
   logger?: BaseLogger;
-  registerStaticAssets?: false | StaticAssetsRegistration;
+  staticAssets?: false | StaticAssetsRegistration;
   port?: number;
 };
 
@@ -95,17 +91,20 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       configs,
       routes,
       serviceRegistry: opts.serviceRegistry,
-      registerStaticAssets: opts.registerStaticAssets !== undefined ? opts.registerStaticAssets : { plugin: fastifyStatic },
+      staticAssets: opts.staticAssets !== undefined ? opts.staticAssets : { plugin: fastifyStatic },
       debug: opts.debug,
       alias: opts.alias,
       security,
       devNet: { host: net.host, hmrPort: net.hmrPort },
     });
   } catch (err) {
-    logger.error('Failed to register SSRServer', {
-      step: 'register:SSRServer',
-      error: normaliseError(err),
-    });
+    logger.error(
+      {
+        step: 'register:SSRServer',
+        error: normaliseError(err),
+      },
+      'Failed to register SSRServer',
+    );
   }
 
   const t1 = performance.now();

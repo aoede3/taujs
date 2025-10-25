@@ -75,10 +75,14 @@ describe('createAuthHook', () => {
     await (hook as any).call({} as any, req, reply, done);
 
     expect(logger.debug).toHaveBeenCalledTimes(1);
-    expect(logger.debug).toHaveBeenCalledWith('auth', '(none)', {
-      method: 'POST',
-      url: '/noauth?y=2',
-    });
+    expect(logger.debug).toHaveBeenCalledWith(
+      'auth',
+      {
+        method: 'POST',
+        url: '/noauth?y=2',
+      },
+      '(none)',
+    );
     expect(logger.warn).not.toHaveBeenCalled();
     expect(reply.status).not.toHaveBeenCalled();
     expect(reply.send).not.toHaveBeenCalled();
@@ -101,7 +105,7 @@ describe('createAuthHook', () => {
     await (hook as any).call({} as any, req, reply, done);
 
     expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledWith('Route requires auth but Fastify authenticate decorator is missing', { path: '/secure', appId: 'appB' });
+    expect(logger.warn).toHaveBeenCalledWith({ path: '/secure', appId: 'appB' }, 'Route requires auth but Fastify authenticate decorator is missing');
     expect(reply.status).toHaveBeenCalledWith(500);
     expect(reply.send).toHaveBeenCalledWith('Server misconfiguration: auth decorator missing.');
     expect(logger.debug).not.toHaveBeenCalled();
@@ -128,15 +132,25 @@ describe('createAuthHook', () => {
     await (hook as any).call({} as any, req, reply, done);
 
     expect(logger.debug).toHaveBeenCalledTimes(2);
-    expect(logger.debug).toHaveBeenNthCalledWith(1, 'auth', 'Invoking authenticate(...)', {
-      method: 'PUT',
-      url: '/auth/success?ok=1',
-    });
+    expect(logger.debug).toHaveBeenNthCalledWith(
+      1,
+      'auth',
+      {
+        method: 'PUT',
+        url: '/auth/success?ok=1',
+      },
+      'Invoking authenticate(...)',
+    );
     expect(authenticate).toHaveBeenCalledWith(req, reply);
-    expect(logger.debug).toHaveBeenNthCalledWith(2, 'auth', 'Authentication successful', {
-      method: 'PUT',
-      url: '/auth/success?ok=1',
-    });
+    expect(logger.debug).toHaveBeenNthCalledWith(
+      2,
+      'auth',
+      {
+        method: 'PUT',
+        url: '/auth/success?ok=1',
+      },
+      'Authentication successful',
+    );
     expect(reply.send).not.toHaveBeenCalled();
     expect(reply.status).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
@@ -164,14 +178,24 @@ describe('createAuthHook', () => {
     await (hook as any).call({} as any, req, reply, done);
 
     expect(logger.debug).toHaveBeenCalledTimes(2);
-    expect(logger.debug).toHaveBeenNthCalledWith(1, 'auth', 'Invoking authenticate(...)', {
-      method: 'DELETE',
-      url: '/auth/fail?q=1',
-    });
-    expect(logger.debug).toHaveBeenNthCalledWith(2, 'auth', 'Authentication failed', {
-      method: 'DELETE',
-      url: '/auth/fail?q=1',
-    });
+    expect(logger.debug).toHaveBeenNthCalledWith(
+      1,
+      'auth',
+      {
+        method: 'DELETE',
+        url: '/auth/fail?q=1',
+      },
+      'Invoking authenticate(...)',
+    );
+    expect(logger.debug).toHaveBeenNthCalledWith(
+      2,
+      'auth',
+      {
+        method: 'DELETE',
+        url: '/auth/fail?q=1',
+      },
+      'Authentication failed',
+    );
     expect(reply.send).toHaveBeenCalledWith(err);
     expect(reply.status).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();

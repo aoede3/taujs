@@ -121,11 +121,11 @@ export function printConfigSummary(
   durationMs: number,
   warnings: string[],
 ) {
-  logger.info(`${CONTENT.TAG} [config] Loaded ${configsCount} app(s), ${totalRoutes} route(s) in ${durationMs.toFixed(1)}ms`);
+  logger.info({}, `${CONTENT.TAG} [config] Loaded ${configsCount} app(s), ${totalRoutes} route(s) in ${durationMs.toFixed(1)}ms`);
 
-  apps.forEach((a) => logger.debug('routes', `• ${a.appId}: ${a.routeCount} route(s)`));
+  apps.forEach((a) => logger.debug('routes', {}, `• ${a.appId}: ${a.routeCount} route(s)`));
 
-  warnings.forEach((w) => logger.warn(`${CONTENT.TAG} [warn] ${w}`));
+  warnings.forEach((w) => logger.warn({}, `${CONTENT.TAG} [warn] ${w}`));
 }
 
 export function printSecuritySummary(logger: Logger, routes: Route[], security: SecurityConfig, hasExplicitCSP: boolean, securityDurationMs: number) {
@@ -149,11 +149,11 @@ export function printSecuritySummary(logger: Logger, routes: Route[], security: 
     if (custom > 0) detail += `, ${custom} route override(s)`;
   } else {
     if (process.env.NODE_ENV === 'production') {
-      logger.warn('(consider explicit config for production)');
+      logger.warn({}, '(consider explicit config for production)');
     }
   }
 
-  logger.info(`${CONTENT.TAG} [security] CSP ${status} (${enabled}/${total} routes) in ${securityDurationMs.toFixed(1)}ms`);
+  logger.info({}, `${CONTENT.TAG} [security] CSP ${status} (${enabled}/${total} routes) in ${securityDurationMs.toFixed(1)}ms`);
 }
 
 export function printContractReport(logger: Logger, report: ContractReport) {
@@ -161,13 +161,13 @@ export function printContractReport(logger: Logger, report: ContractReport) {
     const line = `${CONTENT.TAG} [security][${r.key}] ${r.message}`;
 
     if (r.status === 'error') {
-      logger.error(line);
+      logger.error({}, line);
     } else if (r.status === 'warning') {
-      logger.warn(line);
+      logger.warn({}, line);
     } else if (r.status === 'skipped') {
-      logger.debug(r.key as DebugCategory, line);
+      logger.debug(r.key as DebugCategory, {}, line);
     } else {
-      logger.info(line);
+      logger.info({}, line);
     }
   }
 }

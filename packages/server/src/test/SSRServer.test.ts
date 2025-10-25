@@ -125,7 +125,7 @@ import { loadAssets } from '../utils/AssetManager';
 import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
 
-describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
+describe('SSRServer', () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
@@ -231,7 +231,7 @@ describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
       serviceRegistry: {},
       clientRoot: '/pub',
       debug: true,
-      registerStaticAssets: { plugin: staticPlugin, options: { foo: 'bar' } },
+      staticAssets: { plugin: staticPlugin, options: { foo: 'bar' } },
     });
 
     const res = await app.inject({ method: 'GET', url: '/static-check' });
@@ -325,7 +325,6 @@ describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
 
     expect(AppErrorFake.from).toHaveBeenCalled();
     expect(mockLogger.error).toHaveBeenCalledWith(
-      expect.any(String),
       expect.objectContaining({
         httpStatus: 418,
         method: 'GET',
@@ -333,6 +332,7 @@ describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
         route: expect.anything(),
         stack: 'stack',
       }),
+      expect.any(String),
     );
     expect(toHttpMock).toHaveBeenCalled();
     expect(res.statusCode).toBe(499);
@@ -429,7 +429,7 @@ describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
       serviceRegistry: {},
       clientRoot: '/pub',
       debug: false,
-      registerStaticAssets: { plugin: staticPlugin }, // <-- no options
+      staticAssets: { plugin: staticPlugin }, // <-- no options
     });
 
     // plugin should have received our base fields + spread of {} (no crash)
@@ -448,9 +448,8 @@ describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
   });
 
   it('error handler includes {code} only when e.code is truthy', async () => {
-    const originalFrom = (AppErrorFake.from as Mock).mockImplementation;
+    // const originalFrom = (AppErrorFake.from as Mock).mockImplementation;
 
-    // Make from() return a truthy code this time
     (AppErrorFake.from as Mock).mockImplementation((err: any) =>
       Object.assign(new AppErrorFake(), {
         message: err?.message ?? 'boom',
@@ -474,6 +473,93 @@ describe('SSRServer (new wiring) - Fastify integration with mocks', () => {
 
     await app.inject({ method: 'GET', url: '/err2' });
 
-    expect(mockLogger.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'E42' }));
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ code: 'E42' }), expect.any(String));
+  });
+
+  it('error handler: suppresses duplicate top-level error when details.logged = true', async () => {
+    (AppErrorFake.from as Mock).mockImplementation((err: any) =>
+      Object.assign(new AppErrorFake(), {
+        message: err?.message ?? 'boom',
+        httpStatus: err?.httpStatus ?? 500,
+        details: err?.details,
+      }),
+    );
+
+    handleRenderMock.mockImplementationOnce(async () => {
+      const err: any = new Error('dup-logged');
+      err.httpStatus = 500;
+      err.details = { logged: true, note: 'downstream already logged' };
+      throw err;
+    });
+
+    await app.register(SSRServer as any, {
+      alias: {},
+      configs: [],
+      routes: [],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/dup' });
+
+    expect(mockLogger.error).not.toHaveBeenCalled();
+
+    expect(toHttpMock).toHaveBeenCalled();
+    expect(res.statusCode).toBe(499);
+    expect(res.json()).toEqual({ message: 'safe' });
+  });
+
+  it('error handler: does NOT suppress when details is non-object', async () => {
+    handleRenderMock.mockImplementationOnce(async () => {
+      const err: any = new Error('nonobj-details');
+      err.httpStatus = 502;
+      err.details = 'oops';
+      throw err;
+    });
+
+    await app.register(SSRServer as any, {
+      alias: {},
+      configs: [],
+      routes: [],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    const resA = await app.inject({ method: 'GET', url: '/nonobj' });
+    expect(mockLogger.error).toHaveBeenCalled();
+    expect(toHttpMock).toHaveBeenCalled();
+    expect(resA.statusCode).toBe(499);
+  });
+
+  it('error handler: does NOT suppress when details.logged is falsy', async () => {
+    const app2 = fastify();
+
+    const origGet2 = (app2.get as any).bind(app2) as (...args: any[]) => any;
+    (app2 as any).get = (path: string, ...rest: any[]) => {
+      if (path === '/*') return origGet2.apply(app2, ['*', ...rest]);
+      return origGet2.apply(app2, [path, ...rest]);
+    };
+
+    handleRenderMock.mockImplementationOnce(async () => {
+      const err: any = new Error('logged-false');
+      err.httpStatus = 503;
+      err.details = { logged: false, x: 1 };
+      throw err;
+    });
+
+    await app2.register(SSRServer as any, {
+      alias: {},
+      configs: [],
+      routes: [],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    const resB = await app2.inject({ method: 'GET', url: '/loggedfalse' });
+    expect(mockLogger.error).toHaveBeenCalled();
+    expect(toHttpMock).toHaveBeenCalled();
+    expect(resB.statusCode).toBe(499);
+
+    await app2.close();
   });
 });

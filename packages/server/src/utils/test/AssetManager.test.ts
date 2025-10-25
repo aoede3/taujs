@@ -344,7 +344,6 @@ describe('loadAssets (production)', () => {
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'Asset load failed',
       expect.objectContaining({
         stage: 'loadAssets:production',
         error: expect.objectContaining({
@@ -353,6 +352,7 @@ describe('loadAssets (production)', () => {
           code: 'INTERNAL',
         }),
       }),
+      'Asset load failed',
     );
 
     expect(maps.templates.get('/root/appA')).toBe('<html>prod</html>');
@@ -401,7 +401,6 @@ describe('loadAssets (production)', () => {
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'Asset load failed',
       expect.objectContaining({
         stage: 'loadAssets:production',
         error: expect.objectContaining({
@@ -410,6 +409,7 @@ describe('loadAssets (production)', () => {
           code: 'INTERNAL',
         }),
       }),
+      'Asset load failed',
     );
 
     expect(maps.bootstrapModules.get('/root/appA')).toBe('/appA/assets/app.js');
@@ -498,7 +498,6 @@ describe('loadAssets (production)', () => {
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'Asset load failed',
       expect.objectContaining({
         stage: 'loadAssets:production',
         error: expect.objectContaining({
@@ -507,6 +506,7 @@ describe('loadAssets (production)', () => {
           stack: expect.any(String),
         }),
       }),
+      'Asset load failed',
     );
   });
 
@@ -546,12 +546,12 @@ describe('loadAssets (production)', () => {
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'Asset load failed',
       expect.objectContaining({
         stage: 'loadAssets:production',
         // When err is not an Error, code uses String(err)
         error: 'string-fail',
       }),
+      'Asset load failed',
     );
   });
 
@@ -587,11 +587,11 @@ describe('loadAssets (production)', () => {
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'Failed to process config',
       expect.objectContaining({
         stage: 'loadAssets:config',
         error: 'template-bad-string', // <- String(err)
       }),
+      'Failed to process config',
     );
   });
 
@@ -619,11 +619,11 @@ describe('loadAssets (production)', () => {
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'Failed to process config',
       expect.objectContaining({
         stage: 'loadAssets:config',
         error: '[object Object]', // String({ reason: 'bad' })
       }),
+      'Failed to process config',
     );
   });
 });
@@ -660,7 +660,6 @@ describe('loadAssets - top-level failure (template read fails)', () => {
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'Failed to process config',
       expect.objectContaining({
         stage: 'loadAssets:config',
         error: expect.objectContaining({
@@ -668,6 +667,7 @@ describe('loadAssets - top-level failure (template read fails)', () => {
           name: 'Error',
         }),
       }),
+      'Failed to process config',
     );
 
     expect(maps.templates.size).toBe(0);

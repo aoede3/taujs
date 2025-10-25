@@ -1,5 +1,4 @@
-import './fastify.d.ts';
-export type * from './types.ts';
+export { createServer } from './CreateServer';
+export { taujsBuild } from './Build';
 
-export * from './SSRServer';
-export * from './CreateServer';
+export type { InitialRouteParams } from './types';

@@ -63,25 +63,28 @@ function sanitiseContext(ctx: CSPViolationContext) {
 }
 
 function logCspViolation(logger: Logs, report: CSPViolationReport, context: CSPViolationContext) {
-  logger.warn('CSP Violation', {
-    violation: {
-      documentUri: report['document-uri'],
-      violatedDirective: report['violated-directive'],
-      blockedUri: report['blocked-uri'],
-      sourceFile: report['source-file'],
-      line: report['line-number'],
-      column: report['column-number'],
-      scriptSample: report['script-sample'],
-      originalPolicy: report['original-policy'],
-      disposition: report.disposition,
+  logger.warn(
+    {
+      violation: {
+        documentUri: report['document-uri'],
+        violatedDirective: report['violated-directive'],
+        blockedUri: report['blocked-uri'],
+        sourceFile: report['source-file'],
+        line: report['line-number'],
+        column: report['column-number'],
+        scriptSample: report['script-sample'],
+        originalPolicy: report['original-policy'],
+        disposition: report.disposition,
+      },
+      context: {
+        userAgent: context.userAgent,
+        ip: context.ip,
+        referer: context.referer,
+        timestamp: context.timestamp,
+      },
     },
-    context: {
-      userAgent: context.userAgent,
-      ip: context.ip,
-      referer: context.referer,
-      timestamp: context.timestamp,
-    },
-  });
+    'CSP Violation',
+  );
 }
 
 export const processCSPReport = (body: unknown, context: CSPViolationContext, logger: Logs): void => {
@@ -89,10 +92,13 @@ export const processCSPReport = (body: unknown, context: CSPViolationContext, lo
     const reportData = (body as any)?.['csp-report'] || body;
 
     if (!reportData || typeof reportData !== 'object') {
-      logger.warn('Ignoring malformed CSP report', {
-        bodyType: typeof body,
-        context: sanitiseContext(context),
-      });
+      logger.warn(
+        {
+          bodyType: typeof body,
+          context: sanitiseContext(context),
+        },
+        'Ignoring malformed CSP report',
+      );
 
       return;
     }
@@ -101,11 +107,14 @@ export const processCSPReport = (body: unknown, context: CSPViolationContext, lo
     const violatedDirective = (reportData as any)['violated-directive'] ?? (reportData as any)['violatedDirective'];
 
     if (!documentUri || !violatedDirective) {
-      logger.warn('Ignoring incomplete CSP report', {
-        hasDocumentUri: !!documentUri,
-        hasViolatedDirective: !!violatedDirective,
-        context: sanitiseContext(context),
-      });
+      logger.warn(
+        {
+          hasDocumentUri: !!documentUri,
+          hasViolatedDirective: !!violatedDirective,
+          context: sanitiseContext(context),
+        },
+        'Ignoring incomplete CSP report',
+      );
 
       return;
     }
@@ -124,11 +133,14 @@ export const processCSPReport = (body: unknown, context: CSPViolationContext, lo
 
     logCspViolation(logger, violation, context);
   } catch (processingError) {
-    logger.warn('CSP report processing failed', {
-      error: processingError instanceof Error ? processingError.message : String(processingError),
-      bodyType: typeof body,
-      context: sanitiseContext(context),
-    });
+    logger.warn(
+      {
+        error: processingError instanceof Error ? processingError.message : String(processingError),
+        bodyType: typeof body,
+        context: sanitiseContext(context),
+      },
+      'CSP report processing failed',
+    );
   }
 };
 
@@ -191,9 +203,12 @@ export const cspReportPlugin: FastifyPluginAsync<CSPReportOptions> = fp(
           }
         }
       } catch (err) {
-        logger.warn('CSP reporting route failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        logger.warn(
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
+          'CSP reporting route failed',
+        );
       }
 
       reply.code(204).send();

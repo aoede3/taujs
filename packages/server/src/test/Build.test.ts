@@ -47,7 +47,8 @@ const mockProcessConfigs = (AM as any).__mocked_processConfigs as ReturnType<typ
 // ----------------------------------------------------------------
 
 describe('taujsBuild', () => {
-  const baseConfig: AppConfig = { appId: 'test-app', entryPoint: 'test-entry' };
+  const baseApp: AppConfig = { appId: 'test-app', entryPoint: 'test-entry' };
+  const baseConfig = { apps: [baseApp] };
   const root = path.resolve();
   const clientBase = path.resolve('test-client');
 
@@ -60,7 +61,7 @@ describe('taujsBuild', () => {
     const fs = await import('node:fs/promises');
 
     await taujsBuild({
-      configs: [baseConfig],
+      config: baseConfig,
       projectRoot: root,
       clientBaseDir: clientBase,
       isSSRBuild: false,
@@ -76,7 +77,7 @@ describe('taujsBuild', () => {
     const fs = await import('node:fs/promises');
 
     await taujsBuild({
-      configs: [baseConfig],
+      config: baseConfig,
       projectRoot: root,
       clientBaseDir: clientBase,
       isSSRBuild: true,
@@ -86,19 +87,19 @@ describe('taujsBuild', () => {
   });
 
   it('supports multiple configs with and without entryPoint', async () => {
-    const configs: AppConfig[] = [
+    const config: AppConfig[] = [
       { appId: 'app1', entryPoint: 'foo' },
       { appId: 'app2', entryPoint: '' },
     ];
 
     await taujsBuild({
-      configs,
+      config: { apps: config },
       projectRoot: root,
       clientBaseDir: clientBase,
       isSSRBuild: false,
     });
 
-    expect(mockProcessConfigs).toHaveBeenCalledWith(configs, clientBase, expect.anything());
+    expect(mockProcessConfigs).toHaveBeenCalledWith(config, clientBase, expect.anything());
     expect(vite.build).toHaveBeenCalledTimes(2);
   });
 
@@ -110,7 +111,7 @@ describe('taujsBuild', () => {
     };
 
     await taujsBuild({
-      configs: [configWithPlugins],
+      config: { apps: [configWithPlugins] },
       projectRoot: root,
       clientBaseDir: clientBase,
       isSSRBuild: false,
@@ -131,7 +132,7 @@ describe('taujsBuild', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await taujsBuild({
-      configs: [baseConfig],
+      config: baseConfig,
       projectRoot: root,
       clientBaseDir: clientBase,
       isSSRBuild: false,
@@ -145,7 +146,7 @@ describe('taujsBuild', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await taujsBuild({
-      configs: [baseConfig],
+      config: baseConfig,
       projectRoot: root,
       clientBaseDir: clientBase,
       isSSRBuild: false,
@@ -167,7 +168,7 @@ describe('taujsBuild', () => {
 
     await expect(() =>
       taujsBuild({
-        configs: [baseConfig],
+        config: baseConfig,
         projectRoot: root,
         clientBaseDir: clientBase,
         isSSRBuild: false,
@@ -188,7 +189,7 @@ describe('taujsBuild', () => {
     };
 
     await taujsBuild({
-      configs: [configWithPlugins],
+      config: { apps: [configWithPlugins] },
       projectRoot: root,
       clientBaseDir: clientBase,
       isSSRBuild: false,

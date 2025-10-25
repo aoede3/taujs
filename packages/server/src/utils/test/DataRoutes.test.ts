@@ -242,7 +242,6 @@ describe('fetchInitialData', () => {
     await expect(fetchInitialData(attr, {} as any, registry, mkCtx({ traceId: 't1' }))).rejects.toThrow(/nope/);
 
     expect(logger.warn).toHaveBeenCalledWith(
-      'nope',
       expect.objectContaining({
         component: 'fetch-initial-data',
         kind: 'validation',
@@ -251,6 +250,7 @@ describe('fetchInitialData', () => {
         details: { x: 1 },
         traceId: 't1',
       }),
+      'nope',
     );
     expect(logger.error).not.toHaveBeenCalled();
   });
@@ -265,13 +265,13 @@ describe('fetchInitialData', () => {
     await expect(fetchInitialData(attr, {} as any, registry, mkCtx({ traceId: 't2' }))).rejects.toThrow(/boom/);
 
     expect(logger.error).toHaveBeenCalledWith(
-      'boom',
       expect.objectContaining({
         component: 'fetch-initial-data',
         kind: 'infra',
         httpStatus: 500,
         traceId: 't2',
       }),
+      'boom',
     );
     expect(logger.warn).not.toHaveBeenCalled();
   });
@@ -321,5 +321,132 @@ describe('fetchInitialData', () => {
       expect.objectContaining({ traceId: 'zzz' }), // ctx passed through
     );
     expect(out).toEqual({ ok: true });
+  });
+
+  it('includes params in meta when params is truthy (e.g., an object)', async () => {
+    const attr = {
+      data: vi.fn(async () => {
+        throw AppError.badRequest('nope');
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, { p: 1 } as any, {} as any, mkCtx({ traceId: 'pp1' }))).rejects.toThrow();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        component: 'fetch-initial-data',
+        kind: 'validation',
+        httpStatus: 400,
+        traceId: 'pp1',
+        params: { p: 1 },
+      }),
+      'nope',
+    );
+  });
+
+  it('omits params in meta when params is falsy (covers ": {}" branch)', async () => {
+    const attr = {
+      data: vi.fn(async () => {
+        throw new Error('boom2');
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, undefined as any, {} as any, mkCtx({ traceId: 'pp2' }))).rejects.toThrow('boom2');
+
+    const [meta, msg] = (logger.error as any).mock.calls.pop()!;
+    expect(meta).toEqual(
+      expect.not.objectContaining({
+        params: expect.anything(),
+      }),
+    );
+    expect(msg).toBe('boom2');
+  });
+
+  it('falls back to empty message when err.message is undefined (covers ?.message ?? "")', async () => {
+    const attr = {
+      data: vi.fn(async () => {
+        throw { notMessage: 'nope' } as any;
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, {} as any, {} as any, mkCtx({ traceId: 'no-msg' }))).rejects.toThrow();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        component: 'fetch-initial-data',
+        kind: 'infra',
+        httpStatus: 500,
+        traceId: 'no-msg',
+      }),
+      expect.any(String),
+    );
+    const [meta] = (logger.error as any).mock.calls.pop();
+    expect(meta.details?.hint).toBeUndefined();
+    expect(meta.details?.logged).toBeUndefined();
+  });
+
+  it('HTML heuristic: merges existing object details and adds hint/suggestion/logged', async () => {
+    const base = AppError.internal('<!DOCTYPE html>', undefined, { prev: true });
+
+    const attr = {
+      data: vi.fn(async () => {
+        throw base;
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, { a: 1 } as any, {} as any, mkCtx({ traceId: 'html-obj' }))).rejects.toThrow(/expected JSON but received HTML/i);
+
+    expect(logger.error).toHaveBeenCalled();
+    const [meta, msg] = (logger.error as any).mock.calls.pop();
+
+    expect(msg).toMatch(/expected JSON but received HTML/i);
+    expect(meta.details).toEqual(
+      expect.objectContaining({
+        prev: true,
+        hint: 'api-missing-or-content-type',
+        suggestion: expect.stringMatching(/ServiceDescriptor/i),
+        logged: true,
+      }),
+    );
+  });
+
+  it('HTML heuristic: ignores non-object previous details and still adds hint/suggestion/logged', async () => {
+    const base = AppError.internal('<html>', undefined, 'oops' as any);
+
+    const attr = {
+      data: vi.fn(async () => {
+        throw base;
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, {} as any, {} as any, mkCtx({ traceId: 'html-nonobj' }))).rejects.toThrow(/expected JSON but received HTML/i);
+
+    const [meta] = (logger.error as any).mock.calls.pop();
+    expect(meta.details).toEqual(
+      expect.objectContaining({
+        hint: 'api-missing-or-content-type',
+        suggestion: expect.any(String),
+        logged: true,
+      }),
+    );
+    expect(meta.details.prev).toBeUndefined();
+  });
+
+  it('HTML heuristic: triggers on "Unexpected token < ... JSON" parser shape', async () => {
+    const attr = {
+      data: vi.fn(async () => {
+        throw new Error('Unexpected token < in JSON at position 0');
+      }),
+    } as any;
+
+    await expect(fetchInitialData(attr, {} as any, {} as any, mkCtx({ traceId: 'html-unexp' }))).rejects.toThrow(/expected JSON but received HTML/i);
+
+    const [meta] = (logger.error as any).mock.calls.pop();
+    expect(meta.details).toEqual(
+      expect.objectContaining({
+        hint: 'api-missing-or-content-type',
+        logged: true,
+      }),
+    );
   });
 });

@@ -31,13 +31,13 @@ export const handleNotFound = async (
 
   try {
     if (/\.\w+$/.test(req.raw.url ?? '')) {
-      logger.debug?.('ssr', 'Delegating asset-like request to Fastify notFound handler', { url: req.raw.url });
+      logger.debug?.('ssr', { url: req.raw.url }, 'Delegating asset-like request to Fastify notFound handler');
       return reply.callNotFound();
     }
 
     const defaultConfig = processedConfigs[0];
     if (!defaultConfig) {
-      logger.error?.('No default configuration found', { configCount: processedConfigs.length, url: req.raw.url });
+      logger.error?.({ configCount: processedConfigs.length, url: req.raw.url }, 'No default configuration found');
       throw AppError.internal('No default configuration found', {
         details: { configCount: processedConfigs.length, url: req.raw.url },
       });
@@ -51,13 +51,17 @@ export const handleNotFound = async (
     const cssLink = maps.cssLinks.get(clientRoot);
     const bootstrapModule = maps.bootstrapModules.get(clientRoot);
 
-    logger.debug?.('ssr', 'Preparing not-found fallback HTML', {
-      clientRoot,
-      hasCssLink: Boolean(cssLink),
-      hasBootstrapModule: Boolean(bootstrapModule),
-      isDevelopment,
-      hasCspNonce: Boolean(cspNonce),
-    });
+    logger.debug?.(
+      'ssr',
+      {
+        clientRoot,
+        hasCssLink: !!cssLink,
+        hasBootstrapModule: !!bootstrapModule,
+        isDevelopment,
+        hasCspNonce: !!cspNonce,
+      },
+      'Preparing not-found fallback HTML',
+    );
 
     let processedTemplate = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
 
@@ -70,10 +74,10 @@ export const handleNotFound = async (
       processedTemplate = processedTemplate.replace('</body>', `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script></body>`);
     }
 
-    logger.debug?.('ssr', 'Sending not-found fallback HTML', { status: 200 });
+    logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');
     return reply.status(200).type('text/html').send(processedTemplate);
   } catch (err) {
-    logger.error?.('handleNotFound failed', { error: err, url: req.url, clientRoot: processedConfigs[0]?.clientRoot });
+    logger.error?.({ error: err, url: req.url, clientRoot: processedConfigs[0]?.clientRoot }, 'handleNotFound failed');
     throw AppError.internal('handleNotFound failed', err, {
       stage: 'handleNotFound',
       url: req.url,

@@ -128,7 +128,6 @@ describe('processCSPReport', () => {
     );
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      'Ignoring malformed CSP report',
       expect.objectContaining({
         bodyType: 'undefined',
         context: expect.objectContaining({
@@ -138,6 +137,7 @@ describe('processCSPReport', () => {
           timestamp: 'T',
         }),
       }),
+      'Ignoring malformed CSP report',
     );
   });
 
@@ -157,12 +157,12 @@ describe('processCSPReport', () => {
     );
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      'Ignoring incomplete CSP report',
       expect.objectContaining({
         hasDocumentUri: false,
         hasViolatedDirective: false,
         context: expect.any(Object),
       }),
+      'Ignoring incomplete CSP report',
     );
   });
 
@@ -196,7 +196,6 @@ describe('processCSPReport', () => {
     );
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      'CSP Violation',
       expect.objectContaining({
         violation: expect.objectContaining({
           documentUri: 'https://example.com/x',
@@ -210,6 +209,7 @@ describe('processCSPReport', () => {
           disposition: 'report',
         }),
       }),
+      'CSP Violation',
     );
   });
 
@@ -241,7 +241,6 @@ describe('processCSPReport', () => {
     );
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      'CSP Violation',
       expect.objectContaining({
         violation: expect.objectContaining({
           documentUri: 'https://ex.com',
@@ -255,6 +254,7 @@ describe('processCSPReport', () => {
           disposition: 'enforce',
         }),
       }),
+      'CSP Violation',
     );
   });
 
@@ -281,12 +281,12 @@ describe('processCSPReport', () => {
     );
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      'CSP report processing failed',
       expect.objectContaining({
         error: 'boom',
         bodyType: 'object',
         context: expect.any(Object),
       }),
+      'CSP report processing failed',
     );
   });
 });
@@ -303,13 +303,13 @@ describe('createCSPReportProcessor', () => {
     proc.processReport(body, ctx as any);
 
     expect(fakeLogger.warn).toHaveBeenCalledWith(
-      'CSP Violation',
       expect.objectContaining({
         violation: expect.objectContaining({
           documentUri: 'x',
           violatedDirective: 'y',
         }),
       }),
+      'CSP Violation',
     );
   });
 });
@@ -405,10 +405,10 @@ describe('cspReportPlugin', () => {
     await handler(req, reply);
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      'CSP reporting route failed',
       expect.objectContaining({
         error: 'route-bang',
       }),
+      'CSP reporting route failed',
     );
 
     expect(reply.code).toHaveBeenCalledWith(204);
@@ -447,12 +447,12 @@ describe('cspReportPlugin', () => {
     );
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      'CSP report processing failed',
       expect.objectContaining({
         error: 'boom-str',
         bodyType: 'object',
         context: expect.any(Object),
       }),
+      'CSP report processing failed',
     );
   });
 
@@ -478,10 +478,10 @@ describe('cspReportPlugin', () => {
     await handler(req, reply);
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      'CSP reporting route failed',
       expect.objectContaining({
         error: 'route-bang-str', // <- String(err)
       }),
+      'CSP reporting route failed',
     );
     expect(reply.code).toHaveBeenCalledWith(204);
     expect(reply.send).toHaveBeenCalled();

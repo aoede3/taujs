@@ -110,11 +110,11 @@ describe('callServiceMethod', () => {
       }),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      'Service method failed',
       expect.objectContaining({
         params: { a: 1 },
         error: expect.objectContaining({ name: 'AppError', message: 'kaboom' }),
       }),
+      'Service method failed',
     );
   });
 
@@ -164,11 +164,11 @@ describe('callServiceMethod', () => {
 
     // The logged error must be the stringified value, not an object
     expect(errorSpy).toHaveBeenCalledWith(
-      'Service method failed',
       expect.objectContaining({
         params: { p: 1 },
         error: 'nope', // <- String(err) branch covered
       }),
+      'Service method failed',
     );
   });
 });

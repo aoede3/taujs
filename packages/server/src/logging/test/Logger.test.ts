@@ -48,14 +48,14 @@ describe('Logger', () => {
 
   it('formatTimestamp uses HH:mm:ss.SSS in non-production and ISO in production', () => {
     const logger = createLogger();
-    logger.info('hello');
+    logger.info({}, 'hello');
 
     const firstArg = (console.log as any).mock.calls[0][0] as string;
     expect(firstArg).toMatch(/^03:04:05\.006 \[info\] hello$/);
 
     (console.log as any).mockClear();
     process.env.NODE_ENV = 'production';
-    logger.info('prod');
+    logger.info({}, 'prod');
     const prodArg = (console.log as any).mock.calls[0][0] as string;
     expect(prodArg).toMatch(/^\d{4}-\d{2}-\d{2}T03:04:05\.006Z \[info\] prod$/);
   });
@@ -63,17 +63,17 @@ describe('Logger', () => {
   it('minLevel gating: info suppressed when minLevel=warn, warn+error allowed; debug suppressed unless enabled', () => {
     const logger = createLogger({ minLevel: 'warn' });
 
-    logger.info('nope');
+    logger.info({}, 'nope');
     expect(console.log).not.toHaveBeenCalled();
 
-    logger.warn('allowed');
+    logger.warn({}, 'allowed');
     expect(console.warn).toHaveBeenCalledTimes(1);
 
-    logger.error('allowed');
+    logger.error({}, 'allowed');
     expect(console.error).toHaveBeenCalledTimes(1);
 
     logger.configure(['routes']);
-    logger.debug('routes', 'debug msg');
+    logger.debug('routes', {}, 'debug msg'); // still blocked by minLevel=warn
     expect(console.log).toHaveBeenCalledTimes(0);
   });
 
@@ -100,10 +100,10 @@ describe('Logger', () => {
     const logger = createLogger({ minLevel: 'debug' });
 
     logger.configure(['routes']);
-    logger.debug('auth', 'nope');
+    logger.debug('auth', {}, 'nope');
     expect(console.log).not.toHaveBeenCalled();
 
-    logger.debug('routes', 'enabled');
+    logger.debug('routes', {}, 'enabled');
     expect(console.log).toHaveBeenCalledTimes(1);
 
     const msg = (console.log as any).mock.calls[0][0] as string;
@@ -116,40 +116,40 @@ describe('Logger', () => {
     const circular: any = { a: 1, stack: 'S', inner: { someStack: 'X' } };
     circular.self = circular;
 
-    loggerA.info('strip stack', circular);
+    loggerA.info(circular, 'strip stack');
     const infoArgs = (console.log as any).mock.calls.pop()!;
     const infoMeta = infoArgs[1];
     expect(infoMeta.stack).toBeUndefined();
     expect(infoMeta.inner).toEqual({});
     expect(infoMeta.self).toBe('[circular]');
 
-    loggerA.warn('keep stack', { stack: 'S2' });
+    loggerA.warn({ stack: 'S2' }, 'keep stack');
     const warnArgs = (console.warn as any).mock.calls.pop()!;
     const warnMeta = warnArgs[1];
     expect(warnMeta.stack).toBe('S2');
 
     process.env.NODE_ENV = 'production';
     const loggerB = createLogger({ minLevel: 'debug' });
-    loggerB.warn('prod warn', { stack: 'S3' });
+    loggerB.warn({ stack: 'S3' }, 'prod warn');
     const prodWarn = (console.warn as any).mock.calls.pop()!;
     expect(prodWarn.length).toBe(1);
 
     const loggerC = createLogger({ includeStack: true, minLevel: 'debug' });
-    loggerC.info('boolean true', { stack: 'S4' });
+    loggerC.info({ stack: 'S4' }, 'boolean true');
     const cArgs = (console.log as any).mock.calls.pop()!;
     expect(cArgs[1].stack).toBe('S4');
 
     const loggerD = createLogger({ includeStack: false, minLevel: 'debug' });
-    loggerD.error('boolean false', { stack: 'S5' });
+    loggerD.error({ stack: 'S5' }, 'boolean false');
     const dArgs = (console.error as any).mock.calls.pop()!;
     expect(dArgs.length).toBe(1);
 
     const fn = vi.fn((lvl: any) => lvl === 'error');
     const loggerE = createLogger({ includeStack: fn, minLevel: 'debug' });
-    loggerE.info('fn info', { stack: 'S6' });
+    loggerE.info({ stack: 'S6' }, 'fn info');
     const eInfo = (console.log as any).mock.calls.pop()!;
     expect(eInfo.length).toBe(1);
-    loggerE.error('fn err', { stack: 'S7' });
+    loggerE.error({ stack: 'S7' }, 'fn err');
     const eErr = (console.error as any).mock.calls.pop()!;
     expect(eErr[1].stack).toBe('S7');
     expect(fn).toHaveBeenCalledWith('info');
@@ -163,7 +163,7 @@ describe('Logger', () => {
     });
 
     const child = base.child({ reqId: 'abc' });
-    child.info('with ctx', { extra: 1 });
+    child.info({ extra: 1 }, 'with ctx');
     const call = (console.log as any).mock.calls.pop()!;
     const meta = call[1];
     expect(meta).toEqual({
@@ -176,34 +176,30 @@ describe('Logger', () => {
       includeContext: fn,
       context: { foo: 1 },
     });
-    logger.info('no ctx', { a: 1 });
+    logger.info({ a: 1 }, 'no ctx');
     let m = (console.log as any).mock.calls.pop()![1];
     expect(m).toEqual({ a: 1 });
 
-    logger.warn('with ctx', { b: 2 });
+    logger.warn({ b: 2 }, 'with ctx');
     m = (console.warn as any).mock.calls.pop()![1];
     expect(m).toEqual({ context: { foo: 1 }, b: 2 });
     expect(fn).toHaveBeenCalledWith('info');
     expect(fn).toHaveBeenCalledWith('warn');
   });
 
-  it('custom sinks: prefer exact level, then debug->info fallback, else log; otherwise console fallback', () => {
+  it('custom sinks: per-level only; no fallback to .info or .log; otherwise console fallback', () => {
     const customAll = {
       debug: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
-      log: vi.fn(),
+      log: vi.fn(), // unused in new pino-first path
     };
     const logger1 = createLogger({ custom: customAll, includeContext: false, minLevel: 'debug' });
 
-    logger1.info('msg1', { a: 1 });
+    logger1.info({ a: 1 }, 'msg1');
     expect(customAll.info).toHaveBeenCalledTimes(1);
     expect(customAll.log).not.toHaveBeenCalled();
-
-    logger1.configure(['auth']);
-    logger1.debug('auth', 'd1', { d: 1 });
-    expect(customAll.debug).toHaveBeenCalledTimes(1);
 
     const customNoDebug: any = {
       info: vi.fn(),
@@ -213,28 +209,30 @@ describe('Logger', () => {
     };
     const logger2 = createLogger({ custom: customNoDebug, includeContext: false, minLevel: 'debug' });
     logger2.configure(['routes']);
-    logger2.debug('routes', 'd2', { d: 2 });
-    expect(customNoDebug.info).toHaveBeenCalledTimes(1);
+    logger2.debug('routes', { d: 2 }, 'd2');
+    expect(console.log).toHaveBeenCalledTimes(1);
+    expect(customNoDebug.info).not.toHaveBeenCalled();
     expect(customNoDebug.log).not.toHaveBeenCalled();
 
     const customOnlyLog = { log: vi.fn() };
-    const logger3 = createLogger({ custom: customOnlyLog, includeContext: false, minLevel: 'debug' });
-    logger3.warn('w1', { w: 1 });
-    expect(customOnlyLog.log).toHaveBeenCalledTimes(1);
+    const logger3 = createLogger({ custom: customOnlyLog as any, includeContext: false, minLevel: 'debug' });
+    logger3.warn({ w: 1 }, 'w1');
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(customOnlyLog.log).not.toHaveBeenCalled();
 
     const logger4 = createLogger({ includeContext: false, minLevel: 'debug' });
-    logger4.error('e1');
+    logger4.error({}, 'e1');
     expect(console.error).toHaveBeenCalledTimes(1);
   });
 
   it('hasMeta toggles: meta omitted vs provided', () => {
     const logger = createLogger();
 
-    logger.info('no meta');
+    logger.info({}, 'no meta');
     const noMeta = (console.log as any).mock.calls.pop()!;
     expect(noMeta.length).toBe(1);
 
-    logger.info('with meta', { k: 1 });
+    logger.info({ k: 1 }, 'with meta');
     const call = (console.log as any).mock.calls.pop()!;
     expect(call[0]).toMatch(/\[info\] with meta$/);
     expect(call[1]).toEqual({ k: 1 });
@@ -249,10 +247,11 @@ describe('Logger', () => {
 
     parseDebugInputMock.mockReturnValueOnce(['auth', 'errors'] satisfies DebugCategory[]);
     const l2 = createLogger({ debug: 'auth,errors' as any, minLevel: 'debug' });
+
     expect(spy).toHaveBeenCalledTimes(1);
 
     const l2DebugSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    l2.debug('auth', 'x');
+    l2.debug('auth', {}, 'x');
     expect(l2DebugSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -260,7 +259,7 @@ describe('Logger', () => {
     const logger = createLogger({ includeStack: false });
 
     const meta = [{ stack: 'S' }, { deep: { anotherStack: 'X', ok: 1 } }];
-    logger.info('array', meta);
+    logger.info(meta as any, 'array');
     const m = (console.log as any).mock.calls.pop()![1];
     expect(m[0].stack).toBeUndefined();
     expect((m[1].deep as any).anotherStack).toBeUndefined();
@@ -275,25 +274,21 @@ describe('Logger', () => {
     });
     const c = base.child({ b: 2 });
 
-    c.info('m', { k: 3 });
+    c.info({ k: 3 }, 'm');
     const meta = (console.log as any).mock.calls.pop()![1];
     expect(meta).toEqual({ context: { a: 1, b: 2 }, k: 3 });
   });
 
-  it('forces default case in coloredLevel switch by monkey-patching and calling emit with a bogus level', () => {
-    const custom = { log: vi.fn() };
-    const logger = new (Logger as any)({ custom });
-
+  it('forces default case for color tag path by calling emit with a bogus level; uses console fallback', () => {
+    const logger = new (Logger as any)({});
     (logger as any).shouldEmit = () => true;
 
     (logger as any).emit('other', 'hi');
-    expect(custom.log).toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalled();
   });
 
-  it('emits single-line when singleLine=true and hasMeta, replacing newlines and returning early', () => {
-    const custom = { info: vi.fn() };
+  it('emits single-line when singleLine=true and hasMeta (console fallback only)', () => {
     const logger = createLogger({
-      custom,
       singleLine: true,
       includeContext: false,
       minLevel: 'debug',
@@ -301,10 +296,10 @@ describe('Logger', () => {
 
     const meta = { a: 1, nested: { b: 2 }, note: 'hello\nworld' };
 
-    logger.info('one-line', meta);
+    logger.info(meta, 'one-line');
 
-    expect(custom.info).toHaveBeenCalledTimes(1);
-    const onlyArgList = (custom.info as any).mock.calls[0];
+    expect(console.log).toHaveBeenCalledTimes(1);
+    const onlyArgList = (console.log as any).mock.calls[0];
     expect(onlyArgList.length).toBe(1);
 
     const line = onlyArgList[0] as string;
@@ -317,12 +312,68 @@ describe('Logger', () => {
   it('hasMeta falls through to ": false" when meta is a primitive (non-object)', () => {
     const logger = createLogger({ minLevel: 'debug', includeContext: false });
 
-    logger.info('primitive meta', 'hello');
+    logger.info('hello' as any, 'primitive meta');
 
     expect(console.log).toHaveBeenCalledTimes(1);
     const call = (console.log as any).mock.calls[0];
 
     expect(call.length).toBe(1);
     expect(call[0]).toMatch(/\[info\] primitive meta$/);
+  });
+
+  it('defaults message to empty string for info when omitted', () => {
+    const logger = createLogger({ includeContext: false }); // console fallback path
+    logger.info({ k: 1 });
+
+    expect(console.log).toHaveBeenCalledTimes(1);
+    const call = (console.log as any).mock.calls[0];
+    expect(call[0]).toMatch(/\[info\] $/);
+    expect(call[1]).toEqual({ k: 1 });
+  });
+
+  it('defaults message to empty string for warn when omitted', () => {
+    const logger = createLogger();
+    logger.warn();
+
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    const call = (console.warn as any).mock.calls[0];
+    expect(call.length).toBe(1);
+    expect(call[0]).toMatch(/\[warn\] $/);
+  });
+
+  it('defaults message to empty string for error when omitted (custom sink path)', () => {
+    const custom = { error: vi.fn() };
+    const logger = createLogger({ custom: custom as any, includeContext: false });
+
+    logger.error(); // -> custom.error({}, "<ts> [error] ")
+
+    expect(custom.error).toHaveBeenCalledTimes(1);
+    const args = (custom.error as any).mock.calls[0];
+    expect(args[0]).toEqual({});
+    expect(args[1]).toMatch(/\[error\] $/);
+  });
+
+  it('defaults message to empty string for debug(category) when omitted (with meta)', () => {
+    const logger = createLogger({ minLevel: 'debug' });
+    logger.configure(['routes']);
+
+    logger.debug('routes', { d: 1 });
+
+    expect(console.log).toHaveBeenCalledTimes(1);
+    const call = (console.log as any).mock.calls[0];
+    expect(call[0]).toMatch(/\[debug:routes\] $/);
+    expect(call[1]).toEqual({ d: 1 });
+  });
+
+  it('defaults message to empty string for debug(category) when both meta and message omitted', () => {
+    const logger = createLogger({ minLevel: 'debug' });
+    logger.configure(['routes']);
+
+    logger.debug('routes');
+
+    expect(console.log).toHaveBeenCalledTimes(1);
+    const call = (console.log as any).mock.calls[0];
+    expect(call.length).toBe(1);
+    expect(call[0]).toMatch(/\[debug:routes\] $/);
   });
 });

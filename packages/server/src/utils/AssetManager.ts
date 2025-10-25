@@ -113,15 +113,21 @@ export const loadAssets = async (
           }
         } catch (err) {
           if (err instanceof AppError) {
-            logger.error('Asset load failed', {
-              error: { name: err.name, message: err.message, stack: err.stack, code: (err as any).code },
-              stage: 'loadAssets:production',
-            });
+            logger.error(
+              {
+                error: { name: err.name, message: err.message, stack: err.stack, code: (err as any).code },
+                stage: 'loadAssets:production',
+              },
+              'Asset load failed',
+            );
           } else {
-            logger.error('Asset load failed', {
-              error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
-              stage: 'loadAssets:production',
-            });
+            logger.error(
+              {
+                error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+                stage: 'loadAssets:production',
+              },
+              'Asset load failed',
+            );
           }
         }
       } else {
@@ -129,10 +135,13 @@ export const loadAssets = async (
         bootstrapModules.set(clientRoot, bootstrapModule);
       }
     } catch (err) {
-      logger.error('Failed to process config', {
-        error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
-        stage: 'loadAssets:config',
-      });
+      logger.error(
+        {
+          error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+          stage: 'loadAssets:config',
+        },
+        'Failed to process config',
+      );
     }
   }
 };
