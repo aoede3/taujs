@@ -664,18 +664,18 @@
   resolved "https://registry.yarnpkg.com/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.52.5.tgz#1657f56326bbe0ac80eedc9f9c18fc1ddd24e107"
   integrity sha512-TAcgQh2sSkykPRWLrdyy2AiceMckNf5loITqXxFI5VuQjS5tSuw3WlwdN8qv8vzjLAUTvYaH/mVjSFpbkFbpTg==
 
-"@taujs/react@^0.1.0":
-  version "0.1.0"
-  resolved "https://registry.npmjs.org/@taujs/react/-/react-0.1.0.tgz"
-  integrity sha512-PCblkQXNhb8ReAhcKMj3BY4jBjdAWcIcS9NVEkNOx4HJVAd07UP4HIubvS9PytDt2+GYntT3/3fKk37Z6GUdsQ==
+"@taujs/react@^0.1.1":
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/@taujs/react/-/react-0.1.1.tgz#31e8fe95b007326ce574c966cfd295287b005671"
+  integrity sha512-MKxGpLyQAs1K/qTvQNtWFLQHAEnwSvncWJogCSUVaT1YSIoIABs2lVxMU0zkvcMNiG7U1G579V/gYc0Hlp98JQ==
 
-"@taujs/server@^0.4.0":
-  version "0.4.0"
-  resolved "https://registry.npmjs.org/@taujs/server/-/server-0.4.0.tgz"
-  integrity sha512-U7AH9YExZO0YPNwJDn9nyp6W8kAjN0lWZG2WyZy2g/kI/mwsJ7Elfc9nJ4uPZy8w/aySNgF9QB8HC8Wij2Z3IQ==
+"@taujs/server@^0.4.1":
+  version "0.4.1"
+  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.4.1.tgz#baa33211dd6a48fdfefbb2457e9bcaefe86e17b2"
+  integrity sha512-7MFI+xm8E3+ZEqy39sbJSD+CszdPjB2+TWjDZBaJz+N8MPenLBzFgSyMkyN2Tk8z2tLeVF3m9hpnuLIDmGjfFg==
   dependencies:
     path-to-regexp "^8.1.0"
-    vite-plugin-node-polyfills "^0.23.0"
+    vite-plugin-node-polyfills "^0.24.0"
 
 "@types/babel__core@^7.20.5":
   version "7.20.5"
@@ -2757,10 +2757,10 @@ util@^0.12.4, util@^0.12.5:
     is-typed-array "^1.1.3"
     which-typed-array "^1.1.2"
 
-vite-plugin-node-polyfills@^0.23.0:
-  version "0.23.0"
-  resolved "https://registry.npmjs.org/vite-plugin-node-polyfills/-/vite-plugin-node-polyfills-0.23.0.tgz"
-  integrity sha512-4n+Ys+2bKHQohPBKigFlndwWQ5fFKwaGY6muNDMTb0fSQLyBzS+jjUNRZG9sKF0S/Go4ApG6LFnUGopjkILg3w==
+vite-plugin-node-polyfills@^0.24.0:
+  version "0.24.0"
+  resolved "https://registry.yarnpkg.com/vite-plugin-node-polyfills/-/vite-plugin-node-polyfills-0.24.0.tgz#4a2e984bba134017fc88cace0149cf8afdb50b54"
+  integrity sha512-GA9QKLH+vIM8NPaGA+o2t8PDfFUl32J8rUp1zQfMKVJQiNkOX4unE51tR6ppl6iKw5yOrDAdSH7r/UIFLCVhLw==
   dependencies:
     "@rollup/plugin-inject" "^5.0.5"
     node-stdlib-browser "^1.2.0"
