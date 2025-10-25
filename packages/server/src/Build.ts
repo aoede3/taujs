@@ -13,6 +13,7 @@ import path from 'node:path';
 import { build } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
+import { extractBuildConfigs } from './Setup';
 import { processConfigs } from './utils/AssetManager';
 import { TEMPLATE } from './constants';
 
@@ -20,12 +21,12 @@ import type { InlineConfig, PluginOption } from 'vite';
 import type { AppConfig } from './Config';
 
 export async function taujsBuild({
-  configs,
+  config,
   projectRoot,
   clientBaseDir,
   isSSRBuild = process.env.BUILD_MODE === 'ssr',
 }: {
-  configs: AppConfig[];
+  config: { apps: AppConfig[] };
   projectRoot: string;
   clientBaseDir: string;
   isSSRBuild?: boolean;
@@ -42,7 +43,8 @@ export async function taujsBuild({
     }
   };
 
-  const processedConfigs = processConfigs(configs, clientBaseDir, TEMPLATE);
+  const extractedConfigs = extractBuildConfigs(config);
+  const processedConfigs = processConfigs(extractedConfigs, clientBaseDir, TEMPLATE);
 
   if (!isSSRBuild) await deleteDist();
 
@@ -76,7 +78,7 @@ export async function taujsBuild({
           scss: { api: 'modern-compiler' },
         },
       },
-      plugins: [...(config.plugins ?? []), nodePolyfills({ include: ['fs', 'stream'] })] as PluginOption[],
+      plugins: [...plugins, nodePolyfills({ include: ['fs', 'stream'] })] as PluginOption[],
       publicDir: 'public',
       resolve: {
         alias: {

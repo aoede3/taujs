@@ -15,6 +15,8 @@ import type { PathToRegExpParams, Route, RouteAttributes } from './types';
 
 import type { CSPViolationReport } from './security/CSPReporting';
 
+export type { InitialRouteParams } from './types';
+
 export type SecurityConfig = {
   csp?: {
     defaultMode?: 'merge' | 'replace';
