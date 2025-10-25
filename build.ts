@@ -1,14 +1,14 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { extractBuildConfigs, taujsBuild } from '@taujs/server/build';
+import { taujsBuild } from '@taujs/server';
 
-import { taujsConfig } from './taujs.config.js';
+import config from './taujs.config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 await taujsBuild({
   clientBaseDir: path.resolve(__dirname, 'src/client'),
-  configs: extractBuildConfigs(taujsConfig),
+  config,
   projectRoot: __dirname,
 });

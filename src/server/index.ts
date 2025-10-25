@@ -24,7 +24,7 @@ const startServer = async () => {
       clientRoot,
       config,
       serviceRegistry,
-      registerStaticAssets: {
+      staticAssets: {
         plugin: fastifyStatic,
       },
       debug: { all: false, ssr: true },
