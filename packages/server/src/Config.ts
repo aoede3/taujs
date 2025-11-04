@@ -51,6 +51,8 @@ export type TaujsConfig = {
 
 export { defineServiceRegistry, defineService } from './utils/DataServices';
 
+export type { ServiceContext } from './utils/DataServices';
+
 export function defineConfig<T extends TaujsConfig>(config: T): T {
   if (!config.apps || config.apps.length === 0) throw new Error('At least one app must be configured');
 
