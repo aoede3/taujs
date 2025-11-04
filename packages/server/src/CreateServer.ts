@@ -7,12 +7,12 @@ import pc from 'picocolors';
 
 import { extractBuildConfigs, extractRoutes, extractSecurity, printConfigSummary, printContractReport, printSecuritySummary } from './Setup';
 import { CONTENT } from './constants';
-import { bannerPlugin } from './network/Network';
-import { resolveNet } from './network/CLI';
-import { verifyContracts, isAuthRequired, hasAuthenticate } from './security/VerifyMiddleware';
-import { SSRServer } from './SSRServer';
 import { normaliseError } from './logging/AppError';
 import { createLogger } from './logging/Logger';
+import { resolveNet } from './network/CLI';
+import { bannerPlugin } from './network/Network';
+import { verifyContracts, isAuthRequired, hasAuthenticate } from './security/VerifyMiddleware';
+import { SSRServer } from './SSRServer';
 
 import type { FastifyInstance } from 'fastify';
 import type { TaujsConfig } from './Config';
@@ -41,19 +41,21 @@ type CreateServerResult = {
 export const createServer = async (opts: CreateServerOptions): Promise<CreateServerResult> => {
   const t0 = performance.now();
   const clientRoot = opts.clientRoot ?? path.resolve(process.cwd(), 'client');
+
   const app = opts.fastify ?? Fastify({ logger: false });
+  const fastifyLogger = app.log && app.log.level !== 'silent' ? app.log : undefined;
+
+  const logger = createLogger({
+    debug: opts.debug,
+    custom: opts.logger ?? fastifyLogger,
+    minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+    includeContext: true,
+  });
 
   const net = resolveNet(opts.config.server);
   await app.register(bannerPlugin, {
     debug: opts.debug,
     hmr: { host: net.host, port: net.hmrPort },
-  });
-
-  const logger = createLogger({
-    debug: opts.debug,
-    custom: opts.logger,
-    minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-    includeContext: true,
   });
 
   const configs = extractBuildConfigs(opts.config);
