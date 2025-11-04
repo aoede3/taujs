@@ -1,5 +1,15 @@
 # @taujs/server
 
+v0.4.2 - 04/11/2025
+
+feat: CSP reporting
+feat: auth routeMeta; decorator
+feat: Logger; silent Pino
+feat: ServiceDescriptor standardisation
+feat: CSP plugin cleanup; test
+feat: DataServices cleanup; test
+test: CreateServer coverage
+
 v0.4.1 - 25/10/2025
 
 feat: Focus on Pino as first class logger; associated files, tests
