@@ -328,4 +328,52 @@ describe('createServer', () => {
     expect(cspDef.required([])).toBe(true);
     expect(cspDef.verify()).toBe(true);
   });
+
+  it('uses Fastify app.log as default custom logger when level !== "silent"', async () => {
+    const { createServer } = await importer();
+
+    const fastifyLog = { level: 'info', child: vi.fn(() => fastifyLog) } as any;
+    const externalFastify = { register: vi.fn(registerMock), log: fastifyLog } as any;
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+      fastify: externalFastify,
+    });
+
+    // custom should be the fastify log
+    expect(createLoggerSpy).toHaveBeenCalledWith(expect.objectContaining({ custom: fastifyLog }));
+  });
+
+  it('does NOT use Fastify app.log when level === "silent" (custom undefined)', async () => {
+    const { createServer } = await importer();
+
+    const fastifyLog = { level: 'silent', child: vi.fn(() => fastifyLog) } as any;
+    const externalFastify = { register: vi.fn(registerMock), log: fastifyLog } as any;
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+      fastify: externalFastify,
+    });
+
+    expect(createLoggerSpy).toHaveBeenCalledWith(expect.objectContaining({ custom: undefined }));
+  });
+
+  it('opts.logger overrides Fastify app.log when both provided', async () => {
+    const { createServer } = await importer();
+
+    const fastifyLog = { level: 'info', child: vi.fn(() => fastifyLog) } as any;
+    const externalFastify = { register: vi.fn(registerMock), log: fastifyLog } as any;
+    const customLogger = { my: 'logger' } as any;
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+      fastify: externalFastify,
+      logger: customLogger,
+    });
+
+    expect(createLoggerSpy).toHaveBeenCalledWith(expect.objectContaining({ custom: customLogger }));
+  });
 });
