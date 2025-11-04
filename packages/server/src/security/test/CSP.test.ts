@@ -479,3 +479,147 @@ describe('cspPlugin', () => {
     expect(done).toHaveBeenCalled();
   });
 });
+
+describe('defaultGenerateCSP (more cases)', () => {
+  it('adds script-src with self + nonce when script-src is missing', async () => {
+    const { defaultGenerateCSP } = await importer(true);
+
+    const out = defaultGenerateCSP({ 'default-src': ["'self'"] } as any, 'NONCE-ADD');
+    // script-src should be synthesized with 'self' and nonce
+    expect(out).toMatch(/script-src 'self' .*'nonce-NONCE-ADD'/);
+  });
+
+  it('does not duplicate dev allowances when already present', async () => {
+    const { defaultGenerateCSP } = await importer(true);
+
+    const out = defaultGenerateCSP(
+      {
+        'script-src': ["'self'"],
+        'connect-src': ["'self'", 'ws:', 'http:'],
+        'style-src': ["'self'", "'unsafe-inline'"],
+      },
+      'NONCE-DUP',
+    );
+
+    // exactly one ws: and one http:
+    const wsCount = (out.match(/(?:^|[\s;])ws:/g) || []).length;
+    const httpCount = (out.match(/(?:^|[\s;])http:/g) || []).length;
+    expect(wsCount).toBe(1);
+    expect(httpCount).toBe(1);
+    // exactly one 'unsafe-inline'
+    expect((out.match(/'unsafe-inline'/g) || []).length).toBe(1);
+    // nonce added once
+    expect((out.match(/'nonce-/g) || []).length).toBe(1);
+  });
+});
+
+describe('cspPlugin - reportOnly header selection', () => {
+  it('uses Content-Security-Policy-Report-Only when opts.reporting.reportOnly = true (no route override)', async () => {
+    const { cspPlugin } = await importer(true);
+    const fastify = makeFastify();
+
+    // No matchers; global path
+    await cspPlugin(fastify as any, { routes: [], reporting: { reportOnly: true } });
+
+    const { req, reply, done } = makeReqReply('/no-match');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy-Report-Only', expect.stringMatching(/script-src 'self' .*'nonce-/));
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('uses Content-Security-Policy-Report-Only when routeCSP.reportOnly = true (overrides global default)', async () => {
+    const { cspPlugin } = await importer(true);
+    const fastify = makeFastify();
+
+    matchRouteMock.mockReturnValue({
+      route: {
+        attr: {
+          middleware: {
+            csp: {
+              reportOnly: true,
+              directives: { 'img-src': ["'self'"] },
+            },
+          },
+        },
+      },
+      params: {},
+    });
+
+    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+
+    const { req, reply, done } = makeReqReply('/route-report-only');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy-Report-Only', expect.any(String));
+    const headerVal = (reply.header as any).mock.calls[0][1] as string;
+    expect(headerVal).toContain("img-src 'self'");
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('error path: still applies Report-Only header when opts.reporting.reportOnly = true', async () => {
+    const { cspPlugin } = await importer(true);
+    const fastify = makeFastify();
+
+    matchRouteMock.mockImplementation(() => {
+      throw new Error('blow-up');
+    });
+
+    await cspPlugin(fastify as any, { routeMatchers: [{} as any], reporting: { reportOnly: true } });
+
+    const { req, reply, done } = makeReqReply('/err-report-only');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    // Header name is Report-Only even on fallback
+    expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy-Report-Only', expect.stringMatching(/script-src 'self' .*'nonce-/));
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('route-level generateCSP + reportOnly selects Report-Only header', async () => {
+    const { cspPlugin } = await importer(true);
+    const fastify = makeFastify();
+
+    const routeGen = vi.fn(() => 'ROUTE-REPORT-ONLY-CSP');
+
+    matchRouteMock.mockReturnValue({
+      route: {
+        attr: {
+          middleware: {
+            csp: {
+              reportOnly: true,
+              directives: { 'img-src': ["'self'", 'data:'] },
+              generateCSP: routeGen,
+            },
+          },
+        },
+      },
+      params: {},
+    });
+
+    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+
+    const { req, reply, done } = makeReqReply('/route-gen-report-only');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(routeGen).toHaveBeenCalled();
+    expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy-Report-Only', 'ROUTE-REPORT-ONLY-CSP');
+    expect(done).toHaveBeenCalled();
+  });
+});
+
+describe('cspPlugin - req.cspNonce assignment', () => {
+  it('sets req.cspNonce to the generated nonce', async () => {
+    const { cspPlugin } = await importer(true);
+    const fastify = makeFastify();
+
+    await cspPlugin(fastify as any, { routes: [] });
+
+    const { req, reply, done } = makeReqReply('/nonce-check');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    // Base64 of Buffer('0123456789abcdef') from mocked randomBytes
+    const expected = Buffer.from('0123456789abcdef').toString('base64');
+    expect(req.cspNonce).toBe(expected);
+    expect(done).toHaveBeenCalled();
+  });
+});

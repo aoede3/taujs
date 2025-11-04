@@ -7,7 +7,7 @@ import { createRouteMatchers, matchRoute } from '../utils/DataRoutes';
 import { createLogger } from '../logging/Logger';
 
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
-import type { Route, PathToRegExpParams } from '../types';
+import type { Route, PathToRegExpParams, RouteCSPConfig } from '../types';
 import type { CommonRouteMatcher } from '../utils/DataRoutes';
 import type { DebugConfig } from '../logging/Logger';
 
@@ -17,6 +17,9 @@ export type CSPPluginOptions = {
   routes?: Route[];
   routeMatchers?: CommonRouteMatcher[];
   debug?: DebugConfig;
+  reporting?: {
+    reportOnly?: boolean;
+  };
 };
 
 export type CSPDirectives = Record<string, string[]>;
@@ -79,13 +82,20 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
       context: { component: 'csp-plugin' },
     });
 
-    fastify.addHook('onRequest', (req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) => {
+    fastify.addHook('onRequest', (req, reply, done) => {
       const nonce = generateNonce();
       req.cspNonce = nonce;
 
+      const headerNameFor = (routeCSP: RouteCSPConfig | false | undefined) =>
+        (routeCSP && typeof routeCSP === 'object' && routeCSP.reportOnly) || opts.reporting?.reportOnly
+          ? 'Content-Security-Policy-Report-Only'
+          : 'Content-Security-Policy';
+
+      let routeCSP: false | RouteCSPConfig | undefined;
+
       try {
         const routeMatch = findMatchingRoute(matchers, req.url);
-        const routeCSP = routeMatch?.route.attr?.middleware?.csp;
+        routeCSP = routeMatch?.route.attr?.middleware?.csp;
 
         if (routeCSP === false) {
           done();
@@ -94,39 +104,23 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
 
         let finalDirectives = globalDirectives;
 
-        if (routeCSP && typeof routeCSP === 'object') {
-          if (!routeCSP.disabled) {
-            let routeDirectives: CSPDirectives;
+        if (routeCSP && typeof routeCSP === 'object' && !routeCSP.disabled) {
+          const routeDirectives =
+            typeof routeCSP.directives === 'function'
+              ? routeCSP.directives({
+                  url: req.url,
+                  params: routeMatch?.params || {},
+                  headers: req.headers,
+                  req,
+                })
+              : (routeCSP.directives ?? {});
 
-            if (typeof routeCSP.directives === 'function') {
-              const params = routeMatch?.params || {};
-
-              routeDirectives = routeCSP.directives({
-                url: req.url,
-                params,
-                headers: req.headers,
-                req,
-              });
-            } else {
-              routeDirectives = routeCSP.directives || {};
-            }
-
-            if (routeCSP.mode === 'replace') {
-              finalDirectives = routeDirectives;
-            } else {
-              finalDirectives = mergeDirectives(globalDirectives, routeDirectives);
-            }
-          }
+          finalDirectives = routeCSP.mode === 'replace' ? routeDirectives : mergeDirectives(globalDirectives, routeDirectives);
         }
 
-        let cspHeader: string;
-        if (routeCSP?.generateCSP) {
-          cspHeader = routeCSP.generateCSP(finalDirectives, nonce, req);
-        } else {
-          cspHeader = generateCSP(finalDirectives, nonce, req);
-        }
+        const cspHeader = routeCSP?.generateCSP ? routeCSP.generateCSP(finalDirectives, nonce, req) : generateCSP(finalDirectives, nonce, req);
 
-        reply.header('Content-Security-Policy', cspHeader);
+        reply.header(headerNameFor(routeCSP), cspHeader);
       } catch (error) {
         logger.error(
           {
@@ -135,8 +129,9 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
           },
           'CSP plugin error',
         );
+
         const fallbackHeader = generateCSP(globalDirectives, nonce, req);
-        reply.header('Content-Security-Policy', fallbackHeader);
+        reply.header(headerNameFor(routeCSP), fallbackHeader);
       }
 
       done();

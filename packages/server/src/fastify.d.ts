@@ -3,6 +3,20 @@ import 'fastify';
 declare module 'fastify' {
   interface FastifyRequest {
     cspNonce?: string;
+    routeMeta?: {
+      path?: string;
+      appId?: string;
+      attr?: {
+        middleware?: {
+          auth?: {
+            strategy?: string;
+            roles?: string[];
+            redirect?: string;
+          };
+        };
+        render?: string;
+      };
+    };
   }
 
   interface FastifyInstance {

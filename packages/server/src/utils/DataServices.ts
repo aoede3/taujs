@@ -1,119 +1,149 @@
+import { performance } from 'node:perf_hooks';
 import { AppError } from '../logging/AppError';
 
 import type { Logs } from '../logging/Logger';
 
-type Schema<T> = (input: unknown) => T;
+// runtime checks instead happens at the boundary
+type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [k: string]: JsonValue };
+export type JsonObject = { [k: string]: JsonValue };
 
-type LooseSpec = Readonly<
-  Record<
-    string,
-    | ServiceMethod<any, Record<string, unknown>>
-    | {
-        handler: ServiceMethod<any, Record<string, unknown>>;
-        params?: Schema<any>;
-        result?: Schema<any>;
-        parsers?: { params?: Schema<any>; result?: Schema<any> };
-      }
-  >
->;
+type NarrowSchema<T> = { parse: (u: unknown) => T } | ((u: unknown) => T);
+
+const runSchema = <T>(schema: NarrowSchema<T> | undefined, input: unknown): T => {
+  if (!schema) return input as T;
+  return typeof (schema as any).parse === 'function' ? (schema as any).parse(input) : (schema as (u: unknown) => T)(input);
+};
 
 export type ServiceContext = {
-  signal?: AbortSignal;
-  deadlineMs?: number;
+  signal?: AbortSignal; // request/client abort passed in request
+  deadlineMs?: number; // available to userland; not enforced here
   traceId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
 };
 
-export type ServiceMethod<P, R extends Record<string, unknown>> = (params: P, ctx: ServiceContext) => Promise<R>;
+/** Helper for userland: combine a parent AbortSignal with a per-call timeout */
+export function withDeadline(signal: AbortSignal | undefined, ms?: number): AbortSignal | undefined {
+  if (!ms) return signal;
+  const ctrl = new AbortController();
+  const onAbort = () => ctrl.abort(signal?.reason ?? new Error('Aborted'));
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const t = setTimeout(() => ctrl.abort(new Error('DeadlineExceeded')), ms);
+  ctrl.signal.addEventListener(
+    'abort',
+    () => {
+      clearTimeout(t);
+      signal?.removeEventListener('abort', onAbort);
+    },
+    { once: true },
+  );
+  return ctrl.signal;
+}
 
-export type ServiceMethodDescriptor<P, R extends Record<string, unknown>> = {
-  handler: ServiceMethod<P, R>;
-  parsers?: { params?: Schema<P>; result?: Schema<R> };
-};
+export type ServiceMethod<P, R extends JsonObject = JsonObject> = (params: P, ctx: ServiceContext) => Promise<R>;
 
-export type ServiceRegistry = Readonly<Record<string, Readonly<Record<string, ServiceMethodDescriptor<any, Record<string, unknown>>>>>>;
+export type ServiceDefinition = Readonly<Record<string, ServiceMethod<any, JsonObject>>>;
+export type ServiceRegistry = Readonly<Record<string, ServiceDefinition>>;
 
 export type ServiceDescriptor = {
   serviceName: string;
   serviceMethod: string;
-  args?: Record<string, unknown>;
+  args?: JsonObject;
 };
 
-export const defineService = <T extends LooseSpec>(spec: T) => {
-  const out: Record<string, ServiceMethodDescriptor<any, Record<string, unknown>>> = {};
+export function defineService<
+  T extends Record<
+    string,
+    ServiceMethod<any, JsonObject> | { handler: ServiceMethod<any, JsonObject>; params?: NarrowSchema<any>; result?: NarrowSchema<any> }
+  >,
+>(spec: T) {
+  const out: Record<string, ServiceMethod<any, JsonObject>> = {};
 
-  for (const [k, v] of Object.entries(spec)) {
+  for (const [name, v] of Object.entries(spec)) {
     if (typeof v === 'function') {
-      out[k] = { handler: v };
+      out[name] = v; // already a handler
     } else {
-      out[k] = {
-        handler: v.handler,
-        parsers: v.parsers ?? (v.params || v.result ? { params: v.params, result: v.result } : undefined),
+      const { handler, params: paramsSchema, result: resultSchema } = v;
+      out[name] = async (params, ctx) => {
+        const p = runSchema(paramsSchema, params);
+        const r = await handler(p, ctx);
+        return runSchema(resultSchema, r);
       };
     }
   }
 
-  return out as {
+  return Object.freeze(out) as {
     [K in keyof T]: T[K] extends ServiceMethod<infer P, infer R>
-      ? ServiceMethodDescriptor<P, R>
+      ? ServiceMethod<P, R>
       : T[K] extends { handler: ServiceMethod<infer P, infer R> }
-        ? ServiceMethodDescriptor<P, R>
+        ? ServiceMethod<P, R>
         : never;
   };
-};
+}
 
-export const defineServiceRegistry = <R extends ServiceRegistry>(registry: R): R => registry;
+export const defineServiceRegistry = <R extends ServiceRegistry>(registry: R): R =>
+  Object.freeze(Object.fromEntries(Object.entries(registry).map(([k, v]) => [k, Object.freeze(v)]))) as R;
 
 // Internal `Command Descriptor with Dynamic Dispatch over a Service Registry`
 // Resolves a command descriptor by dispatching it against the service registry
 // Supports dynamic data fetching based on route-level declarations
-// Performs optional runtime validation via schema.parse(...) when attached (e.g., Zod).
 export async function callServiceMethod(
   registry: ServiceRegistry,
   serviceName: string,
   methodName: string,
-  params: Record<string, unknown>,
+  params: JsonObject | undefined,
   ctx: ServiceContext,
-): Promise<Record<string, unknown>> {
+): Promise<JsonObject> {
   if (ctx.signal?.aborted) throw AppError.timeout('Request canceled');
 
   const service = registry[serviceName];
   if (!service) throw AppError.notFound(`Unknown service: ${serviceName}`);
 
-  const desc = service[methodName];
-  if (!desc) throw AppError.notFound(`Unknown method: ${serviceName}.${methodName}`);
+  const method = service[methodName];
+  if (!method) throw AppError.notFound(`Unknown method: ${serviceName}.${methodName}`);
 
-  const logger = ctx.logger?.child({
+  const logger = ctx.logger?.child?.({
     component: 'service-call',
     service: serviceName,
     method: methodName,
     traceId: ctx.traceId,
   });
 
+  const t0 = performance.now();
   try {
-    const p = desc.parsers?.params ? desc.parsers.params(params) : params;
-    const data = await desc.handler(p, ctx);
-    const out = desc.parsers?.result ? desc.parsers.result(data) : data;
+    // No automatic deadlines here; handlers can use ctx.signal or withDeadline(ctx.signal, ms)
+    const result = await method(params ?? {}, ctx);
 
-    if (typeof out !== 'object' || out === null) throw AppError.internal(`Non-object result from ${serviceName}.${methodName}`);
+    if (typeof result !== 'object' || result === null) {
+      throw AppError.internal(`Non-object result from ${serviceName}.${methodName}`);
+    }
 
-    return out;
+    logger?.debug?.({ ms: +(performance.now() - t0).toFixed(1) }, 'Service method ok');
+    return result;
   } catch (err) {
-    logger?.error(
+    logger?.error?.(
       {
         params,
         error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+        ms: +(performance.now() - t0).toFixed(1),
       },
       'Service method failed',
     );
-    throw err;
+    throw err instanceof AppError
+      ? err
+      : err instanceof Error
+        ? AppError.internal(err.message, { cause: err })
+        : AppError.internal('Unknown error', { details: { err } });
   }
 }
 
 export const isServiceDescriptor = (obj: unknown): obj is ServiceDescriptor => {
-  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return false;
-  const maybe = obj as Record<string, unknown>;
-
-  return typeof maybe.serviceName === 'string' && typeof maybe.serviceMethod === 'string';
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+  const o = obj as any;
+  if (typeof o.serviceName !== 'string' || typeof o.serviceMethod !== 'string') return false;
+  if ('args' in o) {
+    if (o.args === null || typeof o.args !== 'object' || Array.isArray(o.args)) return false;
+  }
+  return true;
 };

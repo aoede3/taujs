@@ -1,17 +1,18 @@
 import type { FastifyPluginAsync, FastifyPluginCallback, FastifyRequest } from 'fastify';
 import type { PluginOption } from 'vite';
 import type { CSPDirectives } from './security/CSP';
-import type { ServiceRegistry } from './utils/DataServices';
+import type { ServiceDescriptor, ServiceRegistry } from './utils/DataServices';
 import type { AppConfig, SecurityConfig } from './Config';
 import type { DebugConfig, Logs } from './logging/Logger';
 import type { StaticAssetsRegistration } from './utils/StaticAssets';
 import type { RequestContext } from './utils/Telemetry';
 
 export type RouteCSPConfig = {
-  disabled?: boolean;
+  disabled?: boolean; // soft disable: keep global header, ignore this route's overrides
   mode?: 'merge' | 'replace';
   directives?: CSPDirectives | ((args: { url: string; params: PathToRegExpParams; headers: FastifyRequest['headers']; req: FastifyRequest }) => CSPDirectives);
   generateCSP?: (directives: CSPDirectives, nonce: string, req: FastifyRequest) => string;
+  reportOnly?: boolean;
 };
 
 export type Config = {
@@ -100,16 +101,10 @@ export type BaseMiddleware = {
     roles?: string[];
     strategy?: string;
   };
-  csp?: RouteCSPConfig | false;
+  csp?: RouteCSPConfig | false; // false = hard disable, object = apply / maybe soft-disable
 };
 
-export type ServiceCall = {
-  serviceName: string;
-  serviceMethod: string;
-  args?: Record<string, unknown>;
-};
-
-export type DataResult = Record<string, unknown> | ServiceCall;
+export type DataResult = Record<string, unknown> | ServiceDescriptor;
 
 export type DataHandler<Params extends PathToRegExpParams, L extends Logs = Logs> = (
   params: Params,
