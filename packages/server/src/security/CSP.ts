@@ -17,6 +17,9 @@ export type CSPPluginOptions = {
   routes?: Route[];
   routeMatchers?: CommonRouteMatcher[];
   debug?: DebugConfig;
+  reporting?: {
+    reportOnly?: boolean;
+  };
 };
 
 export type CSPDirectives = Record<string, string[]>;
@@ -83,10 +86,10 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
       const nonce = generateNonce();
       req.cspNonce = nonce;
 
-      try {
-        const routeMatch = findMatchingRoute(matchers, req.url);
-        const routeCSP = routeMatch?.route.attr?.middleware?.csp;
+      const routeMatch = findMatchingRoute(matchers, req.url);
+      const routeCSP = routeMatch?.route.attr?.middleware?.csp;
 
+      try {
         if (routeCSP === false) {
           done();
           return;
@@ -126,7 +129,12 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
           cspHeader = generateCSP(finalDirectives, nonce, req);
         }
 
-        reply.header('Content-Security-Policy', cspHeader);
+        const routeReportOnly = routeCSP && typeof routeCSP === 'object' && routeCSP.reportOnly === true;
+        const globalReportOnly = opts.reporting?.reportOnly === true;
+        const isReportOnly = routeReportOnly || globalReportOnly;
+        const headerName = isReportOnly ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy';
+
+        reply.header(headerName, cspHeader);
       } catch (error) {
         logger.error(
           {
@@ -136,7 +144,12 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
           'CSP plugin error',
         );
         const fallbackHeader = generateCSP(globalDirectives, nonce, req);
-        reply.header('Content-Security-Policy', fallbackHeader);
+        const routeReportOnly = routeCSP && typeof routeCSP === 'object' && routeCSP.reportOnly === true;
+        const globalReportOnly = opts.reporting?.reportOnly === true;
+        const isReportOnly = routeReportOnly || globalReportOnly;
+        const headerName = isReportOnly ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy';
+
+        reply.header(headerName, fallbackHeader);
       }
 
       done();

@@ -8,10 +8,11 @@ import type { StaticAssetsRegistration } from './utils/StaticAssets';
 import type { RequestContext } from './utils/Telemetry';
 
 export type RouteCSPConfig = {
-  disabled?: boolean;
+  disabled?: boolean; // soft disable: keep global header, ignore this route's overrides
   mode?: 'merge' | 'replace';
   directives?: CSPDirectives | ((args: { url: string; params: PathToRegExpParams; headers: FastifyRequest['headers']; req: FastifyRequest }) => CSPDirectives);
   generateCSP?: (directives: CSPDirectives, nonce: string, req: FastifyRequest) => string;
+  reportOnly?: boolean;
 };
 
 export type Config = {
@@ -100,7 +101,7 @@ export type BaseMiddleware = {
     roles?: string[];
     strategy?: string;
   };
-  csp?: RouteCSPConfig | false;
+  csp?: RouteCSPConfig | false; // false = hard disable, object = apply / maybe soft-disable
 };
 
 export type ServiceCall = {
