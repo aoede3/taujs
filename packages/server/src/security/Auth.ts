@@ -16,6 +16,18 @@ export const createAuthHook = (routeMatchers: RouteMatcher<PathToRegExpParams>[]
     const { route } = match;
     const authConfig = route.attr?.middleware?.auth;
 
+    // Decorate auth request with route metadata
+    req.routeMeta = {
+      path: route.path,
+      appId: route.appId,
+      attr: {
+        middleware: {
+          auth: route.attr?.middleware?.auth,
+        },
+        render: route.attr?.render,
+      },
+    };
+
     if (!authConfig) {
       logger.debug('auth', { method: req.method, url: req.url }, '(none)');
       return;
