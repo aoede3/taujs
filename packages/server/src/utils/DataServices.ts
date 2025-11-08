@@ -3,6 +3,24 @@ import { AppError } from '../logging/AppError';
 
 import type { Logs } from '../logging/Logger';
 
+export type RegistryCaller<R extends ServiceRegistry = ServiceRegistry> = (
+  serviceName: keyof R & string,
+  methodName: string,
+  args?: JsonObject,
+) => Promise<JsonObject>;
+
+export function createCaller<R extends ServiceRegistry>(registry: R, ctx: ServiceContext): RegistryCaller<R> {
+  return (serviceName, methodName, args) => callServiceMethod(registry, serviceName, methodName, (args ?? {}) as JsonObject, ctx);
+}
+
+// ctx has a bound `call` function (returns the same object reference)?
+export function ensureServiceCaller<R extends ServiceRegistry>(
+  registry: R,
+  ctx: ServiceContext & Partial<{ call: RegistryCaller<R> }>,
+): asserts ctx is ServiceContext & { call: RegistryCaller<R> } {
+  if (!ctx.call) (ctx as any).call = createCaller(registry, ctx);
+}
+
 // runtime checks instead happens at the boundary
 type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [k: string]: JsonValue };
@@ -12,6 +30,7 @@ type NarrowSchema<T> = { parse: (u: unknown) => T } | ((u: unknown) => T);
 
 const runSchema = <T>(schema: NarrowSchema<T> | undefined, input: unknown): T => {
   if (!schema) return input as T;
+
   return typeof (schema as any).parse === 'function' ? (schema as any).parse(input) : (schema as (u: unknown) => T)(input);
 };
 
@@ -21,9 +40,10 @@ export type ServiceContext = {
   traceId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
+  call?: (service: string, method: string, args?: JsonObject) => Promise<JsonObject>;
 };
 
-/** Helper for userland: combine a parent AbortSignal with a per-call timeout */
+// Helper for userland: combine a parent AbortSignal with a per-call timeout
 export function withDeadline(signal: AbortSignal | undefined, ms?: number): AbortSignal | undefined {
   if (!ms) return signal;
   const ctrl = new AbortController();
@@ -38,11 +58,11 @@ export function withDeadline(signal: AbortSignal | undefined, ms?: number): Abor
     },
     { once: true },
   );
+
   return ctrl.signal;
 }
 
 export type ServiceMethod<P, R extends JsonObject = JsonObject> = (params: P, ctx: ServiceContext) => Promise<R>;
-
 export type ServiceDefinition = Readonly<Record<string, ServiceMethod<any, JsonObject>>>;
 export type ServiceRegistry = Readonly<Record<string, ServiceDefinition>>;
 
@@ -68,6 +88,7 @@ export function defineService<
       out[name] = async (params, ctx) => {
         const p = runSchema(paramsSchema, params);
         const r = await handler(p, ctx);
+
         return runSchema(resultSchema, r);
       };
     }
@@ -120,6 +141,7 @@ export async function callServiceMethod(
     }
 
     logger?.debug?.({ ms: +(performance.now() - t0).toFixed(1) }, 'Service method ok');
+
     return result;
   } catch (err) {
     logger?.error?.(
@@ -145,5 +167,6 @@ export const isServiceDescriptor = (obj: unknown): obj is ServiceDescriptor => {
   if ('args' in o) {
     if (o.args === null || typeof o.args !== 'object' || Array.isArray(o.args)) return false;
   }
+
   return true;
 };

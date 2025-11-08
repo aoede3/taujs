@@ -1,11 +1,11 @@
 import { match } from 'path-to-regexp';
 
-import { callServiceMethod, isServiceDescriptor } from './DataServices';
+import { callServiceMethod, ensureServiceCaller, isServiceDescriptor } from './DataServices';
 import { AppError } from '../logging/AppError';
 
 import type { MatchFunction, Key } from 'path-to-regexp';
 import type { ServiceContext, ServiceRegistry } from './DataServices';
-import type { Route, RouteAttributes, PathToRegExpParams } from '../types';
+import type { Route, RouteAttributes, PathToRegExpParams, RequestServiceContext } from '../types';
 import type { RequestContext } from './Telemetry';
 import type { Logs } from '../logging/Logger';
 
@@ -152,16 +152,20 @@ export const fetchInitialData = async <Params extends PathToRegExpParams, R exte
   const dataHandler = attr?.data;
   if (!dataHandler || typeof dataHandler !== 'function') return {};
 
+  const ctxForData: RequestServiceContext<L> = {
+    ...(ctx as any),
+    headers: (ctx as any).headers ?? {},
+  } as RequestServiceContext<L>;
+
+  ensureServiceCaller(serviceRegistry, ctxForData);
+
   try {
-    const result = await dataHandler(params, {
-      ...ctx,
-      headers: ctx.headers ?? {},
-    });
+    const result = await dataHandler(params, ctxForData);
 
     if (isServiceDescriptor(result)) {
       const { serviceName, serviceMethod, args } = result;
 
-      return callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {}, ctx);
+      return callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {}, ctxForData);
     }
 
     if (isPlainObject(result)) return result;

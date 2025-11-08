@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyPluginCallback, FastifyRequest } from 'fastify';
 import type { PluginOption } from 'vite';
 import type { CSPDirectives } from './security/CSP';
-import type { ServiceDescriptor, ServiceRegistry } from './utils/DataServices';
+import type { RegistryCaller, ServiceDescriptor, ServiceRegistry } from './utils/DataServices';
 import type { AppConfig, SecurityConfig } from './Config';
 import type { DebugConfig, Logs } from './logging/Logger';
 import type { StaticAssetsRegistration } from './utils/StaticAssets';
@@ -106,9 +106,14 @@ export type BaseMiddleware = {
 
 export type DataResult = Record<string, unknown> | ServiceDescriptor;
 
+export type RequestServiceContext<L extends Logs = Logs> = RequestContext<L> & {
+  call: RegistryCaller<ServiceRegistry>;
+  headers?: Record<string, string>;
+};
+
 export type DataHandler<Params extends PathToRegExpParams, L extends Logs = Logs> = (
   params: Params,
-  ctx: RequestContext<L> & { [key: string]: unknown },
+  ctx: RequestServiceContext<L> & { [key: string]: unknown },
 ) => Promise<DataResult>;
 
 export type PathToRegExpParams = Partial<Record<string, string | string[]>>;

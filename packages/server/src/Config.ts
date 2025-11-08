@@ -40,18 +40,18 @@ export type AppConfig = {
 };
 
 export type TaujsConfig = {
+  apps: AppConfig[];
+  security?: SecurityConfig;
   server?: {
     host?: string;
     port?: number;
     hmrPort?: number;
   };
-  security?: SecurityConfig;
-  apps: AppConfig[];
 };
 
-export { defineServiceRegistry, defineService } from './utils/DataServices';
+export { callServiceMethod, defineService, defineServiceRegistry } from './utils/DataServices';
 
-export type { ServiceContext } from './utils/DataServices';
+export type { RegistryCaller, ServiceContext } from './utils/DataServices';
 
 export function defineConfig<T extends TaujsConfig>(config: T): T {
   if (!config.apps || config.apps.length === 0) throw new Error('At least one app must be configured');
