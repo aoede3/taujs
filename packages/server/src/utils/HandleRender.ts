@@ -149,16 +149,21 @@ export const handleRender = async (
         const res = await renderSSR(initialDataResolved, req.url!, attr?.meta, ac.signal, { logger: reqLogger });
         headContent = res.headContent;
         appHtml = res.appHtml;
+
+        if (ac.signal.aborted) {
+          logger.warn({}, 'SSR completed but client disconnected');
+          return;
+        }
       } catch (err) {
         const msg = String((err as any)?.message ?? err ?? '');
         const benign = REGEX.BENIGN_NET_ERR.test(msg);
 
         if (ac.signal.aborted || benign) {
-          logger.warn('SSR aborted mid-render (benign)', { url: req.url, reason: msg });
+          logger.warn({}, 'SSR aborted mid-render (benign)');
           return;
         }
 
-        logger.error('SSR render failed', { url: req.url, error: normaliseError(err) });
+        logger.error({}, 'SSR render failed');
         throw err;
       }
 
@@ -200,17 +205,33 @@ export const handleRender = async (
         'Content-Type': 'text/html; charset=utf-8',
       });
 
+      const abortedState = { aborted: false };
       const ac = new AbortController();
-      const onAborted = () => ac.abort();
+
+      const onAborted = () => {
+        if (!abortedState.aborted) {
+          logger.warn({}, 'Client disconnected before stream finished');
+          abortedState.aborted = true;
+        }
+        ac.abort();
+      };
 
       req.raw.on('aborted', onAborted);
       reply.raw.on('close', () => {
-        if (!reply.raw.writableEnded) ac.abort();
+        if (!reply.raw.writableEnded) {
+          if (!abortedState.aborted) {
+            logger.warn({}, 'Client disconnected before stream finished');
+            abortedState.aborted = true;
+          }
+          ac.abort();
+        }
       });
-      reply.raw.on('finish', () => req.raw.off('aborted', onAborted));
+
+      reply.raw.on('finish', () => {
+        req.raw.off('aborted', onAborted);
+      });
 
       const shouldHydrate = attr?.hydrate !== false;
-      const abortedState = { aborted: false };
 
       const isBenignSocketAbort = (e: unknown) => {
         const msg = String((e as any)?.message ?? e ?? '');
@@ -221,6 +242,7 @@ export const handleRender = async (
       writable.on('error', (err) => {
         if (!isBenignSocketAbort(err)) logger.error('PassThrough error:', { error: err });
       });
+
       reply.raw.on('error', (err) => {
         if (!isBenignSocketAbort(err)) logger.error('HTTP socket error:', { error: err });
       });

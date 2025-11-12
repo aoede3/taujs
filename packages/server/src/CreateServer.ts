@@ -43,8 +43,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   const clientRoot = opts.clientRoot ?? path.resolve(process.cwd(), 'client');
 
   const app = opts.fastify ?? Fastify({ logger: false });
-  const fastifyLogger = app.log && app.log.level !== 'silent' ? app.log : undefined;
-
+  const fastifyLogger = app.log && app.log.level && app.log.level !== 'silent' ? app.log : undefined;
   const logger = createLogger({
     debug: opts.debug,
     custom: opts.logger ?? fastifyLogger,

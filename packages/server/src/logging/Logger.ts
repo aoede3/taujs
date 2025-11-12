@@ -124,7 +124,6 @@ export class Logger implements Logs {
 
   private emit(level: LogLevel, message: string, meta?: unknown, category?: DebugCategory): void {
     if (!this.shouldEmit(level)) return;
-
     const timestamp = this.formatTimestamp();
 
     const wantCtx =
@@ -134,10 +133,12 @@ export class Logger implements Logs {
           ? this.config.includeContext(level)
           : this.config.includeContext;
 
-    const customSink = this.config.custom?.[level];
+    const owner = this.config.custom as (BaseLogger & Record<string, unknown>) | undefined;
+    const rawSink = owner && typeof owner[level] === 'function' ? (owner[level] as (meta?: Record<string, unknown>, message?: string) => void) : undefined;
+    const boundSink = rawSink ? rawSink.bind(owner) : undefined;
 
     const consoleFallback = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
-    const sink = customSink ?? consoleFallback;
+    const hasCustom = !!boundSink;
 
     const merged = meta ?? {};
     const withCtx = wantCtx && Object.keys(this.context).length > 0 ? { context: this.context, ...merged } : merged;
@@ -162,19 +163,23 @@ export class Logger implements Logs {
       }
     })();
 
-    const tagForOutput = customSink ? plainTag : coloredTag;
+    const tagForOutput = hasCustom ? plainTag : coloredTag;
     const formatted = `${timestamp} ${tagForOutput} ${message}`;
 
-    if (this.config.singleLine && hasMeta && !customSink) {
+    if (this.config.singleLine && hasMeta && !hasCustom) {
       const metaStr = JSON.stringify(finalMeta).replace(/\n/g, '\\n');
       consoleFallback(`${formatted} ${metaStr}`);
 
       return;
     }
 
-    if (customSink) {
+    if (hasCustom) {
       const obj = hasMeta ? (finalMeta as Record<string, unknown>) : {};
-      customSink(obj, formatted);
+      try {
+        const result = boundSink!(obj, formatted);
+      } catch (err) {
+        hasMeta ? consoleFallback(formatted, finalMeta) : consoleFallback(formatted);
+      }
     } else {
       hasMeta ? consoleFallback(formatted, finalMeta) : consoleFallback(formatted);
     }
