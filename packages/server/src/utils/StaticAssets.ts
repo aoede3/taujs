@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import type { FastifyPluginAsync, FastifyPluginCallback, FastifyInstance } from 'fastify';
 
 export type StaticMountEntry = {
@@ -7,7 +9,7 @@ export type StaticMountEntry = {
 
 export type StaticAssetsRegistration = false | StaticMountEntry | StaticMountEntry[];
 
-export function normalizeStaticAssets(reg: StaticAssetsRegistration | undefined): StaticMountEntry[] {
+export function normaliseStaticAssets(reg: StaticAssetsRegistration | undefined): StaticMountEntry[] {
   if (!reg) return [];
 
   return Array.isArray(reg) ? reg : [reg];
@@ -24,11 +26,17 @@ export async function registerStaticAssets(
   baseClientRoot: string,
   reg: StaticAssetsRegistration | undefined,
   defaults?: Partial<StaticMountEntry['options']>,
+  projectRoot?: string,
 ) {
-  const entries = normalizeStaticAssets(reg).map(({ plugin, options }) => ({
+  // In production, serve from dist/client; in development, serve from source
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const effectiveProjectRoot = projectRoot ?? path.resolve(process.cwd());
+  const staticRoot = isDevelopment ? baseClientRoot : path.resolve(effectiveProjectRoot, 'client');
+
+  const entries = normaliseStaticAssets(reg).map(({ plugin, options }) => ({
     plugin,
     options: {
-      root: baseClientRoot,
+      root: staticRoot,
       prefix: '/',
       index: false,
       wildcard: false,

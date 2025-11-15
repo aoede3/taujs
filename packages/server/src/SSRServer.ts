@@ -8,6 +8,7 @@
  * including CSR, SSR, streaming, and middleware composition.
  */
 
+import path from 'node:path';
 import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
@@ -48,6 +49,8 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     const routeMatchers = createRouteMatchers(routes);
     let viteDevServer: ViteDevServer | undefined;
 
+    const projectRoot = path.resolve(baseClientRoot, '..');
+
     await loadAssets(
       processedConfigs,
       baseClientRoot,
@@ -61,10 +64,11 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       {
         debug: opts.debug,
         logger,
+        projectRoot,
       },
     );
 
-    if (opts.staticAssets) await registerStaticAssets(app, baseClientRoot, opts.staticAssets);
+    if (opts.staticAssets) await registerStaticAssets(app, baseClientRoot, opts.staticAssets, undefined, projectRoot);
 
     if (security?.csp?.reporting) {
       app.register(cspReportPlugin, {

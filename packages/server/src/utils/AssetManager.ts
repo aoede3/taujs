@@ -47,7 +47,7 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
-  opts: { debug?: DebugConfig; logger?: Logs } = {},
+  opts: { debug?: DebugConfig; logger?: Logs; projectRoot?: string } = {},
 ) => {
   const logger: Logs =
     opts.logger ??
@@ -56,8 +56,10 @@ export const loadAssets = async (
       includeContext: true,
     });
 
+  const projectRoot = opts.projectRoot ?? path.resolve(process.cwd());
+
   for (const config of processedConfigs) {
-    const { clientRoot, entryClient, entryServer, htmlTemplate } = config;
+    const { clientRoot, entryClient, entryServer, htmlTemplate, entryPoint } = config;
 
     try {
       const templateHtmlPath = path.join(clientRoot, htmlTemplate);
@@ -69,12 +71,14 @@ export const loadAssets = async (
 
       if (!isDevelopment) {
         try {
-          const manifestPath = path.join(clientRoot, '.vite/manifest.json');
+          const clientDistPath = path.resolve(projectRoot, 'client', entryPoint);
+          const manifestPath = path.join(clientDistPath, '.vite/manifest.json');
           const manifestContent = await readFile(manifestPath, 'utf-8');
           const manifest = JSON.parse(manifestContent) as Manifest;
           manifests.set(clientRoot, manifest);
 
-          const ssrManifestPath = path.join(clientRoot, '.vite/ssr-manifest.json');
+          const ssrDistPath = path.resolve(projectRoot, 'ssr', entryPoint);
+          const ssrManifestPath = path.join(ssrDistPath, '.vite/ssr-manifest.json');
           const ssrManifestContent = await readFile(ssrManifestPath, 'utf-8');
           const ssrManifest = JSON.parse(ssrManifestContent) as SSRManifest;
           ssrManifests.set(clientRoot, ssrManifest);
@@ -99,7 +103,7 @@ export const loadAssets = async (
           const cssLink = getCssLinks(manifest, adjustedRelativePath);
           cssLinks.set(clientRoot, cssLink);
 
-          const renderModulePath = path.join(clientRoot, `${entryServer}.js`);
+          const renderModulePath = path.join(ssrDistPath, `${entryServer}.js`);
           const moduleUrl = pathToFileURL(renderModulePath).href;
 
           try {
@@ -108,7 +112,7 @@ export const loadAssets = async (
           } catch (err) {
             throw AppError.internal(`Failed to load render module ${renderModulePath}`, {
               cause: err,
-              details: { moduleUrl, clientRoot, entryServer },
+              details: { moduleUrl, clientRoot, entryServer, ssrDistPath },
             });
           }
         } catch (err) {

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterAll, beforeAll, beforeEach } from 'vitest';
 import type { FastifyInstance, FastifyPluginCallback, FastifyPluginAsync } from 'fastify';
-import { normalizeStaticAssets, prefixWeight, registerStaticAssets, type StaticAssetsRegistration, type StaticMountEntry } from '../StaticAssets'; // <- adjust path if needed
+import { normaliseStaticAssets, prefixWeight, registerStaticAssets, type StaticAssetsRegistration, type StaticMountEntry } from '../StaticAssets'; // <- adjust path if needed
 
 function createFastifyMock() {
   const calls: Array<{ plugin: FastifyPluginCallback<any> | FastifyPluginAsync<any>; options: any }> = [];
@@ -18,18 +18,20 @@ function createFastifyMock() {
 const pluginCb: FastifyPluginCallback<any> = (instance, opts, done) => done();
 const pluginAsync: FastifyPluginAsync<any> = async () => {};
 
-describe('normalizeStaticAssets', () => {
+const originalNodeEnv = process.env.NODE_ENV;
+
+describe('normaliseStaticAssets', () => {
   it('returns empty array for undefined', () => {
-    expect(normalizeStaticAssets(undefined)).toEqual([]);
+    expect(normaliseStaticAssets(undefined)).toEqual([]);
   });
 
   it('returns empty array for false', () => {
-    expect(normalizeStaticAssets(false as unknown as StaticAssetsRegistration)).toEqual([]);
+    expect(normaliseStaticAssets(false as unknown as StaticAssetsRegistration)).toEqual([]);
   });
 
   it('wraps a single entry', () => {
     const single: StaticMountEntry = { plugin: pluginCb, options: { prefix: '/x' } };
-    expect(normalizeStaticAssets(single)).toEqual([single]);
+    expect(normaliseStaticAssets(single)).toEqual([single]);
   });
 
   it('returns the same array for multiple entries', () => {
@@ -37,7 +39,7 @@ describe('normalizeStaticAssets', () => {
       { plugin: pluginCb, options: { prefix: '/a' } },
       { plugin: pluginAsync, options: { prefix: '/b' } },
     ];
-    expect(normalizeStaticAssets(multi)).toBe(multi);
+    expect(normaliseStaticAssets(multi)).toBe(multi);
   });
 });
 
@@ -61,6 +63,14 @@ describe('prefixWeight', () => {
 describe('registerStaticAssets', () => {
   let app: ReturnType<typeof createFastifyMock>;
   const base = '/var/www/app';
+
+  beforeAll(() => {
+    process.env.NODE_ENV = 'development';
+  });
+
+  afterAll(() => {
+    process.env.NODE_ENV = originalNodeEnv;
+  });
 
   beforeEach(() => {
     app = createFastifyMock();

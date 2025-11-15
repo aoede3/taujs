@@ -229,7 +229,7 @@ describe('SSRServer', () => {
       configs: [],
       routes: [],
       serviceRegistry: {},
-      clientRoot: '/pub',
+      clientRoot: '/client',
       debug: true,
       staticAssets: { plugin: staticPlugin, options: { foo: 'bar' } },
     });
@@ -435,7 +435,7 @@ describe('SSRServer', () => {
     // plugin should have received our base fields + spread of {} (no crash)
     expect(capturedOpts).toEqual(
       expect.objectContaining({
-        root: '/pub',
+        root: '/client',
         prefix: '/',
         index: false,
         wildcard: false,
