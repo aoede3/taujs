@@ -151,7 +151,7 @@ export const handleRender = async (
         appHtml = res.appHtml;
 
         if (ac.signal.aborted) {
-          logger.warn({}, 'SSR completed but client disconnected');
+          logger.warn('SSR completed but client disconnected', {});
           return;
         }
       } catch (err) {
@@ -159,11 +159,17 @@ export const handleRender = async (
         const benign = REGEX.BENIGN_NET_ERR.test(msg);
 
         if (ac.signal.aborted || benign) {
-          logger.warn({}, 'SSR aborted mid-render (benign)');
+          logger.warn('SSR aborted mid-render (benign)', {
+            url: req.url,
+            reason: msg,
+          });
           return;
         }
 
-        logger.error({}, 'SSR render failed');
+        logger.error('SSR render failed', {
+          url: req.url,
+          error: normaliseError(err),
+        });
         throw err;
       }
 
@@ -199,18 +205,19 @@ export const handleRender = async (
         });
       }
 
+      const headers = reply.getHeaders(); // includes x-trace-id from createRequestContext
+      headers['Content-Type'] = 'text/html; charset=utf-8';
       const cspHeader = reply.getHeader('Content-Security-Policy');
-      reply.raw.writeHead(200, {
-        'Content-Security-Policy': cspHeader,
-        'Content-Type': 'text/html; charset=utf-8',
-      });
+      if (cspHeader) headers['Content-Security-Policy'] = cspHeader as any;
+
+      reply.raw.writeHead(200, headers as any);
 
       const abortedState = { aborted: false };
       const ac = new AbortController();
 
       const onAborted = () => {
         if (!abortedState.aborted) {
-          logger.warn({}, 'Client disconnected before stream finished');
+          logger.warn('Client disconnected before stream finished');
           abortedState.aborted = true;
         }
         ac.abort();
@@ -220,7 +227,7 @@ export const handleRender = async (
       reply.raw.on('close', () => {
         if (!reply.raw.writableEnded) {
           if (!abortedState.aborted) {
-            logger.warn({}, 'Client disconnected before stream finished');
+            logger.warn('Client disconnected before stream finished');
             abortedState.aborted = true;
           }
           ac.abort();

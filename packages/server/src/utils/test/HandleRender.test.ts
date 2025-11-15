@@ -161,6 +161,7 @@ describe('handleRender', () => {
       raw: {
         url: '/test-path',
         on: vi.fn(),
+        off: vi.fn(),
       },
       headers: { host: 'localhost' },
       cspNonce: 'test-nonce-123',
@@ -172,6 +173,7 @@ describe('handleRender', () => {
       header: vi.fn().mockReturnThis(),
       send: vi.fn(),
       getHeader: vi.fn().mockReturnValue('default-src self'),
+      getHeaders: vi.fn().mockReturnValue({}),
       raw: {
         writeHead: vi.fn(),
         write: vi.fn(),
@@ -846,6 +848,101 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.error).toHaveBeenCalledWith('SSR send failed', expect.objectContaining({ url: mockReq.url, error: expect.any(Object) }));
+    });
+
+    it('unsubscribes the aborted listener on reply finish', async () => {
+      const mockRoute = {
+        route: { attr: { render: 'ssr' }, appId: 'test-app' },
+        params: {},
+        keys: [],
+      } as any;
+
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      const mockRenderModule = {
+        renderSSR: vi.fn().mockResolvedValue({
+          headContent: '',
+          appHtml: '<div>ok</div>',
+        }),
+      };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      const finishCall = (mockReply.raw.on as unknown as Mock).mock.calls.find(([event]) => event === 'finish');
+
+      expect(finishCall).toBeTruthy();
+      const finishHandler = finishCall![1] as () => void;
+
+      const abortedCall = (mockReq.raw.on as unknown as Mock).mock.calls.find(([event]) => event === 'aborted');
+      expect(abortedCall).toBeTruthy();
+      const abortedHandler = abortedCall![1] as () => void;
+
+      finishHandler();
+
+      expect(mockReq.raw.off).toHaveBeenCalledWith('aborted', abortedHandler);
+    });
+
+    it('should unsubscribe aborted listener on reply finish in streaming mode', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      let abortedHandler: (() => void) | undefined;
+      let finishHandler: (() => void) | undefined;
+
+      mockReq.raw.on = vi.fn((event: string, cb: any) => {
+        if (event === 'aborted') abortedHandler = cb;
+        return mockReq.raw;
+      });
+
+      mockReply.raw.on = vi.fn((event: string, cb: any) => {
+        if (event === 'finish') finishHandler = cb;
+        return mockReply.raw;
+      });
+
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        callbacks.onHead?.('<title>Stream</title>');
+        callbacks.onShellReady?.();
+        callbacks.onAllReady?.({ data: 'test' });
+
+        setTimeout(() => {
+          writable.emit('finish');
+        }, 0);
+
+        return { abort: vi.fn() };
+      });
+
+      const mockRenderModule = { renderStream: mockRenderStream };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockReq.raw.on).toHaveBeenCalledWith('aborted', expect.any(Function));
+      expect(abortedHandler).toBeDefined();
+
+      expect(mockReply.raw.on).toHaveBeenCalledWith('finish', expect.any(Function));
+      expect(finishHandler).toBeDefined();
+
+      finishHandler?.();
+
+      expect(mockReq.raw.off).toHaveBeenCalledWith('aborted', abortedHandler);
     });
   });
 

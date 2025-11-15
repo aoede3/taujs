@@ -238,6 +238,43 @@ describe('Logger', () => {
     expect(call[1]).toEqual({ k: 1 });
   });
 
+  it('falls back to console when custom sink throws (with and without meta)', () => {
+    const custom = {
+      info: vi.fn(() => {
+        throw new Error('boom');
+      }),
+    };
+
+    const logger = createLogger({
+      custom: custom as any,
+      includeContext: false,
+      minLevel: 'debug',
+    });
+
+    // ---- with meta -> hasMeta === true -> consoleFallback(formatted, finalMeta)
+    logger.info({ x: 1 }, 'with meta');
+
+    expect(custom.info).toHaveBeenCalledTimes(1);
+    expect(console.log).toHaveBeenCalledTimes(1);
+
+    let call = (console.log as any).mock.calls[0];
+    expect(call.length).toBe(2); // formatted + meta
+    expect(call[0]).toMatch(/\[info\] with meta$/);
+    expect(call[1]).toEqual({ x: 1 });
+
+    (console.log as any).mockClear();
+
+    // ---- without meta -> hasMeta === false -> consoleFallback(formatted)
+    logger.info(undefined as any, 'no meta');
+
+    expect(custom.info).toHaveBeenCalledTimes(2);
+    expect(console.log).toHaveBeenCalledTimes(1);
+
+    call = (console.log as any).mock.calls[0];
+    expect(call.length).toBe(1); // formatted only
+    expect(call[0]).toMatch(/\[info\] no meta$/);
+  });
+
   it('createLogger parses debug input and calls configure only when parsed is defined', () => {
     parseDebugInputMock.mockReturnValueOnce(undefined);
     const spy = vi.spyOn(Logger.prototype, 'configure');
