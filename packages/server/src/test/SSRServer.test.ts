@@ -20,6 +20,7 @@ const {
   handleNotFoundMock,
   setupDevServerMock,
   toHttpMock,
+  resolveRouteDataMock,
 } = vi.hoisted(() => {
   class AppErrorFake {
     message!: string;
@@ -68,6 +69,7 @@ const {
   });
   const setupDevServerMock = vi.fn(async () => ({ name: 'vite-dev' }));
   const toHttpMock = vi.fn((_e: any) => ({ status: 499, body: { message: 'safe' } }));
+  const resolveRouteDataMock = vi.fn<() => Promise<Record<string, unknown>>>(async () => ({ userId: 123, name: 'Test' }));
 
   return {
     AppErrorFake,
@@ -85,6 +87,7 @@ const {
     handleNotFoundMock,
     setupDevServerMock,
     toHttpMock,
+    resolveRouteDataMock,
   };
 });
 
@@ -120,6 +123,8 @@ vi.mock('../logging/utils', () => ({ toHttp: toHttpMock }));
 
 vi.mock('../logging/AppError', () => ({ AppError: AppErrorFake }));
 
+vi.mock('../utils/ResolveRouteData', () => ({ resolveRouteData: resolveRouteDataMock }));
+
 import { SSRServer, TEMPLATE } from '../SSRServer';
 import { loadAssets } from '../utils/AssetManager';
 import { createAuthHook } from '../security/Auth';
@@ -154,7 +159,7 @@ describe('SSRServer', () => {
   it('basic registration wires assets, CSP, auth, GET, notFound', async () => {
     const addHookSpy = vi.spyOn(app, 'addHook');
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [{ appId: 'a', entryPoint: '.' }],
       routes: [{ path: '/*' }],
@@ -224,7 +229,7 @@ describe('SSRServer', () => {
       done();
     };
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -242,7 +247,7 @@ describe('SSRServer', () => {
   it('registers CSP reporting when configured', async () => {
     const onViolation = vi.fn();
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -267,7 +272,7 @@ describe('SSRServer', () => {
   it('starts dev server only when isDevelopment = true and passes it to handleRender', async () => {
     devRef.value = true;
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: { '@': '/src' },
       configs: [],
       routes: [],
@@ -289,7 +294,7 @@ describe('SSRServer', () => {
   it('non-dev mode does not set viteDevServer', async () => {
     devRef.value = false;
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -313,7 +318,7 @@ describe('SSRServer', () => {
       throw err;
     });
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -344,7 +349,7 @@ describe('SSRServer', () => {
 
     const setErrorHandlerSpy = vi.spyOn(app, 'setErrorHandler');
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -380,7 +385,7 @@ describe('SSRServer', () => {
     const orig = process.env.NODE_ENV;
     process.env.NODE_ENV = 'test';
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -399,7 +404,7 @@ describe('SSRServer', () => {
     const orig = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -422,7 +427,7 @@ describe('SSRServer', () => {
       done();
     };
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -463,7 +468,7 @@ describe('SSRServer', () => {
       throw new Error('kaboom');
     });
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -492,7 +497,7 @@ describe('SSRServer', () => {
       throw err;
     });
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -517,7 +522,7 @@ describe('SSRServer', () => {
       throw err;
     });
 
-    await app.register(SSRServer as any, {
+    await app.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -547,7 +552,7 @@ describe('SSRServer', () => {
       throw err;
     });
 
-    await app2.register(SSRServer as any, {
+    await app2.register(SSRServer, {
       alias: {},
       configs: [],
       routes: [],
@@ -561,5 +566,229 @@ describe('SSRServer', () => {
     expect(resB.statusCode).toBe(499);
 
     await app2.close();
+  });
+
+  describe('/__taujs/data endpoint', () => {
+    beforeEach(() => {
+      resolveRouteDataMock.mockReset();
+      resolveRouteDataMock.mockResolvedValue({ userId: 123, name: 'Test User' } as any);
+    });
+
+    it('returns data when url query param is provided', async () => {
+      await app.register(SSRServer, {
+        alias: {},
+        configs: [],
+        routes: [{ path: '/app/dashboard' }],
+        serviceRegistry: { someService: {} },
+        clientRoot: '/client',
+        debug: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/__taujs/data?url=/app/dashboard',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        data: { userId: 123, name: 'Test User' },
+      });
+
+      expect(resolveRouteDataMock).toHaveBeenCalledWith(
+        '/app/dashboard',
+        expect.objectContaining({
+          req: expect.any(Object),
+          reply: expect.any(Object),
+          routeMatchers: routeMatchersMock,
+          serviceRegistry: { someService: {} },
+          logger: mockLogger,
+        }),
+      );
+    });
+
+    it('throws AppError.badRequest when url query param is missing', async () => {
+      await app.register(SSRServer, {
+        alias: {},
+        configs: [],
+        routes: [],
+        serviceRegistry: {},
+        clientRoot: '/client',
+        debug: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/__taujs/data',
+      });
+
+      // Should trigger error handler which calls AppError.from and toHttp
+      expect(AppErrorFake.from).toHaveBeenCalled();
+      expect(res.statusCode).toBe(499); // toHttpMock returns 499
+    });
+
+    it('throws AppError.badRequest when url query param is empty string', async () => {
+      await app.register(SSRServer, {
+        alias: {},
+        configs: [],
+        routes: [],
+        serviceRegistry: {},
+        clientRoot: '/client',
+        debug: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/__taujs/data?url=',
+      });
+
+      expect(AppErrorFake.from).toHaveBeenCalled();
+      expect(res.statusCode).toBe(499);
+    });
+
+    it('throws AppError.badRequest when url query param is not a string', async () => {
+      await app.register(SSRServer, {
+        alias: {},
+        configs: [],
+        routes: [],
+        serviceRegistry: {},
+        clientRoot: '/client',
+        debug: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/__taujs/data?url[]=invalid',
+      });
+
+      expect(AppErrorFake.from).toHaveBeenCalled();
+      expect(res.statusCode).toBe(499);
+    });
+
+    it('handles complex URLs with query parameters', async () => {
+      // Override the mock for this specific test
+      resolveRouteDataMock.mockResolvedValueOnce({ items: [1, 2, 3] });
+
+      await app.register(SSRServer, {
+        alias: {},
+        configs: [],
+        routes: [],
+        serviceRegistry: {},
+        clientRoot: '/client',
+        debug: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/__taujs/data?url=/app/search%3Fq%3Dtest%26page%3D2',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ data: { items: [1, 2, 3] } });
+
+      expect(resolveRouteDataMock).toHaveBeenCalledWith('/app/search?q=test&page=2', expect.any(Object));
+    });
+
+    it('passes through resolveRouteData errors to error handler', async () => {
+      // Make the mock throw an error
+      resolveRouteDataMock.mockRejectedValueOnce(
+        Object.assign(new Error('Data resolution failed'), {
+          httpStatus: 404,
+          code: 'NOT_FOUND',
+        }),
+      );
+
+      await app.register(SSRServer, {
+        alias: {},
+        configs: [],
+        routes: [],
+        serviceRegistry: {},
+        clientRoot: '/client',
+        debug: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/__taujs/data?url=/app/missing',
+      });
+
+      expect(AppErrorFake.from).toHaveBeenCalled();
+      expect(mockLogger.error).toHaveBeenCalled();
+      expect(res.statusCode).toBe(499);
+    });
+
+    it('returns empty object when resolveRouteData returns empty result', async () => {
+      // Override mock to return empty object
+      resolveRouteDataMock.mockResolvedValueOnce({});
+
+      await app.register(SSRServer, {
+        alias: {},
+        configs: [],
+        routes: [],
+        serviceRegistry: {},
+        clientRoot: '/client',
+        debug: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/__taujs/data?url=/app/empty',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ data: {} });
+    });
+
+    it('is subject to auth hook when auth is configured', async () => {
+      const authError: any = new Error('Unauthorized');
+      authError.statusCode = 401;
+
+      const authHookFn = vi.fn((_req: any, reply: any, done: any) => {
+        // Auth hook should call reply.code().send() for proper error handling
+        reply.code(401).send({ error: 'Unauthorized' });
+      });
+
+      createAuthHookMock.mockReturnValueOnce(authHookFn);
+
+      await app.register(SSRServer as any, {
+        alias: {},
+        configs: [],
+        routes: [{ path: '/__taujs/data', attr: { middleware: { auth: true } } }],
+        serviceRegistry: {},
+        clientRoot: '/client',
+        debug: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/__taujs/data?url=/protected',
+      });
+
+      expect(authHookFn).toHaveBeenCalled();
+      expect(res.statusCode).toBe(401);
+      // resolveRouteData should NOT have been called because auth failed
+      expect(resolveRouteDataMock).not.toHaveBeenCalled();
+    });
+
+    it('handles multiple query parameters correctly', async () => {
+      // Override mock for this test
+      resolveRouteDataMock.mockResolvedValueOnce({ ok: true } as any);
+
+      await app.register(SSRServer, {
+        alias: {},
+        configs: [],
+        routes: [],
+        serviceRegistry: {},
+        clientRoot: '/client',
+        debug: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/__taujs/data?url=/app/page&other=param&foo=bar',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(resolveRouteDataMock).toHaveBeenCalledWith('/app/page', expect.any(Object));
+    });
   });
 });
