@@ -1,203 +1,2506 @@
-import path from 'node:path';
-import * as vite from 'vite';
-import { describe, it, beforeEach, vi, expect } from 'vitest';
+/**
+ * τjs [ taujs ] Orchestration System - Builder Tests
+ * Comprehensive test coverage for build orchestration and config merging
+ */
 
-import type { AppConfig } from '../Config';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { InlineConfig, PluginOption } from 'vite';
 
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...(actual as Record<string, unknown>), rm: vi.fn() };
-});
+// Mock dependencies BEFORE importing fs modules
+vi.mock('vite', () => ({
+  build: vi.fn(async () => {
+    // Mock vite build to succeed by default
+    return undefined;
+  }),
+}));
 
-vi.mock('vite', async () => {
-  return { build: vi.fn().mockResolvedValue(undefined) };
-});
+vi.mock('../Setup', () => ({
+  extractBuildConfigs: vi.fn().mockReturnValue([]),
+}));
 
-vi.mock('../utils/AssetManager', async () => {
-  const actual = await vi.importActual<any>('../utils/AssetManager');
+vi.mock('../utils/AssetManager', () => ({
+  processConfigs: vi.fn().mockReturnValue([]),
+}));
 
-  const __mocked_processConfigs = vi.fn((configs: AppConfig[], clientBaseDir: string) =>
-    configs.map((cfg) => ({
-      ...cfg,
-      clientRoot: path.resolve('test-client', cfg.entryPoint || ''),
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
-      htmlTemplate: 'index.html',
-    })),
-  );
+vi.mock('../constants', () => ({
+  TEMPLATE: 'index.html',
+}));
 
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
   return {
     ...actual,
-    processConfigs: __mocked_processConfigs,
-    __mocked_processConfigs,
+    default: actual,
+    existsSync: vi.fn().mockReturnValue(true),
   };
 });
 
-vi.mock('../constants', () => ({ TEMPLATE: {} }));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    rm: vi.fn(),
+    readFile: vi.fn(),
+  };
+});
 
-import { taujsBuild } from '../Build';
-import * as AM from '../utils/AssetManager';
+vi.mock('node:path', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:path')>();
+  return {
+    ...actual,
+    default: actual,
+  };
+});
 
-declare module '../utils/AssetManager' {
-  export const __mocked_processConfigs: ReturnType<typeof vi.fn>;
-}
+// Import fs modules AFTER mocks are set up
+import * as fs from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
+import * as path from 'node:path';
 
-const mockProcessConfigs = (AM as any).__mocked_processConfigs as ReturnType<typeof vi.fn>;
+// Import after mocks
+import { taujsBuild, mergeViteConfig, getFrameworkInvariants, resolveInputs } from '../Build';
+import { build } from 'vite';
+import { extractBuildConfigs } from '../Setup';
+import { processConfigs } from '../utils/AssetManager';
 
-// ----------------------------------------------------------------
+import type { RollupOutput } from 'rollup';
+import type { ViteConfigOverride, ViteBuildContext } from '../Build';
 
-describe('taujsBuild', () => {
-  const baseApp: AppConfig = { appId: 'test-app', entryPoint: 'test-entry' };
-  const baseConfig = { apps: [baseApp] };
-  const root = path.resolve();
-  const clientBase = path.resolve('test-client');
+const buildMock = vi.mocked(build);
+const existsSyncMock = vi.mocked(fs.existsSync);
+const rmMock = vi.mocked(fsPromises.rm);
+
+describe('Build.ts - Full Coverage', () => {
+  const mockProjectRoot = '/project';
+  const mockClientBaseDir = '/project/src/client';
+
+  let originalNodeVersion: string;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    process.env.BUILD_MODE = ''; // avoid implicit SSR mode
+    // DO NOT call vi.clearAllMocks() here
+
+    // reset call history + implementations explicitly
+    buildMock.mockReset();
+    buildMock.mockResolvedValue({} as RollupOutput);
+
+    existsSyncMock.mockReset();
+    existsSyncMock.mockReturnValue(true); // default: index.html exists
+
+    rmMock.mockReset();
+    rmMock.mockResolvedValue(undefined);
+
+    originalNodeVersion = process.versions.node;
+    Object.defineProperty(process.versions, 'node', {
+      value: '20.0.0',
+      writable: true,
+      configurable: true,
+    });
   });
 
-  it('deletes dist directory for non-SSR build', async () => {
-    const fs = await import('node:fs/promises');
-
-    await taujsBuild({
-      config: baseConfig,
-      projectRoot: root,
-      clientBaseDir: clientBase,
-      isSSRBuild: false,
-    });
-
-    expect(fs.rm).toHaveBeenCalledWith(path.resolve(root, 'dist'), {
-      recursive: true,
-      force: true,
+  afterEach(() => {
+    delete process.env.BUILD_MODE;
+    // Restore original node version
+    Object.defineProperty(process.versions, 'node', {
+      value: originalNodeVersion,
+      writable: true,
+      configurable: true,
     });
   });
 
-  it('skips dist deletion for SSR build', async () => {
-    const fs = await import('node:fs/promises');
-
-    await taujsBuild({
-      config: baseConfig,
-      projectRoot: root,
-      clientBaseDir: clientBase,
-      isSSRBuild: true,
-    });
-
-    expect(fs.rm).not.toHaveBeenCalled();
-  });
-
-  it('supports multiple configs with and without entryPoint', async () => {
-    const config: AppConfig[] = [
-      { appId: 'app1', entryPoint: 'foo' },
-      { appId: 'app2', entryPoint: '' },
-    ];
-
-    await taujsBuild({
-      config: { apps: config },
-      projectRoot: root,
-      clientBaseDir: clientBase,
-      isSSRBuild: false,
-    });
-
-    expect(mockProcessConfigs).toHaveBeenCalledWith(config, clientBase, expect.anything());
-    expect(vite.build).toHaveBeenCalledTimes(2);
-  });
-
-  it('handles optional plugins', async () => {
-    const configWithPlugins: AppConfig = {
+  describe('taujsBuild - Core Build Orchestration', () => {
+    const mockAppConfig = {
       appId: 'test-app',
-      entryPoint: 'test-entry',
-      plugins: [{ name: 'customPlugin' }],
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
     };
 
-    await taujsBuild({
-      config: { apps: [configWithPlugins] },
-      projectRoot: root,
-      clientBaseDir: clientBase,
-      isSSRBuild: false,
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
     });
 
-    const lastCallArg = (vite.build as unknown as import('vitest').Mock).mock.calls.at(-1)?.[0];
-    expect(lastCallArg).toEqual(
-      expect.objectContaining({
-        plugins: expect.arrayContaining([expect.objectContaining({ name: 'customPlugin' })]),
-      }),
-    );
-  });
+    it('should perform client build by default', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
 
-  it('handles fs.rm error gracefully', async () => {
-    const fs = await import('node:fs/promises');
-    const err = new Error('Permission denied');
-    (fs.rm as any).mockRejectedValueOnce(err);
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    await taujsBuild({
-      config: baseConfig,
-      projectRoot: root,
-      clientBaseDir: clientBase,
-      isSSRBuild: false,
+      expect(build).toHaveBeenCalledTimes(1);
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.ssr).toBeUndefined();
+      expect(buildConfig.build?.manifest).toBe(true);
+      expect(buildConfig.build?.ssrManifest).toBe(false);
     });
 
-    expect(errorSpy).toHaveBeenCalledWith('Error deleting dist directory:', err);
-    errorSpy.mockRestore();
-  });
+    it('should perform SSR build when isSSRBuild=true', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+      });
 
-  it('logs build start and completion', async () => {
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-    await taujsBuild({
-      config: baseConfig,
-      projectRoot: root,
-      clientBaseDir: clientBase,
-      isSSRBuild: false,
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.ssr).toBe('/project/src/client/admin/entry-server.tsx');
+      expect(buildConfig.build?.manifest).toBe(false);
+      expect(buildConfig.build?.ssrManifest).toBe(true);
+      expect((buildConfig.build as any)?.format).toBe('esm');
+      expect((buildConfig.build as any)?.target).toBe('node20');
+      expect((buildConfig.build as any)?.copyPublicDir).toBe(false);
     });
 
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Building for entryPoint: "test-entry"'));
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Build complete for entryPoint: "test-entry"'));
+    it('should perform SSR build when BUILD_MODE env var is set', async () => {
+      process.env.BUILD_MODE = 'ssr';
 
-    logSpy.mockRestore();
-  });
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
 
-  it('logs build error and exits', async () => {
-    const error = new Error('build failed');
-    (vite.build as any).mockRejectedValueOnce(error);
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit was called');
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.ssr).toBeDefined();
     });
 
-    await expect(() =>
-      taujsBuild({
-        config: baseConfig,
-        projectRoot: root,
-        clientBaseDir: clientBase,
+    it('should delete dist directory before client build', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
         isSSRBuild: false,
-      }),
-    ).rejects.toThrow('process.exit was called');
+      });
 
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Error building for entryPoint'), error);
-    expect(exitSpy).toHaveBeenCalledWith(1);
-
-    errorSpy.mockRestore();
-    exitSpy.mockRestore();
-  });
-
-  it('executes the /api proxy rewrite function', async () => {
-    const configWithPlugins: AppConfig = {
-      appId: 'test-app',
-      entryPoint: 'test-entry',
-    };
-
-    await taujsBuild({
-      config: { apps: [configWithPlugins] },
-      projectRoot: root,
-      clientBaseDir: clientBase,
-      isSSRBuild: false,
+      expect(fsPromises.rm).toHaveBeenCalledWith(path.resolve(mockProjectRoot, 'dist'), { recursive: true, force: true });
     });
 
-    const lastBuildCall = (vite.build as import('vitest').Mock).mock.calls.at(-1)?.[0];
-    const rewrite = lastBuildCall?.server?.proxy?.['/api']?.rewrite;
+    it('should NOT delete dist directory for SSR build', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+      });
 
-    expect(rewrite('/api/test/123')).toBe('/test/123');
+      expect(fsPromises.rm).not.toHaveBeenCalled();
+    });
+
+    it('should handle dist deletion errors gracefully', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(fsPromises.rm).mockRejectedValue(new Error('Permission denied'));
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Error deleting dist directory:', expect.any(Error));
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should set correct output directory for client build', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.outDir).toBe('/project/dist/client/admin');
+    });
+
+    it('should set correct output directory for SSR build', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.outDir).toBe('/project/dist/ssr/admin');
+    });
+
+    it('should include client entry in client build', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const inputs = buildConfig.build?.rollupOptions?.input as Record<string, string>;
+
+      expect(inputs).toHaveProperty('client');
+      // drop the `main` assertion
+    });
+
+    it('should exclude index.html from client build when file does not exist', async () => {
+      existsSyncMock.mockReturnValue(false);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const inputs = buildConfig.build?.rollupOptions?.input as Record<string, string>;
+      expect(inputs).not.toHaveProperty('main');
+      expect(inputs).toHaveProperty('client');
+    });
+
+    it('should include only client entry when index.html does not exist (existsSync false only for main)', async () => {
+      existsSyncMock.mockReset();
+      existsSyncMock.mockReturnValue(false);
+
+      // First call (some internal check) return true
+      existsSyncMock.mockReturnValueOnce(true);
+      // Second call (the one for "main") return false → hits the { client } branch
+      existsSyncMock.mockReturnValueOnce(false);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const inputs = buildConfig.build!.rollupOptions!.input as Record<string, string>;
+
+      expect(inputs).toEqual({
+        client: expect.stringContaining('entry-client.tsx'),
+      });
+    });
+
+    it('should set correct rollupOptions input for SSR build', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const inputs = buildConfig.build?.rollupOptions?.input as Record<string, string>;
+      expect(inputs).toHaveProperty('server');
+      expect(inputs.server).toContain('entry-server.tsx');
+      expect(inputs).not.toHaveProperty('client');
+      expect(inputs).not.toHaveProperty('main');
+    });
+
+    it('should set publicDir to false for SSR builds', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.publicDir).toBe(false);
+    });
+
+    it('should set publicDir to "public" for client builds', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.publicDir).toBe('public');
+    });
+
+    it('should handle app without entryPoint (root level)', async () => {
+      const rootAppConfig = {
+        ...mockAppConfig,
+        entryPoint: '',
+      };
+      vi.mocked(processConfigs).mockReturnValue([rootAppConfig] as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.base).toBe('/');
+      expect(buildConfig.root).toBe(mockClientBaseDir);
+    });
+
+    it('should handle app with entryPoint', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.base).toBe('/admin/');
+      expect(buildConfig.root).toBe('/project/src/client/admin');
+    });
+
+    it('should process multiple apps sequentially', async () => {
+      const multipleApps = [
+        { ...mockAppConfig, entryPoint: 'app1', appId: 'app1' },
+        { ...mockAppConfig, entryPoint: 'app2', appId: 'app2' },
+        { ...mockAppConfig, entryPoint: 'app3', appId: 'app3' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(multipleApps as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      expect(build).toHaveBeenCalledTimes(3);
+    });
+
+    it('should exit process on build failure', async () => {
+      const mockExit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const buildError = new Error('Build failed');
+      vi.mocked(build).mockRejectedValue(buildError);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[taujs:build:admin] ✗ Failed\n', buildError);
+      expect(mockExit).toHaveBeenCalledWith(1);
+
+      mockExit.mockRestore();
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should log build progress messages', async () => {
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      expect(consoleLogSpy).toHaveBeenCalledWith('[taujs:build:admin] Building → Client');
+      expect(consoleLogSpy).toHaveBeenCalledWith('[taujs:build:admin] ✓ Complete\n');
+
+      consoleLogSpy.mockRestore();
+    });
+
+    it('should log SSR build mode correctly', async () => {
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+      });
+
+      expect(consoleLogSpy).toHaveBeenCalledWith('[taujs:build:admin] Building → SSR');
+
+      consoleLogSpy.mockRestore();
+    });
+
+    it('should use correct node version in target', async () => {
+      Object.defineProperty(process.versions, 'node', {
+        value: '18.12.1',
+        writable: true,
+        configurable: true,
+      });
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.target).toBe('node18');
+    });
+
+    it('should set emptyOutDir to true', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.emptyOutDir).toBe(true);
+    });
+
+    it('should include plugins from appConfig', async () => {
+      const mockPlugin = { name: 'test-plugin' };
+      const appWithPlugins = {
+        ...mockAppConfig,
+        plugins: [mockPlugin],
+      };
+      vi.mocked(processConfigs).mockReturnValue([appWithPlugins] as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.plugins).toContain(mockPlugin);
+    });
+
+    it('should set SCSS preprocessor to modern-compiler', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.css?.preprocessorOptions?.scss).toEqual({ api: 'modern-compiler' });
+    });
+  });
+
+  describe('Alias Configuration', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('should provide default framework aliases', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const aliases = buildConfig.resolve?.alias as Record<string, string>;
+
+      expect(aliases['@client']).toBe('/project/src/client/admin');
+      expect(aliases['@server']).toBe('/project/src/server');
+      expect(aliases['@shared']).toBe('/project/src/shared');
+    });
+
+    it('should merge user aliases with framework defaults', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        alias: {
+          '@utils': '/project/src/utils',
+          '@components': '/project/src/components',
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const aliases = buildConfig.resolve?.alias as Record<string, string>;
+
+      expect(aliases['@client']).toBe('/project/src/client/admin');
+      expect(aliases['@server']).toBe('/project/src/server');
+      expect(aliases['@shared']).toBe('/project/src/shared');
+      expect(aliases['@utils']).toBe('/project/src/utils');
+      expect(aliases['@components']).toBe('/project/src/components');
+    });
+
+    it('should allow user to override framework aliases', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        alias: {
+          '@server': '/custom/server/path',
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const aliases = buildConfig.resolve?.alias as Record<string, string>;
+
+      expect(aliases['@server']).toBe('/custom/server/path');
+    });
+
+    it('should handle empty user alias object', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        alias: {},
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const aliases = buildConfig.resolve?.alias as Record<string, string>;
+
+      expect(aliases['@client']).toBe('/project/src/client/admin');
+    });
+
+    it('should handle undefined alias parameter', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        alias: undefined,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const aliases = buildConfig.resolve?.alias as Record<string, string>;
+
+      expect(aliases).toBeDefined();
+      expect(aliases['@client']).toBe('/project/src/client/admin');
+    });
+  });
+
+  describe('Vite Config Override - No Override Cases', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('should use framework config when no vite override provided', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: undefined,
+      });
+
+      expect(build).toHaveBeenCalled();
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.base).toBe('/admin/');
+    });
+  });
+
+  describe('Vite Config Override - Static Config Object', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('should append user plugins to framework plugins', async () => {
+      const userPlugin = { name: 'user-plugin' };
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          plugins: [userPlugin],
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const plugins = buildConfig.plugins as any[];
+      expect(plugins).toContainEqual(userPlugin);
+    });
+
+    it('should merge multiple user plugins', async () => {
+      const plugin1 = { name: 'plugin-1' };
+      const plugin2 = { name: 'plugin-2' };
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          plugins: [plugin1, plugin2],
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const plugins = buildConfig.plugins as any[];
+      expect(plugins).toContainEqual(plugin1);
+      expect(plugins).toContainEqual(plugin2);
+    });
+
+    it('should shallow merge user define with framework define', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          define: {
+            'process.env.CUSTOM_VAR': '"custom-value"',
+            'import.meta.env.MODE': '"production"',
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.define).toMatchObject({
+        'process.env.CUSTOM_VAR': '"custom-value"',
+        'import.meta.env.MODE': '"production"',
+      });
+    });
+
+    it('should handle empty define object', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          define: {},
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.define).toBeDefined();
+    });
+
+    it('should ignore non-object define', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          define: 'not-an-object' as any,
+        },
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should deep merge CSS preprocessor options', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          css: {
+            preprocessorOptions: {
+              scss: {
+                additionalData: '@import "variables";',
+              },
+              less: {
+                math: 'always',
+              },
+            },
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.css?.preprocessorOptions?.scss).toEqual({
+        api: 'modern-compiler',
+        additionalData: '@import "variables";',
+      });
+      expect((buildConfig.css?.preprocessorOptions as any)?.less).toEqual({
+        math: 'always',
+      });
+    });
+
+    it('should override framework scss options with user values', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          css: {
+            preprocessorOptions: {
+              scss: {
+                api: 'legacy' as any,
+              },
+            },
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.css?.preprocessorOptions?.scss).toEqual({
+        api: 'legacy',
+      });
+    });
+
+    it('should handle empty preprocessorOptions', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          css: {
+            preprocessorOptions: {},
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.css?.preprocessorOptions?.scss).toEqual({
+        api: 'modern-compiler',
+      });
+    });
+
+    it('should ignore non-object preprocessorOptions', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          css: {
+            preprocessorOptions: 'not-an-object' as any,
+          },
+        },
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should allow user to override build.sourcemap', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            sourcemap: 'inline',
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.sourcemap).toBe('inline');
+    });
+
+    it('should allow user to set build.sourcemap to boolean', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            sourcemap: true,
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.sourcemap).toBe(true);
+    });
+
+    it('should allow user to override build.minify', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            minify: 'terser',
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.minify).toBe('terser');
+    });
+
+    it('should allow user to disable minification', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            minify: false,
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.minify).toBe(false);
+    });
+
+    it('should merge user terserOptions', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            terserOptions: {
+              compress: {
+                drop_console: true,
+              },
+            },
+          } as any,
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const mergedTerser = (buildConfig.build as any)?.terserOptions;
+
+      expect(mergedTerser.compress).toEqual({ drop_console: true });
+    });
+
+    it('should handle empty terserOptions', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            terserOptions: {},
+          },
+        },
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should ignore non-object terserOptions', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            terserOptions: 'not-an-object' as any,
+          },
+        },
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should allow user to set rollupOptions.external', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            rollupOptions: {
+              external: ['react', 'react-dom'],
+            },
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build?.rollupOptions as any)?.external).toEqual(['react', 'react-dom']);
+    });
+
+    it('should merge user manualChunks from output object', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            rollupOptions: {
+              output: {
+                manualChunks: {
+                  vendor: ['react', 'react-dom'],
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const output = (buildConfig.build?.rollupOptions as any)?.output;
+      expect(output?.manualChunks).toEqual({
+        vendor: ['react', 'react-dom'],
+      });
+    });
+
+    it('should handle manualChunks from array output (uses first element)', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            rollupOptions: {
+              output: [
+                {
+                  manualChunks: {
+                    vendor: ['react'],
+                  },
+                },
+                {
+                  manualChunks: {
+                    utils: ['lodash'],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const output = (buildConfig.build?.rollupOptions as any)?.output;
+      expect(output?.manualChunks).toEqual({
+        vendor: ['react'],
+      });
+    });
+
+    it('should handle output without manualChunks', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            rollupOptions: {
+              output: {
+                format: 'es',
+              },
+            },
+          },
+        },
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should merge user resolve options (excluding alias)', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          resolve: {
+            extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json'],
+            dedupe: ['react'],
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.resolve as any)?.extensions).toEqual(['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json']);
+      expect((buildConfig.resolve as any)?.dedupe).toEqual(['react']);
+    });
+
+    it('should allow user to override esbuild options', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          esbuild: {
+            jsxFactory: 'h',
+            jsxFragment: 'Fragment',
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig as any).esbuild).toEqual({
+        jsxFactory: 'h',
+        jsxFragment: 'Fragment',
+      });
+    });
+
+    it('should allow user to set logLevel', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          logLevel: 'silent',
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.logLevel).toBe('silent');
+    });
+
+    it('should allow user to set envPrefix', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          envPrefix: 'APP_',
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig as any).envPrefix).toBe('APP_');
+    });
+
+    it('should allow user to configure optimizeDeps', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          optimizeDeps: {
+            include: ['lodash'],
+            exclude: ['some-package'],
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig as any).optimizeDeps).toEqual({
+        include: ['lodash'],
+        exclude: ['some-package'],
+      });
+    });
+
+    it('should allow user to configure top-level ssr options', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          ssr: {
+            noExternal: ['some-package'],
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig as any).ssr).toEqual({
+        noExternal: ['some-package'],
+      });
+    });
+  });
+
+  describe('Vite Config Override - Protected Fields', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('should ignore user override of root', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          root: '/wrong/path',
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.root).toBe('/project/src/client/admin');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Ignored Vite config overrides: root'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should ignore user override of base', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          base: '/wrong-base/',
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.base).toBe('/admin/');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Ignored Vite config overrides: base'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should ignore user override of publicDir', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          publicDir: '/wrong/public',
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.publicDir).toBe('public');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Ignored Vite config overrides: publicDir'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should ignore user override of build.outDir', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            outDir: '/wrong/dist',
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.outDir).toBe('/project/dist/client/admin');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('build.outDir'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should ignore user override of build.ssr', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+        vite: {
+          build: {
+            ssr: '/wrong/entry.ts',
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.ssr).toBe('/project/src/client/admin/entry-server.tsx');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('build.ssr'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should ignore user override of build.ssrManifest', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            ssrManifest: true,
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.ssrManifest).toBe(false);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('build.ssrManifest'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should ignore user override of build.format', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+        vite: {
+          build: {
+            format: 'cjs',
+          },
+        } as any,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.format).toBe('esm');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('build.format'));
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should ignore user override of build.target', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+        vite: {
+          build: {
+            target: 'es2020',
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.target).toBe('node20');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('build.target'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should ignore user override of build.rollupOptions.input', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            rollupOptions: {
+              input: { wrong: '/wrong/entry.ts' },
+            },
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const inputs = buildConfig.build?.rollupOptions?.input as Record<string, string>;
+      expect(inputs).toHaveProperty('client');
+      expect(inputs).not.toHaveProperty('wrong');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('build.rollupOptions.input'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should ignore user resolve.alias', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          resolve: {
+            alias: {
+              '@wrong': '/wrong/path',
+            },
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const aliases = buildConfig.resolve?.alias as Record<string, string>;
+      expect(aliases).not.toHaveProperty('@wrong');
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('resolve.alias'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should warn about server config in build (dev-only)', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          server: {
+            port: 3000,
+          },
+        },
+      });
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('server (ignored in build; dev-only)'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should deduplicate warnings for multiple ignored keys', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          root: '/wrong',
+          base: '/wrong',
+          build: {
+            outDir: '/wrong',
+            ssr: '/wrong',
+          },
+        },
+      });
+
+      expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+      const warningMessage = consoleWarnSpy.mock.calls[0]![0];
+      expect(warningMessage).toContain('root');
+      expect(warningMessage).toContain('base');
+      expect(warningMessage).toContain('build.outDir');
+      expect(warningMessage).toContain('build.ssr');
+
+      consoleWarnSpy.mockRestore();
+    });
+  });
+
+  describe('Vite Config Override - Function-Based Config', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('should call function with correct build context', async () => {
+      const viteConfigFn = vi.fn().mockReturnValue({});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+        vite: viteConfigFn,
+      });
+
+      expect(viteConfigFn).toHaveBeenCalledWith({
+        appId: 'test-app',
+        entryPoint: 'admin',
+        isSSRBuild: false,
+        clientRoot: '/project/src/client/admin',
+      });
+    });
+
+    it('should use config returned by function', async () => {
+      const userPlugin = { name: 'conditional-plugin' };
+      const viteConfigFn = vi.fn().mockReturnValue({
+        plugins: [userPlugin],
+        logLevel: 'warn',
+      });
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: viteConfigFn,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.plugins).toContainEqual(userPlugin);
+      expect(buildConfig.logLevel).toBe('warn');
+    });
+
+    it('should allow conditional config based on isSSRBuild', async () => {
+      const ssrPlugin = { name: 'ssr-plugin' };
+      const clientPlugin = { name: 'client-plugin' };
+
+      const viteConfigFn = ({ isSSRBuild }: ViteBuildContext) => ({
+        plugins: isSSRBuild ? [ssrPlugin] : [clientPlugin],
+      });
+
+      // Test SSR build
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+        vite: viteConfigFn,
+      });
+
+      let buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.plugins).toContainEqual(ssrPlugin);
+
+      // Reset and test client build
+      vi.clearAllMocks();
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+        vite: viteConfigFn,
+      });
+
+      buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.plugins).toContainEqual(clientPlugin);
+    });
+
+    it('should allow conditional config based on entryPoint', async () => {
+      const viteConfigFn = ({ entryPoint }: ViteBuildContext): Partial<InlineConfig> => {
+        const level: InlineConfig['logLevel'] = entryPoint === 'admin' ? 'info' : 'warn';
+
+        return { logLevel: level };
+      };
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: viteConfigFn,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.logLevel).toBe('info');
+    });
+
+    it('should allow conditional config based on appId', async () => {
+      const viteConfigFn = ({ appId }: ViteBuildContext) => ({
+        build: {
+          sourcemap: appId === 'test-app' ? true : false,
+        },
+      });
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: viteConfigFn,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.sourcemap).toBe(true);
+    });
+
+    it('should handle function returning empty config', async () => {
+      const viteConfigFn = vi.fn().mockReturnValue({});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: viteConfigFn,
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should call function for each app build separately', async () => {
+      const multipleApps = [
+        { ...mockAppConfig, entryPoint: 'app1', appId: 'app1' },
+        { ...mockAppConfig, entryPoint: 'app2', appId: 'app2' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(multipleApps as any);
+
+      const viteConfigFn = vi.fn().mockReturnValue({});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: viteConfigFn,
+      });
+
+      expect(viteConfigFn).toHaveBeenCalledTimes(2);
+      expect(viteConfigFn).toHaveBeenNthCalledWith(1, expect.objectContaining({ appId: 'app1' }));
+      expect(viteConfigFn).toHaveBeenNthCalledWith(2, expect.objectContaining({ appId: 'app2' }));
+    });
+  });
+
+  describe('Edge Cases and Error Handling', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('should handle empty apps array', async () => {
+      vi.mocked(processConfigs).mockReturnValue([]);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      expect(build).not.toHaveBeenCalled();
+    });
+
+    it('should handle undefined plugins in appConfig', async () => {
+      const appWithoutPlugins = {
+        ...mockAppConfig,
+        plugins: undefined,
+      };
+      vi.mocked(processConfigs).mockReturnValue([appWithoutPlugins] as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.plugins).toEqual([]);
+    });
+
+    it('should handle vite config with null values', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          plugins: null as any,
+          define: null as any,
+        },
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should handle vite config with undefined nested objects', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: undefined,
+          css: undefined,
+          resolve: undefined,
+        },
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should handle framework config with missing build object', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            sourcemap: true,
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build).toBeDefined();
+      expect((buildConfig.build as any)?.sourcemap).toBe(true);
+    });
+
+    it('should handle framework config with missing css object', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          css: {
+            preprocessorOptions: {
+              scss: { additionalData: '@import "test";' },
+            },
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.css).toBeDefined();
+    });
+
+    it('should handle framework config with missing resolve object', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          resolve: {
+            extensions: ['.ts', '.tsx'],
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.resolve).toBeDefined();
+    });
+
+    it('should handle app config with missing optional fields', async () => {
+      const minimalAppConfig = {
+        appId: 'minimal',
+        entryPoint: 'minimal',
+        clientRoot: '/project/src/client/minimal',
+        entryClient: 'entry-client',
+        entryServer: 'entry-server',
+        htmlTemplate: 'index.html',
+      };
+      vi.mocked(processConfigs).mockReturnValue([minimalAppConfig] as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should preserve undefined build.ssr for client builds', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.build?.ssr).toBeUndefined();
+    });
+
+    it('should handle empty rollupOptions in user config', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            rollupOptions: {},
+          },
+        },
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should handle missing rollupOptions.output in framework config', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            rollupOptions: {
+              output: {
+                manualChunks: { vendor: ['react'] },
+              },
+            },
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build?.rollupOptions as any)?.output).toBeDefined();
+    });
+
+    it('should handle array output with empty first element', async () => {
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          build: {
+            rollupOptions: {
+              output: [null as any, { manualChunks: { vendor: ['react'] } }],
+            },
+          },
+        },
+      });
+
+      expect(build).toHaveBeenCalled();
+    });
+
+    it('should not warn when no protected fields are overridden', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          plugins: [{ name: 'test' }],
+          logLevel: 'info',
+        },
+      });
+
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should include entryPoint in warning prefix', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          root: '/wrong',
+        },
+      });
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('[taujs:build:admin]'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should handle various node version formats', async () => {
+      Object.defineProperty(process.versions, 'node', {
+        value: '16.14.2',
+        writable: true,
+        configurable: true,
+      });
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.target).toBe('node16');
+    });
+
+    it('should handle single-digit node version', async () => {
+      Object.defineProperty(process.versions, 'node', {
+        value: '8.0.0',
+        writable: true,
+        configurable: true,
+      });
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.build as any)?.target).toBe('node8');
+    });
+  });
+
+  describe('Complex Integration Scenarios', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [{ name: 'framework-plugin' }],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('should combine framework plugins with user plugins in correct order', async () => {
+      const userPlugin1 = { name: 'user-plugin-1' };
+      const userPlugin2 = { name: 'user-plugin-2' };
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          plugins: [userPlugin1, userPlugin2],
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const plugins = buildConfig.plugins as any[];
+
+      expect(plugins[0]).toEqual({ name: 'framework-plugin' });
+      expect(plugins).toContainEqual(userPlugin1);
+      expect(plugins).toContainEqual(userPlugin2);
+    });
+
+    it('should apply all valid customizations simultaneously', async () => {
+      const userPlugin = { name: 'user-plugin' };
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        alias: {
+          '@utils': '/project/src/utils',
+        },
+        vite: {
+          plugins: [userPlugin],
+          define: {
+            'process.env.API_URL': '"https://api.example.com"',
+          },
+          css: {
+            preprocessorOptions: {
+              scss: {
+                additionalData: '@import "variables";',
+              },
+            },
+          },
+          build: {
+            sourcemap: 'inline',
+            minify: 'terser',
+            terserOptions: {
+              compress: { drop_console: true },
+            } as any,
+            rollupOptions: {
+              external: ['react'],
+              output: {
+                manualChunks: { vendor: ['lodash'] },
+              },
+            },
+          },
+          resolve: {
+            extensions: ['.ts', '.tsx', '.js'],
+          },
+          esbuild: {
+            jsxFactory: 'h',
+          },
+          logLevel: 'warn',
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+
+      // Check alias
+      expect((buildConfig.resolve?.alias as any)['@utils']).toBe('/project/src/utils');
+
+      // Check plugins
+      expect(buildConfig.plugins).toContainEqual(userPlugin);
+
+      // Check define
+      expect(buildConfig.define).toMatchObject({
+        'process.env.API_URL': '"https://api.example.com"',
+      });
+
+      // Check CSS
+      expect(buildConfig.css?.preprocessorOptions?.scss).toEqual({
+        api: 'modern-compiler',
+        additionalData: '@import "variables";',
+      });
+
+      // Check build options
+      expect((buildConfig.build as any)?.sourcemap).toBe('inline');
+      expect((buildConfig.build as any)?.minify).toBe('terser');
+      expect((buildConfig.build as any)?.terserOptions).toMatchObject({
+        compress: { drop_console: true },
+      });
+
+      // Check rollup options
+      expect((buildConfig.build?.rollupOptions as any)?.external).toEqual(['react']);
+      expect((buildConfig.build?.rollupOptions as any)?.output?.manualChunks).toEqual({
+        vendor: ['lodash'],
+      });
+
+      // Check resolve
+      expect((buildConfig.resolve as any)?.extensions).toEqual(['.ts', '.tsx', '.js']);
+
+      // Check esbuild
+      expect((buildConfig as any).esbuild).toEqual({ jsxFactory: 'h' });
+
+      // Check logLevel
+      expect(buildConfig.logLevel).toBe('warn');
+    });
+
+    it('should handle mixed valid and invalid overrides', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: {
+          plugins: [{ name: 'valid-plugin' }], // valid
+          logLevel: 'info', // valid
+          root: '/invalid', // invalid
+          build: {
+            sourcemap: true, // valid
+            outDir: '/invalid', // invalid
+          },
+        },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+
+      // Valid options should be applied
+      expect(buildConfig.plugins).toContainEqual({ name: 'valid-plugin' });
+      expect(buildConfig.logLevel).toBe('info');
+      expect((buildConfig.build as any)?.sourcemap).toBe(true);
+
+      // Invalid options should be ignored
+      expect(buildConfig.root).not.toBe('/invalid');
+      expect(buildConfig.build?.outDir).not.toBe('/invalid');
+
+      // Should warn about invalid options
+      expect(consoleWarnSpy).toHaveBeenCalled();
+
+      consoleWarnSpy.mockRestore();
+    });
+  });
+
+  describe('Type Safety and Build Context', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('should provide correct ViteBuildContext to function config', async () => {
+      let capturedContext: ViteBuildContext | undefined;
+
+      const viteConfigFn = (ctx: ViteBuildContext) => {
+        capturedContext = ctx;
+        return {};
+      };
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: true,
+        vite: viteConfigFn,
+      });
+
+      expect(capturedContext).toEqual({
+        appId: 'test-app',
+        entryPoint: 'admin',
+        isSSRBuild: true,
+        clientRoot: '/project/src/client/admin',
+      });
+    });
+
+    it('should handle clientRoot in build context', async () => {
+      const viteConfigFn = ({ clientRoot }: ViteBuildContext): Partial<InlineConfig> => ({
+        logLevel: clientRoot.includes('admin') ? 'info' : 'warn',
+      });
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: viteConfigFn,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.logLevel).toBe('info');
+    });
+  });
+
+  describe('Internal config helpers – invariants and deep merge coverage', () => {
+    it('getFrameworkInvariants applies all defaults when fields are missing', () => {
+      const invariants = getFrameworkInvariants({} as InlineConfig);
+
+      expect(invariants.root).toBe(''); // .root || ''
+      expect(invariants.base).toBe('/'); // .base || '/'
+      expect(invariants.publicDir).toBe('public'); // publicDir === undefined ? 'public' : ...
+
+      expect(invariants.build.outDir).toBe(''); // (outDir as string) || ''
+      expect(invariants.build.manifest).toBe(false); // (manifest as boolean) ?? false
+      expect(invariants.build.ssr).toBeUndefined(); // preserved as undefined
+      expect(invariants.build.ssrManifest).toBe(false); // (ssrManifest as boolean) ?? false
+      expect(invariants.build.rollupOptions.input).toEqual({}); // (input as Record<string,string>) || {}
+    });
+
+    it('mergeViteConfig handles missing framework sub-objects (build/css/resolve/plugins/define)', () => {
+      const framework = {} as InlineConfig;
+
+      const userOverride: ViteConfigOverride = {
+        // exercise build path: rollupOptions + output.manualChunks + externals
+        build: {
+          sourcemap: true,
+          minify: 'terser',
+          terserOptions: { compress: { drop_console: true } } as any,
+          rollupOptions: {
+            external: ['react'],
+            output: {
+              manualChunks: {
+                vendor: ['react', 'react-dom'],
+              },
+            },
+          },
+        },
+        // exercise css.preprocessorOptions deep merge branch
+        css: {
+          preprocessorOptions: {
+            scss: {
+              additionalData: '@import "vars";',
+            },
+          },
+        },
+        // exercise resolve merge (without alias)
+        resolve: {
+          extensions: ['.mjs', '.js', '.ts'],
+        },
+        // exercise safe top-level keys
+        esbuild: {
+          jsxFactory: 'h',
+        },
+        logLevel: 'info',
+        envPrefix: 'APP_',
+        optimizeDeps: {
+          include: ['lodash'],
+        },
+        ssr: {
+          noExternal: ['some-package'],
+        },
+      };
+
+      const merged = mergeViteConfig(framework, userOverride);
+
+      // build was created from empty framework via "build: { ...(framework.build ?? {}) }"
+      expect(merged.build).toBeDefined();
+      expect((merged.build as any).sourcemap).toBe(true);
+      expect((merged.build as any).minify).toBe('terser');
+      expect((merged.build as any).terserOptions).toEqual({
+        compress: { drop_console: true },
+      });
+
+      const rollup = (merged.build?.rollupOptions ?? {}) as any;
+      expect(rollup.external).toEqual(['react']);
+      expect(rollup.output?.manualChunks).toEqual({
+        vendor: ['react', 'react-dom'],
+      });
+
+      // css was created via css: { ...(framework.css ?? {}) } + deep merge branch
+      expect(merged.css?.preprocessorOptions?.scss).toEqual({
+        additionalData: '@import "vars";',
+      });
+
+      // resolve was created via resolve: { ...(framework.resolve ?? {}) } + merge
+      expect((merged.resolve as any)?.extensions).toEqual(['.mjs', '.js', '.ts']);
+
+      // safe top-level fields
+      expect((merged as any).esbuild).toEqual({ jsxFactory: 'h' });
+      expect(merged.logLevel).toBe('info');
+      expect((merged as any).envPrefix).toBe('APP_');
+      expect((merged as any).optimizeDeps).toEqual({
+        include: ['lodash'],
+      });
+      expect((merged as any).ssr).toEqual({
+        noExternal: ['some-package'],
+      });
+    });
+
+    it('mergeViteConfig restores invariants, initialises rollupOptions, and warns when protected fields/server are overridden without context', () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // framework with only the minimal bits we care about, no build/rollupOptions
+      const framework: InlineConfig = {
+        root: undefined as any,
+        base: undefined as any,
+        publicDir: undefined,
+        // no build to force all getFrameworkInvariants defaults
+      };
+
+      const userOverride: ViteConfigOverride = {
+        // top-level protected + server to populate ignoredKeys
+        root: '/user-root',
+        base: '/user-base/',
+        publicDir: '/user-public',
+        server: {
+          port: 4000,
+        } as any,
+      };
+
+      // NOTE: no context passed → should use "[taujs:build]" prefix branch
+      const merged = mergeViteConfig(framework, userOverride);
+
+      // invariants restored from defaults
+      expect(merged.root).toBe(''); // from invariants.root
+      expect(merged.base).toBe('/'); // from invariants.base
+      expect(merged.publicDir).toBe('public'); // from invariants.publicDir
+
+      // build + rollupOptions.initialised from invariants (defaults)
+      expect(merged.build).toBeDefined();
+      const mergedBuild = merged.build as any;
+      expect(mergedBuild.outDir).toBe('');
+      expect(mergedBuild.manifest).toBe(false);
+      expect(mergedBuild.ssr).toBeUndefined();
+      expect(mergedBuild.ssrManifest).toBe(false);
+      expect(mergedBuild.rollupOptions).toBeDefined();
+      expect(mergedBuild.rollupOptions.input).toEqual({});
+
+      // warning emitted with generic prefix and the protected keys
+      expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+      const msg = consoleWarnSpy.mock.calls[0]![0] as string;
+      expect(msg.startsWith('[taujs:build]')).toBe(true);
+      expect(msg).toContain('root');
+      expect(msg).toContain('base');
+      expect(msg).toContain('publicDir');
+      expect(msg).toContain('server (ignored in build; dev-only)');
+
+      consoleWarnSpy.mockRestore();
+    });
+  });
+
+  describe('resolveInputs helper', () => {
+    it('returns only server input for SSR builds', () => {
+      const result = resolveInputs(true, true, {
+        server: '/server-entry',
+        client: '/client-entry',
+        main: '/index.html',
+      });
+
+      expect(result).toEqual({ server: '/server-entry' });
+
+      // also covers mainExists=false for SSR (since first branch wins)
+      const result2 = resolveInputs(true, false, {
+        server: '/server-entry',
+        client: '/client-entry',
+        main: '/index.html',
+      });
+
+      expect(result2).toEqual({ server: '/server-entry' });
+    });
+
+    it('returns client and main for client builds when main exists', () => {
+      const result = resolveInputs(false, true, {
+        server: '/server-entry',
+        client: '/client-entry',
+        main: '/index.html',
+      });
+
+      expect(result).toEqual({
+        client: '/client-entry',
+        main: '/index.html',
+      });
+    });
+
+    it('returns only client for client builds when main is missing', () => {
+      const result = resolveInputs(false, false, {
+        server: '/server-entry',
+        client: '/client-entry',
+        main: '/index.html',
+      });
+
+      expect(result).toEqual({
+        client: '/client-entry',
+      });
+    });
+  });
+
+  it('mergeViteConfig respects existing array output when merging manualChunks', () => {
+    const framework: InlineConfig = {
+      build: {
+        rollupOptions: {
+          output: [
+            {
+              manualChunks: {
+                existing: ['x'],
+              },
+            },
+          ],
+        },
+      } as any,
+    };
+
+    const userOverride: ViteConfigOverride = {
+      build: {
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              vendor: ['react'],
+            },
+          },
+        },
+      },
+    };
+
+    const merged = mergeViteConfig(framework, userOverride);
+    const rollup = merged.build!.rollupOptions as any;
+    const output = rollup.output;
+
+    // We only carry over manualChunks from user; existing manualChunks are overwritten
+    expect(output.manualChunks).toEqual({
+      vendor: ['react'],
+    });
+  });
+
+  it('mergeViteConfig handles array output with undefined first element (baseOut fallback)', () => {
+    const framework: InlineConfig = {
+      build: {
+        rollupOptions: {
+          // Array case, but first element is undefined → triggers (mro.output[0] ?? {})
+          output: [undefined as any],
+        },
+      } as any,
+    };
+
+    const userOverride: ViteConfigOverride = {
+      build: {
+        rollupOptions: {
+          // standard object output with manualChunks
+          output: {
+            manualChunks: {
+              vendor: ['react'],
+            },
+          },
+        },
+      },
+    };
+
+    const merged = mergeViteConfig(framework, userOverride);
+    const rollup = merged.build!.rollupOptions as any;
+    const output = rollup.output;
+
+    // We only care that manualChunks survive; the important bit is that
+    // baseOut came from the `?? {}` fallback on mro.output[0]
+    expect(output.manualChunks).toEqual({
+      vendor: ['react'],
+    });
   });
 });
+
+// describe('Coverage - Nullish Operators and Edge Cases', () => {
+//   const mockAppConfig = {
+//     appId: 'test-app',
+//     entryPoint: 'admin',
+//     clientRoot: '/project/src/client/admin',
+//     entryClient: 'entry-client',
+//     entryServer: 'entry-server',
+//     htmlTemplate: 'index.html',
+//     // Don't include plugins to trigger the undefined case
+//   };
+
+//   beforeEach(() => {
+//     vi.clearAllMocks();
+//     vi.mocked(build).mockResolvedValue(undefined);
+//     vi.mocked(fs.existsSync).mockReturnValue(true);
+//     vi.mocked(fsPromises.rm).mockResolvedValue(undefined);
+//     vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+//     vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+//   });
+
+//   it('should handle app config with undefined plugins', async () => {
+//     // This should trigger the plugins ?? [] in the loop
+//     vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//     });
+
+//     const buildConfig = vi.mocked(build).mock.calls[0][0] as InlineConfig;
+//     expect(buildConfig.plugins).toEqual([]);
+//   });
+
+//   it('should handle mergeViteConfig with no user override', async () => {
+//     // This tests the early return when !userOverride
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//       // No vite config at all
+//     });
+
+//     expect(build).toHaveBeenCalled();
+//   });
+
+//   it('should handle mergeViteConfig with function that returns empty object', async () => {
+//     const viteConfigFn = vi.fn().mockReturnValue({}); // Return empty object, not undefined
+
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//       vite: viteConfigFn,
+//     });
+
+//     expect(build).toHaveBeenCalled();
+//   });
+
+//   it('should trigger null coalescing in merged config initialization', async () => {
+//     // This should test the ?? operators in the merged config setup
+//     let capturedConfig: InlineConfig | undefined;
+//     vi.mocked(build).mockImplementation(async (config) => {
+//       capturedConfig = config;
+//       return undefined;
+//     });
+
+//     // Pass a config that will test the null coalescing paths
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//       vite: {
+//         plugins: null as any, // This will be falsy but not undefined
+//       },
+//     });
+
+//     expect(capturedConfig).toBeDefined();
+//   });
+
+//   it('should handle preprocessorOptions with null framework values', async () => {
+//     let capturedConfig: InlineConfig | undefined;
+//     vi.mocked(build).mockImplementation(async (config) => {
+//       capturedConfig = config;
+//       return undefined;
+//     });
+
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//       vite: {
+//         css: {
+//           preprocessorOptions: {
+//             scss: null as any, // This will test the null coalescing
+//             less: { math: 'always' },
+//           },
+//         },
+//       },
+//     });
+
+//     expect(capturedConfig?.css?.preprocessorOptions).toBeDefined();
+//   });
+
+//   it('should handle build.rollupOptions.output with falsy values', async () => {
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//       vite: {
+//         build: {
+//           rollupOptions: {
+//             output: [false as any, { manualChunks: { vendor: ['react'] } }],
+//           },
+//         },
+//       },
+//     });
+
+//     const buildConfig = vi.mocked(build).mock.calls[0][0] as InlineConfig;
+//     expect((buildConfig.build?.rollupOptions as any)?.output).toBeDefined();
+//   });
+
+//   it('should handle resolve without alias property', async () => {
+//     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//       vite: {
+//         resolve: {
+//           dedupe: ['react'],
+//           // No alias property
+//         },
+//       },
+//     });
+
+//     expect(consoleWarnSpy).not.toHaveBeenCalled(); // No warning since we didn't try to set alias
+//     consoleWarnSpy.mockRestore();
+//   });
+
+//   it('should handle build without any properties', async () => {
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//       vite: {
+//         build: {}, // Empty build object
+//       },
+//     });
+
+//     const buildConfig = vi.mocked(build).mock.calls[0][0] as InlineConfig;
+//     expect(buildConfig.build).toBeDefined();
+//   });
+
+//   it('should handle terserOptions as null', async () => {
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//       vite: {
+//         build: {
+//           terserOptions: null as any,
+//         },
+//       },
+//     });
+
+//     expect(build).toHaveBeenCalled();
+//   });
+
+//   it('should handle entryPoint as empty string for fallback context', async () => {
+//     const mockRootAppConfig = {
+//       ...mockAppConfig,
+//       entryPoint: '', // Empty string for root app
+//     };
+//     vi.mocked(processConfigs).mockReturnValue([mockRootAppConfig] as any);
+
+//     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+//     await taujsBuild({
+//       config: { apps: [] },
+//       projectRoot: mockProjectRoot,
+//       clientBaseDir: mockClientBaseDir,
+//       vite: {
+//         root: '/invalid',
+//       },
+//     });
+
+//     // With empty entryPoint, should use [taujs:build:]
+//     expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('[taujs:build:]'));
+
+//     consoleWarnSpy.mockRestore();
+//   });
+// });

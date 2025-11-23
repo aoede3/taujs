@@ -161,6 +161,7 @@ describe('handleRender', () => {
       raw: {
         url: '/test-path',
         on: vi.fn(),
+        off: vi.fn(),
       },
       headers: { host: 'localhost' },
       cspNonce: 'test-nonce-123',
@@ -172,6 +173,7 @@ describe('handleRender', () => {
       header: vi.fn().mockReturnThis(),
       send: vi.fn(),
       getHeader: vi.fn().mockReturnValue('default-src self'),
+      getHeaders: vi.fn().mockReturnValue({}),
       raw: {
         writeHead: vi.fn(),
         write: vi.fn(),
@@ -613,7 +615,7 @@ describe('handleRender', () => {
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('SSR skipped; already aborted', { url: mockReq.url });
+      expect(mockLogger.warn).toHaveBeenCalledWith({ url: mockReq.url }, 'SSR skipped; already aborted');
       expect(mockRenderModule.renderSSR).not.toHaveBeenCalled();
     });
 
@@ -635,8 +637,8 @@ describe('handleRender', () => {
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('SSR aborted mid-render (benign)', expect.objectContaining({ url: mockReq.url, reason: 'socket hang up' }));
-      expect(mockLogger.error).not.toHaveBeenCalledWith('SSR render failed', expect.any(Object));
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'socket hang up' }), 'SSR aborted mid-render (benign)');
+      expect(mockLogger.error).not.toHaveBeenCalledWith(expect.any(Object), 'SSR render failed');
       expect(mockReply.send).not.toHaveBeenCalled();
     });
 
@@ -669,11 +671,11 @@ describe('handleRender', () => {
       );
 
       expect(mockLogger.error).toHaveBeenCalledWith(
-        'SSR render failed',
         expect.objectContaining({
           url: mockReq.url,
           error: expect.objectContaining({ message: 'boom' }),
         }),
+        'SSR render failed',
       );
     });
 
@@ -701,8 +703,8 @@ describe('handleRender', () => {
 
       await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('SSR send aborted (benign)', expect.objectContaining({ url: mockReq.url, reason: 'EPIPE' }));
-      expect(mockLogger.error).not.toHaveBeenCalledWith('SSR send failed', expect.any(Object));
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'EPIPE' }), 'SSR send aborted (benign)');
+      expect(mockLogger.error).not.toHaveBeenCalledWith(expect.any(Object), 'SSR send failed');
     });
 
     it('logs error on non-benign SSR send failure', async () => {
@@ -730,10 +732,10 @@ describe('handleRender', () => {
       await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
 
       expect(mockLogger.error).toHaveBeenCalledWith(
-        'SSR send failed',
         expect.objectContaining({ url: mockReq.url, error: expect.objectContaining({ message: 'kaboom' }) }),
+        'SSR send failed',
       );
-      expect(mockLogger.warn).not.toHaveBeenCalledWith('SSR send aborted (benign)', expect.any(Object));
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(expect.any(Object), 'SSR send aborted (benign)');
     });
 
     it('SSR render catch: benign via string err (uses ?? err)', async () => {
@@ -763,7 +765,7 @@ describe('handleRender', () => {
         viteDevServer,
       });
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('SSR aborted mid-render (benign)', expect.objectContaining({ url: mockReq.url, reason: 'aborted' }));
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'aborted' }), 'SSR aborted mid-render (benign)');
     });
 
     it('SSR render catch: non-benign via undefined err (uses ?? "")', async () => {
@@ -793,7 +795,7 @@ describe('handleRender', () => {
         expect.objectContaining({ message: 'handleRender failed' }),
       );
 
-      expect(mockLogger.error).toHaveBeenCalledWith('SSR render failed', expect.objectContaining({ url: mockReq.url, error: expect.any(Object) }));
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, error: expect.any(Object) }), 'SSR render failed');
     });
 
     it('SSR send catch: benign via string err (uses ?? err)', async () => {
@@ -819,7 +821,7 @@ describe('handleRender', () => {
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('SSR send aborted (benign)', expect.objectContaining({ url: mockReq.url, reason: 'premature' }));
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'premature' }), 'SSR send aborted (benign)');
     });
 
     it('SSR send catch: non-benign via undefined err (uses ?? "")', async () => {
@@ -845,7 +847,102 @@ describe('handleRender', () => {
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
-      expect(mockLogger.error).toHaveBeenCalledWith('SSR send failed', expect.objectContaining({ url: mockReq.url, error: expect.any(Object) }));
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, error: expect.any(Object) }), 'SSR send failed');
+    });
+
+    it('unsubscribes the aborted listener on reply finish', async () => {
+      const mockRoute = {
+        route: { attr: { render: 'ssr' }, appId: 'test-app' },
+        params: {},
+        keys: [],
+      } as any;
+
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      const mockRenderModule = {
+        renderSSR: vi.fn().mockResolvedValue({
+          headContent: '',
+          appHtml: '<div>ok</div>',
+        }),
+      };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      const finishCall = (mockReply.raw.on as unknown as Mock).mock.calls.find(([event]) => event === 'finish');
+
+      expect(finishCall).toBeTruthy();
+      const finishHandler = finishCall![1] as () => void;
+
+      const abortedCall = (mockReq.raw.on as unknown as Mock).mock.calls.find(([event]) => event === 'aborted');
+      expect(abortedCall).toBeTruthy();
+      const abortedHandler = abortedCall![1] as () => void;
+
+      finishHandler();
+
+      expect(mockReq.raw.off).toHaveBeenCalledWith('aborted', abortedHandler);
+    });
+
+    it('should unsubscribe aborted listener on reply finish in streaming mode', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      let abortedHandler: (() => void) | undefined;
+      let finishHandler: (() => void) | undefined;
+
+      mockReq.raw.on = vi.fn((event: string, cb: any) => {
+        if (event === 'aborted') abortedHandler = cb;
+        return mockReq.raw;
+      });
+
+      mockReply.raw.on = vi.fn((event: string, cb: any) => {
+        if (event === 'finish') finishHandler = cb;
+        return mockReply.raw;
+      });
+
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        callbacks.onHead?.('<title>Stream</title>');
+        callbacks.onShellReady?.();
+        callbacks.onAllReady?.({ data: 'test' });
+
+        setTimeout(() => {
+          writable.emit('finish');
+        }, 0);
+
+        return { abort: vi.fn() };
+      });
+
+      const mockRenderModule = { renderStream: mockRenderStream };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockReq.raw.on).toHaveBeenCalledWith('aborted', expect.any(Function));
+      expect(abortedHandler).toBeDefined();
+
+      expect(mockReply.raw.on).toHaveBeenCalledWith('finish', expect.any(Function));
+      expect(finishHandler).toBeDefined();
+
+      finishHandler?.();
+
+      expect(mockReq.raw.off).toHaveBeenCalledWith('aborted', abortedHandler);
     });
   });
 
@@ -1037,7 +1134,7 @@ describe('handleRender', () => {
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
-      expect(mockLogger.error).toHaveBeenCalledWith('PassThrough error:', expect.any(Object));
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.any(Object), 'PassThrough error:');
     });
 
     it('should handle onError with client disconnect', async () => {
@@ -1064,7 +1161,7 @@ describe('handleRender', () => {
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('Client disconnected before stream finished');
+      expect(mockLogger.warn).toHaveBeenCalledWith({}, 'Client disconnected before stream finished');
       expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
     });
 
@@ -1250,10 +1347,11 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        'stream teardown: destroy() failed',
+        'ssr',
         expect.objectContaining({
           error: expect.objectContaining({ message: 'destroy fail (benign)' }),
         }),
+        'stream teardown: destroy() failed',
       );
     });
 
@@ -1289,10 +1387,11 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        'stream teardown: abort() failed',
+        'ssr',
         expect.objectContaining({
           error: expect.objectContaining({ message: 'abort fail' }),
         }),
+        'stream teardown: abort() failed',
       );
 
       (globalThis as any).AbortController = OriginalAbortController;
@@ -1328,10 +1427,11 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        'stream teardown: destroy() failed',
+        'ssr',
         expect.objectContaining({
           error: expect.objectContaining({ message: 'destroy fail (critical)' }),
         }),
+        'stream teardown: destroy() failed',
       );
 
       (globalThis as any).AbortController = OriginalAbortController;
@@ -1995,10 +2095,10 @@ describe('handleRender', () => {
       const p = handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       handlers['error']?.forEach((cb) => cb(Object.assign(new Error('aborted'), { code: 'ECONNRESET' })));
-      expect(mockLogger.error).not.toHaveBeenCalledWith('HTTP socket error:', expect.any(Object));
+      expect(mockLogger.error).not.toHaveBeenCalledWith(expect.any(Object), 'HTTP socket error:');
 
       handlers['error']?.forEach((cb) => cb(new Error('kaboom')));
-      expect(mockLogger.error).toHaveBeenCalledWith('HTTP socket error:', expect.objectContaining({ error: expect.any(Error) }));
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(Error) }), 'HTTP socket error:');
 
       await expect(p).resolves.toBeUndefined();
     });
