@@ -24,6 +24,11 @@ export type StreamOptions = {
   useCork?: boolean;
 };
 
+export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>> = {
+  data: T;
+  meta: Record<string, unknown>;
+};
+
 type SSRResult = { headContent: string; appHtml: string; aborted: boolean };
 
 type StreamCallOptions = StreamOptions & { logger?: LoggerLike };
@@ -38,7 +43,7 @@ export function createRenderer<T extends Record<string, unknown>>({
   enableDebug = false,
 }: {
   appComponent: (props: { location: string }) => React.ReactElement;
-  headContent: (ctx: { data: T; meta: Record<string, unknown> }) => string;
+  headContent: (ctx: HeadContext<T>) => string;
   enableDebug?: boolean;
   logger?: LoggerLike;
   streamOptions?: StreamOptions;

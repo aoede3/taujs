@@ -1014,4 +1014,68 @@ describe('createRenderer.renderStream', () => {
     ctrl.benignAbort('ok');
     await expect(done).resolves.toBeUndefined();
   });
+
+  it('onShellReady: backpressure + writable has no once() method → pipes immediately (best effort)', async () => {
+    // Create a writable that:
+    // 1. Has write() returning false (backpressure)
+    // 2. Does NOT have once() method - this triggers the "no drain support" else branch
+    const w: any = {
+      write: vi.fn(() => false), // backpressure = true
+      // Intentionally NO once() method to hit: "no drain support; best effort start"
+      // (not providing cork/uncork either)
+    };
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const { done } = renderStream(w as any, {}, {}, '/no-drain-support');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellReady();
+
+    // Should pipe immediately (best effort) even though:
+    // - write() returned false (backpressure)
+    // - onHead didn't return false
+    // Because there's no once() method available to wait for 'drain'
+    const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
+    expect(streamInstance.pipe).toHaveBeenCalledWith(w);
+
+    // write was called (and returned false due to backpressure)
+    expect(w.write).toHaveBeenCalledTimes(1);
+
+    // Verify that once() was NOT called (because it doesn't exist)
+    expect(w.once).toBeUndefined();
+
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('done');
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  // Also test the case where onHead returns false (forces wait) but no once() available
+  it('onShellReady: onHead returns false (force wait) + no once() → pipes immediately (best effort)', async () => {
+    const w: any = {
+      write: vi.fn(() => true), // no backpressure from write
+      // NO once() method
+    };
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const onHead = vi.fn(() => false); // explicitly request wait for drain
+    const { done } = renderStream(w as any, { onHead }, {}, '/onhead-force-no-once');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellReady();
+
+    // onHead returned false (wants to wait) but there's no once() to attach a listener,
+    // so it falls through to best-effort startPipe()
+    const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
+    expect(streamInstance.pipe).toHaveBeenCalledWith(w);
+
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    ctrl.benignAbort('done');
+    await expect(done).resolves.toBeUndefined();
+  });
 });
