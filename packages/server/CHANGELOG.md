@@ -2,6 +2,10 @@
 
 v0.4.3 - 23/11/2025
 
+feat: logger wrap strings; tests
+
+v0.4.3 - 23/11/2025
+
 feat: ctx.call functionality
 feat: Logging fixes for logging: false; Updates to abort logging
 feat: Build system; user vite configuration; ssr manifest isolation; tests
