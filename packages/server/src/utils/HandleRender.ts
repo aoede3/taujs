@@ -122,10 +122,16 @@ export const handleRender = async (
     if (renderType === RENDERTYPE.ssr) {
       const { renderSSR } = renderModule;
       if (!renderSSR) {
-        throw AppError.internal('renderSSR function not found in module', {
-          details: { clientRoot, availableFunctions: Object.keys(renderModule) },
-        });
+        throw AppError.internal(
+          'ssr',
+          {
+            details: { clientRoot, availableFunctions: Object.keys(renderModule) },
+          },
+          'renderSSR function not found in module',
+        );
       }
+
+      logger.debug?.('ssr', {}, 'ssr requested');
 
       const ac = new AbortController();
       const onAborted = () => ac.abort('client_aborted');
@@ -137,7 +143,7 @@ export const handleRender = async (
       reply.raw.on('finish', () => req.raw.off('aborted', onAborted));
 
       if (ac.signal.aborted) {
-        logger.warn('SSR skipped; already aborted', { url: req.url });
+        logger.warn({ url: req.url }, 'SSR skipped; already aborted');
         return;
       }
 
@@ -150,8 +156,10 @@ export const handleRender = async (
         headContent = res.headContent;
         appHtml = res.appHtml;
 
+        logger.debug?.('ssr', {}, 'ssr data resolved');
+
         if (ac.signal.aborted) {
-          logger.warn('SSR completed but client disconnected', {});
+          logger.warn({}, 'SSR completed but client disconnected');
           return;
         }
       } catch (err) {
@@ -159,17 +167,23 @@ export const handleRender = async (
         const benign = REGEX.BENIGN_NET_ERR.test(msg);
 
         if (ac.signal.aborted || benign) {
-          logger.warn('SSR aborted mid-render (benign)', {
-            url: req.url,
-            reason: msg,
-          });
+          logger.warn(
+            {
+              url: req.url,
+              reason: msg,
+            },
+            'SSR aborted mid-render (benign)',
+          );
           return;
         }
 
-        logger.error('SSR render failed', {
-          url: req.url,
-          error: normaliseError(err),
-        });
+        logger.error(
+          {
+            url: req.url,
+            error: normaliseError(err),
+          },
+          'SSR render failed',
+        );
         throw err;
       }
 
@@ -186,14 +200,16 @@ export const handleRender = async (
       const safeAppHtml = appHtml.trim();
       const fullHtml = rebuildTemplate(templateParts, aggregateHeadContent, `${safeAppHtml}${initialDataScript}${bootstrapScriptTag}`);
 
+      logger.debug?.('ssr', {}, 'ssr template rebuilt and sending response');
+
       try {
         return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
       } catch (err) {
         const msg = String((err as any)?.message ?? err ?? '');
         const benign = REGEX.BENIGN_NET_ERR.test(msg);
 
-        if (!benign) logger.error('SSR send failed', { url: req.url, error: normaliseError(err) });
-        else logger.warn('SSR send aborted (benign)', { url: req.url, reason: msg });
+        if (!benign) logger.error({ url: req.url, error: normaliseError(err) }, 'SSR send failed');
+        else logger.warn({ url: req.url, reason: msg }, 'SSR send aborted (benign)');
 
         return;
       }
@@ -217,7 +233,7 @@ export const handleRender = async (
 
       const onAborted = () => {
         if (!abortedState.aborted) {
-          logger.warn('Client disconnected before stream finished');
+          logger.warn({}, 'Client disconnected before stream finished');
           abortedState.aborted = true;
         }
         ac.abort();
@@ -227,7 +243,7 @@ export const handleRender = async (
       reply.raw.on('close', () => {
         if (!reply.raw.writableEnded) {
           if (!abortedState.aborted) {
-            logger.warn('Client disconnected before stream finished');
+            logger.warn({}, 'Client disconnected before stream finished');
             abortedState.aborted = true;
           }
           ac.abort();
@@ -247,11 +263,11 @@ export const handleRender = async (
 
       const writable = new PassThrough();
       writable.on('error', (err) => {
-        if (!isBenignSocketAbort(err)) logger.error('PassThrough error:', { error: err });
+        if (!isBenignSocketAbort(err)) logger.error({ error: err }, 'PassThrough error:');
       });
 
       reply.raw.on('error', (err) => {
-        if (!isBenignSocketAbort(err)) logger.error('HTTP socket error:', { error: err });
+        if (!isBenignSocketAbort(err)) logger.error({ error: err }, 'HTTP socket error:');
       });
       writable.pipe(reply.raw, { end: false });
 
@@ -272,27 +288,30 @@ export const handleRender = async (
           },
           onError: (err: unknown) => {
             if (abortedState.aborted || isBenignSocketAbort(err)) {
-              logger.warn('Client disconnected before stream finished');
+              logger.warn({}, 'Client disconnected before stream finished');
               try {
                 if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
               } catch (e) {
-                logger.debug?.('stream teardown: destroy() failed', { error: normaliseError(e) });
+                logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: destroy() failed');
               }
               return;
             }
 
             abortedState.aborted = true;
 
-            logger.error('Critical rendering error during stream', {
-              error: normaliseError(err),
-              clientRoot,
-              url: req.url,
-            });
+            logger.error(
+              {
+                error: normaliseError(err),
+                clientRoot,
+                url: req.url,
+              },
+              'Critical rendering error during stream',
+            );
 
             try {
               ac?.abort?.();
             } catch (e) {
-              logger.debug?.('stream teardown: abort() failed', { error: normaliseError(e) });
+              logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: abort() failed');
             }
 
             const reason = toReason(err);
@@ -300,7 +319,7 @@ export const handleRender = async (
             try {
               if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy(reason);
             } catch (e) {
-              logger.debug?.('stream teardown: destroy() failed', { error: normaliseError(e) });
+              logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: destroy() failed');
             }
           },
         },
