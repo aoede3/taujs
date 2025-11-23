@@ -217,4 +217,20 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     expect(RDC.createRoot).toHaveBeenCalledTimes(1);
     expect(RDC.hydrateRoot).not.toHaveBeenCalled();
   });
+
+  it('no SSR data → mounts CSR with empty store; does NOT call hydrate', () => {
+    const root = addRoot();
+    root.innerHTML = '<i>server-stuff</i>';
+
+    const warn = vi.fn();
+    hydrateApp({ appComponent: <div>App</div>, enableDebug: true, logger: { warn } });
+
+    expect(warn).toHaveBeenCalledWith('No initial SSR data at window["__INITIAL_DATA__"]. Mounting CSR.');
+
+    expect(Store.createSSRStore).toHaveBeenCalledTimes(1);
+    expect(Store.createSSRStore).toHaveBeenCalledWith({}); // the {} as T path
+
+    expect(RDC.hydrateRoot).not.toHaveBeenCalled();
+    expect(RDC.createRoot).toHaveBeenCalledWith(root);
+  });
 });

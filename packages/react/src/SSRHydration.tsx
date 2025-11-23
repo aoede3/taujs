@@ -29,10 +29,16 @@ export function hydrateApp<T>({
 }: HydrateAppOptions<T>) {
   const { log, warn, error } = createUILogger(logger, { debugCategory: 'ssr', context: { scope: 'react-hydration' }, enableDebug });
 
-  const mountCSR = (rootEl: HTMLElement) => {
+  const mountCSR = (rootEl: HTMLElement, initialData: T) => {
     rootEl.innerHTML = '';
+    const store = createSSRStore(initialData);
     const root = createRoot(rootEl);
-    root.render(<React.StrictMode>{appComponent}</React.StrictMode>);
+
+    root.render(
+      <React.StrictMode>
+        <SSRStoreProvider store={store}>{appComponent}</SSRStoreProvider>
+      </React.StrictMode>,
+    );
   };
 
   const startHydration = (rootEl: HTMLElement, initialData: T) => {
@@ -75,8 +81,9 @@ export function hydrateApp<T>({
     const data = (window as any)[dataKey] as T | undefined;
 
     if (data === undefined) {
+      const data = {} as T;
       if (enableDebug) warn(`No initial SSR data at window["${dataKey}"]. Mounting CSR.`);
-      mountCSR(rootEl);
+      mountCSR(rootEl, data);
 
       return;
     }
