@@ -664,15 +664,15 @@
   resolved "https://registry.yarnpkg.com/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.52.5.tgz#1657f56326bbe0ac80eedc9f9c18fc1ddd24e107"
   integrity sha512-TAcgQh2sSkykPRWLrdyy2AiceMckNf5loITqXxFI5VuQjS5tSuw3WlwdN8qv8vzjLAUTvYaH/mVjSFpbkFbpTg==
 
-"@taujs/react@^0.1.1":
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/@taujs/react/-/react-0.1.1.tgz#31e8fe95b007326ce574c966cfd295287b005671"
-  integrity sha512-MKxGpLyQAs1K/qTvQNtWFLQHAEnwSvncWJogCSUVaT1YSIoIABs2lVxMU0zkvcMNiG7U1G579V/gYc0Hlp98JQ==
+"@taujs/react@latest":
+  version "0.1.2"
+  resolved "https://registry.yarnpkg.com/@taujs/react/-/react-0.1.2.tgz#122efd3bb605b177f9f83e1a8d68ba3e798fc542"
+  integrity sha512-i30dZT+DgCNjXFrpLVDirUOKJMz0l4RfVksR76uTScfLSqxGlC5uh6KFo3PXmDay+DEtcykUrKEr+P2lRS/adg==
 
-"@taujs/server@^0.4.2":
-  version "0.4.2"
-  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.4.2.tgz#d3d20a1c65e0c9a9df21285c83f13e699aca1ac2"
-  integrity sha512-vloeE03LLLTZf89NxHVLZ2rILGgyXfXK1r1w/sw9bBk+TNxxOMUTfIg6DHjn9rp2OJN3h9FR2oj5sRNPeQGetw==
+"@taujs/server@latest":
+  version "0.4.3"
+  resolved "https://registry.yarnpkg.com/@taujs/server/-/server-0.4.3.tgz#d86ced2ec2f03edfc49b8c703abaca6f559a640d"
+  integrity sha512-bn99D+zGovGcvzkG3OfHxzVf76fvsqPIVZ+jfLkAeNFzdbHNkntZj/rihDkGgRoPbNOuEG1jmTREUc+nl7AKaw==
   dependencies:
     path-to-regexp "^8.1.0"
     vite-plugin-node-polyfills "^0.24.0"
