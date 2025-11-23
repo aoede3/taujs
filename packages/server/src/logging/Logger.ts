@@ -140,8 +140,16 @@ export class Logger implements Logs {
     const consoleFallback = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
     const hasCustom = !!boundSink;
 
-    const merged = meta ?? {};
-    const withCtx = wantCtx && Object.keys(this.context).length > 0 ? { context: this.context, ...merged } : merged;
+    let baseMeta: Record<string, unknown>;
+    if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+      baseMeta = meta as Record<string, unknown>;
+    } else if (meta === undefined) {
+      baseMeta = {};
+    } else {
+      baseMeta = { value: meta };
+    }
+
+    const withCtx = wantCtx && Object.keys(this.context).length > 0 ? { context: this.context, ...baseMeta } : baseMeta;
 
     const finalMeta = this.shouldIncludeStack(level) ? withCtx : this.stripStacks(withCtx);
     const hasMeta = finalMeta && typeof finalMeta === 'object' ? Object.keys(finalMeta as any).length > 0 : false;
@@ -169,15 +177,14 @@ export class Logger implements Logs {
     if (this.config.singleLine && hasMeta && !hasCustom) {
       const metaStr = JSON.stringify(finalMeta).replace(/\n/g, '\\n');
       consoleFallback(`${formatted} ${metaStr}`);
-
       return;
     }
 
     if (hasCustom) {
       const obj = hasMeta ? (finalMeta as Record<string, unknown>) : {};
       try {
-        const result = boundSink!(obj, formatted);
-      } catch (err) {
+        boundSink!(obj, formatted);
+      } catch {
         hasMeta ? consoleFallback(formatted, finalMeta) : consoleFallback(formatted);
       }
     } else {

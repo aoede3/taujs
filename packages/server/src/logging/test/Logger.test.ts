@@ -298,9 +298,13 @@ describe('Logger', () => {
     const meta = [{ stack: 'S' }, { deep: { anotherStack: 'X', ok: 1 } }];
     logger.info(meta as any, 'array');
     const m = (console.log as any).mock.calls.pop()![1];
-    expect(m[0].stack).toBeUndefined();
-    expect((m[1].deep as any).anotherStack).toBeUndefined();
-    expect((m[1].deep as any).ok).toBe(1);
+
+    expect(m).toHaveProperty('value');
+    expect(Array.isArray(m.value)).toBe(true);
+
+    expect(m.value[0].stack).toBeUndefined();
+    expect((m.value[1].deep as any).anotherStack).toBeUndefined();
+    expect((m.value[1].deep as any).ok).toBe(1);
   });
 
   it('child() preserves other config and merges context', () => {
@@ -354,7 +358,7 @@ describe('Logger', () => {
     expect(console.log).toHaveBeenCalledTimes(1);
     const call = (console.log as any).mock.calls[0];
 
-    expect(call.length).toBe(1);
+    expect(call.length).toBe(2);
     expect(call[0]).toMatch(/\[info\] primitive meta$/);
   });
 
