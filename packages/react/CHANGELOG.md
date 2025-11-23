@@ -1,5 +1,11 @@
 # @taujs/react
 
+v0.1.2 - 23/11/2025
+
+feat: RouteData, tests; coverage
+feat: logger alignment with taujs/server; tests
+feat: isolating HeadContext; providing export
+
 v0.1.1 - 25/10/2025
 
 feat: Optimise hot paths
