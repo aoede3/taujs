@@ -1,5 +1,14 @@
 # @taujs/server
 
+v0.4.3 - 23/11/2025
+
+feat: ctx.call functionality
+feat: Logging fixes for logging: false; Updates to abort logging
+feat: Build system; user vite configuration; ssr manifest isolation; tests
+feat: render logging; barrel exports; tests
+feat: RouteData; \_\_taujs/data route; tests
+feat: align HandleRender / Logger; tests
+
 v0.4.2 - 04/11/2025
 
 feat: CSP reporting
