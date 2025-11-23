@@ -5,17 +5,22 @@ export type UILogger = {
 };
 
 export type ServerLogs = {
-  info: (message: string, meta?: unknown) => void;
-  warn: (message: string, meta?: unknown) => void;
-  error: (message: string, meta?: unknown) => void;
-  debug?: (category: string, message: string, meta?: unknown) => void;
+  info: (meta?: unknown, message?: string) => void;
+  warn: (meta?: unknown, message?: string) => void;
+  error: (meta?: unknown, message?: string) => void;
+  debug?: (category: string, meta?: unknown, message?: string) => void;
   child?: (ctx: Record<string, unknown>) => ServerLogs;
   isDebugEnabled?: (category: string) => boolean;
 };
 
 export type LoggerLike = Partial<UILogger> | Partial<ServerLogs>;
 
-type Opts = { debugCategory?: string; context?: Record<string, unknown>; preferDebug?: boolean; enableDebug?: boolean };
+type Opts = {
+  debugCategory?: string;
+  context?: Record<string, unknown>;
+  preferDebug?: boolean;
+  enableDebug?: boolean;
+};
 
 const toJSONString = (v: unknown) => (typeof v === 'string' ? v : v instanceof Error ? (v.stack ?? v.message) : JSON.stringify(v));
 
@@ -33,7 +38,13 @@ const splitMsgAndMeta = (args: unknown[]) => {
 export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
   const { debugCategory = 'ssr', context, preferDebug = false, enableDebug = false } = opts;
 
-  if (!enableDebug) return { log: () => {}, warn: () => {}, error: () => {} };
+  if (!enableDebug) {
+    return {
+      log: () => {},
+      warn: () => {},
+      error: () => {},
+    };
+  }
 
   const looksServer = !!logger && ('info' in logger || 'debug' in logger || 'child' in logger || 'isDebugEnabled' in logger);
 
@@ -43,15 +54,26 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
     if (s.child && context) {
       try {
         s = s.child.call(s as any, context);
-      } catch {}
+      } catch {
+        // ignore child failures; fall back to original
+      }
     }
 
-    const info = s.info ? s.info.bind(s) : (m: string, meta?: unknown) => (meta ? console.log(m, meta) : console.log(m));
-    const warn = s.warn ? s.warn.bind(s) : (m: string, meta?: unknown) => (meta ? console.warn(m, meta) : console.warn(m));
-    const error = s.error ? s.error.bind(s) : (m: string, meta?: unknown) => (meta ? console.error(m, meta) : console.error(m));
+    const info = s.info
+      ? (msg: string, meta?: unknown) => s.info!(meta, msg)
+      : (msg: string, meta?: unknown) => (meta ? console.log(msg, meta) : console.log(msg));
 
-    const debug = s.debug ? s.debug.bind(s) : undefined;
-    const isDebugEnabled = s.isDebugEnabled ? s.isDebugEnabled.bind(s) : undefined;
+    const warn = s.warn
+      ? (msg: string, meta?: unknown) => s.warn!(meta, msg)
+      : (msg: string, meta?: unknown) => (meta ? console.warn(msg, meta) : console.warn(msg));
+
+    const error = s.error
+      ? (msg: string, meta?: unknown) => s.error!(meta, msg)
+      : (msg: string, meta?: unknown) => (meta ? console.error(msg, meta) : console.error(msg));
+
+    const debug = s.debug ? (category: string, msg: string, meta?: unknown) => s.debug!(category, meta, msg) : undefined;
+
+    const isDebugEnabled = s.isDebugEnabled ? (category: string) => s.isDebugEnabled!(category) : undefined;
 
     return {
       log: (...args: unknown[]) => {
@@ -59,11 +81,11 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
 
         if (debug) {
           const enabled = (isDebugEnabled ? isDebugEnabled(debugCategory) : false) || preferDebug;
+
           if (enabled) {
             debug(debugCategory, msg, meta);
             return;
           }
-          // debug exists but not enabled → fall back to info
         }
 
         info(msg, meta);
@@ -79,7 +101,6 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
     };
   }
 
-  // UI-shaped fallback: pass through to provided methods or console
   const ui = (logger as Partial<UILogger>) || {};
   return {
     log: (...a) => (ui.log ?? console.log)(...a),
