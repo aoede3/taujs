@@ -176,9 +176,9 @@ describe('createUILogger - Server-logger-shaped input', () => {
     ui.warn('B', obj);
     ui.error('C', err);
 
-    expect(info).toHaveBeenCalledWith('A', obj);
-    expect(warn).toHaveBeenCalledWith('B', obj);
-    expect(error).toHaveBeenCalledWith('C', { args: [err.message] });
+    expect(info).toHaveBeenCalledWith(obj, 'A');
+    expect(warn).toHaveBeenCalledWith(obj, 'B');
+    expect(error).toHaveBeenCalledWith({ args: [err.message] }, 'C');
 
     expect(debug).not.toHaveBeenCalled();
   });
@@ -193,7 +193,7 @@ describe('createUILogger - Server-logger-shaped input', () => {
     const ui = createUILogger(server, { debugCategory: 'react', enableDebug: true });
     ui.log('hello');
 
-    expect(debug).toHaveBeenCalledWith('react', 'hello', undefined);
+    expect(debug).toHaveBeenCalledWith('react', undefined, 'hello');
     expect(info).not.toHaveBeenCalled();
   });
 
@@ -206,7 +206,7 @@ describe('createUILogger - Server-logger-shaped input', () => {
     const ui = createUILogger(server, { preferDebug: true, enableDebug: true });
 
     ui.log('msg');
-    expect(debug).toHaveBeenCalledWith('ssr', 'msg', undefined);
+    expect(debug).toHaveBeenCalledWith('ssr', undefined, 'msg');
     expect(info).not.toHaveBeenCalled();
   });
 
@@ -217,7 +217,7 @@ describe('createUILogger - Server-logger-shaped input', () => {
     const ui = createUILogger(server, { preferDebug: true, enableDebug: true });
     ui.log('abc');
 
-    expect(info).toHaveBeenCalledWith('abc', undefined);
+    expect(info).toHaveBeenCalledWith(undefined, 'abc');
   });
 
   it('calls child(context) when provided and uses returned sinks', () => {
@@ -248,9 +248,9 @@ describe('createUILogger - Server-logger-shaped input', () => {
     uiChild.error('E');
 
     expect(child).toHaveBeenCalledWith({ reqId: 'R1' });
-    expect(infoChild).toHaveBeenCalledWith('L', undefined);
-    expect(warnChild).toHaveBeenCalledWith('W', undefined);
-    expect(errChild).toHaveBeenCalledWith('E', undefined);
+    expect(infoChild).toHaveBeenCalledWith(undefined, 'L');
+    expect(warnChild).toHaveBeenCalledWith(undefined, 'W');
+    expect(errChild).toHaveBeenCalledWith(undefined, 'E');
   });
 
   it('swallows child() throws and continues with base sinks', () => {
@@ -271,9 +271,9 @@ describe('createUILogger - Server-logger-shaped input', () => {
     uiBase.error('Z');
 
     expect(throwingChild).toHaveBeenCalledWith({ user: 42 });
-    expect(base.info).toHaveBeenCalledWith('X', undefined);
-    expect(base.warn).toHaveBeenCalledWith('Y', undefined);
-    expect(base.error).toHaveBeenCalledWith('Z', undefined);
+    expect(base.info).toHaveBeenCalledWith(undefined, 'X');
+    expect(base.warn).toHaveBeenCalledWith(undefined, 'Y');
+    expect(base.error).toHaveBeenCalledWith(undefined, 'Z');
   });
 
   it('aggregates multiple extra args into meta.args (server path)', () => {
@@ -286,9 +286,12 @@ describe('createUILogger - Server-logger-shaped input', () => {
 
     ui.log('X', 1, { a: 2 }, err, 'tail');
 
-    expect(info).toHaveBeenCalledWith('X', {
-      args: ['1', JSON.stringify({ a: 2 }), 'kaput', 'tail'],
-    });
+    expect(info).toHaveBeenCalledWith(
+      {
+        args: ['1', JSON.stringify({ a: 2 }), 'kaput', 'tail'],
+      },
+      'X',
+    );
   });
 
   it('respects custom debugCategory when debug is available', () => {
@@ -304,7 +307,7 @@ describe('createUILogger - Server-logger-shaped input', () => {
     const ui = createUILogger(server, { debugCategory: 'custom', enableDebug: true });
     ui.log('z');
 
-    expect(debug).toHaveBeenCalledWith('custom', 'z', undefined);
+    expect(debug).toHaveBeenCalledWith('custom', undefined, 'z');
   });
 });
 
@@ -370,7 +373,7 @@ describe('createUILogger - console fallbacks', () => {
     const uiPrefer = createUILogger(server, { preferDebug: true, enableDebug: true });
     uiPrefer.log('dbg');
 
-    expect(debug).toHaveBeenCalledWith('ssr', 'dbg', undefined);
+    expect(debug).toHaveBeenCalledWith('ssr', undefined, 'dbg');
     expect(logSpy).not.toHaveBeenCalled();
   });
 
@@ -394,13 +397,13 @@ describe('createUILogger - console fallbacks', () => {
     const obj = { n: 5 };
     const err = new Error('oops');
 
-    ui.log('ok', obj);
-    ui.warn('hm', obj);
-    ui.error('bad', err);
+    ui.log(obj, 'ok');
+    ui.warn(obj, 'hm');
+    ui.error(err, 'bad');
 
-    expect(logSpy).toHaveBeenCalledWith('ok', obj);
-    expect(warnSpy).toHaveBeenCalledWith('hm', obj);
-    expect(errSpy).toHaveBeenCalledWith('bad', err);
+    expect(logSpy).toHaveBeenCalledWith(obj, 'ok');
+    expect(warnSpy).toHaveBeenCalledWith(obj, 'hm');
+    expect(errSpy).toHaveBeenCalledWith(err, 'bad');
   });
 });
 
@@ -415,7 +418,7 @@ describe('createUILogger - toJSONString coverage', () => {
 
     ui.log(err);
 
-    expect(info).toHaveBeenCalledWith(err.stack, undefined);
+    expect(info).toHaveBeenCalledWith(undefined, err.stack);
   });
 
   it('handles Error without stack (falls back to message)', () => {
@@ -428,7 +431,7 @@ describe('createUILogger - toJSONString coverage', () => {
 
     ui.log(err);
 
-    expect(info).toHaveBeenCalledWith('no stack', undefined);
+    expect(info).toHaveBeenCalledWith(undefined, 'no stack');
   });
 
   it('handles string input directly', () => {
@@ -438,7 +441,7 @@ describe('createUILogger - toJSONString coverage', () => {
 
     ui.log('plain string');
 
-    expect(info).toHaveBeenCalledWith('plain string', undefined);
+    expect(info).toHaveBeenCalledWith(undefined, 'plain string');
   });
 
   it('handles non-string non-Error with JSON.stringify', () => {
@@ -448,7 +451,7 @@ describe('createUILogger - toJSONString coverage', () => {
 
     ui.log({ obj: 'value' });
 
-    expect(info).toHaveBeenCalledWith(JSON.stringify({ obj: 'value' }), undefined);
+    expect(info).toHaveBeenCalledWith(undefined, JSON.stringify({ obj: 'value' }));
   });
 
   it('handles number, boolean, null', () => {
@@ -460,9 +463,9 @@ describe('createUILogger - toJSONString coverage', () => {
     ui.log(true);
     ui.log(null);
 
-    expect(info).toHaveBeenNthCalledWith(1, '42', undefined);
-    expect(info).toHaveBeenNthCalledWith(2, 'true', undefined);
-    expect(info).toHaveBeenNthCalledWith(3, 'null', undefined);
+    expect(info).toHaveBeenNthCalledWith(1, undefined, '42');
+    expect(info).toHaveBeenNthCalledWith(2, undefined, 'true');
+    expect(info).toHaveBeenNthCalledWith(3, undefined, 'null');
   });
 });
 
@@ -474,7 +477,7 @@ describe('createUILogger - splitMsgAndMeta coverage', () => {
 
     ui.log('only');
 
-    expect(info).toHaveBeenCalledWith('only', undefined);
+    expect(info).toHaveBeenCalledWith(undefined, 'only');
   });
 
   it('single non-Error object as second arg becomes meta', () => {
@@ -485,7 +488,7 @@ describe('createUILogger - splitMsgAndMeta coverage', () => {
     const meta = { x: 1 };
     ui.log('msg', meta);
 
-    expect(info).toHaveBeenCalledWith('msg', meta);
+    expect(info).toHaveBeenCalledWith(meta, 'msg');
   });
 
   it('single Error as second arg becomes meta.args array', () => {
@@ -497,7 +500,7 @@ describe('createUILogger - splitMsgAndMeta coverage', () => {
     (err as any).stack = undefined;
     ui.log('msg', err);
 
-    expect(info).toHaveBeenCalledWith('msg', { args: ['err'] });
+    expect(info).toHaveBeenCalledWith({ args: ['err'] }, 'msg');
   });
 
   it('multiple args become meta.args array', () => {
@@ -507,8 +510,11 @@ describe('createUILogger - splitMsgAndMeta coverage', () => {
 
     ui.log('msg', 1, 'two', { three: 3 });
 
-    expect(info).toHaveBeenCalledWith('msg', {
-      args: ['1', 'two', JSON.stringify({ three: 3 })],
-    });
+    expect(info).toHaveBeenCalledWith(
+      {
+        args: ['1', 'two', JSON.stringify({ three: 3 })],
+      },
+      'msg',
+    );
   });
 });
