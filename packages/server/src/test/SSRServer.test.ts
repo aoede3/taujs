@@ -223,6 +223,42 @@ describe('SSRServer', () => {
     );
   });
 
+  it('does not require serviceRegistry option', async () => {
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [{ appId: 'a', entryPoint: '.' }],
+      routes: [{ path: '/*' }],
+      clientRoot: '/client',
+      debug: false,
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/anything' });
+
+    expect(res.statusCode).toBe(200);
+    expect(handleRenderMock).toHaveBeenCalled();
+  });
+
+  it('supports /__taujs/data when serviceRegistry is omitted', async () => {
+    resolveRouteDataMock.mockResolvedValueOnce({ ok: true } as any);
+
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [],
+      routes: [{ path: '/app/dashboard' }],
+      clientRoot: '/client',
+      debug: false,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/__taujs/data?url=/app/dashboard',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ data: { ok: true } });
+    expect(resolveRouteDataMock).toHaveBeenCalled();
+  });
+
   it('registers static assets when provided as object', async () => {
     const staticPlugin: FastifyPluginCallback<any> = (inst, _opts, done) => {
       inst.get('/static-check', async (_req, reply) => reply.send('static-ok'));
