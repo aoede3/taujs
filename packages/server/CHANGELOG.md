@@ -1,5 +1,11 @@
 # @taujs/server
 
+v0.4.4 - 24/11/2025
+
+feat: serviceRegistry change to optional; tests
+feat: Build isolated app; tests
+test: Logger coverage in hasMeta
+
 v0.4.3 - 23/11/2025
 
 feat: logger wrap strings; tests
