@@ -362,6 +362,26 @@ describe('Logger', () => {
     expect(call[0]).toMatch(/\[info\] primitive meta$/);
   });
 
+  it('sets hasMeta to false when finalMeta is non-object (via stripStacks override)', () => {
+    const logger = createLogger({
+      includeStack: false,
+      includeContext: false,
+      minLevel: 'debug',
+    });
+
+    const stripSpy = vi.spyOn(logger as any, 'stripStacks').mockReturnValue('not-an-object' as any);
+
+    logger.info({ k: 1 }, 'primitive finalMeta');
+
+    expect(stripSpy).toHaveBeenCalled();
+
+    expect(console.log).toHaveBeenCalledTimes(1);
+    const call = (console.log as any).mock.calls[0];
+
+    expect(call.length).toBe(1);
+    expect(call[0]).toMatch(/\[info\] primitive finalMeta$/);
+  });
+
   it('defaults message to empty string for info when omitted', () => {
     const logger = createLogger({ includeContext: false }); // console fallback path
     logger.info({ k: 1 });
