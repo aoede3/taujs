@@ -299,6 +299,56 @@ export function mergeViteConfig(framework: InlineConfig, userOverride?: ViteConf
   return merged;
 }
 
+type AppFilter = {
+  selectedIds: Set<string> | null;
+  raw: string | undefined;
+};
+
+export function resolveAppFilter(argv: readonly string[], env: NodeJS.ProcessEnv): AppFilter {
+  const read = (keys: readonly string[]): string | undefined => {
+    const end = argv.indexOf('--');
+    const limit = end === -1 ? argv.length : end;
+
+    for (let i = 0; i < limit; i++) {
+      const arg = argv[i];
+
+      if (!arg) continue;
+
+      for (const key of keys) {
+        if (arg === key) {
+          const next = argv[i + 1];
+          if (!next || next.startsWith('-')) return '';
+          return next.trim();
+        }
+
+        const pref = `${key}=`;
+        if (arg.startsWith(pref)) {
+          const v = arg.slice(pref.length).trim();
+          return v;
+        }
+      }
+    }
+
+    return undefined;
+  };
+
+  // env first, CLI overrides
+  const envFilter = env.TAUJS_APP || env.TAUJS_APPS;
+  const cliFilter = read(['--app', '--apps', '-a']);
+  const raw = (cliFilter ?? envFilter)?.trim() || undefined;
+
+  if (!raw) return { selectedIds: null, raw: undefined };
+
+  const selectedIds = new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+
+  return { selectedIds, raw };
+}
+
 export async function taujsBuild({
   config,
   projectRoot,
@@ -346,9 +396,23 @@ export async function taujsBuild({
   const extractedConfigs = extractBuildConfigs(config);
   const processedConfigs = processConfigs(extractedConfigs, clientBaseDir, TEMPLATE);
 
+  const { selectedIds, raw: appFilterRaw } = resolveAppFilter(process.argv.slice(2), process.env);
+
+  const configsToBuild = selectedIds
+    ? processedConfigs.filter(({ appId, entryPoint }) => selectedIds.has(appId) || selectedIds.has(entryPoint))
+    : processedConfigs;
+
+  if (selectedIds && configsToBuild.length === 0) {
+    console.error(
+      `[taujs:build] No apps match filter "${appFilterRaw}".` +
+        ` Known apps: ${processedConfigs.map((c) => `${c.appId}${c.entryPoint ? ` (entry: ${c.entryPoint})` : ''}`).join(', ')}`,
+    );
+    process.exit(1);
+  }
+
   if (!isSSRBuild) await deleteDist();
 
-  for (const appConfig of processedConfigs) {
+  for (const appConfig of configsToBuild) {
     const { appId, entryPoint, clientRoot, entryClient, entryServer, htmlTemplate, plugins = [] } = appConfig;
 
     const outDir = path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
@@ -370,7 +434,6 @@ export async function taujsBuild({
 
     const nodeVersion = process.versions.node.split('.')[0];
 
-    // Framework configuration (non-negotiable invariants)
     const frameworkConfig: InlineConfig = {
       base: entryPoint ? `/${entryPoint}/` : '/',
       build: {
@@ -394,8 +457,7 @@ export async function taujsBuild({
         },
       },
       plugins: plugins as PluginOption[],
-      publicDir: isSSRBuild ? false : 'public', // single shared public
-      // publicDir: isSSRBuild ? false : path.join(root, 'public'), // per-app. no public dir for SSR builds
+      publicDir: isSSRBuild ? false : 'public',
       resolve: { alias: resolvedAlias },
       root,
     };
