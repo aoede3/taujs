@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { InlineConfig, PluginOption } from 'vite';
+import type { InlineConfig } from 'vite';
 
 // Mock dependencies BEFORE importing fs modules
 vi.mock('vite', () => ({
@@ -58,7 +58,7 @@ import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 
 // Import after mocks
-import { taujsBuild, mergeViteConfig, getFrameworkInvariants, resolveInputs } from '../Build';
+import { taujsBuild, mergeViteConfig, getFrameworkInvariants, resolveInputs, resolveAppFilter } from '../Build';
 import { build } from 'vite';
 import { extractBuildConfigs } from '../Setup';
 import { processConfigs } from '../utils/AssetManager';
@@ -2306,6 +2306,305 @@ describe('Build.ts - Full Coverage', () => {
     // baseOut came from the `?? {}` fallback on mro.output[0]
     expect(output.manualChunks).toEqual({
       vendor: ['react'],
+    });
+  });
+
+  describe('resolveAppFilter', () => {
+    it('returns null selection when no env or CLI filter is provided', () => {
+      const result = resolveAppFilter([], {} as NodeJS.ProcessEnv);
+
+      expect(result).toEqual({
+        selectedIds: null,
+        raw: undefined,
+      });
+    });
+
+    it('uses TAUJS_APP / TAUJS_APPS from env when no CLI filter is provided', () => {
+      const env = {
+        TAUJS_APP: 'admin',
+      } as unknown as NodeJS.ProcessEnv;
+
+      const result = resolveAppFilter([], env);
+
+      expect(result.raw).toBe('admin');
+      expect(result.selectedIds).toEqual(new Set(['admin']));
+    });
+
+    it('CLI filter overrides env and supports comma-separated lists with trimming', () => {
+      const argv = ['--apps', ' admin, marketing , ,reports '];
+      const env = {
+        TAUJS_APPS: 'should-be-ignored',
+      } as unknown as NodeJS.ProcessEnv;
+
+      const result = resolveAppFilter(argv, env);
+
+      // raw is the un-cleaned CLI string (trim is applied later)
+      expect(result.raw).toBe('admin, marketing , ,reports');
+
+      // selectedIds is trimmed and empty segments are dropped
+      expect(result.selectedIds).toEqual(new Set(['admin', 'marketing', 'reports']));
+    });
+
+    it('supports --app=value syntax', () => {
+      const argv = ['--app=admin'];
+      const env = {} as NodeJS.ProcessEnv;
+
+      const result = resolveAppFilter(argv, env);
+
+      expect(result.raw).toBe('admin');
+      expect(result.selectedIds).toEqual(new Set(['admin']));
+    });
+
+    it('treats bare --app with no value as “no filter”', () => {
+      const argv = ['--app'];
+      const env = {} as NodeJS.ProcessEnv;
+
+      const result = resolveAppFilter(argv, env);
+
+      // read() returns '', which becomes raw=undefined → no selection
+      expect(result).toEqual({
+        selectedIds: null,
+        raw: undefined,
+      });
+    });
+
+    it('skips falsy argv entries and still parses later flags', () => {
+      const argv = [undefined as any, '--apps=admin,marketing'];
+      const env = {} as NodeJS.ProcessEnv;
+
+      const result = resolveAppFilter(argv, env);
+
+      expect(result.raw).toBe('admin,marketing');
+      expect(result.selectedIds).toEqual(new Set(['admin', 'marketing']));
+    });
+
+    it('stops parsing flags at the "--" terminator', () => {
+      const argv = [
+        '--apps',
+        'admin,marketing',
+        '--', // terminator
+        '--apps',
+        'ignored-later',
+      ];
+
+      const env = {} as NodeJS.ProcessEnv;
+
+      const result = resolveAppFilter(argv, env);
+
+      // We only see the first --apps before the terminator
+      expect(result.raw).toBe('admin,marketing');
+      expect(result.selectedIds).toEqual(new Set(['admin', 'marketing']));
+    });
+
+    it('returns undefined when no keys match and loops exhaust fully', () => {
+      const argv = ['--foo', 'bar', '--something', 'else', '--not-app', 'value'];
+
+      const env = {} as NodeJS.ProcessEnv;
+
+      const result = resolveAppFilter(argv, env);
+
+      expect(result.raw).toBeUndefined();
+      expect(result.selectedIds).toBeNull();
+    });
+  });
+
+  describe('taujsBuild – app filtering via CLI/env', () => {
+    const mockAppBase = {
+      clientRoot: '/project/src/client',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    const mockProjectRoot = '/project';
+    const mockClientBaseDir = '/project/src/client';
+
+    let originalArgv: string[];
+    let originalTAUJS_APP: string | undefined;
+    let originalTAUJS_APPS: string | undefined;
+
+    beforeEach(() => {
+      originalArgv = [...process.argv];
+      originalTAUJS_APP = process.env.TAUJS_APP;
+      originalTAUJS_APPS = process.env.TAUJS_APPS;
+
+      // three apps with different appIds/entryPoints
+      const apps = [
+        {
+          ...mockAppBase,
+          appId: '@acme/admin',
+          entryPoint: 'admin',
+          clientRoot: '/project/src/client/admin',
+        },
+        {
+          ...mockAppBase,
+          appId: 'marketing',
+          entryPoint: 'marketing',
+          clientRoot: '/project/src/client/marketing',
+        },
+        {
+          ...mockAppBase,
+          appId: 'reports',
+          entryPoint: 'reports-app',
+          clientRoot: '/project/src/client/reports-app',
+        },
+      ];
+
+      vi.mocked(extractBuildConfigs).mockReturnValue(apps as any);
+      vi.mocked(processConfigs).mockReturnValue(apps as any);
+
+      // reset vite build mock call history but keep implementation
+      buildMock.mockClear();
+    });
+
+    afterEach(() => {
+      process.argv = originalArgv;
+      if (originalTAUJS_APP === undefined) delete process.env.TAUJS_APP;
+      else process.env.TAUJS_APP = originalTAUJS_APP;
+
+      if (originalTAUJS_APPS === undefined) delete process.env.TAUJS_APPS;
+      else process.env.TAUJS_APPS = originalTAUJS_APPS;
+    });
+
+    it('builds only app matching appId from CLI --app', async () => {
+      process.argv = ['node', 'build', '--app', 'marketing'];
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      // should only build marketing
+      expect(buildMock).toHaveBeenCalledTimes(1);
+      const buildConfig = buildMock.mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.base).toBe('/marketing/'); // uses entryPoint of the matched app
+    });
+
+    it('builds only app matching entryPoint from CLI --app', async () => {
+      // "reports-app" is an entryPoint, appId is "reports"
+      process.argv = ['node', 'build', '--app', 'reports-app'];
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      expect(buildMock).toHaveBeenCalledTimes(1);
+      const buildConfig = buildMock.mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.base).toBe('/reports-app/');
+    });
+
+    it('uses TAUJS_APPS env when no CLI filter is provided', async () => {
+      process.argv = ['node', 'build']; // no CLI filter
+      process.env.TAUJS_APPS = '@acme/admin,reports';
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      // should build two apps: @acme/admin and reports
+      expect(buildMock).toHaveBeenCalledTimes(2);
+      const bases = buildMock.mock.calls.map((c) => (c[0] as InlineConfig).base);
+      expect(bases.sort()).toEqual(['/admin/', '/reports-app/'].sort());
+    });
+
+    it('CLI filter takes precedence over env TAUJS_APPS', async () => {
+      process.argv = ['node', 'build', '--app', 'marketing'];
+      process.env.TAUJS_APPS = '@acme/admin,reports'; // should be ignored
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      expect(buildMock).toHaveBeenCalledTimes(1);
+      const buildConfig = buildMock.mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.base).toBe('/marketing/');
+    });
+
+    it('exits with error when no apps match the filter', async () => {
+      process.argv = ['node', 'build', '--app', 'does-not-exist'];
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+      const msg = consoleErrorSpy.mock.calls[0]![0] as string;
+
+      expect(msg).toContain('[taujs:build] No apps match filter "does-not-exist".');
+      expect(msg).toContain('Known apps:');
+      expect(msg).toContain('@acme/admin (entry: admin)');
+      expect(msg).toContain('marketing (entry: marketing)');
+      expect(msg).toContain('reports (entry: reports-app)');
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+
+      consoleErrorSpy.mockRestore();
+      exitSpy.mockRestore();
+    });
+
+    it('prints known apps without entryPoint without entry suffix in error message', async () => {
+      const mockProjectRoot = '/project';
+      const mockClientBaseDir = '/project/src/client';
+
+      // force a root-level app with empty entryPoint
+      const apps = [
+        {
+          appId: 'root-app',
+          entryPoint: '',
+          clientRoot: '/project/src/client',
+          entryClient: 'entry-client',
+          entryServer: 'entry-server',
+          htmlTemplate: 'index.html',
+          plugins: [],
+        },
+      ];
+
+      vi.mocked(extractBuildConfigs).mockReturnValue(apps as any);
+      vi.mocked(processConfigs).mockReturnValue(apps as any);
+
+      // filter that matches nothing
+      process.argv = ['node', 'build', '--app', 'does-not-exist'];
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+      const msg = consoleErrorSpy.mock.calls[0]![0] as string;
+
+      // hits: `${c.appId}${c.entryPoint ? ... : ''}`
+      expect(msg).toContain('Known apps: root-app');
+      // and specifically *not* with an entry suffix
+      expect(msg).not.toContain('root-app (entry:');
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+
+      consoleErrorSpy.mockRestore();
+      exitSpy.mockRestore();
     });
   });
 });

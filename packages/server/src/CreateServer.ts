@@ -23,7 +23,7 @@ import type { StaticAssetsRegistration } from './utils/StaticAssets';
 
 type CreateServerOptions = {
   config: TaujsConfig;
-  serviceRegistry: ServiceRegistry;
+  serviceRegistry?: ServiceRegistry;
   clientRoot?: string;
   alias?: Record<string, string>;
   fastify?: FastifyInstance;

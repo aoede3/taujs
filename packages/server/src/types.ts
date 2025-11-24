@@ -38,7 +38,7 @@ export type SSRServerOptions = {
   clientRoot: string;
   configs: AppConfig[];
   routes: Route<PathToRegExpParams>[];
-  serviceRegistry: ServiceRegistry;
+  serviceRegistry?: ServiceRegistry;
   security?: SecurityConfig;
   staticAssets?: StaticAssetsRegistration;
   debug?: DebugConfig;

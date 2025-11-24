@@ -35,7 +35,7 @@ export { TEMPLATE };
 
 export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
-    const { alias, configs, routes, serviceRegistry, clientRoot: baseClientRoot, security } = opts;
+    const { alias, configs, routes, serviceRegistry = {}, clientRoot: baseClientRoot, security } = opts;
 
     const logger = createLogger({
       debug: opts.debug,
