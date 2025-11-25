@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import pc from 'picocolors';
 
@@ -92,7 +91,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       configs,
       routes,
       serviceRegistry: opts.serviceRegistry,
-      staticAssets: opts.staticAssets !== undefined ? opts.staticAssets : { plugin: fastifyStatic },
+      staticAssets: opts.staticAssets ?? false,
       debug: opts.debug,
       alias: opts.alias,
       security,

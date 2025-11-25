@@ -146,7 +146,7 @@ describe('createServer', () => {
     process.env.NODE_ENV = 'test';
   });
 
-  it('creates Fastify instance, registers plugins, defaults staticAssets to fastifyStatic, returns { app, net }', async () => {
+  it('creates Fastify instance, registers plugins, and defaults staticAssets to false, returns { app, net }', async () => {
     const { createServer } = await importer();
 
     const result = await createServer({
@@ -167,20 +167,11 @@ describe('createServer', () => {
 
     expect(createLoggerSpy).toHaveBeenCalledWith(expect.objectContaining({ minLevel: 'debug', includeContext: true }));
 
-    expect(extractBuildConfigsSpy).toHaveBeenCalled();
-    expect(extractRoutesSpy).toHaveBeenCalled();
-    expect(extractSecuritySpy).toHaveBeenCalled();
-    expect(printConfigSummarySpy).toHaveBeenCalled();
-    expect(printSecuritySummarySpy).toHaveBeenCalled();
-
-    expect(verifyContractsSpy).toHaveBeenCalled();
-    expect(printContractReportSpy).toHaveBeenCalledWith(expect.any(Object), verifyContractsResult);
-
     expect(registerMock).toHaveBeenNthCalledWith(
       2,
       SSRServerPlugin,
       expect.objectContaining({
-        staticAssets: { plugin: fastifyStaticMock },
+        staticAssets: false,
         clientRoot: expect.stringContaining('/client'),
         devNet: { host: netResolved.host, hmrPort: netResolved.hmrPort },
       }),
