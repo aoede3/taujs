@@ -1,12 +1,17 @@
 # @taujs/server
 
-v0.4.4 - 24/11/2025
+v0.4.6 - 25/11/2025
+
+chore: update packages; clean
+feat: remove FastifyStatic dependancy; test
+
+v0.4.5 - 24/11/2025
 
 feat: serviceRegistry change to optional; tests
 feat: Build isolated app; tests
 test: Logger coverage in hasMeta
 
-v0.4.3 - 23/11/2025
+v0.4.4 - 23/11/2025
 
 feat: logger wrap strings; tests
 
