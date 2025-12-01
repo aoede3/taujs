@@ -1,5 +1,9 @@
 # @taujs/react
 
+v0.1.4 - 01/12/2025
+
+feat: routeContext
+
 v0.1.3 - 23/11/2025
 
 feat: hydration csr data provider wrapped when empty data; tests
