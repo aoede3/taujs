@@ -935,8 +935,22 @@ describe('handleRender', () => {
       expect(mockReply.raw.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
       expect(mockReply.raw.write).toHaveBeenCalled();
 
-      const call = mockRenderStream.mock.calls[0];
-      const options = call[8]; // 0:writable,1:callbacks,2:initialDataInput,3:url,4:bootstrap,5:meta,6:cspNonce,7:signal,8:options
+      expect(mockRenderStream).toHaveBeenCalled();
+
+      const call = mockRenderStream.mock.calls[0] as any[];
+      const options = call[8];
+
+      expect(options).toEqual(
+        expect.objectContaining({
+          logger: mockLogger,
+          routeContext: {
+            appId: 'test-app',
+            path: '/articles/:slug',
+            attr,
+            params,
+          },
+        }),
+      );
 
       expect(options).toEqual(
         expect.objectContaining({
