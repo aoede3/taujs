@@ -24,26 +24,30 @@ export type StreamOptions = {
   useCork?: boolean;
 };
 
-export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>> = {
+export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>, R = unknown> = {
   data: T;
   meta: Record<string, unknown>;
+  routeContext?: R;
 };
 
 type SSRResult = { headContent: string; appHtml: string; aborted: boolean };
 
-type StreamCallOptions = StreamOptions & { logger?: LoggerLike };
+type StreamCallOptions<R> = StreamOptions & {
+  logger?: LoggerLike;
+  routeContext?: R;
+};
 
 const NOOP = () => {};
 
-export function createRenderer<T extends Record<string, unknown>>({
+export function createRenderer<T extends Record<string, unknown> = Record<string, unknown>, R = unknown>({
   appComponent,
   headContent,
   streamOptions = {},
   logger,
   enableDebug = false,
 }: {
-  appComponent: (props: { location: string }) => React.ReactElement;
-  headContent: (ctx: HeadContext<T>) => string;
+  appComponent: (props: { location: string; routeContext?: R }) => React.ReactElement;
+  headContent: (ctx: HeadContext<T, R>) => string;
   enableDebug?: boolean;
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
@@ -55,7 +59,7 @@ export function createRenderer<T extends Record<string, unknown>>({
     location: string,
     meta: Record<string, unknown> = {},
     signal?: AbortSignal,
-    opts?: { logger?: LoggerLike },
+    opts?: { logger?: LoggerLike; routeContext?: R },
   ): Promise<SSRResult> => {
     const { log, warn } = createUILogger(opts?.logger ?? logger, {
       debugCategory: 'ssr',
@@ -73,12 +77,14 @@ export function createRenderer<T extends Record<string, unknown>>({
     const onAbort = () => (aborted = true);
     signal?.addEventListener('abort', onAbort, { once: true });
 
+    const routeContext = opts?.routeContext;
+
     try {
       log('Starting SSR:', location);
 
-      const dynamicHead = headContent({ data: initialData, meta });
+      const dynamicHead = headContent({ data: initialData, meta, routeContext });
       const store = createSSRStore(initialData);
-      const html = renderToString(<SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>);
+      const html = renderToString(<SSRStoreProvider store={store}>{appComponent({ location, routeContext })}</SSRStoreProvider>);
 
       if (aborted) {
         warn('SSR completed after client abort', { location });
@@ -105,7 +111,7 @@ export function createRenderer<T extends Record<string, unknown>>({
     meta: Record<string, unknown> = {},
     cspNonce?: string,
     signal?: AbortSignal,
-    opts?: StreamCallOptions, // per-call override
+    opts?: StreamCallOptions<R>, // per-call override
   ) => {
     const cb = {
       onHead: callbacks.onHead ?? NOOP,
@@ -119,6 +125,7 @@ export function createRenderer<T extends Record<string, unknown>>({
       context: { scope: 'react-streaming' },
       enableDebug,
     });
+    const routeContext = opts?.routeContext;
 
     // Merge renderer defaults with per-call overrides
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
@@ -171,7 +178,7 @@ export function createRenderer<T extends Record<string, unknown>>({
 
     try {
       const store = createSSRStore(initialData);
-      const appElement = <SSRStoreProvider store={store}>{appComponent({ location })}</SSRStoreProvider>;
+      const appElement = <SSRStoreProvider store={store}>{appComponent({ location, routeContext })}</SSRStoreProvider>;
 
       const stream = renderToPipeableStream(appElement, {
         nonce: cspNonce,
@@ -200,7 +207,7 @@ export function createRenderer<T extends Record<string, unknown>>({
                 });
               }
             }
-            const head = headContent({ data: headData ?? ({} as T), meta });
+            const head = headContent({ data: headData ?? ({} as T), meta, routeContext });
 
             // Enable only when both requested and supported
             const canCork =
