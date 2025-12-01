@@ -133,8 +133,8 @@ describe('handleRender', () => {
 
   const OriginalAbortController = globalThis.AbortController;
 
-  const createMockRouteMatch = (attr: any = {}, appId = 'test-app', params: any = {}): any => ({
-    route: { attr, appId },
+  const createMockRouteMatch = (attr: any = {}, appId = 'test-app', params: any = {}, path = '/test-path'): any => ({
+    route: { attr, appId, path },
     params,
     keys: [],
   });
@@ -432,7 +432,9 @@ describe('handleRender', () => {
     });
 
     it('should handle meta in SSR rendering', async () => {
-      const mockRoute = createMockRouteMatch({ render: 'ssr', meta: { title: 'Test Page' } });
+      const attr = { render: 'ssr', meta: { title: 'Test Page' } };
+      const params = { id: '123' };
+      const mockRoute = createMockRouteMatch(attr, 'test-app', params, '/test-path');
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -456,15 +458,23 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const renderSSRMock = mockRenderModule.renderSSR as Mock;
-      expect(renderSSRMock).toHaveBeenCalled(); // ensures at least one call
-
       const [data, url, meta, signal, options] = renderSSRMock.mock.calls[0] as any[];
 
       expect(data).toEqual({});
       expect(url).toBe(mockReq.url);
       expect(meta).toEqual({ title: 'Test Page' });
       expect(signal).toEqual(expect.objectContaining({ aborted: false }));
-      expect(options).toEqual(expect.objectContaining({ logger: mockLogger }));
+      expect(options).toEqual(
+        expect.objectContaining({
+          logger: mockLogger,
+          routeContext: {
+            appId: 'test-app',
+            path: '/test-path',
+            attr,
+            params,
+          },
+        }),
+      );
     });
 
     it('should throw error when renderSSR is missing', async () => {
@@ -889,6 +899,56 @@ describe('handleRender', () => {
       finishHandler();
 
       expect(mockReq.raw.off).toHaveBeenCalledWith('aborted', abortedHandler);
+    });
+
+    it('should render streaming successfully and pass routeContext', async () => {
+      const attr = { render: 'streaming', meta: {} };
+      const params = { slug: 'abc' };
+      const mockRoute = createMockRouteMatch(attr, 'test-app', params, '/articles/:slug');
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        // basic behaviour
+        writable.on = vi.fn((event: string, handler: any) => {
+          if (event === 'finish') handler();
+        });
+        callbacks.onHead?.('<title>Stream</title>');
+        callbacks.onShellReady?.();
+        callbacks.onAllReady?.({ streamed: 'data' });
+        return { abort: vi.fn() };
+      });
+
+      const mockRenderModule = { renderStream: mockRenderStream };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
+      expect(mockReply.raw.write).toHaveBeenCalled();
+
+      const call = mockRenderStream.mock.calls[0];
+      const options = call[8]; // 0:writable,1:callbacks,2:initialDataInput,3:url,4:bootstrap,5:meta,6:cspNonce,7:signal,8:options
+
+      expect(options).toEqual(
+        expect.objectContaining({
+          logger: mockLogger,
+          routeContext: {
+            appId: 'test-app',
+            path: '/articles/:slug',
+            attr,
+            params,
+          },
+        }),
+      );
     });
 
     it('should unsubscribe aborted listener on reply finish in streaming mode', async () => {

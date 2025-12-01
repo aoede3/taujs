@@ -65,6 +65,12 @@ export const handleRender = async (
 
     const { route, params } = matchedRoute;
     const { attr, appId } = route;
+    const routeContext = {
+      appId,
+      path: route.path,
+      attr,
+      params,
+    };
 
     const config = processedConfigs.find((c) => c.appId === appId);
     if (!config) {
@@ -152,7 +158,7 @@ export const handleRender = async (
       let headContent = '';
       let appHtml = '';
       try {
-        const res = await renderSSR(initialDataResolved, req.url!, attr?.meta, ac.signal, { logger: reqLogger });
+        const res = await renderSSR(initialDataResolved, req.url!, attr?.meta, ac.signal, { logger: reqLogger, routeContext });
         headContent = res.headContent;
         appHtml = res.appHtml;
 
@@ -329,7 +335,7 @@ export const handleRender = async (
         attr?.meta,
         cspNonce,
         ac.signal,
-        { logger: reqLogger },
+        { logger: reqLogger, routeContext },
       );
 
       writable.on('finish', () => {
