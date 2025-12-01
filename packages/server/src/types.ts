@@ -70,7 +70,7 @@ export type RenderSSR = (
   location: string,
   meta?: Record<string, unknown>,
   signal?: AbortSignal,
-  opts?: { logger?: Logs },
+  opts?: { logger?: Logs; routeContext?: unknown },
 ) => Promise<{
   headContent: string;
   appHtml: string;
@@ -85,7 +85,7 @@ export type RenderStream = (
   meta?: Record<string, unknown>,
   cspNonce?: string,
   signal?: AbortSignal,
-  opts?: { logger?: Logs },
+  opts?: { logger?: Logs; routeContext?: unknown },
 ) => { abort(): void };
 
 export type RenderModule = {
@@ -146,3 +146,33 @@ export interface InitialRouteParams extends Record<string, unknown> {
 }
 
 export type RoutePathsAndAttributes<Params extends PathToRegExpParams = PathToRegExpParams> = Omit<Route<Params>, 'element'>;
+
+// Utility types for extracting app and route information from TaujsConfig for MFE state management
+export type AppId<C extends { apps: readonly { appId: string }[] }> = C['apps'][number]['appId'];
+
+export type AppOf<C extends { apps: readonly any[] }, A extends AppId<C>> = Extract<C['apps'][number], { appId: A }>;
+
+export type RoutesOfApp<C extends { apps: readonly any[] }, A extends AppId<C>> = AppOf<C, A>['routes'] extends readonly any[]
+  ? AppOf<C, A>['routes'][number]
+  : never;
+
+export type RouteDataOf<R> = R extends { attr?: { data?: (...args: any) => infer Ret } } ? Awaited<Ret> : unknown;
+
+export type RoutePathOf<R> = R extends { path: infer P } ? P : never;
+
+export type SingleRouteContext<C extends { apps: readonly any[] }, A extends AppId<C>, R extends RoutesOfApp<C, A>> = R extends any
+  ? {
+      appId: A;
+      path: RoutePathOf<R>;
+      data: RouteDataOf<R>;
+      attr: R extends { attr?: infer Attr } ? Attr : never;
+    }
+  : never;
+
+export type RouteContext<C extends { apps: readonly any[] }> = {
+  [A in AppId<C>]: SingleRouteContext<C, A, RoutesOfApp<C, A>>;
+}[AppId<C>];
+
+export type RoutesData<C extends { apps: readonly any[] }> = RouteContext<C>['data'];
+
+export type RouteData<C extends { apps: readonly any[] }, Path extends string> = Extract<RouteContext<C>, { path: Path }>['data'];

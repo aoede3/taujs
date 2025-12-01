@@ -36,11 +36,11 @@ export type AppConfig = {
   appId: string;
   entryPoint: string;
   plugins?: PluginOption[];
-  routes?: AppRoute[];
+  routes?: readonly AppRoute[];
 };
 
 export type TaujsConfig = {
-  apps: AppConfig[];
+  apps: readonly AppConfig[];
   security?: SecurityConfig;
   server?: {
     host?: string;
@@ -53,10 +53,11 @@ export { callServiceMethod, defineService, defineServiceRegistry, withDeadline }
 
 export type { RegistryCaller, ServiceContext } from './utils/DataServices';
 
+export type { RouteContext, RouteData } from './types';
+
 export { AppError } from './logging/AppError';
 
-export function defineConfig<T extends TaujsConfig>(config: T): T {
+export function defineConfig<const C>(config: C & TaujsConfig): C {
   if (!config.apps || config.apps.length === 0) throw new Error('At least one app must be configured');
-
   return config;
 }

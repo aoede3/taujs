@@ -3,7 +3,6 @@ import { performance } from 'node:perf_hooks';
 import { CONTENT } from './constants';
 
 import type { ContractReport } from './security/VerifyMiddleware';
-import type { PluginOption } from 'vite';
 import type { PathToRegExpParams, Route } from './types';
 import type { DebugCategory, Logger } from './logging/Logger';
 import type { AppConfig, SecurityConfig, TaujsConfig } from './Config';
@@ -27,7 +26,7 @@ export type ExtractRoutesResult = {
   warnings: string[];
 };
 
-export const extractBuildConfigs = (config: { apps: { appId: string; entryPoint: string; plugins?: PluginOption[] }[] }): AppConfig[] => {
+export const extractBuildConfigs = (config: { apps: readonly AppConfig[] }): AppConfig[] => {
   return config.apps.map(({ appId, entryPoint, plugins }) => ({
     appId,
     entryPoint,
