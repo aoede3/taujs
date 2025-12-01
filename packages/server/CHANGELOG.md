@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.4.7 - 01/12/2025
+
+test: RouteContext streaming test
+feat: RouteContext; tests
+
 v0.4.6 - 25/11/2025
 
 chore: update packages; clean
