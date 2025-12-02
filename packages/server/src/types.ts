@@ -36,7 +36,7 @@ export type ProcessedConfig = {
 export type SSRServerOptions = {
   alias?: Record<string, string>;
   clientRoot: string;
-  configs: AppConfig[];
+  configs: readonly AppConfig[];
   routes: Route<PathToRegExpParams>[];
   serviceRegistry?: ServiceRegistry;
   security?: SecurityConfig;

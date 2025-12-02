@@ -22,7 +22,7 @@ export const createMaps = () => ({
   templates: new Map<string, string>(),
 });
 
-export const processConfigs = (configs: Config[], baseClientRoot: string, templateDefaults: typeof TEMPLATE): ProcessedConfig[] => {
+export const processConfigs = (configs: readonly Config[], baseClientRoot: string, templateDefaults: typeof TEMPLATE): ProcessedConfig[] => {
   return configs.map((config) => {
     const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
 
@@ -38,7 +38,7 @@ export const processConfigs = (configs: Config[], baseClientRoot: string, templa
 };
 
 export const loadAssets = async (
-  processedConfigs: ProcessedConfig[],
+  processedConfigs: readonly ProcessedConfig[],
   baseClientRoot: string,
   bootstrapModules: Map<string, string>,
   cssLinks: Map<string, string>,

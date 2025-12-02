@@ -357,7 +357,7 @@ export async function taujsBuild({
   alias: userAlias,
   vite: userViteConfig,
 }: {
-  config: { apps: AppConfig[] };
+  config: { apps: readonly AppConfig[] };
   projectRoot: string;
   clientBaseDir: string;
   isSSRBuild?: boolean;
