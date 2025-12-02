@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.4.8 - 02/12/2025
+
+feat: build types readonly
+
 v0.4.7 - 01/12/2025
 
 test: RouteContext streaming test
