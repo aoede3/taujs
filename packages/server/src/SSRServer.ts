@@ -8,7 +8,6 @@
  * including CSR, SSR, streaming, and middleware composition.
  */
 
-import path from 'node:path';
 import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
@@ -35,7 +34,7 @@ export { TEMPLATE };
 
 export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
-    const { alias, configs, routes, serviceRegistry = {}, clientRoot: baseClientRoot, security } = opts;
+    const { alias, configs, routes, serviceRegistry = {}, clientRoot, security } = opts;
 
     const logger = createLogger({
       debug: opts.debug,
@@ -46,15 +45,13 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     });
 
     const maps = createMaps();
-    const processedConfigs = processConfigs(configs, baseClientRoot, TEMPLATE);
+    const processedConfigs = processConfigs(configs, clientRoot, TEMPLATE);
     const routeMatchers = createRouteMatchers(routes);
     let viteDevServer: ViteDevServer | undefined;
 
-    const projectRoot = path.resolve(baseClientRoot, '..');
-
     await loadAssets(
       processedConfigs,
-      baseClientRoot,
+      clientRoot,
       maps.bootstrapModules,
       maps.cssLinks,
       maps.manifests,
@@ -65,11 +62,16 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       {
         debug: opts.debug,
         logger,
-        projectRoot,
       },
     );
 
-    if (opts.staticAssets) await registerStaticAssets(app, baseClientRoot, opts.staticAssets, undefined, projectRoot);
+    if (!isDevelopment && !opts.staticAssets) {
+      const fastifyStatic = await import('@fastify/static');
+
+      await registerStaticAssets(app, clientRoot, { plugin: fastifyStatic.default });
+    }
+
+    if (opts.staticAssets) await registerStaticAssets(app, clientRoot, opts.staticAssets);
 
     if (security?.csp?.reporting) {
       app.register(cspReportPlugin, {
@@ -87,7 +89,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       debug: opts.debug,
     });
 
-    if (isDevelopment) viteDevServer = await setupDevServer(app, baseClientRoot, alias, opts.debug, opts.devNet);
+    if (isDevelopment) viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet);
 
     app.addHook('onRequest', createAuthHook(routeMatchers, logger));
 

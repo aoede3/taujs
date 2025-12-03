@@ -37,9 +37,17 @@ type CreateServerResult = {
   net: NetResolved;
 };
 
+const resolveClientRoot = (userClientRoot?: string): string => {
+  if (userClientRoot) return path.isAbsolute(userClientRoot) ? userClientRoot : path.resolve(process.cwd(), userClientRoot);
+
+  const cwd = process.cwd();
+
+  return process.env.NODE_ENV === 'production' ? path.resolve(cwd, 'dist/client') : path.resolve(cwd, 'client');
+};
+
 export const createServer = async (opts: CreateServerOptions): Promise<CreateServerResult> => {
   const t0 = performance.now();
-  const clientRoot = opts.clientRoot ?? path.resolve(process.cwd(), 'client');
+  const clientRoot = resolveClientRoot(opts.clientRoot);
 
   const app = opts.fastify ?? Fastify({ logger: false });
   const fastifyLogger = app.log && app.log.level && app.log.level !== 'silent' ? app.log : undefined;

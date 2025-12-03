@@ -21,6 +21,8 @@ const {
   setupDevServerMock,
   toHttpMock,
   resolveRouteDataMock,
+  autoStaticPluginMock,
+  getAutoStaticOpts,
 } = vi.hoisted(() => {
   class AppErrorFake {
     message!: string;
@@ -71,6 +73,14 @@ const {
   const toHttpMock = vi.fn((_e: any) => ({ status: 499, body: { message: 'safe' } }));
   const resolveRouteDataMock = vi.fn<() => Promise<Record<string, unknown>>>(async () => ({ userId: 123, name: 'Test' }));
 
+  let autoStaticOpts: any;
+  const autoStaticPluginMock: FastifyPluginCallback<any> = (inst, opts, done) => {
+    autoStaticOpts = opts;
+    inst.get('/auto-default', async (_req, reply) => reply.send('auto-ok'));
+    done();
+  };
+  const getAutoStaticOpts = () => autoStaticOpts;
+
   return {
     AppErrorFake,
     mockLogger,
@@ -88,6 +98,8 @@ const {
     setupDevServerMock,
     toHttpMock,
     resolveRouteDataMock,
+    autoStaticPluginMock,
+    getAutoStaticOpts,
   };
 });
 
@@ -124,6 +136,8 @@ vi.mock('../logging/utils', () => ({ toHttp: toHttpMock }));
 vi.mock('../logging/AppError', () => ({ AppError: AppErrorFake }));
 
 vi.mock('../utils/ResolveRouteData', () => ({ resolveRouteData: resolveRouteDataMock }));
+
+vi.mock('@fastify/static', () => ({ default: autoStaticPluginMock }));
 
 import { SSRServer, TEMPLATE } from '../SSRServer';
 import { loadAssets } from '../utils/AssetManager';
@@ -220,6 +234,74 @@ describe('SSRServer', () => {
         templates: maps.templates,
       },
       expect.objectContaining({ logger: mockLogger, debug: false }),
+    );
+  });
+
+  it('auto-registers @fastify/static in non-dev mode when staticAssets is not provided', async () => {
+    devRef.value = false;
+
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [],
+      routes: [],
+      clientRoot: '/client',
+      debug: false,
+      // staticAssets: undefined -> should trigger the auto branch
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/auto-default' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe('auto-ok');
+
+    const opts = getAutoStaticOpts();
+    expect(opts).toEqual(
+      expect.objectContaining({
+        root: '/client',
+        prefix: '/',
+        index: false,
+        wildcard: false,
+      }),
+    );
+  });
+
+  it('auto-registers @fastify/static in non-dev mode and uses userClientRoot', async () => {
+    devRef.value = false; // ensure !isDevelopment
+
+    // Pick a clientRoot that forces your helper to actually do some work.
+    // If your helper resolves relative paths, use a relative here:
+    const clientRoot = './public-assets';
+
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [],
+      routes: [],
+      clientRoot,
+      debug: false,
+      // staticAssets omitted -> triggers auto-branch
+    });
+
+    // Plugin route should be live
+    const res = await app.inject({ method: 'GET', url: '/auto-default' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe('auto-ok');
+
+    // Now assert that whatever your helper computed as userClientRoot
+    // is what @fastify/static sees as `root`.
+    const opts = getAutoStaticOpts();
+
+    // If your helper resolves relative → absolute:
+    // const expectedRoot = path.resolve(process.cwd(), clientRoot);
+    // expect(opts.root).toBe(expectedRoot);
+
+    // If your helper *only* passes through the user value unmodified:
+    expect(opts.root).toBe(clientRoot);
+
+    expect(opts).toEqual(
+      expect.objectContaining({
+        prefix: '/',
+        index: false,
+        wildcard: false,
+      }),
     );
   });
 
@@ -476,7 +558,7 @@ describe('SSRServer', () => {
     // plugin should have received our base fields + spread of {} (no crash)
     expect(capturedOpts).toEqual(
       expect.objectContaining({
-        root: '/client',
+        root: '/pub',
         prefix: '/',
         index: false,
         wildcard: false,
