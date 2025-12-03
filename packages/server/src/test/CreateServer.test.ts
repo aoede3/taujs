@@ -1,4 +1,6 @@
 // @vitest-environment node
+import path from 'node:path';
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import type { TaujsConfig } from '../Config';
@@ -181,6 +183,71 @@ describe('createServer', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('configured in 675ms'));
   });
 
+  it('uses explicit clientRoot when provided, regardless of NODE_ENV', async () => {
+    const { createServer } = await importer();
+
+    const explicitRoot = '/my/custom/client-root';
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+      clientRoot: explicitRoot,
+    });
+
+    const ssrCallArgs = registerMock.mock.calls[1]?.[1] as any;
+
+    expect(ssrCallArgs).toEqual(
+      expect.objectContaining({
+        clientRoot: explicitRoot,
+      }),
+    );
+  });
+
+  it('uses explicit absolute clientRoot as-is when provided', async () => {
+    const { createServer } = await importer();
+
+    const explicitRoot = path.resolve(process.cwd(), 'my/custom/client-root');
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+      clientRoot: explicitRoot,
+    });
+
+    const ssrCallArgs = registerMock.mock.calls[1]?.[1] as any;
+
+    // path.isAbsolute => true branch
+    expect(ssrCallArgs).toEqual(
+      expect.objectContaining({
+        clientRoot: explicitRoot,
+      }),
+    );
+  });
+
+  it('resolves relative clientRoot against process.cwd()', async () => {
+    const { createServer } = await importer();
+
+    const relativeRoot = 'relative/client-root';
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+      clientRoot: relativeRoot,
+    });
+
+    const ssrCallArgs = registerMock.mock.calls[1]?.[1] as any;
+
+    // path.isAbsolute(userClientRoot) === false
+    // path.resolve(process.cwd(), userClientRoot)
+    const expectedRoot = path.resolve(process.cwd(), relativeRoot);
+
+    expect(ssrCallArgs).toEqual(
+      expect.objectContaining({
+        clientRoot: expectedRoot,
+      }),
+    );
+  });
+
   it('respects staticAssets=false (passes false through to SSRServer)', async () => {
     const { createServer } = await importer();
 
@@ -259,6 +326,24 @@ describe('createServer', () => {
     });
 
     expect(createLoggerSpy).toHaveBeenCalledWith(expect.objectContaining({ minLevel: 'info' }));
+  });
+
+  it('sets clientRoot path as dist/client in production NODE_ENV', async () => {
+    process.env.NODE_ENV = 'production';
+    const { createServer } = await importer();
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+    });
+
+    const ssrCallArgs = registerMock.mock.calls[1]?.[1] as any;
+
+    expect(ssrCallArgs).toEqual(
+      expect.objectContaining({
+        clientRoot: path.resolve(process.cwd(), 'dist/client'),
+      }),
+    );
   });
 
   it('passes through debug + custom logger into createLogger and bannerPlugin', async () => {

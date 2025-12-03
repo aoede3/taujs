@@ -47,7 +47,7 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
-  opts: { debug?: DebugConfig; logger?: Logs; projectRoot?: string } = {},
+  opts: { debug?: DebugConfig; logger?: Logs } = {},
 ) => {
   const logger: Logs =
     opts.logger ??
@@ -55,8 +55,6 @@ export const loadAssets = async (
       debug: opts.debug,
       includeContext: true,
     });
-
-  const projectRoot = opts.projectRoot ?? path.resolve(process.cwd());
 
   for (const config of processedConfigs) {
     const { clientRoot, entryClient, entryServer, htmlTemplate, entryPoint } = config;
@@ -71,13 +69,16 @@ export const loadAssets = async (
 
       if (!isDevelopment) {
         try {
-          const clientDistPath = path.resolve(projectRoot, 'client', entryPoint);
+          const distRoot = path.dirname(baseClientRoot);
+          const ssrRoot = path.join(distRoot, 'ssr');
+
+          const clientDistPath = path.join(baseClientRoot, entryPoint);
           const manifestPath = path.join(clientDistPath, '.vite/manifest.json');
           const manifestContent = await readFile(manifestPath, 'utf-8');
           const manifest = JSON.parse(manifestContent) as Manifest;
           manifests.set(clientRoot, manifest);
 
-          const ssrDistPath = path.resolve(projectRoot, 'ssr', entryPoint);
+          const ssrDistPath = path.join(ssrRoot, entryPoint);
           const ssrManifestPath = path.join(ssrDistPath, '.vite/ssr-manifest.json');
           const ssrManifestContent = await readFile(ssrManifestPath, 'utf-8');
           const ssrManifest = JSON.parse(ssrManifestContent) as SSRManifest;
