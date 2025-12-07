@@ -560,7 +560,7 @@ export function App() {
             Visit <a href="/">/</a> for standard SSR and{" "}
             <a href="/streaming">/streaming</a> for streaming SSR.
           </li>
-          <li>Further infomration can be found at <a href="http://taujs.dev" target="_blank">τjs Documentation and Guides</a>.</li>
+          <li>Further information can be found at <a href="http://taujs.dev" target="_blank">τjs Documentation and Guides</a>.</li>
         </ul>
       </section>
 
