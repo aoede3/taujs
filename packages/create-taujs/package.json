@@ -1,0 +1,53 @@
+{
+  "name": "@taujs/create-taujs",
+  "version": "0.1.0",
+  "description": "Scaffold a new τjs application",
+  "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
+  "homepage": "https://taujs.dev/",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-taujs": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "ci": "npm run build && npm run lint",
+    "lint": "tsc",
+    "dev": "tsup --watch",
+    "prepublishOnly": "npm run ci",
+    "local-release": "npm run ci && changeset version && changeset publish"
+  },
+  "dependencies": {
+    "@changesets/cli": "^2.29.8",
+    "fs-extra": "^11.2.0",
+    "picocolors": "^1.0.0",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.11.0",
+    "@types/prompts": "^2.4.9",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "taujs",
+    "create-taujs",
+    "scaffold",
+    "template",
+    "react",
+    "ssr",
+    "fastify",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aoede3/create-taujs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aoede3/create-taujs/issues"
+  }
+}
