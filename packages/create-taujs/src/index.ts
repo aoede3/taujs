@@ -239,14 +239,14 @@ function generatePackageJson(projectName: string, packageManager: string) {
     private: true,
     type: "module",
     scripts: {
-      dev: "cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose",
+      dev: "NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose",
       "build:client": "tsx build.ts",
       "build:entry-server": "BUILD_MODE=ssr tsx build.ts",
       "build:server":
         "esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react",
       build:
         "npm run build:client && npm run build:entry-server && npm run build:server",
-      start: "cross-env NODE_ENV=production node dist/server/index.js",
+      start: "NODE_ENV=production node dist/server/index.js",
       lint: "tsc --noEmit",
     },
     dependencies: {
@@ -264,7 +264,6 @@ function generatePackageJson(projectName: string, packageManager: string) {
       tsx: "^4.19.3",
       typescript: "^5.7.3",
       vite: "^7.1.11",
-      "cross-env": "^7.0.3",
     },
   };
 }
