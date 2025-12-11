@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.4.9 - 03/12/2025
+
+feat: static assets dev/prod; default paths, prod serving
+
 v0.4.8 - 02/12/2025
 
 feat: build types readonly
