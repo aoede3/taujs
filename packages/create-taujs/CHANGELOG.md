@@ -1,5 +1,9 @@
 # @taujs/cli
 
+v0.1.3 - 11/12/2025
+
+feat: Update clientRoot path
+
 v0.1.2 - 10/12/2025
 
 feat: update package.json
