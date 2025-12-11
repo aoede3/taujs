@@ -846,15 +846,22 @@ export const { renderSSR, renderStream } = createRenderer({
 }
 
 function generateServerIndex() {
-  return `import { createServer } from '@taujs/server';
+  return `import path from 'node:path';
+import { createServer } from '@taujs/server';
 import config from '../../taujs.config.ts';
 import { serviceRegistry } from './services/registry.ts';
+
+const isDev = process.env.NODE_ENV !== 'production';
+
+const clientRoot = isDev
+  ? path.resolve(process.cwd(), 'src/client')   // source for dev + Vite
+  : path.resolve(process.cwd(), 'dist/client'); // built assets for prod
 
 const { app, net } = await createServer({
   config,
   serviceRegistry,
-  clientRoot: './src/client',
-  debug: !!process.env.DEBUG,
+  clientRoot,
+  debug: isDev ? { ssr: true } : false,
 });
 
 if (app) {
