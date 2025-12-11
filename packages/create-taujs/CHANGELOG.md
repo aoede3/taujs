@@ -1,5 +1,9 @@
 # @taujs/cli
 
+v0.1.4 - 11/12/2025
+
+chore: align with taujs/server 0.5.0
+
 v0.1.3 - 11/12/2025
 
 feat: Update clientRoot path
