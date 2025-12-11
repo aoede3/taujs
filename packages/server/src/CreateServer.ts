@@ -42,7 +42,9 @@ const resolveClientRoot = (userClientRoot?: string): string => {
 
   const cwd = process.cwd();
 
-  return process.env.NODE_ENV === 'production' ? path.resolve(cwd, 'dist/client') : path.resolve(cwd, 'client');
+  if (process.env.NODE_ENV === 'production') return path.resolve(cwd, 'dist/client');
+
+  return path.resolve(cwd, 'src/client');
 };
 
 export const createServer = async (opts: CreateServerOptions): Promise<CreateServerResult> => {
