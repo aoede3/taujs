@@ -270,19 +270,13 @@ function generatePackageJson(projectName: string, packageManager: string) {
 
 function generateBuildTs() {
   return `import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { taujsBuild } from "@taujs/server";
-
-import config from "./taujs.config.ts";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import config from "./taujs.config.js";
 
 await taujsBuild({
-  clientBaseDir: path.resolve(__dirname, "src/client"),
+  clientBaseDir: path.resolve(process.cwd(), "src/client"),
   config,
-  projectRoot: __dirname,
-  mode: process.env.BUILD_MODE === 'ssr' ? 'ssr' : 'client',
+  projectRoot: process.cwd(),
 });
 `;
 }
@@ -846,21 +840,15 @@ export const { renderSSR, renderStream } = createRenderer({
 }
 
 function generateServerIndex() {
-  return `import path from 'node:path';
-import { createServer } from '@taujs/server';
+  return `import { createServer } from '@taujs/server';
 import config from '../../taujs.config.ts';
 import { serviceRegistry } from './services/registry.ts';
 
-const isDev = process.env.NODE_ENV !== 'production';
-
-const clientRoot = isDev
-  ? path.resolve(process.cwd(), 'src/client')   // source for dev + Vite
-  : path.resolve(process.cwd(), 'dist/client'); // built assets for prod
+const isDev = process.env.NODE_ENV !== "production";
 
 const { app, net } = await createServer({
   config,
   serviceRegistry,
-  clientRoot,
   debug: isDev ? { ssr: true } : false,
 });
 
