@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.5.0 - 11/12/2025
+
+feat: update path resolution
+
 v0.4.9 - 03/12/2025
 
 feat: static assets dev/prod; default paths, prod serving
