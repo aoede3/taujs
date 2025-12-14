@@ -4,7 +4,15 @@ vi.mock('../constants', () => ({
   CONTENT: { TAG: '[τjs]' },
 }));
 
-import { extractBuildConfigs, extractRoutes, extractSecurity, printConfigSummary, printSecuritySummary, printContractReport } from '../Setup';
+import {
+  extractBuildConfigs,
+  extractRoutes,
+  extractSecurity,
+  printConfigSummary,
+  printSecuritySummary,
+  printContractReport,
+  printVitePluginSummary,
+} from '../Setup';
 import { createLogger } from '../logging/Logger';
 
 import type { TaujsConfig, SecurityConfig } from '../Config';
@@ -331,5 +339,57 @@ describe('printContractReport', () => {
     expect(warns).toContain('[τjs] [security][hints] something odd');
     expect(debugs).toContain('[τjs] [security][routes] skipped check');
     expect(infos).toContain('[τjs] [security][ok] all good');
+  });
+});
+
+describe('printVitePluginSummary', () => {
+  const mem = makeMemoryLogger();
+  const { logger, take, reset } = mem;
+
+  beforeEach(() => reset());
+
+  it('prints "no app plugins" and merged=[none] when arrays are effectively empty', () => {
+    // merged includes junk that should be filtered out
+    const merged = [
+      {}, // no name
+      { name: '' }, // empty string -> filtered out
+      { name: undefined }, // filtered out
+      { name: 123 }, // non-string -> filtered out
+    ] as any;
+
+    printVitePluginSummary(logger as any, [], merged);
+
+    const infoCalls = take('info');
+    expect(infoCalls).toHaveLength(1);
+
+    const [msg] = infoCalls[0] as any[];
+    expect(msg).toContain('[τjs] [vite] Plugins no app plugins merged=[none]');
+  });
+
+  it('prints per-app plugin lists and merged plugin names (filters invalid names)', () => {
+    const appPlugins = [
+      { appId: 'main', plugins: ['vite:vue', 'inspect'] },
+      { appId: 'admin', plugins: [] }, // join => '' -> "none"
+    ];
+
+    const merged = [
+      { name: 'vite:vue' },
+      { name: '' }, // filtered
+      { name: undefined }, // filtered
+      {} as any, // filtered
+      { name: 'inspect' },
+    ] as any;
+
+    printVitePluginSummary(logger as any, appPlugins, merged);
+
+    const infoCalls = take('info');
+    expect(infoCalls).toHaveLength(1);
+
+    const [msg] = infoCalls[0] as any[];
+
+    expect(msg).toContain('[τjs] [vite] Plugins');
+    expect(msg).toContain('main=[vite:vue, inspect]');
+    expect(msg).toContain('admin=[none]');
+    expect(msg).toContain('merged=[vite:vue, inspect]');
   });
 });

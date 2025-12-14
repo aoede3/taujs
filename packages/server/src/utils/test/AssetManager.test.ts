@@ -148,6 +148,7 @@ describe('createMaps & processConfigs', () => {
         entryClient: 'src/main',
         entryServer: 'src/server',
         htmlTemplate: 'index.html',
+        plugins: [],
       },
       {
         appId: 'b',
@@ -156,6 +157,7 @@ describe('createMaps & processConfigs', () => {
         entryClient: 'clientB',
         entryServer: 'serverB',
         htmlTemplate: 'custom.html',
+        plugins: [],
       },
     ]);
   });

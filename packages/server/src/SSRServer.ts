@@ -11,6 +11,7 @@
 import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
+import { printVitePluginSummary } from './Setup';
 import { AppError } from './logging/AppError';
 import { createLogger } from './logging/Logger';
 import { toHttp } from './logging/utils';
@@ -25,6 +26,7 @@ import { createRouteMatchers } from './utils/DataRoutes';
 import { resolveRouteData } from './utils/ResolveRouteData';
 import { registerStaticAssets } from './utils/StaticAssets';
 import { isDevelopment } from './utils/System';
+import { mergePlugins } from './utils/VitePlugins';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -89,8 +91,23 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       debug: opts.debug,
     });
 
-    if (isDevelopment) viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet);
+    if (isDevelopment) {
+      const plugins = mergePlugins({
+        internal: [],
+        apps: processedConfigs,
+      });
 
+      printVitePluginSummary(
+        logger,
+        processedConfigs.map((c) => ({
+          appId: c.appId,
+          plugins: (c.plugins ?? []).map((p) => (Array.isArray(p) ? `array(${p.length})` : ((p as any)?.name ?? typeof p))),
+        })),
+        plugins,
+      );
+
+      viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet, plugins);
+    }
     app.addHook('onRequest', createAuthHook(routeMatchers, logger));
 
     // NOTE: this route is still subject to the global onRequest auth hook.

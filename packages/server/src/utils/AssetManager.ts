@@ -33,6 +33,7 @@ export const processConfigs = (configs: readonly Config[], baseClientRoot: strin
       entryServer: config.entryServer || templateDefaults.defaultEntryServer,
       htmlTemplate: config.htmlTemplate || templateDefaults.defaultHtmlTemplate,
       appId: config.appId,
+      plugins: config.plugins ?? [],
     };
   });
 };

@@ -2,6 +2,7 @@ import { performance } from 'node:perf_hooks';
 
 import { CONTENT } from './constants';
 
+import type { Plugin } from 'vite';
 import type { ContractReport } from './security/VerifyMiddleware';
 import type { PathToRegExpParams, Route } from './types';
 import type { DebugCategory, Logger } from './logging/Logger';
@@ -177,3 +178,10 @@ const computeScore = (path: string): number => {
     .filter(Boolean)
     .reduce((score, segment) => score + (segment.startsWith(':') ? 1 : 10), 0);
 };
+
+export function printVitePluginSummary(logger: Logger, appPlugins: Array<{ appId: string; plugins: string[] }>, merged: Plugin[]) {
+  const mergedNames = merged.map((p) => p?.name).filter((n): n is string => typeof n === 'string' && n.length > 0);
+  const appsLine = appPlugins.length === 0 ? 'no app plugins' : appPlugins.map((a) => `${a.appId}=[${a.plugins.join(', ') || 'none'}]`).join(' ');
+
+  logger.info(undefined, `${CONTENT.TAG} [vite] Plugins ${appsLine} merged=[${mergedNames.join(', ') || 'none'}]`);
+}

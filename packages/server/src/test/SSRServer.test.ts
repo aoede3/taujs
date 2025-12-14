@@ -23,6 +23,8 @@ const {
   resolveRouteDataMock,
   autoStaticPluginMock,
   getAutoStaticOpts,
+  printVitePluginSummaryMock,
+  mergePluginsMock,
 } = vi.hoisted(() => {
   class AppErrorFake {
     message!: string;
@@ -80,6 +82,8 @@ const {
     done();
   };
   const getAutoStaticOpts = () => autoStaticOpts;
+  const printVitePluginSummaryMock = vi.fn();
+  const mergePluginsMock = vi.fn(() => ['merged:one', 'merged:two']);
 
   return {
     AppErrorFake,
@@ -100,6 +104,8 @@ const {
     resolveRouteDataMock,
     autoStaticPluginMock,
     getAutoStaticOpts,
+    printVitePluginSummaryMock,
+    mergePluginsMock,
   };
 });
 
@@ -139,10 +145,15 @@ vi.mock('../utils/ResolveRouteData', () => ({ resolveRouteData: resolveRouteData
 
 vi.mock('@fastify/static', () => ({ default: autoStaticPluginMock }));
 
+vi.mock('../Setup', () => ({ printVitePluginSummary: printVitePluginSummaryMock }));
+vi.mock('../utils/VitePlugins', () => ({ mergePlugins: mergePluginsMock }));
+
 import { SSRServer, TEMPLATE } from '../SSRServer';
 import { loadAssets } from '../utils/AssetManager';
 import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
+import { printVitePluginSummary } from '../Setup';
+import { mergePlugins } from '../utils/VitePlugins';
 
 describe('SSRServer', () => {
   let app: FastifyInstance;
@@ -400,7 +411,10 @@ describe('SSRServer', () => {
       devNet: { host: 'localhost', hmrPort: 5173 },
     });
 
-    expect(setupDevServerMock).toHaveBeenCalledWith(expect.any(Object), '/client', { '@': '/src' }, { all: true }, { host: 'localhost', hmrPort: 5173 });
+    expect(setupDevServerMock).toHaveBeenCalledWith(expect.any(Object), '/client', { '@': '/src' }, { all: true }, { host: 'localhost', hmrPort: 5173 }, [
+      'merged:one',
+      'merged:two',
+    ]);
 
     await app.inject({ method: 'GET', url: '/x' });
 
@@ -908,5 +922,62 @@ describe('SSRServer', () => {
       expect(res.statusCode).toBe(200);
       expect(resolveRouteDataMock).toHaveBeenCalledWith('/app/page', expect.any(Object));
     });
+  });
+
+  it('dev mode: printVitePluginSummary receives mapped plugin descriptors for all plugin shapes', async () => {
+    devRef.value = true;
+
+    const namedPlugin = { name: 'named-plugin' };
+    const unnamedObject = {}; // typeof => "object"
+    const pluginArrayOption = [{ name: 'a' }, { name: 'b' }]; // Array.isArray => array(2)
+    const pluginFn = function pluginFn() {}; // has .name => "pluginFn"
+    const falsyPlugin = false; // typeof => "boolean"
+    const nullPlugin = null; // typeof => "object"
+
+    await app.register(SSRServer, {
+      alias: {},
+      clientRoot: '/client',
+      routes: [],
+      implyingThisDoesNotMatter: undefined as any,
+      debug: false,
+      configs: [
+        {
+          appId: 'app-a',
+          entryPoint: '.',
+          plugins: [pluginArrayOption, namedPlugin, unnamedObject, pluginFn, falsyPlugin, nullPlugin],
+        },
+        {
+          appId: 'app-b',
+          entryPoint: '.',
+        },
+      ],
+    } as any);
+
+    expect(mergePlugins).toHaveBeenCalledWith(
+      expect.objectContaining({
+        internal: [],
+        apps: expect.any(Array),
+      }),
+    );
+
+    expect(printVitePluginSummary).toHaveBeenCalledTimes(1);
+
+    const call = (printVitePluginSummary as any).mock.calls[0]!;
+    const [loggerArg, perAppArg, mergedArg] = call;
+
+    expect(loggerArg).toBe(mockLogger);
+
+    expect(perAppArg).toEqual([
+      {
+        appId: 'app-a',
+        plugins: ['array(2)', 'named-plugin', 'object', expect.any(String), 'boolean', 'object'],
+      },
+      {
+        appId: 'app-b',
+        plugins: [],
+      },
+    ]);
+
+    expect(mergedArg).toEqual(['merged:one', 'merged:two']);
   });
 });

@@ -21,6 +21,7 @@ export type Config = {
   entryClient?: string;
   entryServer?: string;
   htmlTemplate?: string;
+  plugins?: PluginOption[];
 };
 
 export type ProcessedConfig = {
