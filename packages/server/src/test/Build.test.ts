@@ -112,8 +112,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -487,8 +487,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -585,8 +585,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -615,8 +615,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -1113,8 +1113,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -1389,8 +1389,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -1552,8 +1552,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -1677,8 +1677,8 @@ describe('Build.ts - Full Coverage', () => {
         appId: 'minimal',
         entryPoint: 'minimal',
         clientRoot: '/project/src/client/minimal',
-        entryClient: 'entry-client',
-        entryServer: 'entry-server',
+        entryClientFile: 'entry-client.tsx',
+        entryServerFile: 'entry-server.tsx',
         htmlTemplate: 'index.html',
       };
       vi.mocked(processConfigs).mockReturnValue([minimalAppConfig] as any);
@@ -1833,8 +1833,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [{ name: 'framework-plugin' }],
     };
@@ -1993,8 +1993,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -2411,8 +2411,8 @@ describe('Build.ts - Full Coverage', () => {
   describe('taujsBuild – app filtering via CLI/env', () => {
     const mockAppBase = {
       clientRoot: '/project/src/client',
-      entryClient: 'entry-client',
-      entryServer: 'entry-server',
+      entryClientFile: 'entry-client.tsx',
+      entryServerFile: 'entry-server.tsx',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -2570,8 +2570,8 @@ describe('Build.ts - Full Coverage', () => {
           appId: 'root-app',
           entryPoint: '',
           clientRoot: '/project/src/client',
-          entryClient: 'entry-client',
-          entryServer: 'entry-server',
+          entryClientFile: 'entry-client.tsx',
+          entryServerFile: 'entry-server.tsx',
           htmlTemplate: 'index.html',
           plugins: [],
         },
@@ -2614,8 +2614,8 @@ describe('Build.ts - Full Coverage', () => {
 //     appId: 'test-app',
 //     entryPoint: 'admin',
 //     clientRoot: '/project/src/client/admin',
-//     entryClient: 'entry-client',
-//     entryServer: 'entry-server',
+//     entryClientFile: 'entry-client.tsx',
+//     entryServerFile: 'entry-server.tsx',
 //     htmlTemplate: 'index.html',
 //     // Don't include plugins to trigger the undefined case
 //   };

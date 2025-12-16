@@ -287,9 +287,7 @@ export function mergeViteConfig(framework: InlineConfig, userOverride?: ViteConf
 
   ((merged.build as any).rollupOptions as any).input = invariants.build.rollupOptions.input;
 
-  // ─────────────────────────────────────────────────────────────
   // WARN: User attempted to override protected fields
-  // ─────────────────────────────────────────────────────────────
   if (ignoredKeys.length > 0) {
     const uniqueKeys = [...new Set(ignoredKeys)];
     const prefix = context ? `[taujs:build:${context.entryPoint}]` : '[taujs:build]';
@@ -413,7 +411,7 @@ export async function taujsBuild({
   if (!isSSRBuild) await deleteDist();
 
   for (const appConfig of configsToBuild) {
-    const { appId, entryPoint, clientRoot, entryClient, entryServer, htmlTemplate, plugins = [] } = appConfig;
+    const { appId, entryPoint, clientRoot, entryClientFile, entryServerFile, htmlTemplate, plugins = [] } = appConfig;
 
     const outDir = path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
     const root = entryPoint ? path.resolve(clientBaseDir, entryPoint) : clientBaseDir;
@@ -426,8 +424,8 @@ export async function taujsBuild({
 
     const resolvedAlias: Record<string, string> = { ...defaultAlias, ...(userAlias ?? {}) };
 
-    const server = path.resolve(clientRoot, `${entryServer}.tsx`);
-    const client = path.resolve(clientRoot, `${entryClient}.tsx`);
+    const server = path.resolve(clientRoot, entryServerFile);
+    const client = path.resolve(clientRoot, entryClientFile);
     const main = path.resolve(clientRoot, htmlTemplate);
 
     const inputs = resolveInputs(isSSRBuild, !isSSRBuild && existsSync(main), { server, client, main });

@@ -32,6 +32,8 @@ export type ProcessedConfig = {
   entryServer: string;
   htmlTemplate: string;
   plugins?: PluginOption[];
+  entryClientFile: string;
+  entryServerFile: string;
 };
 
 export type SSRServerOptions = {

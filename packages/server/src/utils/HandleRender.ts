@@ -83,7 +83,7 @@ export const handleRender = async (
       });
     }
 
-    const { clientRoot, entryServer } = config;
+    const { clientRoot, entryServerFile } = config;
 
     let template = ensureNonNull(maps.templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
 
@@ -100,7 +100,7 @@ export const handleRender = async (
         template = template.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '');
         template = template.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
 
-        const entryServerPath = path.join(clientRoot, `${entryServer}.tsx`);
+        const entryServerPath = path.join(clientRoot, entryServerFile);
         const executedModule = await viteDevServer.ssrLoadModule(entryServerPath);
         renderModule = executedModule as RenderModule;
 
@@ -110,7 +110,7 @@ export const handleRender = async (
 
         template = await viteDevServer.transformIndexHtml(url, template);
       } catch (error) {
-        throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServer, url } });
+        throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServerFile, url } });
       }
     } else {
       renderModule = maps.renderModules.get(clientRoot) as RenderModule;
