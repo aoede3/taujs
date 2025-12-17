@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.5.1 - 1/12/2025
+
+feat: plugin alignment
+feat: .ts, .tsx file extensions for entry points
+
 v0.5.0 - 11/12/2025
 
 feat: update path resolution
