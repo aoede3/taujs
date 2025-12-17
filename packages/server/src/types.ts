@@ -21,6 +21,7 @@ export type Config = {
   entryClient?: string;
   entryServer?: string;
   htmlTemplate?: string;
+  plugins?: PluginOption[];
 };
 
 export type ProcessedConfig = {
@@ -31,6 +32,8 @@ export type ProcessedConfig = {
   entryServer: string;
   htmlTemplate: string;
   plugins?: PluginOption[];
+  entryClientFile: string;
+  entryServerFile: string;
 };
 
 export type SSRServerOptions = {

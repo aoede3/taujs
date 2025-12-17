@@ -7,7 +7,7 @@ import { CONTENT } from '../constants';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
-import type { ViteDevServer } from 'vite';
+import type { PluginOption, ViteDevServer } from 'vite';
 import type { DebugConfig } from '../logging/Logger';
 
 export const setupDevServer = async (
@@ -16,6 +16,7 @@ export const setupDevServer = async (
   alias?: Record<string, string>,
   debug?: DebugConfig,
   devNet?: { host: string; hmrPort: number },
+  plugins: PluginOption[] = [],
 ): Promise<ViteDevServer> => {
   const logger = createLogger({
     context: { service: 'setupDevServer' },
@@ -39,6 +40,7 @@ export const setupDevServer = async (
     },
     mode: 'development',
     plugins: [
+      ...plugins,
       ...(debug
         ? [
             {

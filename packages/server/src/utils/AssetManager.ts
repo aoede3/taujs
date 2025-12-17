@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
+import { ENTRY_EXTENSIONS } from '../constants';
 import { AppError } from '../logging/AppError';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from './System';
@@ -11,6 +13,21 @@ import type { Manifest } from 'vite';
 import type { TEMPLATE } from '../constants';
 import type { DebugConfig, Logs } from '../logging/Logger';
 import type { RenderModule, SSRManifest, Config, ProcessedConfig } from '../types';
+
+/**
+ * Resolve entry file by checking filesystem for supported extensions.
+ * @throws Error if no matching file found
+ */
+function resolveEntryFile(clientRoot: string, stem: string): string {
+  for (const ext of ENTRY_EXTENSIONS) {
+    const filename = `${stem}${ext}`;
+    const absPath = path.join(clientRoot, filename);
+
+    if (existsSync(absPath)) return filename; // Return relative filename (e.g., "entry-server.ts")
+  }
+
+  throw new Error(`Entry file "${stem}" not found in ${clientRoot}. ` + `Tried: ${ENTRY_EXTENSIONS.map((e) => stem + e).join(', ')}`);
+}
 
 export const createMaps = () => ({
   bootstrapModules: new Map<string, string>(),
@@ -26,13 +43,22 @@ export const processConfigs = (configs: readonly Config[], baseClientRoot: strin
   return configs.map((config) => {
     const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
 
+    const entryClient = config.entryClient || templateDefaults.defaultEntryClient;
+    const entryServer = config.entryServer || templateDefaults.defaultEntryServer;
+
+    const entryClientFile = resolveEntryFile(clientRoot, entryClient);
+    const entryServerFile = resolveEntryFile(clientRoot, entryServer);
+
     return {
       clientRoot,
       entryPoint: config.entryPoint,
-      entryClient: config.entryClient || templateDefaults.defaultEntryClient,
-      entryServer: config.entryServer || templateDefaults.defaultEntryServer,
+      entryClient,
+      entryServer,
       htmlTemplate: config.htmlTemplate || templateDefaults.defaultHtmlTemplate,
       appId: config.appId,
+      plugins: config.plugins ?? [],
+      entryClientFile,
+      entryServerFile,
     };
   });
 };
@@ -57,7 +83,7 @@ export const loadAssets = async (
     });
 
   for (const config of processedConfigs) {
-    const { clientRoot, entryClient, entryServer, htmlTemplate, entryPoint } = config;
+    const { clientRoot, entryClient, entryServer, htmlTemplate, entryPoint, entryClientFile, entryServerFile } = config;
 
     try {
       const templateHtmlPath = path.join(clientRoot, htmlTemplate);
@@ -84,18 +110,18 @@ export const loadAssets = async (
           const ssrManifest = JSON.parse(ssrManifestContent) as SSRManifest;
           ssrManifests.set(clientRoot, ssrManifest);
 
-          const entryClientFile = manifest[`${entryClient}.tsx`]?.file;
-          if (!entryClientFile) {
-            throw AppError.internal(`Entry client file not found in manifest for ${entryClient}.tsx`, {
+          const manifestEntry = manifest[entryClientFile];
+          if (!manifestEntry?.file) {
+            throw AppError.internal(`Entry client file not found in manifest for ${entryClientFile}`, {
               details: {
                 clientRoot,
-                entryClient,
+                entryClientFile,
                 availableKeys: Object.keys(manifest),
               },
             });
           }
 
-          const bootstrapModule = `/${adjustedRelativePath}/${entryClientFile}`.replace(/\/{2,}/g, '/');
+          const bootstrapModule = `/${adjustedRelativePath}/${manifestEntry.file}`.replace(/\/{2,}/g, '/');
           bootstrapModules.set(clientRoot, bootstrapModule);
 
           const preloadLink = renderPreloadLinks(ssrManifest, adjustedRelativePath);
@@ -136,7 +162,7 @@ export const loadAssets = async (
           }
         }
       } else {
-        const bootstrapModule = `/${adjustedRelativePath}/${entryClient}`.replace(/\/{2,}/g, '/');
+        const bootstrapModule = `/${adjustedRelativePath}/${entryClientFile}`.replace(/\/{2,}/g, '/');
         bootstrapModules.set(clientRoot, bootstrapModule);
       }
     } catch (err) {

@@ -1,13 +1,26 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ENTRY_EXTENSIONS } from '../../constants';
 
 const hoisted = vi.hoisted(() => ({
+  // fs
+  existsSyncMock: vi.fn<(p: string) => boolean>(),
   readFileMock: vi.fn<(p: string, enc: string) => Promise<string>>(),
+
+  // url
   pathToFileURLMock: vi.fn((p: string) => ({ href: '/virtual/render-ok.js' })),
+
+  // templates
   getCssLinksMock: vi.fn(() => '[css-links]'),
   renderPreloadLinksMock: vi.fn(() => '[preload-links]'),
+
+  // logger
   createLoggerMock: vi.fn(),
   loggerErrorMock: vi.fn(),
+}));
+
+vi.mock('node:fs', () => ({
+  existsSync: hoisted.existsSyncMock,
 }));
 
 vi.mock('fs/promises', () => ({
@@ -27,6 +40,10 @@ vi.mock('../../logging/AppError', () => {
   class AppError extends Error {
     code?: string;
     extra?: any;
+    constructor(message: string) {
+      super(message);
+      this.name = 'AppError';
+    }
     static internal(message: string, extra?: any) {
       const e = new AppError(message);
       (e as any).code = 'INTERNAL';
@@ -44,6 +61,7 @@ vi.mock('../../logging/Logger', () => ({
 async function importer(isDev = true) {
   vi.resetModules();
 
+  vi.doMock('node:fs', () => ({ existsSync: hoisted.existsSyncMock }));
   vi.doMock('fs/promises', () => ({ readFile: hoisted.readFileMock }));
   vi.doMock('url', () => ({ pathToFileURL: hoisted.pathToFileURLMock }));
   vi.doMock('../Templates', () => ({
@@ -78,15 +96,18 @@ async function importer(isDev = true) {
   return await import('../AssetManager');
 }
 
-const { readFileMock, pathToFileURLMock, getCssLinksMock, renderPreloadLinksMock, createLoggerMock, loggerErrorMock } = hoisted;
+const { existsSyncMock, readFileMock, pathToFileURLMock, getCssLinksMock, renderPreloadLinksMock, createLoggerMock, loggerErrorMock } = hoisted;
 
 vi.mock('/virtual/render-ok.js', () => ({ default: { render: 'ok' } }));
 
 beforeEach(() => {
+  existsSyncMock.mockReset();
   readFileMock.mockReset();
-  pathToFileURLMock.mockReset().mockImplementation((p: string) => ({ href: '/virtual/render-ok.js' }));
+  pathToFileURLMock.mockReset().mockImplementation(() => ({ href: '/virtual/render-ok.js' }));
+
   getCssLinksMock.mockReset().mockReturnValue('[css-links]');
   renderPreloadLinksMock.mockReset().mockReturnValue('[preload-links]');
+
   createLoggerMock.mockReset().mockReturnValue({ error: loggerErrorMock.mockReset() });
 });
 
@@ -117,8 +138,8 @@ describe('createMaps & processConfigs', () => {
       expect(v instanceof Map).toBe(true);
       expect((v as Map<any, any>).size).toBe(0);
     }
-    const values = Object.values(maps);
 
+    const values = Object.values(maps);
     for (let i = 0; i < values.length; i++) {
       for (let j = i + 1; j < values.length; j++) {
         expect(values[i]).not.toBe(values[j]);
@@ -126,8 +147,24 @@ describe('createMaps & processConfigs', () => {
     }
   });
 
-  it('processConfigs maps inputs and applies defaults from TEMPLATE', async () => {
+  it('processConfigs maps inputs and applies defaults from TEMPLATE (resolves entry files via existsSync)', async () => {
     const { processConfigs } = await importer(true);
+
+    // make resolveEntryFile() succeed for both apps
+    existsSyncMock.mockImplementation((p: string) => {
+      const s = String(p).replace(/\\/g, '/');
+
+      // appA defaults: /root/appA/src/main.tsx and /root/appA/src/server.ts
+      if (s === '/root/appA/src/main.tsx') return true;
+      if (s === '/root/appA/src/server.ts') return true;
+
+      // appB overrides: /root/appB/clientB.ts and /root/appB/serverB.tsx
+      if (s === '/root/appB/clientB.ts') return true;
+      if (s === '/root/appB/serverB.tsx') return true;
+
+      return false;
+    });
+
     const TEMPLATE = {
       defaultEntryClient: 'src/main',
       defaultEntryServer: 'src/server',
@@ -140,6 +177,7 @@ describe('createMaps & processConfigs', () => {
     ] as any;
 
     const res = processConfigs(cfgs, '/root', TEMPLATE);
+
     expect(res).toEqual([
       {
         appId: 'a',
@@ -148,6 +186,9 @@ describe('createMaps & processConfigs', () => {
         entryClient: 'src/main',
         entryServer: 'src/server',
         htmlTemplate: 'index.html',
+        plugins: [],
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'src/server.ts',
       },
       {
         appId: 'b',
@@ -156,17 +197,39 @@ describe('createMaps & processConfigs', () => {
         entryClient: 'clientB',
         entryServer: 'serverB',
         htmlTemplate: 'custom.html',
+        plugins: [],
+        entryClientFile: 'clientB.ts',
+        entryServerFile: 'serverB.tsx',
       },
     ]);
+  });
+
+  it('processConfigs throws when resolveEntryFile cannot find a matching entry (covers not-found branch)', async () => {
+    const { processConfigs } = await importer(true);
+
+    // Force resolveEntryFile() to exhaust ENTRY_EXTENSIONS and throw
+    existsSyncMock.mockReturnValue(false);
+
+    const TEMPLATE = {
+      defaultEntryClient: 'src/main',
+      defaultEntryServer: 'src/server',
+      defaultHtmlTemplate: 'index.html',
+    } as any;
+
+    const cfgs = [{ appId: 'a', entryPoint: 'appA' }] as any;
+
+    expect(() => processConfigs(cfgs, '/root', TEMPLATE)).toThrowError(/Entry file "src\/main" not found in \/root\/appA\..*Tried:/);
+
+    expect(existsSyncMock).toHaveBeenCalledTimes(ENTRY_EXTENSIONS.length);
   });
 });
 
 describe('loadAssets (development)', () => {
-  it('reads template and sets bootstrapModules to raw entryClient path with adjusted relative', async () => {
+  it('reads template and sets bootstrapModules to raw entryClientFile path with adjusted relative', async () => {
     const { loadAssets } = await importer(true);
     const maps = makeMaps();
 
-    readFileMock.mockImplementation(async (p: string, enc: string) => {
+    readFileMock.mockImplementation(async (p: string) => {
       if (String(p).endsWith('/appA/index.html')) return '<html>A</html>';
       throw Object.assign(new Error('unexpected path'), { path: p });
     });
@@ -175,10 +238,13 @@ describe('loadAssets (development)', () => {
       {
         clientRoot: '/root/appA',
         entryPoint: 'appA',
-        entryClient: 'src/main.tsx',
+        entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'a',
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 
@@ -216,18 +282,21 @@ describe('loadAssets (development)', () => {
 
     const processed = [
       {
-        clientRoot: '/root', // equals baseClientRoot below
+        clientRoot: '/root',
         entryPoint: '',
-        entryClient: 'src/main.tsx',
+        entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'root',
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 
     await loadAssets(
       processed as any,
-      '/root', // baseClientRoot === clientRoot
+      '/root',
       maps.bootstrapModules,
       maps.cssLinks,
       maps.manifests,
@@ -239,7 +308,6 @@ describe('loadAssets (development)', () => {
     );
 
     expect(maps.templates.get('/root')).toBe('<html>dev root</html>');
-    // adjustedRelativePath === '' → '/'+''+'/'+entryClient then //→/ collapsed to single '/'
     expect(maps.bootstrapModules.get('/root')).toBe('/src/main.tsx');
   });
 });
@@ -254,29 +322,36 @@ describe('loadAssets (production)', () => {
     };
     const ssrManifest = { some: 'data' };
 
-    readFileMock.mockImplementation(async (p: string, enc: string) => {
-      const s = String(p);
-      if (s.endsWith('/appA/index.html')) return '<html>prod</html>';
-      if (s.endsWith('/appA/.vite/manifest.json')) return JSON.stringify(manifest);
-      if (s.endsWith('/appA/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
+    readFileMock.mockImplementation(async (p: string) => {
+      const s = String(p).replace(/\\/g, '/');
+
+      if (s.endsWith('/dist/client/appA/index.html')) return '<html>prod</html>';
+
+      // manifest paths derived from baseClientRoot + entryPoint
+      if (s.endsWith('/dist/client/appA/.vite/manifest.json')) return JSON.stringify(manifest);
+      if (s.endsWith('/dist/ssr/appA/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
 
       throw Object.assign(new Error('unexpected readFile path'), { path: s });
     });
 
     const processed = [
       {
-        clientRoot: '/root/appA',
+        clientRoot: '/root/dist/client/appA',
         entryPoint: 'appA',
         entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'a',
+
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 
     await loadAssets(
       processed as any,
-      '/root',
+      '/root/dist/client',
       maps.bootstrapModules,
       maps.cssLinks,
       maps.manifests,
@@ -287,19 +362,19 @@ describe('loadAssets (production)', () => {
       { debug: { all: true } as any },
     );
 
-    expect(maps.templates.get('/root/appA')).toBe('<html>prod</html>');
-    expect(maps.manifests.get('/root/appA')).toEqual(manifest);
-    expect(maps.ssrManifests.get('/root/appA')).toEqual(ssrManifest);
+    expect(maps.templates.get('/root/dist/client/appA')).toBe('<html>prod</html>');
+    expect(maps.manifests.get('/root/dist/client/appA')).toEqual(manifest);
+    expect(maps.ssrManifests.get('/root/dist/client/appA')).toEqual(ssrManifest);
 
-    expect(maps.bootstrapModules.get('/root/appA')).toBe('/appA/assets/app.js');
+    expect(maps.bootstrapModules.get('/root/dist/client/appA')).toBe('/appA/assets/app.js');
 
     expect(renderPreloadLinksMock).toHaveBeenCalledWith(ssrManifest, '/appA');
     expect(getCssLinksMock).toHaveBeenCalledWith(manifest, '/appA');
 
-    expect(maps.preloadLinks.get('/root/appA')).toBe('[preload-links]');
-    expect(maps.cssLinks.get('/root/appA')).toBe('[css-links]');
+    expect(maps.preloadLinks.get('/root/dist/client/appA')).toBe('[preload-links]');
+    expect(maps.cssLinks.get('/root/dist/client/appA')).toBe('[css-links]');
 
-    expect(maps.renderModules.get('/root/appA')).toEqual({ default: { render: 'ok' } });
+    expect(maps.renderModules.get('/root/dist/client/appA')).toEqual({ default: { render: 'ok' } });
   });
 
   it('logs AppError when entry client is missing in manifest', async () => {
@@ -311,28 +386,31 @@ describe('loadAssets (production)', () => {
     };
     const ssrManifest = {};
 
-    readFileMock.mockImplementation(async (p: string, enc: string) => {
-      const s = String(p);
-      if (s.endsWith('/appA/index.html')) return '<html>prod</html>';
-      if (s.endsWith('/appA/.vite/manifest.json')) return JSON.stringify(badManifest);
-      if (s.endsWith('/appA/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
+    readFileMock.mockImplementation(async (p: string) => {
+      const s = String(p).replace(/\\/g, '/');
+      if (s.endsWith('/dist/client/appA/index.html')) return '<html>prod</html>';
+      if (s.endsWith('/dist/client/appA/.vite/manifest.json')) return JSON.stringify(badManifest);
+      if (s.endsWith('/dist/ssr/appA/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
       throw Object.assign(new Error('unexpected path'), { path: s });
     });
 
     const processed = [
       {
-        clientRoot: '/root/appA',
+        clientRoot: '/root/dist/client/appA',
         entryPoint: 'appA',
         entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'a',
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 
     await loadAssets(
       processed as any,
-      '/root',
+      '/root/dist/client',
       maps.bootstrapModules,
       maps.cssLinks,
       maps.manifests,
@@ -355,7 +433,7 @@ describe('loadAssets (production)', () => {
       'Asset load failed',
     );
 
-    expect(maps.templates.get('/root/appA')).toBe('<html>prod</html>');
+    expect(maps.templates.get('/root/dist/client/appA')).toBe('<html>prod</html>');
     expect(maps.bootstrapModules.size).toBe(0);
   });
 
@@ -366,30 +444,35 @@ describe('loadAssets (production)', () => {
     const manifest = { 'src/main.tsx': { file: 'assets/app.js' } };
     const ssrManifest = {};
 
-    readFileMock.mockImplementation(async (p: string, enc: string) => {
-      const s = String(p);
-      if (s.endsWith('/appA/index.html')) return '<html>prod</html>';
-      if (s.endsWith('/appA/.vite/manifest.json')) return JSON.stringify(manifest);
-      if (s.endsWith('/appA/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
+    readFileMock.mockImplementation(async (p: string) => {
+      const s = String(p).replace(/\\/g, '/');
+      if (s.endsWith('/dist/client/appA/index.html')) return '<html>prod</html>';
+      if (s.endsWith('/dist/client/appA/.vite/manifest.json')) return JSON.stringify(manifest);
+      if (s.endsWith('/dist/ssr/appA/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
       throw Object.assign(new Error('unexpected path'), { path: s });
     });
 
+    // force dynamic import to fail
     pathToFileURLMock.mockReturnValueOnce({ href: '/virtual/render-missing.js' });
 
     const processed = [
       {
-        clientRoot: '/root/appA',
+        clientRoot: '/root/dist/client/appA',
         entryPoint: 'appA',
         entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'a',
+
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 
     await loadAssets(
       processed as any,
-      '/root',
+      '/root/dist/client',
       maps.bootstrapModules,
       maps.cssLinks,
       maps.manifests,
@@ -412,7 +495,8 @@ describe('loadAssets (production)', () => {
       'Asset load failed',
     );
 
-    expect(maps.bootstrapModules.get('/root/appA')).toBe('/appA/assets/app.js');
+    // bootstrap module was still computed before the import failed
+    expect(maps.bootstrapModules.get('/root/dist/client/appA')).toBe('/appA/assets/app.js');
   });
 
   it('prod: adjustedRelativePath empty passes "" to link helpers', async () => {
@@ -423,27 +507,31 @@ describe('loadAssets (production)', () => {
     const ssrManifest = { ok: true };
 
     readFileMock.mockImplementation(async (p: string) => {
-      const s = String(p);
-      if (s.endsWith('/index.html')) return '<html>prod root</html>';
-      if (s.endsWith('/.vite/manifest.json')) return JSON.stringify(manifest);
-      if (s.endsWith('/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
-      throw new Error('unexpected path');
+      const s = String(p).replace(/\\/g, '/');
+      if (s.endsWith('/dist/client/index.html')) return '<html>prod root</html>';
+      if (s.endsWith('/dist/client/.vite/manifest.json')) return JSON.stringify(manifest);
+      if (s.endsWith('/dist/ssr/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
+      throw new Error(`unexpected path: ${s}`);
     });
 
     const processed = [
       {
-        clientRoot: '/root',
+        clientRoot: '/root/dist/client',
         entryPoint: '',
         entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'root',
+
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 
     await loadAssets(
       processed as any,
-      '/root', // base === clientRoot → adjustedRelativePath === ''
+      '/root/dist/client', // base === clientRoot → adjustedRelativePath === ''
       maps.bootstrapModules,
       maps.cssLinks,
       maps.manifests,
@@ -454,39 +542,41 @@ describe('loadAssets (production)', () => {
       {},
     );
 
-    expect(maps.bootstrapModules.get('/root')).toBe('/assets/app.js');
+    expect(maps.bootstrapModules.get('/root/dist/client')).toBe('/assets/app.js');
     expect(renderPreloadLinksMock).toHaveBeenCalledWith({ ok: true }, '');
     expect(getCssLinksMock).toHaveBeenCalledWith(manifest, '');
-    expect(maps.preloadLinks.get('/root')).toBe('[preload-links]');
-    expect(maps.cssLinks.get('/root')).toBe('[css-links]');
+    expect(maps.preloadLinks.get('/root/dist/client')).toBe('[preload-links]');
+    expect(maps.cssLinks.get('/root/dist/client')).toBe('[css-links]');
   });
 
   it('prod: logs non-AppError Error with structured fields', async () => {
     const { loadAssets } = await importer(false);
     const maps = makeMaps();
 
-    // Make manifest read throw a plain Error (not AppError)
     readFileMock.mockImplementation(async (p: string) => {
-      const s = String(p);
-      if (s.endsWith('/index.html')) return '<html></html>';
-      if (s.endsWith('/.vite/manifest.json')) throw new Error('manifest-kaboom');
+      const s = String(p).replace(/\\/g, '/');
+      if (s.endsWith('/dist/client/appA/index.html')) return '<html></html>';
+      if (s.endsWith('/dist/client/appA/.vite/manifest.json')) throw new Error('manifest-kaboom');
       return '';
     });
 
     const processed = [
       {
-        clientRoot: '/root/appA',
+        clientRoot: '/root/dist/client/appA',
         entryPoint: 'appA',
         entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'a',
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 
     await loadAssets(
       processed as any,
-      '/root',
+      '/root/dist/client',
       maps.bootstrapModules,
       maps.cssLinks,
       maps.manifests,
@@ -515,26 +605,29 @@ describe('loadAssets (production)', () => {
     const maps = makeMaps();
 
     readFileMock.mockImplementation(async (p: string) => {
-      const s = String(p);
-      if (s.endsWith('/index.html')) return '<html></html>';
-      if (s.endsWith('/.vite/manifest.json')) throw 'string-fail'; // not an Error
+      const s = String(p).replace(/\\/g, '/');
+      if (s.endsWith('/dist/client/appA/index.html')) return '<html></html>';
+      if (s.endsWith('/dist/client/appA/.vite/manifest.json')) throw 'string-fail';
       return '';
     });
 
     const processed = [
       {
-        clientRoot: '/root/appA',
+        clientRoot: '/root/dist/client/appA',
         entryPoint: 'appA',
         entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'a',
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 
     await loadAssets(
       processed as any,
-      '/root',
+      '/root/dist/client',
       maps.bootstrapModules,
       maps.cssLinks,
       maps.manifests,
@@ -548,7 +641,6 @@ describe('loadAssets (production)', () => {
     expect(loggerErrorMock).toHaveBeenCalledWith(
       expect.objectContaining({
         stage: 'loadAssets:production',
-        // When err is not an Error, code uses String(err)
         error: 'string-fail',
       }),
       'Asset load failed',
@@ -559,17 +651,19 @@ describe('loadAssets (production)', () => {
     const { loadAssets } = await importer(true);
     const maps = makeMaps();
 
-    // Non-Error rejection → hits `: String(err)` branch
     readFileMock.mockRejectedValueOnce('template-bad-string');
 
     const processed = [
       {
         clientRoot: '/root/appA',
         entryPoint: 'appA',
-        entryClient: 'src/main.tsx',
+        entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'a',
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 
@@ -589,7 +683,7 @@ describe('loadAssets (production)', () => {
     expect(loggerErrorMock).toHaveBeenCalledWith(
       expect.objectContaining({
         stage: 'loadAssets:config',
-        error: 'template-bad-string', // <- String(err)
+        error: 'template-bad-string',
       }),
       'Failed to process config',
     );
@@ -602,7 +696,17 @@ describe('loadAssets (production)', () => {
     readFileMock.mockRejectedValueOnce({ reason: 'bad' });
 
     const processed = [
-      { clientRoot: '/root/appA', entryPoint: 'appA', entryClient: 'src/main.tsx', entryServer: 'server/entry', htmlTemplate: 'index.html', appId: 'a' },
+      {
+        clientRoot: '/root/appA',
+        entryPoint: 'appA',
+        entryClient: 'src/main',
+        entryServer: 'server/entry',
+        htmlTemplate: 'index.html',
+        appId: 'a',
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
+      },
     ] as any;
 
     await loadAssets(
@@ -621,7 +725,7 @@ describe('loadAssets (production)', () => {
     expect(loggerErrorMock).toHaveBeenCalledWith(
       expect.objectContaining({
         stage: 'loadAssets:config',
-        error: '[object Object]', // String({ reason: 'bad' })
+        error: '[object Object]',
       }),
       'Failed to process config',
     );
@@ -639,10 +743,13 @@ describe('loadAssets - top-level failure (template read fails)', () => {
       {
         clientRoot: '/root/appA',
         entryPoint: 'appA',
-        entryClient: 'src/main.tsx',
+        entryClient: 'src/main',
         entryServer: 'server/entry',
         htmlTemplate: 'index.html',
         appId: 'a',
+        entryClientFile: 'src/main.tsx',
+        entryServerFile: 'server/entry.ts',
+        plugins: [],
       },
     ];
 

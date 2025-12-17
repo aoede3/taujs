@@ -1,9 +1,11 @@
+// @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { handleRender } from '../HandleRender';
 import * as DataRoutes from '../DataRoutes';
 import * as Templates from '../Templates';
 import * as System from '../System';
+import * as Telemetry from '../Telemetry';
 import { AppError } from '../../logging/AppError';
 import { createLogger } from '../../logging/Logger';
 
@@ -12,6 +14,8 @@ import type { Mock } from 'vitest';
 vi.mock('../DataRoutes');
 vi.mock('../Templates');
 vi.mock('../System');
+vi.mock('../Telemetry');
+
 vi.mock('../../logging/AppError', async () => {
   const actual = await vi.importActual<any>('../../logging/AppError');
   const { normaliseError, toReason } = actual;
@@ -50,6 +54,7 @@ vi.mock('../../logging/AppError', async () => {
 });
 
 vi.mock('../../logging/Logger');
+
 vi.mock('node:stream', () => {
   class MockPassThrough {
     private _dest: any = null;
@@ -164,8 +169,9 @@ describe('handleRender', () => {
         off: vi.fn(),
       },
       headers: { host: 'localhost' },
-      cspNonce: 'test-nonce-123',
     };
+
+    (mockReq as any).cspNonce = 'test-nonce-123';
 
     mockReply = {
       callNotFound: vi.fn(),
@@ -185,7 +191,7 @@ describe('handleRender', () => {
         flushHeaders: vi.fn(),
         writableEnded: false,
         destroyed: false,
-        destroy: vi.fn(function (this: any, err?: any) {
+        destroy: vi.fn(function (this: any, _err?: any) {
           this.destroyed = true;
           this.writableEnded = true;
         }),
@@ -193,13 +199,15 @@ describe('handleRender', () => {
     };
 
     mockRouteMatchers = [];
+
     mockProcessedConfigs = [
       {
         appId: 'test-app',
         clientRoot: '/test/client',
-        entryServer: 'entry-server',
+        entryServerFile: 'entry-server.tsx',
       },
     ];
+
     mockServiceRegistry = {};
 
     mockMaps = {
@@ -217,7 +225,14 @@ describe('handleRender', () => {
       transformIndexHtml: vi.fn(),
     };
 
+    // Default: prod behaviour
     vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(false);
+
+    vi.mocked(Telemetry.createRequestContext).mockReturnValue({
+      traceId: 'trace-1',
+      logger: mockLogger,
+      headers: { host: 'localhost' },
+    } as any);
   });
 
   afterEach(() => {
@@ -250,7 +265,7 @@ describe('handleRender', () => {
 
   describe('CSP nonce handling', () => {
     it('should handle valid nonce', async () => {
-      mockReq.cspNonce = 'valid-nonce';
+      (mockReq as any).cspNonce = 'valid-nonce';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -279,7 +294,7 @@ describe('handleRender', () => {
     });
 
     it('should handle empty nonce', async () => {
-      mockReq.cspNonce = '';
+      (mockReq as any).cspNonce = '';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -305,12 +320,11 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const bodyContent = vi.mocked(Templates.rebuildTemplate).mock.calls[0]?.[2]!;
-
       expect(bodyContent).not.toContain('nonce=');
     });
 
     it('should handle null nonce', async () => {
-      mockReq.cspNonce = null;
+      (mockReq as any).cspNonce = null;
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -336,7 +350,6 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const bodyContent = vi.mocked(Templates.rebuildTemplate).mock.calls[0]?.[2]!;
-
       expect(bodyContent).not.toContain('nonce=');
     });
   });
@@ -421,7 +434,7 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', mockRenderModule);
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
-      vi.mocked(Templates.rebuildTemplate).mockImplementation((parts, head, body) => {
+      vi.mocked(Templates.rebuildTemplate).mockImplementation((_parts, _head, body) => {
         expect(body).not.toContain('type="module"');
         return '<html>no-hydrate</html>';
       });
@@ -521,7 +534,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({ html: '<script>alert("xss")</script>' });
 
       let capturedBody = '';
-      vi.mocked(Templates.rebuildTemplate).mockImplementation((parts, head, body) => {
+      vi.mocked(Templates.rebuildTemplate).mockImplementation((_parts, _head, body) => {
         capturedBody = body;
         return '<html>complete</html>';
       });
@@ -532,8 +545,7 @@ describe('handleRender', () => {
     });
 
     it('wires onAborted to call abort("client_aborted")', async () => {
-      const abortSpy = vi.fn(function (this: any, reason?: any) {
-        // flip the flag like a real AbortController would do
+      const abortSpy = vi.fn(function (this: any, _reason?: any) {
         (this as any)._signal.aborted = true;
       });
 
@@ -560,7 +572,6 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', mockRenderModule);
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      // capture the 'aborted' handler installed on req.raw
       let abortedHandler: (() => void) | undefined;
       mockReq.raw.on = vi.fn((event: string, cb: any) => {
         if (event === 'aborted') abortedHandler = cb;
@@ -568,7 +579,6 @@ describe('handleRender', () => {
       });
 
       const p = handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-      // fire it after wiring
       abortedHandler?.();
       await p;
 
@@ -888,7 +898,6 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const finishCall = (mockReply.raw.on as unknown as Mock).mock.calls.find(([event]) => event === 'finish');
-
       expect(finishCall).toBeTruthy();
       const finishHandler = finishCall![1] as () => void;
 
@@ -897,7 +906,6 @@ describe('handleRender', () => {
       const abortedHandler = abortedCall![1] as () => void;
 
       finishHandler();
-
       expect(mockReq.raw.off).toHaveBeenCalledWith('aborted', abortedHandler);
     });
 
@@ -1015,7 +1023,6 @@ describe('handleRender', () => {
       expect(finishHandler).toBeDefined();
 
       finishHandler?.();
-
       expect(mockReq.raw.off).toHaveBeenCalledWith('aborted', abortedHandler);
     });
   });
@@ -1068,7 +1075,7 @@ describe('handleRender', () => {
         afterBody: '</body></html>',
       });
 
-      const mockRenderStream = vi.fn((writable, callbacks, initialData, location, bootstrapModules) => {
+      const mockRenderStream = vi.fn((writable, callbacks, _initialData, _location, bootstrapModules) => {
         expect(bootstrapModules).toBeUndefined();
 
         writable.on = vi.fn();
@@ -1116,7 +1123,6 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       abortCallback?.();
-
       expect(mockReq.raw.on).toHaveBeenCalledWith('aborted', expect.any(Function));
     });
 
@@ -1446,6 +1452,7 @@ describe('handleRender', () => {
         abort: vi.fn(() => {
           throw new Error('abort fail');
         }),
+        signal: { aborted: false },
       }));
       mockReply.raw.destroy = vi.fn();
 
@@ -1484,7 +1491,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
       const OriginalAbortController = globalThis.AbortController;
-      (globalThis as any).AbortController = vi.fn().mockImplementation(() => ({ abort: vi.fn() }));
+      (globalThis as any).AbortController = vi.fn().mockImplementation(() => ({ abort: vi.fn(), signal: { aborted: false } }));
       mockReply.raw.destroy = vi.fn(() => {
         throw new Error('destroy fail (critical)');
       });
@@ -1512,7 +1519,7 @@ describe('handleRender', () => {
     });
 
     it('streaming initialDataScript includes nonce attribute when cspNonce is present', async () => {
-      mockReq.cspNonce = 'nonce-abc-123';
+      (mockReq as any).cspNonce = 'nonce-abc-123';
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -1539,12 +1546,11 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const scriptWrite = mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0];
-
       expect(scriptWrite).toContain('nonce="nonce-abc-123"');
     });
 
     it('streaming initialDataScript omits nonce attribute when cspNonce is empty', async () => {
-      mockReq.cspNonce = '';
+      (mockReq as any).cspNonce = '';
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -1571,7 +1577,6 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const scriptWrite = mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0];
-
       expect(scriptWrite).toContain('<script');
       expect(scriptWrite).not.toContain('nonce=');
     });
@@ -1738,7 +1743,7 @@ describe('handleRender', () => {
     });
 
     it('injects collected styles with a nonce attribute in dev mode', async () => {
-      mockReq.cspNonce = 'stylenonce-777';
+      (mockReq as any).cspNonce = 'stylenonce-777';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -1776,9 +1781,8 @@ describe('handleRender', () => {
     it('omits nonce on collected <style> when cspNonce is falsy in dev mode', async () => {
       // ensure dev
       vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
-
+      (mockReq as any).cspNonce = '';
       // falsy nonce triggers the ": ''" branch of the ternary
-      mockReq.cspNonce = '';
 
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -1923,7 +1927,6 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', mockRenderModule);
 
       const dataError = new Error('Data fetch failed');
-
       vi.mocked(DataRoutes.fetchInitialData).mockRejectedValue(dataError);
 
       await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();

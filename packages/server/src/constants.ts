@@ -43,3 +43,5 @@ export const REGEX = {
   BENIGN_NET_ERR: /\b(?:ECONNRESET|EPIPE|ECONNABORTED)\b|socket hang up|aborted|premature(?: close)?/i,
   SAFE_TRACE: /^[a-zA-Z0-9-_:.]{1,128}$/,
 } as const satisfies Readonly<Record<string, RegExp>>;
+
+export const ENTRY_EXTENSIONS = ['.ts', '.tsx'] as const;
