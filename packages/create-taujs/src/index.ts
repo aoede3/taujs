@@ -185,7 +185,7 @@ async function generateFiles(targetDir: string, config: ProjectConfig) {
 
   await fs.writeFile(
     path.join(targetDir, "src/client/index.html"),
-    generateIndexHtml("τjs - Composing systems, not just apps")
+    generateIndexHtml()
   );
   await fs.writeFile(
     path.join(targetDir, "src/client/App.tsx"),
@@ -245,7 +245,7 @@ function generatePackageJson(projectName: string, packageManager: string) {
       "build:server":
         "esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react",
       build:
-        "npm run build:client && npm run build:entry-server && npm run build:server",
+        "tsx build.ts && BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react",
       start: "NODE_ENV=production node dist/server/index.js",
       lint: "tsc --noEmit",
     },
@@ -271,7 +271,7 @@ function generatePackageJson(projectName: string, packageManager: string) {
 function generateBuildTs() {
   return `import path from "node:path";
 import { taujsBuild } from "@taujs/server";
-import config from "./taujs.config.js";
+import config from "./taujs.config.ts";
 
 await taujsBuild({
   clientBaseDir: path.resolve(process.cwd(), "src/client"),
@@ -480,16 +480,13 @@ MIT
 `;
 }
 
-function generateIndexHtml(title: string) {
+function generateIndexHtml() {
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/styles.css" />
     <!--ssr-head-->
-    <title>${title}</title>
   </head>
   <body>
     <main id="root"><!--ssr-html--></main>
@@ -501,6 +498,8 @@ function generateIndexHtml(title: string) {
 function generateAppComponent() {
   return `import { Suspense } from 'react';
 import { useSSRStore } from '@taujs/react';
+
+import "./styles.css";
 
 type GreetingData = {
   message: string;
@@ -686,7 +685,7 @@ code {
 }
 
 .app-title::before {
-  background: url("favicon.svg") no-repeat;
+  background: url("/favicon.svg") no-repeat;
   background-size: 50px 50px;
   content: "";
   border-radius: 4px;
@@ -828,11 +827,7 @@ import { App } from './App';
 export const { renderSSR, renderStream } = createRenderer({
   appComponent: () => <App />,
   headContent: ({ data }) => \`
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="A τjs template application">
-    <title>\${data?.message || "τjs - Composing systems, not just apps"}</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+    <meta name="description" content="\${data?.message || "τjs - Composing systems, not just apps"}">
   \`,
   enableDebug: process.env.NODE_ENV === "development",
 });
