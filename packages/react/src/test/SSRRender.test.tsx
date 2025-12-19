@@ -101,25 +101,18 @@ import * as Streaming from '../utils/Streaming';
 type DrainableWritable = {
   write: (chunk: any) => boolean;
   once: (ev: string, fn: (...a: any[]) => void) => void;
-  cork?: () => void;
-  uncork?: () => void;
 };
 
-function makeWritable({ willBackpressure = false, supportCork = false }: { willBackpressure?: boolean; supportCork?: boolean } = {}) {
-  let drainHandler: (() => void) | null = null;
-  const w: DrainableWritable = {
-    write: vi.fn(() => !willBackpressure),
-    once: vi.fn((ev: string, fn: any) => {
-      if (ev === 'drain') drainHandler = fn;
-    }),
-    ...(supportCork ? { cork: vi.fn(), uncork: vi.fn() } : {}),
-  };
+function makeWritable() {
   return {
-    writable: w,
-    triggerDrain: () => {
-      drainHandler?.();
-      drainHandler = null;
-    },
+    writable: {
+      // keep as plain object; pipe() is mocked on the stream, not on writable
+      on: vi.fn(),
+      once: vi.fn(),
+      write: vi.fn(), // not used, but harmless if other code expects it
+      end: vi.fn(),
+      destroy: vi.fn(),
+    } as any,
   };
 }
 
@@ -127,7 +120,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   // reset dynamic snapshot impl
   (Store as any).__setSnapshotImpl(null);
-  // ensure Node Writable supports cork in tests that need it
   // (set per-test explicitly via makeWritable)
 });
 
@@ -286,81 +278,39 @@ describe('createRenderer.renderSSR', () => {
 });
 
 describe('createRenderer.renderStream', () => {
-  it('happy path: shell ready -> head write -> pipe -> all ready -> callbacks & finish; stop timer; done resolves', async () => {
+  it('passes bootstrapModules array to renderToPipeableStream when provided', () => {
     const { writable } = makeWritable();
-    const log = vi.fn(),
-      warn = vi.fn(),
-      error = vi.fn();
-    const onHead = vi.fn(),
-      onShellReady = vi.fn(),
-      onAllReady = vi.fn(),
-      onFinish = vi.fn();
 
     const { renderStream } = createRenderer<any>({
-      appComponent: ({ location }) => <div>{location}</div>,
-      headContent: () => '<head>ok</head>',
-      enableDebug: true,
-      logger: { log, warn, error },
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
     });
 
-    const { done } = renderStream(writable as any, { onHead, onShellReady, onAllReady, onFinish }, { data: 1 }, '/x', '/boot.js', { m: 1 }, 'nonce-1');
+    renderStream(
+      writable as any,
+      {},
+      {},
+      '/with-bootstrap',
+      '/entry-client.tsx', // bootstrapModules param (truthy)
+    );
 
+    // Grab the options passed to renderToPipeableStream
     const opts = (RDS as any).__getLastOpts();
-    expect(opts.bootstrapModules).toEqual(['/boot.js']);
-    opts.onShellReady();
-    opts.onAllReady();
-
-    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl.benignAbort('test-complete');
-    await expect(done).resolves.toBeUndefined();
-
-    expect(log).toHaveBeenCalledWith('Shell ready:', '/x');
-    expect(onHead).toHaveBeenCalledWith('<head>ok</head>');
-
-    expect((writable.write as any).mock.calls.length).toBe(1);
-
-    const streamInstance = (RDS.renderToPipeableStream as any).mock.results[0].value;
-    expect(streamInstance.pipe).toHaveBeenCalledWith(writable);
-    expect(onShellReady).toHaveBeenCalledTimes(1);
-
-    expect(onAllReady).toHaveBeenCalledWith({ data: 1 });
-    expect(onFinish).toHaveBeenCalledWith({ data: 1 });
-
-    await expect(done).resolves.toBeUndefined();
+    expect(opts.bootstrapModules).toEqual(['/entry-client.tsx']);
   });
 
-  it('backpressure: waits for drain before piping; cork/uncork used when supported', async () => {
-    const { writable, triggerDrain } = makeWritable({ willBackpressure: true, supportCork: true });
-    const log = vi.fn();
+  it('passes bootstrapModules undefined when not provided', () => {
+    const { writable } = makeWritable();
 
     const { renderStream } = createRenderer<any>({
-      appComponent: () => <div>z</div>,
-      headContent: () => '<head>bp</head>',
-      enableDebug: true,
-      logger: { log },
-      streamOptions: { useCork: true },
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
     });
 
-    const { done } = renderStream(writable as any, {}, {}, '/bp');
+    renderStream(writable as any, {}, {}, '/no-bootstrap');
+
     const opts = (RDS as any).__getLastOpts();
-    opts.onShellReady(); // causes head write returning false and sets drain handler
-
-    // corked
-    expect((writable as any).cork).toHaveBeenCalledTimes(1);
-    expect((writable as any).uncork).toHaveBeenCalledTimes(1);
-
-    // no pipe yet
-    const streamInstance = (RDS.renderToPipeableStream as any).mock.results[0].value;
-    expect(streamInstance.pipe).not.toHaveBeenCalled();
-
-    // drain fires -> then pipe
-    triggerDrain();
-    expect(streamInstance.pipe).toHaveBeenCalledWith(writable);
-
-    opts.onAllReady();
-    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl.benignAbort('test-complete');
-    await expect(done).resolves.toBeUndefined();
+    expect(opts.bootstrapModules).toBeUndefined();
   });
 
   it('headContent throws inside onShellReady → onError + fatalAbort; done rejects', async () => {
@@ -566,24 +516,46 @@ describe('createRenderer.renderStream', () => {
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
-  it('per-call options override renderer defaults (shellTimeout / useCork=false)', async () => {
-    const { writable } = makeWritable({ willBackpressure: true, supportCork: true });
+  it('per-call options override renderer defaults (shellTimeoutMs)', () => {
+    const { writable } = makeWritable();
 
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
       headContent: () => '<head/>',
-      streamOptions: { shellTimeoutMs: 10, useCork: true },
+      streamOptions: { shellTimeoutMs: 10 },
     });
 
-    // override useCork -> false; also override shellTimeout
-    renderStream(writable as any, {}, {}, '/opts', undefined, {}, undefined, undefined, { shellTimeoutMs: 1, useCork: false });
-    const opts = (RDS as any).__getLastOpts();
-    opts.onShellReady();
+    renderStream(
+      writable as any,
+      {},
+      {},
+      '/opts',
+      undefined,
+      {},
+      undefined,
+      undefined,
+      { shellTimeoutMs: 1 }, // override
+    );
 
-    // uncork/cork should NOT be used because per-call useCork=false
-    expect((writable as any).cork).toBeDefined();
-    expect((writable as any).cork).not.toHaveBeenCalled();
-    expect((writable as any).uncork).not.toHaveBeenCalled();
+    expect(Streaming.startShellTimer).toHaveBeenCalledTimes(1);
+
+    const [ms] = (Streaming.startShellTimer as any).mock.calls[0];
+    expect(ms).toBe(1);
+  });
+
+  it('uses renderer default shellTimeoutMs when per-call override is not provided', () => {
+    const { writable } = makeWritable();
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+      streamOptions: { shellTimeoutMs: 10 },
+    });
+
+    renderStream(writable as any, {}, {}, '/default');
+
+    const [ms] = (Streaming.startShellTimer as any).mock.calls.at(-1);
+    expect(ms).toBe(10);
   });
 
   it('setRemoveAbortListener uses try/catch around signal.removeEventListener and swallows errors', async () => {
@@ -823,30 +795,6 @@ describe('createRenderer.renderStream', () => {
     await expect(done).resolves.toBeUndefined();
   });
 
-  it('uncork throwing is swallowed in finally block (catch {})', async () => {
-    const { writable } = makeWritable({ willBackpressure: false, supportCork: true });
-    // Make uncork throw
-    (writable as any).uncork = vi.fn(() => {
-      throw new Error('uncork boom');
-    });
-
-    const { renderStream } = createRenderer<any>({
-      appComponent: () => <div />,
-      headContent: () => '<head/>',
-      streamOptions: { useCork: true },
-    });
-
-    const { done } = renderStream(writable as any, {}, {}, '/uncork-throws');
-    const opts = (RDS as any).__getLastOpts();
-
-    // Should not throw out of onShellReady even though uncork throws in finally
-    expect(() => opts.onShellReady()).not.toThrow();
-
-    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl.benignAbort('complete');
-    await expect(done).resolves.toBeUndefined();
-  });
-
   it("onError with object lacking message (err?.message ?? '') and non-benign → fatalAbort", async () => {
     const { writable } = makeWritable();
     const onErrorCb = vi.fn();
@@ -922,47 +870,11 @@ describe('createRenderer.renderStream', () => {
     await expect(done).resolves.toBeUndefined();
   });
 
-  it('onShellReady: cork() throws but is swallowed; uncork still called and stream proceeds', async () => {
-    // writable supports cork/uncork; make cork throw
-    const { writable } = makeWritable({ willBackpressure: false, supportCork: true });
-    (writable as any).cork = vi.fn(() => {
-      throw new Error('cork boom');
-    });
-    const warn = vi.fn(),
-      error = vi.fn(),
-      log = vi.fn();
-
-    const { renderStream } = createRenderer<any>({
-      appComponent: () => <div />,
-      headContent: () => '<head/>',
-      logger: { warn, error, log },
-      streamOptions: { useCork: true },
-    });
-
-    const { done } = renderStream(writable as any, {}, {}, '/cork-throws');
-    const opts = (RDS as any).__getLastOpts();
-
-    // Should NOT throw despite cork throwing
-    expect(() => opts.onShellReady()).not.toThrow();
-
-    // uncork still attempted in finally
-    expect((writable as any).uncork).toHaveBeenCalledTimes(1);
-
-    // streaming should continue (pipe called)
-    const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
-    expect(streamInstance.pipe).toHaveBeenCalledWith(writable);
-
-    // settle
-    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl.benignAbort('complete');
-    await expect(done).resolves.toBeUndefined();
-  });
-
   it('onShellReady: writable has no write() → fallback true path pipes immediately', async () => {
     // writable without write() to hit the "?: true" branch
     const w: any = {
       once: vi.fn(),
-      // no write, no cork/uncork
+      // no write
     };
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
@@ -1012,43 +924,6 @@ describe('createRenderer.renderStream', () => {
 
     const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
     ctrl.benignAbort('ok');
-    await expect(done).resolves.toBeUndefined();
-  });
-
-  it('onShellReady: backpressure + writable has no once() method → pipes immediately (best effort)', async () => {
-    // Create a writable that:
-    // 1. Has write() returning false (backpressure)
-    // 2. Does NOT have once() method - this triggers the "no drain support" else branch
-    const w: any = {
-      write: vi.fn(() => false), // backpressure = true
-      // Intentionally NO once() method to hit: "no drain support; best effort start"
-      // (not providing cork/uncork either)
-    };
-
-    const { renderStream } = createRenderer<any>({
-      appComponent: () => <div />,
-      headContent: () => '<head/>',
-    });
-
-    const { done } = renderStream(w as any, {}, {}, '/no-drain-support');
-    const opts = (RDS as any).__getLastOpts();
-    opts.onShellReady();
-
-    // Should pipe immediately (best effort) even though:
-    // - write() returned false (backpressure)
-    // - onHead didn't return false
-    // Because there's no once() method available to wait for 'drain'
-    const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
-    expect(streamInstance.pipe).toHaveBeenCalledWith(w);
-
-    // write was called (and returned false due to backpressure)
-    expect(w.write).toHaveBeenCalledTimes(1);
-
-    // Verify that once() was NOT called (because it doesn't exist)
-    expect(w.once).toBeUndefined();
-
-    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl.benignAbort('done');
     await expect(done).resolves.toBeUndefined();
   });
 

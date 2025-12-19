@@ -10,7 +10,7 @@ import type { LoggerLike } from './utils/Logger';
 import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming';
 
 export type RenderCallbacks<T> = {
-  onHead?: (head: string) => boolean | void;
+  onHead?: (head: string) => void;
   onShellReady?: () => void;
   onAllReady?: (data: T) => void;
   onFinish?: (data: T) => void; // optional, legacy fires when final data is available (onAllReady)
@@ -20,8 +20,6 @@ export type RenderCallbacks<T> = {
 export type StreamOptions = {
   /** Timeout in ms for shell to be ready (default: 10000) */
   shellTimeoutMs?: number;
-  /** Whether to use cork/uncork for batched writes (default: true) */
-  useCork?: boolean;
 };
 
 export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>, R = unknown> = {
@@ -52,7 +50,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
 }) {
-  const { shellTimeoutMs = 10_000, useCork = true } = streamOptions;
+  const { shellTimeoutMs = 10_000 } = streamOptions;
 
   const renderSSR = async (
     initialData: T,
@@ -129,7 +127,6 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
     // Merge renderer defaults with per-call overrides
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
-    const effectiveUseCork = opts?.useCork ?? useCork;
 
     // Stream controller centralises cleanup & settlement
     const controller = createStreamController(writable, { log, warn, error });
@@ -152,7 +149,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       });
     }
 
-    // Writable guards BEFORE any writes/piping (handles error/close/finish)
+    // Writable guards (handles error/close/finish)
     const { cleanup: guardsCleanup } = wireWritableGuards(writable, {
       benignAbort: (why) => controller.benignAbort(why),
       fatalAbort: (err) => {
@@ -175,6 +172,8 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     controller.setStopShellTimer(stopShellTimer);
 
     log('Starting stream:', location);
+
+    let piped = false;
 
     try {
       const store = createSSRStore(initialData);
@@ -203,53 +202,23 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
               // If it's a promise (thenable), attach a rejection handler to prevent unhandled rejection
               if (thrown && typeof (thrown as any).then === 'function') {
                 (thrown as Promise<unknown>).catch(() => {
-                  // error swallowed here and will be handled in onAllReady
+                  // swallowed; will be handled in onAllReady
                 });
               }
             }
+
             const head = headContent({ data: headData ?? ({} as T), meta, routeContext });
 
-            // Enable only when both requested and supported
-            const canCork =
-              effectiveUseCork &&
-              typeof (writable as Writable & { cork?: () => void; uncork?: () => void }).cork === 'function' &&
-              typeof (writable as Writable & { cork?: () => void; uncork?: () => void }).uncork === 'function';
-
-            if (canCork)
-              try {
-                (writable as any).cork();
-              } catch {}
-
-            let wroteOk = true;
             try {
-              // single head write drives backpressure logic
-              const res = typeof (writable as any).write === 'function' ? (writable as any).write(head) : true;
-              wroteOk = res !== false;
-            } finally {
-              if (canCork) {
-                try {
-                  (writable as any).uncork();
-                } catch {}
-              }
-            }
-
-            // Let onHead() *optionally* force waiting for 'drain'
-            let forceWait = false;
-            try {
-              forceWait = cb.onHead(head) === false;
+              cb.onHead(head);
             } catch (cbErr) {
               warn('onHead callback threw:', cbErr);
             }
 
-            const startPipe = () => stream.pipe(writable);
-            if (forceWait || !wroteOk) {
-              if (typeof (writable as any).once === 'function') {
-                (writable as any).once('drain', startPipe);
-              } else {
-                // no drain support; best effort start
-                startPipe();
-              }
-            } else startPipe();
+            if (!piped) {
+              piped = true;
+              stream.pipe(writable);
+            }
 
             try {
               cb.onShellReady();
