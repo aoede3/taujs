@@ -352,8 +352,9 @@ export default defineConfig({
             }),
             // meta recommended for streaming routes for SEO/social and render timing
             meta: {
-              title: 'τjs [taujs] - streaming',
-              description: 'Streaming page description from route meta',
+              title: "τjs — Streaming",
+              description:
+                "Streaming SSR route (Suspense progressively reveals content).",
             },
           },
         },
@@ -826,8 +827,13 @@ import { App } from './App';
 
 export const { renderSSR, renderStream } = createRenderer({
   appComponent: () => <App />,
-  headContent: ({ data }) => \`
-    <meta name="description" content="\${data?.message || "τjs - Composing systems, not just apps"}">
+  headContent: ({ data, meta }) => \`
+    <title>\${meta?.title || "τjs - Composing systems, not just apps"}</title>
+    <meta name="description" content="\${
+      meta?.description ||
+      data?.message ||
+      "τjs - Composing systems, not just apps"
+    }">
   \`,
   enableDebug: process.env.NODE_ENV === "development",
 });
