@@ -1,6 +1,6 @@
 {
   "name": "@taujs/create-taujs",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "Scaffold a new τjs application",
   "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
   "homepage": "https://taujs.dev/",
