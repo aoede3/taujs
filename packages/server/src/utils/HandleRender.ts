@@ -275,9 +275,9 @@ export const handleRender = async (
       reply.raw.on('error', (err) => {
         if (!isBenignSocketAbort(err)) logger.error({ error: err }, 'HTTP socket error:');
       });
-      writable.pipe(reply.raw, { end: false });
 
       let finalData: unknown = undefined;
+      let pipedToReply = false;
 
       renderStream(
         writable,
@@ -286,7 +286,13 @@ export const handleRender = async (
             let aggregateHeadContent = headContent;
             if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
             if (manifest && cssLink) aggregateHeadContent += cssLink;
-            return reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}`);
+
+            reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}`);
+
+            if (!pipedToReply) {
+              pipedToReply = true;
+              writable.pipe(reply.raw, { end: false });
+            }
           },
           onShellReady: () => {},
           onAllReady: (data: unknown) => {
