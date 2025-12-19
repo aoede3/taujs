@@ -1,5 +1,9 @@
 # @taujs/react
 
+v0.1.5 - 01/12/2025
+
+feat: align streaming ownership boundary to template
+
 v0.1.4 - 01/12/2025
 
 feat: routeContext
