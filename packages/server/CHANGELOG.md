@@ -1,6 +1,10 @@
 # @taujs/server
 
-v0.5.1 - 1/12/2025
+v0.5.2 - 19/12/2025
+
+feat: align streaming ownership boundary to template
+
+v0.5.1 - 17/12/2025
 
 feat: plugin alignment
 feat: .ts, .tsx file extensions for entry points
