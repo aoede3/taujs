@@ -1,5 +1,9 @@
 # @taujs/react
 
+v0.1.6 - 29/12/2025
+
+feat: rename \_\_taujs/data to \_\_taujs/route as explicit route data contract
+
 v0.1.5 - 01/12/2025
 
 feat: align streaming ownership boundary to template
