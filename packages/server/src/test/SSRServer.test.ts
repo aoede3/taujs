@@ -331,7 +331,7 @@ describe('SSRServer', () => {
     expect(handleRenderMock).toHaveBeenCalled();
   });
 
-  it('supports /__taujs/data when serviceRegistry is omitted', async () => {
+  it('supports /__taujs/route when serviceRegistry is omitted', async () => {
     resolveRouteDataMock.mockResolvedValueOnce({ ok: true } as any);
 
     await app.register(SSRServer, {
@@ -344,7 +344,7 @@ describe('SSRServer', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: '/__taujs/data?url=/app/dashboard',
+      url: '/__taujs/route?url=/app/dashboard',
     });
 
     expect(res.statusCode).toBe(200);
@@ -700,7 +700,7 @@ describe('SSRServer', () => {
     await app2.close();
   });
 
-  describe('/__taujs/data endpoint', () => {
+  describe('/__taujs/route endpoint', () => {
     beforeEach(() => {
       resolveRouteDataMock.mockReset();
       resolveRouteDataMock.mockResolvedValue({ userId: 123, name: 'Test User' } as any);
@@ -718,7 +718,7 @@ describe('SSRServer', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/__taujs/data?url=/app/dashboard',
+        url: '/__taujs/route?url=/app/dashboard',
       });
 
       expect(res.statusCode).toBe(200);
@@ -750,7 +750,7 @@ describe('SSRServer', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/__taujs/data',
+        url: '/__taujs/route',
       });
 
       // Should trigger error handler which calls AppError.from and toHttp
@@ -770,7 +770,7 @@ describe('SSRServer', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/__taujs/data?url=',
+        url: '/__taujs/route?url=',
       });
 
       expect(AppErrorFake.from).toHaveBeenCalled();
@@ -789,7 +789,7 @@ describe('SSRServer', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/__taujs/data?url[]=invalid',
+        url: '/__taujs/route?url[]=invalid',
       });
 
       expect(AppErrorFake.from).toHaveBeenCalled();
@@ -811,7 +811,7 @@ describe('SSRServer', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/__taujs/data?url=/app/search%3Fq%3Dtest%26page%3D2',
+        url: '/__taujs/route?url=/app/search%3Fq%3Dtest%26page%3D2',
       });
 
       expect(res.statusCode).toBe(200);
@@ -840,7 +840,7 @@ describe('SSRServer', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/__taujs/data?url=/app/missing',
+        url: '/__taujs/route?url=/app/missing',
       });
 
       expect(AppErrorFake.from).toHaveBeenCalled();
@@ -863,7 +863,7 @@ describe('SSRServer', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/__taujs/data?url=/app/empty',
+        url: '/__taujs/route?url=/app/empty',
       });
 
       expect(res.statusCode).toBe(200);
@@ -884,7 +884,7 @@ describe('SSRServer', () => {
       await app.register(SSRServer as any, {
         alias: {},
         configs: [],
-        routes: [{ path: '/__taujs/data', attr: { middleware: { auth: true } } }],
+        routes: [{ path: '/__taujs/route', attr: { middleware: { auth: true } } }],
         serviceRegistry: {},
         clientRoot: '/client',
         debug: false,
@@ -892,7 +892,7 @@ describe('SSRServer', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/__taujs/data?url=/protected',
+        url: '/__taujs/route?url=/protected',
       });
 
       expect(authHookFn).toHaveBeenCalled();
@@ -916,7 +916,7 @@ describe('SSRServer', () => {
 
       const res = await app.inject({
         method: 'GET',
-        url: '/__taujs/data?url=/app/page&other=param&foo=bar',
+        url: '/__taujs/route?url=/app/page&other=param&foo=bar',
       });
 
       expect(res.statusCode).toBe(200);
