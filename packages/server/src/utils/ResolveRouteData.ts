@@ -12,7 +12,7 @@ import type { Logs } from '../logging/Logger';
  *
  * This is the shared logic used by both:
  * - HTML SSR/streaming (HandleRender)
- * - JSON data endpoint (/__taujs/data)
+ * - JSON data endpoint (/__taujs/route)
  *
  * Throws AppError if route not found or no data handler defined.
  */

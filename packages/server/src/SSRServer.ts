@@ -112,7 +112,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
     // NOTE: this route is still subject to the global onRequest auth hook.
     // It intentionally uses the same security surface as HTML routes.
-    app.get('/__taujs/data', async (req, reply) => {
+    app.get('/__taujs/route', async (req, reply) => {
       const query = req.query as Record<string, unknown>;
       const url = typeof query.url === 'string' ? query.url : '';
 
