@@ -8,15 +8,14 @@ import prompts from "prompts";
 
 type ProjectConfig = {
   projectName: string;
-  packageManager: "npm" | "pnpm" | "yarn" | "bun";
+  packageManager: "npm" | "pnpm" | "yarn";
   installDeps: boolean;
 };
 
 const PACKAGE_MANAGERS = {
   npm: "npm install",
   pnpm: "pnpm install",
-  yarn: "yarn",
-  bun: "bun install",
+  yarn: "yarn install",
 } as const;
 
 function parseArgs(): { projectName?: string } {
@@ -33,10 +32,26 @@ function parseArgs(): { projectName?: string } {
   return { projectName };
 }
 
+function validateProjectName(value: string): true | string {
+  if (!value) return "Project name is required";
+  if (!/^[a-z0-9-_]+$/.test(value)) {
+    return "Project name can only contain lowercase letters, numbers, hyphens, and underscores";
+  }
+  return true;
+}
+
 async function main() {
   console.log(pc.cyan("\nWelcome to τjs (taujs)\n"));
 
   const { projectName: argName } = parseArgs();
+
+  if (argName) {
+    const res = validateProjectName(argName);
+    if (res !== true) {
+      console.log(pc.red(`\n✖ Invalid project name "${argName}": ${res}`));
+      process.exit(1);
+    }
+  }
 
   const questions: prompts.PromptObject[] = [
     {
@@ -44,13 +59,7 @@ async function main() {
       name: "projectName",
       message: "Project name:",
       initial: "my-taujs-app",
-      validate: (value: string) => {
-        if (!value) return "Project name is required";
-        if (!/^[a-z0-9-_]+$/.test(value)) {
-          return "Project name can only contain lowercase letters, numbers, hyphens, and underscores";
-        }
-        return true;
-      },
+      validate: validateProjectName,
     },
     {
       type: "select",
@@ -60,7 +69,6 @@ async function main() {
         { title: "npm", value: "npm" },
         { title: "pnpm", value: "pnpm" },
         { title: "yarn", value: "yarn" },
-        { title: "bun", value: "bun" },
       ],
       initial: 0,
     },
@@ -79,8 +87,23 @@ async function main() {
     },
   });
 
+  const projectName = argName ?? answers.projectName;
+
+  const nameRes = validateProjectName(projectName);
+  if (nameRes !== true) {
+    console.log(
+      pc.red(`\n✖ Invalid project name "${projectName}": ${nameRes}`)
+    );
+    process.exit(1);
+  }
+
+  if (!projectName) {
+    console.log(pc.red("\n✖ Project name is required"));
+    process.exit(1);
+  }
+
   const config: ProjectConfig = {
-    projectName: argName || answers.projectName,
+    projectName,
     packageManager: answers.packageManager,
     installDeps: answers.installDeps,
   };
@@ -105,6 +128,8 @@ async function createProject(config: ProjectConfig) {
 
   console.log(pc.green("Project files created"));
 
+  let depsInstalled = false;
+
   if (installDeps) {
     console.log(
       pc.cyan(`\nInstalling dependencies with ${packageManager}...\n`)
@@ -114,6 +139,7 @@ async function createProject(config: ProjectConfig) {
         cwd: targetDir,
         stdio: "inherit",
       });
+      depsInstalled = true;
       console.log(pc.green("\nDependencies installed"));
     } catch (error) {
       console.log(
@@ -124,15 +150,28 @@ async function createProject(config: ProjectConfig) {
     }
   }
 
+  if (installDeps && !depsInstalled) {
+    console.log(
+      pc.yellow(
+        "⚠ Dependency install failed. Run the install command before starting the dev server.\n"
+      )
+    );
+  }
   console.log(
     pc.green(`\n✓ Project ${pc.bold(projectName)} created successfully!\n`)
   );
   console.log(pc.cyan("Next steps:\n"));
   console.log(`  cd ${projectName}`);
-  if (!installDeps) {
-    console.log(`  ${PACKAGE_MANAGERS[packageManager]}`);
-  }
-  console.log(`  ${packageManager} run dev\n`);
+
+  if (!depsInstalled)
+    console.log(
+      `  ${PACKAGE_MANAGERS[packageManager]}${
+        installDeps ? "  # (install failed earlier)" : ""
+      }`
+    );
+
+  const pmRun = packageManager === "npm" ? "npm run" : packageManager;
+  console.log(`  ${pmRun} dev\n`);
   console.log(pc.dim("Documentation: https://taujs.dev\n"));
 }
 
@@ -153,7 +192,7 @@ async function generateFiles(targetDir: string, config: ProjectConfig) {
 
   await fs.writeJSON(
     path.join(targetDir, "package.json"),
-    generatePackageJson(projectName, packageManager),
+    generatePackageJson(projectName),
     { spaces: 2 }
   );
 
@@ -232,21 +271,21 @@ async function generateFiles(targetDir: string, config: ProjectConfig) {
   );
 }
 
-function generatePackageJson(projectName: string, packageManager: string) {
+function generatePackageJson(projectName: string) {
   return {
     name: projectName,
     version: "0.1.0",
     private: true,
     type: "module",
     scripts: {
-      dev: "NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose",
+      dev: "cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose",
       "build:client": "tsx build.ts",
-      "build:entry-server": "BUILD_MODE=ssr tsx build.ts",
+      "build:entry-server": "cross-env BUILD_MODE=ssr tsx build.ts",
       "build:server":
         "esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react",
       build:
-        "tsx build.ts && BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react",
-      start: "NODE_ENV=production node dist/server/index.js",
+        "tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react",
+      start: "cross-env NODE_ENV=production node dist/server/index.js",
       lint: "tsc --noEmit",
     },
     dependencies: {
@@ -261,6 +300,7 @@ function generatePackageJson(projectName: string, packageManager: string) {
       "@types/react": "^19.0.2",
       "@types/react-dom": "^19.0.2",
       "@vitejs/plugin-react": "^4.6.0",
+      "cross-env": "^7.0.3",
       tsx: "^4.19.3",
       typescript: "^5.7.3",
       vite: "^7.1.11",
@@ -526,7 +566,7 @@ export function App() {
       <header className="app-header">
         <h1 className="app-title">τjs - Composing systems, not just apps</h1>
         <p className="app-subtitle">
-          Server-first application composition with explicit per-route rendering control.
+          Request-first application composition with explicit per-route rendering control.
         </p>
       </header>
 
