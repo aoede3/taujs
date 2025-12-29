@@ -1,5 +1,9 @@
 # @taujs/cli
 
+v0.1.7 - 29/12/2025
+
+feat: align to @taujs/server
+
 v0.1.6 - 19/12/2025
 
 feat: update entry-server output; config streaming meta
