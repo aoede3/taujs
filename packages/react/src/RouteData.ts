@@ -3,7 +3,7 @@
  *
  * Provides framework-agnostic primitives for accessing route data:
  * - SSR hydration (window.__INITIAL_DATA__)
- * - Client-side fetch (/__taujs/data endpoint)
+ * - Client-side fetch (/__taujs/route endpoint)
  *
  * This is a transport layer only. For data orchestration (caching, refetch, etc.),
  * use TanStack Query or similar.
@@ -67,7 +67,7 @@ export function readInitialDataOnce<T extends RouteData = RouteData>(): T | null
 /**
  * Fetch route data from the τjs data endpoint.
  *
- * Calls: GET /__taujs/data?url=<pathname>
+ * Calls: GET /__taujs/route?url=<pathname>
  * Returns: { data: T }
  *
  * Throws RouteDataError on non-2xx responses with structured error info.
@@ -89,7 +89,7 @@ export async function fetchRouteData<T extends RouteData = RouteData>(pathname: 
     throw new Error('fetchRouteData: pathname is required');
   }
 
-  const url = `/__taujs/data?url=${encodeURIComponent(pathname)}`;
+  const url = `/__taujs/route?url=${encodeURIComponent(pathname)}`;
 
   const res = await fetch(url, {
     credentials: 'include',
