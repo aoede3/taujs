@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.5.3 - 29/12/2025
+
+feat: rename \_\_taujs/data to \_\_taujs/route as explicit route data contract
+
 v0.5.2 - 19/12/2025
 
 feat: align streaming ownership boundary to template
