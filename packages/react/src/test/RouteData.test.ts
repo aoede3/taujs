@@ -276,7 +276,7 @@ describe('fetchRouteData', () => {
       await fetchRouteData('/app/dashboard');
 
       expect(fetchMock).toHaveBeenCalledWith(
-        '/__taujs/data?url=%2Fapp%2Fdashboard',
+        '/__taujs/route?url=%2Fapp%2Fdashboard',
         expect.objectContaining({
           credentials: 'include',
         }),
@@ -313,7 +313,7 @@ describe('fetchRouteData', () => {
 
       await fetchRouteData('/app/user/@john+doe/profile');
 
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('__taujs/data?url='), expect.any(Object));
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('__taujs/route?url='), expect.any(Object));
     });
 
     it('should return empty object when data is undefined', async () => {
@@ -573,7 +573,7 @@ describe('fetchRouteData', () => {
       });
 
       await fetchRouteData('/');
-      expect(fetchMock).toHaveBeenCalledWith('/__taujs/data?url=%2F', expect.any(Object));
+      expect(fetchMock).toHaveBeenCalledWith('/__taujs/route?url=%2F', expect.any(Object));
     });
 
     it('should handle deeply nested paths', async () => {
@@ -583,7 +583,7 @@ describe('fetchRouteData', () => {
       });
 
       await fetchRouteData('/app/dashboard/analytics/reports/quarterly/2024/q1');
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('__taujs/data?url='), expect.any(Object));
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('__taujs/route?url='), expect.any(Object));
     });
 
     it('should handle paths with hash (though hash not sent)', async () => {
