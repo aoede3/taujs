@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
-import { AppError } from '../logging/AppError';
+import { AppError } from '../errors/AppError';
 
-import type { Logs } from '../logging/Logger';
+import type { Logs } from '../logging/types';
 
 export type RegistryCaller<R extends ServiceRegistry = ServiceRegistry> = (
   serviceName: keyof R & string,

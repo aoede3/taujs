@@ -149,10 +149,10 @@ vi.mock('../Setup', () => ({ printVitePluginSummary: printVitePluginSummaryMock 
 vi.mock('../utils/VitePlugins', () => ({ mergePlugins: mergePluginsMock }));
 
 import { SSRServer, TEMPLATE } from '../SSRServer';
-import { loadAssets } from '../utils/AssetManager';
+import { loadAssets } from '../core/assets/AssetManager';
 import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
-import { printVitePluginSummary } from '../Setup';
+import { printVitePluginSummary } from '../core/config/Setup';
 import { mergePlugins } from '../utils/VitePlugins';
 
 describe('SSRServer', () => {

@@ -13,12 +13,13 @@ import path from 'node:path';
 
 import { build } from 'vite';
 
+import { extractBuildConfigs } from './core/config/Setup';
+import { processConfigs } from './core/assets/AssetManager';
+
 import { TEMPLATE } from './constants';
-import { extractBuildConfigs } from './Setup';
-import { processConfigs } from './utils/AssetManager';
 
 import type { InlineConfig, PluginOption } from 'vite';
-import type { AppConfig } from './Config';
+import type { CoreAppConfig } from './core/config/types';
 
 export type ViteBuildContext = {
   appId: string;
@@ -355,7 +356,7 @@ export async function taujsBuild({
   alias: userAlias,
   vite: userViteConfig,
 }: {
-  config: { apps: readonly AppConfig[] };
+  config: { apps: readonly CoreAppConfig[] };
   projectRoot: string;
   clientBaseDir: string;
   isSSRBuild?: boolean;

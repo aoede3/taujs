@@ -1,6 +1,6 @@
 import { DEBUG_CATEGORIES } from './Logger';
 
-import type { DebugCategory, DebugConfig } from './Logger';
+import type { DebugCategory, DebugConfig } from '../core/logging/types';
 
 export type DebugInput = DebugConfig | string | boolean | Array<DebugCategory | `-${DebugCategory}`> | undefined;
 

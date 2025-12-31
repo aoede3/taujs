@@ -60,8 +60,8 @@ import * as path from 'node:path';
 // Import after mocks
 import { taujsBuild, mergeViteConfig, getFrameworkInvariants, resolveInputs, resolveAppFilter } from '../Build';
 import { build } from 'vite';
-import { extractBuildConfigs } from '../Setup';
-import { processConfigs } from '../utils/AssetManager';
+import { extractBuildConfigs } from '../core/config/Setup';
+import { processConfigs } from '../core/assets/AssetManager';
 
 import type { RollupOutput } from 'rollup';
 import type { ViteConfigOverride, ViteBuildContext } from '../Build';

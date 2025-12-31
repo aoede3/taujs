@@ -5,7 +5,7 @@ import { CONTENT } from '../constants';
 import { createLogger } from '../logging/Logger';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import type { DebugConfig } from '../logging/Logger';
+import type { DebugConfig } from '../core/logging/types';
 
 type BannerPluginOpts = {
   debug?: DebugConfig;

@@ -1,12 +1,12 @@
-import { AppError } from '../logging/AppError';
-import { createLogger } from '../logging/Logger';
-import { isDevelopment } from './System';
-import { ensureNonNull } from './Templates';
+import { AppError } from '../core/errors/AppError';
+import { isDevelopment } from '../core/system/System';
+import { ensureNonNull } from '../core/assets/Templates';
 import { SSRTAG } from '../constants';
+import { createLogger } from '../logging/Logger';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import type { DebugConfig, Logs } from '../logging/Logger';
-import type { ProcessedConfig } from '../types';
+import type { DebugConfig, Logs } from '../core/logging/types';
+import type { ProcessedConfig } from '../core/config/types';
 
 export const handleNotFound = async (
   req: FastifyRequest,

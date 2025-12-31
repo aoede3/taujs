@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { SecurityConfig } from '../Config';
-import type { Route } from '../types';
+import type { SecurityConfig, Route } from '../core/config/types';
 
 export type ContractItem = {
   key: string;

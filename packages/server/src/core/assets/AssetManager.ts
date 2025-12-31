@@ -3,16 +3,14 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
-import { ENTRY_EXTENSIONS } from '../constants';
-import { AppError } from '../logging/AppError';
-import { createLogger } from '../logging/Logger';
-import { isDevelopment } from './System';
+import { ENTRY_EXTENSIONS } from '../../constants';
+import { AppError } from '../errors/AppError';
+import { createLogger } from '../../logging/Logger';
+import { isDevelopment } from '../system/System';
 import { getCssLinks, renderPreloadLinks } from './Templates';
-
-import type { Manifest } from 'vite';
-import type { TEMPLATE } from '../constants';
-import type { DebugConfig, Logs } from '../logging/Logger';
-import type { RenderModule, SSRManifest, Config, ProcessedConfig } from '../types';
+import type { TEMPLATE } from '../../constants';
+import type { DebugConfig, Logs } from '../logging/types';
+import type { Config, Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../config/types';
 
 /**
  * Resolve entry file by checking filesystem for supported extensions.
@@ -39,7 +37,7 @@ export const createMaps = () => ({
   templates: new Map<string, string>(),
 });
 
-export const processConfigs = (configs: readonly Config[], baseClientRoot: string, templateDefaults: typeof TEMPLATE): ProcessedConfig[] => {
+export const processConfigs = <P = unknown>(configs: readonly Config<P>[], baseClientRoot: string, templateDefaults: typeof TEMPLATE): ProcessedConfig<P>[] => {
   return configs.map((config) => {
     const clientRoot = path.resolve(baseClientRoot, config.entryPoint);
 
@@ -60,7 +58,7 @@ export const processConfigs = (configs: readonly Config[], baseClientRoot: strin
       entryClientFile,
       entryServerFile,
     };
-  });
+  }) as ProcessedConfig<P>[];
 };
 
 export const loadAssets = async (

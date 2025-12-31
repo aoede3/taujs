@@ -93,7 +93,7 @@ async function importer(isDev = true) {
     isDevelopment: isDev,
   }));
 
-  return await import('../AssetManager');
+  return await import('../../core/assets/AssetManager');
 }
 
 const { existsSyncMock, readFileMock, pathToFileURLMock, getCssLinksMock, renderPreloadLinksMock, createLoggerMock, loggerErrorMock } = hoisted;

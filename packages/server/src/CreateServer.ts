@@ -4,20 +4,22 @@ import { performance } from 'node:perf_hooks';
 import Fastify from 'fastify';
 import pc from 'picocolors';
 
-import { extractBuildConfigs, extractRoutes, extractSecurity, printConfigSummary, printContractReport, printSecuritySummary } from './Setup';
+import { extractBuildConfigs, extractRoutes, extractSecurity } from './core/config/Setup';
+import { normaliseError } from './core/errors/AppError';
+
 import { CONTENT } from './constants';
-import { normaliseError } from './logging/AppError';
 import { createLogger } from './logging/Logger';
 import { resolveNet } from './network/CLI';
 import { bannerPlugin } from './network/Network';
 import { verifyContracts, isAuthRequired, hasAuthenticate } from './security/VerifyMiddleware';
+import { printConfigSummary, printContractReport, printSecuritySummary } from './Setup';
 import { SSRServer } from './SSRServer';
 
 import type { FastifyInstance } from 'fastify';
+import type { ServiceRegistry } from './core/services/DataServices';
 import type { TaujsConfig } from './Config';
-import type { BaseLogger, DebugConfig } from './logging/Logger';
+import type { BaseLogger, DebugConfig } from './core/logging/types';
 import type { NetResolved } from './network/CLI';
-import type { ServiceRegistry } from './utils/DataServices';
 import type { StaticAssetsRegistration } from './utils/StaticAssets';
 
 type CreateServerOptions = {

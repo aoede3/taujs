@@ -2,11 +2,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { handleRender } from '../HandleRender';
-import * as DataRoutes from '../DataRoutes';
-import * as Templates from '../Templates';
-import * as System from '../System';
-import * as Telemetry from '../Telemetry';
-import { AppError } from '../../logging/AppError';
+import * as Templates from '../../core/assets/Templates';
+import * as System from '../../core/system/System';
+import * as Telemetry from '../../core/telemetry/Telemetry';
+import * as DataRoutes from '../../core/routes/DataRoutes';
+import { AppError } from '../../core/errors/AppError';
 import { createLogger } from '../../logging/Logger';
 
 import type { Mock } from 'vitest';

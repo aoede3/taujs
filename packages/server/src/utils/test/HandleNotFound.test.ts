@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { handleNotFound } from '../HandleNotFound';
 import { SSRTAG } from '../../constants';
-import * as System from '../System';
+import * as System from '../../core/system/System';
 
 describe('handleNotFound', () => {
   let req: any;

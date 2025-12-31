@@ -10,22 +10,23 @@
 
 import fp from 'fastify-plugin';
 
+import { AppError } from './core/errors/AppError';
+import { createRouteMatchers } from './core/routes/DataRoutes';
+import { resolveRouteData } from './core/routes/ResolveRouteData';
+import { isDevelopment } from './core/system/System';
+
 import { TEMPLATE } from './constants';
 import { printVitePluginSummary } from './Setup';
-import { AppError } from './logging/AppError';
 import { createLogger } from './logging/Logger';
 import { toHttp } from './logging/utils';
 import { createAuthHook } from './security/Auth';
 import { cspPlugin } from './security/CSP';
 import { cspReportPlugin } from './security/CSPReporting';
-import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
+import { createMaps, loadAssets, processConfigs } from './core/assets/AssetManager';
 import { setupDevServer } from './utils/DevServer';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
-import { createRouteMatchers } from './utils/DataRoutes';
-import { resolveRouteData } from './utils/ResolveRouteData';
 import { registerStaticAssets } from './utils/StaticAssets';
-import { isDevelopment } from './utils/System';
 import { mergePlugins } from './utils/VitePlugins';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';

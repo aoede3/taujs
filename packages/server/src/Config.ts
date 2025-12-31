@@ -1,21 +1,17 @@
-/**
- * τjs [ taujs ] Orchestration System
- * (c) 2024-present Aoede Ltd
- * Author: John Smith
- *
- * Licensed under the MIT License - attribution appreciated.
- * Part of the τjs [ taujs ] system for declarative, build-time orchestration of microfrontend applications,
- * including CSR, SSR, streaming, and middleware composition.
- */
-
 import type { FastifyRequest } from 'fastify';
 import type { PluginOption } from 'vite';
+import type {
+  CoreAppConfig,
+  AppRoute,
+  CoreSecurityConfig,
+  CoreTaujsConfig,
+  RouteContext as CoreRouteContext,
+  RouteData as CoreRouteData,
+} from './core/config/types';
 import type { CSPDirectives } from './security/CSP';
-import type { PathToRegExpParams, Route, RouteAttributes } from './types';
-
 import type { CSPViolationReport } from './security/CSPReporting';
 
-export type SecurityConfig = {
+export type SecurityConfig = CoreSecurityConfig & {
   csp?: {
     defaultMode?: 'merge' | 'replace';
     directives?: CSPDirectives;
@@ -28,36 +24,26 @@ export type SecurityConfig = {
   };
 };
 
-export type AppRoute = Omit<Route<PathToRegExpParams>, 'appId'> & {
-  attr?: RouteAttributes<PathToRegExpParams>;
-};
-
-export type AppConfig = {
-  appId: string;
-  entryPoint: string;
+export type AppConfig = CoreAppConfig & {
   plugins?: PluginOption[];
   routes?: readonly AppRoute[];
 };
 
-export type TaujsConfig = {
+export type TaujsConfig = CoreTaujsConfig & {
   apps: readonly AppConfig[];
   security?: SecurityConfig;
-  server?: {
-    host?: string;
-    port?: number;
-    hmrPort?: number;
-  };
 };
 
-export { callServiceMethod, defineService, defineServiceRegistry, withDeadline } from './utils/DataServices';
+export { callServiceMethod, defineService, defineServiceRegistry, withDeadline } from './core/services/DataServices';
 
-export type { RegistryCaller, ServiceContext } from './utils/DataServices';
+export type { RegistryCaller, ServiceContext } from './core/services/DataServices';
 
-export type { RouteContext, RouteData } from './types';
+export type RouteContext = CoreRouteContext<TaujsConfig>;
+export type RouteData<C extends TaujsConfig = TaujsConfig, P extends string = string> = CoreRouteData<C, P>;
 
-export { AppError } from './logging/AppError';
+export { AppError } from './core/errors/AppError';
 
-export function defineConfig<const C>(config: C & TaujsConfig): C {
+export function defineConfig<const C extends TaujsConfig>(config: C): C {
   if (!config.apps || config.apps.length === 0) throw new Error('At least one app must be configured');
   return config;
 }

@@ -10,10 +10,10 @@ vi.mock('../Telemetry', () => ({
   createRequestContext: vi.fn(),
 }));
 
-import { resolveRouteData } from '../ResolveRouteData';
+import { resolveRouteData } from '../../core/routes/ResolveRouteData';
 import { matchRoute, fetchInitialData } from '../DataRoutes';
-import { createRequestContext } from '../Telemetry';
-import { AppError } from '../../logging/AppError';
+import { createRequestContext } from '../../core/telemetry/Telemetry';
+import { AppError } from '../../core/errors/AppError';
 
 type MockFastifyReq = FastifyRequest & { [key: string]: unknown };
 type MockFastifyReply = FastifyReply & { [key: string]: unknown };

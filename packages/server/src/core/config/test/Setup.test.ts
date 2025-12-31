@@ -12,12 +12,12 @@ import {
   printSecuritySummary,
   printContractReport,
   printVitePluginSummary,
-} from '../Setup';
+} from '../core/config/Setup';
 import { createLogger } from '../logging/Logger';
 
 import type { TaujsConfig, SecurityConfig } from '../Config';
-import type { DebugConfig, LogLevel } from '../logging/Logger';
-import type { Route } from '../types';
+import type { DebugConfig, LogLevel } from '../logging/types';
+import type { Route } from '../config/types';
 
 function makeMemoryLogger(debug?: DebugConfig) {
   const records: Array<{ level: LogLevel; args: any[] }> = [];

@@ -1,4 +1,4 @@
-import { AppError } from '../AppError';
+import { AppError } from '../../core/errors/AppError';
 
 export const httpStatusFrom = (err: unknown, fallback = 500): number => (err instanceof AppError ? err.httpStatus : fallback);
 

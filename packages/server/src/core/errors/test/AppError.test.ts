@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { AppError, normaliseError, toReason } from '../AppError';
+import { AppError, normaliseError, toReason } from '../../core/errors/AppError';
 
 describe('AppError – constructor & basics', () => {
   it('sets name, kind, httpStatus (defaults), details, safeMessage, code', () => {

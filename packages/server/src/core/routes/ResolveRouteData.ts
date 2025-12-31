@@ -1,11 +1,11 @@
 import { matchRoute, fetchInitialData } from './DataRoutes';
-import { createRequestContext } from './Telemetry';
-import { AppError } from '../logging/AppError';
+import { createRequestContext } from '../telemetry/Telemetry';
+import { AppError } from '../errors/AppError';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { RouteMatcher } from './DataRoutes';
-import type { ServiceRegistry } from './DataServices';
-import type { Logs } from '../logging/Logger';
+import type { ServiceRegistry } from '../services/DataServices';
+import type { Logs } from '../logging/types';
 
 /**
  * Resolve and execute a route's attr.data handler for the given URL.

@@ -1,20 +1,20 @@
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
-import { fetchInitialData, matchRoute } from './DataRoutes';
-import { AppError, normaliseError, toReason } from '../logging/AppError';
-import { createLogger } from '../logging/Logger';
-import { isDevelopment } from './System';
-import { createRequestContext } from './Telemetry';
-import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
+import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from '../core/assets/Templates';
+import { AppError, normaliseError, toReason } from '../core/errors/AppError';
+import { fetchInitialData, matchRoute } from '../core/routes/DataRoutes';
+import { isDevelopment } from '../core/system/System';
+import { createRequestContext } from '../core/telemetry/Telemetry';
 import { REGEX, RENDERTYPE } from '../constants';
+import { createLogger } from '../logging/Logger';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { RouteMatcher } from './DataRoutes';
-import type { ServiceRegistry } from './DataServices';
-import type { DebugConfig, Logs } from '../logging/Logger';
-import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../types';
+import type { RouteMatcher } from '../core/routes/DataRoutes';
+import type { ServiceRegistry } from '../core/services/DataServices';
+import type { DebugConfig, Logs } from '../core/logging/types';
+import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../core/config/types';
 
 export const handleRender = async (
   req: FastifyRequest,
