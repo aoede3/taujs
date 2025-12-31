@@ -6,14 +6,14 @@ vi.mock('../DataRoutes', () => ({
   fetchInitialData: vi.fn(),
 }));
 
-vi.mock('../Telemetry', () => ({
+vi.mock('../../telemetry/Telemetry', () => ({
   createRequestContext: vi.fn(),
 }));
 
-import { resolveRouteData } from '../../core/routes/ResolveRouteData';
+import { resolveRouteData } from '../ResolveRouteData';
 import { matchRoute, fetchInitialData } from '../DataRoutes';
-import { createRequestContext } from '../../core/telemetry/Telemetry';
-import { AppError } from '../../core/errors/AppError';
+import { createRequestContext } from '../../telemetry/Telemetry';
+import { AppError } from '../../errors/AppError';
 
 type MockFastifyReq = FastifyRequest & { [key: string]: unknown };
 type MockFastifyReply = FastifyReply & { [key: string]: unknown };

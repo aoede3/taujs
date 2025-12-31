@@ -14,11 +14,11 @@ vi.mock('vite', () => ({
   }),
 }));
 
-vi.mock('../Setup', () => ({
+vi.mock('../core/config/Setup', () => ({
   extractBuildConfigs: vi.fn().mockReturnValue([]),
 }));
 
-vi.mock('../utils/AssetManager', () => ({
+vi.mock('../core/assets/AssetManager', () => ({
   processConfigs: vi.fn().mockReturnValue([]),
 }));
 

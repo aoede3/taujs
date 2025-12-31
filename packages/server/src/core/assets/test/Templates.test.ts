@@ -12,8 +12,8 @@ import {
   processTemplate,
   rebuildTemplate,
   addNonceToInlineScripts,
-} from '../../core/assets/Templates';
-import { SSRTAG } from '../../constants';
+} from '../../assets/Templates';
+import { SSRTAG } from '../../../constants';
 
 type Mod = { url: string; importedModules: Set<Mod> };
 type FakeServer = {

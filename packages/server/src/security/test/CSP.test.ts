@@ -27,7 +27,7 @@ vi.mock('../../constants', () => ({
   },
 }));
 
-vi.mock('../../utils/DataRoutes', () => ({
+vi.mock('../../core/routes/DataRoutes', () => ({
   createRouteMatchers: hoisted.createRouteMatchersMock,
   matchRoute: hoisted.matchRouteMock,
 }));
@@ -50,7 +50,7 @@ async function importer(isDev = true) {
       'script-src': ["'self'"],
     },
   }));
-  vi.doMock('../../utils/DataRoutes', () => ({
+  vi.doMock('../../core/routes/DataRoutes', () => ({
     createRouteMatchers: hoisted.createRouteMatchersMock,
     matchRoute: hoisted.matchRouteMock,
   }));
@@ -58,7 +58,7 @@ async function importer(isDev = true) {
     createLogger: hoisted.createLoggerMock,
   }));
 
-  vi.doMock('../../utils/System', () => ({
+  vi.doMock('../../core/system/System', () => ({
     isDevelopment: isDev,
   }));
 

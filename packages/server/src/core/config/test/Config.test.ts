@@ -6,11 +6,11 @@ vi.mock('../constants', () => ({
 
 import { defineConfig } from '../Config';
 
-import type { TaujsConfig } from '../Config';
+import type { CoreTaujsConfig } from '../types';
 
 describe('createConfig', () => {
   it('returns the same object when at least one app is present', () => {
-    const cfg: TaujsConfig = {
+    const cfg: CoreTaujsConfig = {
       apps: [{ appId: 'a', entryPoint: '/e' }],
     };
     const out = defineConfig(cfg);
@@ -18,7 +18,7 @@ describe('createConfig', () => {
   });
 
   it('throws if no apps configured', () => {
-    const cfg: TaujsConfig = { apps: [] };
+    const cfg: CoreTaujsConfig = { apps: [] };
     expect(() => defineConfig(cfg as any)).toThrow('At least one app must be configured');
   });
 });

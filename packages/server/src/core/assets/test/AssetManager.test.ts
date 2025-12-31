@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ENTRY_EXTENSIONS } from '../../constants';
+import { ENTRY_EXTENSIONS } from '../../../constants';
 
 const hoisted = vi.hoisted(() => ({
   // fs
@@ -9,6 +9,7 @@ const hoisted = vi.hoisted(() => ({
 
   // url
   pathToFileURLMock: vi.fn((p: string) => ({ href: '/virtual/render-ok.js' })),
+  fileURLToPathMock: vi.fn((p: string) => String(p)),
 
   // templates
   getCssLinksMock: vi.fn(() => '[css-links]'),
@@ -17,6 +18,9 @@ const hoisted = vi.hoisted(() => ({
   // logger
   createLoggerMock: vi.fn(),
   loggerErrorMock: vi.fn(),
+
+  // system
+  isDevelopment: true,
 }));
 
 vi.mock('node:fs', () => ({
@@ -29,6 +33,7 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('url', () => ({
   pathToFileURL: hoisted.pathToFileURLMock,
+  fileURLToPath: hoisted.fileURLToPathMock,
 }));
 
 vi.mock('../Templates', () => ({
@@ -36,7 +41,7 @@ vi.mock('../Templates', () => ({
   renderPreloadLinks: hoisted.renderPreloadLinksMock,
 }));
 
-vi.mock('../../logging/AppError', () => {
+vi.mock('../../errors/AppError', () => {
   class AppError extends Error {
     code?: string;
     extra?: any;
@@ -57,18 +62,24 @@ vi.mock('../../logging/AppError', () => {
 vi.mock('../../logging/Logger', () => ({
   createLogger: hoisted.createLoggerMock,
 }));
+// vi.mock('../../system/System', () => ({
+//   isDevelopment: hoisted.isDevelopment,
+// }));
 
 async function importer(isDev = true) {
   vi.resetModules();
 
+  const prev = process.env.NODE_ENV;
+  process.env.NODE_ENV = isDev ? 'development' : 'production';
+
   vi.doMock('node:fs', () => ({ existsSync: hoisted.existsSyncMock }));
   vi.doMock('fs/promises', () => ({ readFile: hoisted.readFileMock }));
-  vi.doMock('url', () => ({ pathToFileURL: hoisted.pathToFileURLMock }));
+  vi.doMock('url', () => ({ pathToFileURL: hoisted.pathToFileURLMock, fileURLToPath: hoisted.fileURLToPathMock }));
   vi.doMock('../Templates', () => ({
     getCssLinks: hoisted.getCssLinksMock,
     renderPreloadLinks: hoisted.renderPreloadLinksMock,
   }));
-  vi.doMock('../../logging/AppError', () => {
+  vi.doMock('../../errors/AppError', () => {
     class AppError extends Error {
       code?: string;
       extra?: any;
@@ -89,26 +100,31 @@ async function importer(isDev = true) {
   vi.doMock('../../logging/Logger', () => ({
     createLogger: hoisted.createLoggerMock,
   }));
-  vi.doMock('../System', () => ({
-    isDevelopment: isDev,
-  }));
 
-  return await import('../../core/assets/AssetManager');
+  const mod = await import('../AssetManager');
+
+  process.env.NODE_ENV = prev;
+  return mod;
 }
 
-const { existsSyncMock, readFileMock, pathToFileURLMock, getCssLinksMock, renderPreloadLinksMock, createLoggerMock, loggerErrorMock } = hoisted;
+const { existsSyncMock, readFileMock, pathToFileURLMock, fileURLToPathMock, getCssLinksMock, renderPreloadLinksMock, createLoggerMock, loggerErrorMock } =
+  hoisted;
 
 vi.mock('/virtual/render-ok.js', () => ({ default: { render: 'ok' } }));
+
+const testLogger = () => ({ error: loggerErrorMock });
 
 beforeEach(() => {
   existsSyncMock.mockReset();
   readFileMock.mockReset();
   pathToFileURLMock.mockReset().mockImplementation(() => ({ href: '/virtual/render-ok.js' }));
+  fileURLToPathMock.mockReset().mockImplementation((p: string) => String(p));
 
   getCssLinksMock.mockReset().mockReturnValue('[css-links]');
   renderPreloadLinksMock.mockReset().mockReturnValue('[preload-links]');
 
-  createLoggerMock.mockReset().mockReturnValue({ error: loggerErrorMock.mockReset() });
+  loggerErrorMock.mockReset();
+  createLoggerMock.mockReset().mockReturnValue({ error: loggerErrorMock });
 });
 
 afterEach(() => {
@@ -258,7 +274,7 @@ describe('loadAssets (development)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      { debug: false },
+      { debug: false, logger: testLogger() as any },
     );
 
     expect(maps.templates.get('/root/appA')).toBe('<html>A</html>');
@@ -304,7 +320,7 @@ describe('loadAssets (development)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      { debug: false },
+      { debug: false, logger: testLogger() as any },
     );
 
     expect(maps.templates.get('/root')).toBe('<html>dev root</html>');
@@ -359,7 +375,7 @@ describe('loadAssets (production)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      { debug: { all: true } as any },
+      { debug: { all: true } as any, logger: testLogger() as any },
     );
 
     expect(maps.templates.get('/root/dist/client/appA')).toBe('<html>prod</html>');
@@ -418,7 +434,7 @@ describe('loadAssets (production)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      {},
+      { logger: testLogger() as any },
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
@@ -480,7 +496,7 @@ describe('loadAssets (production)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      {},
+      { logger: testLogger() as any },
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
@@ -539,7 +555,7 @@ describe('loadAssets (production)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      {},
+      { logger: testLogger() as any },
     );
 
     expect(maps.bootstrapModules.get('/root/dist/client')).toBe('/assets/app.js');
@@ -584,7 +600,7 @@ describe('loadAssets (production)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      {},
+      { logger: testLogger() as any },
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
@@ -635,7 +651,7 @@ describe('loadAssets (production)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      {},
+      { logger: testLogger() as any },
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
@@ -677,7 +693,7 @@ describe('loadAssets (production)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      {},
+      { logger: testLogger() as any },
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
@@ -719,7 +735,7 @@ describe('loadAssets (production)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      {},
+      { logger: testLogger() as any },
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
@@ -763,7 +779,7 @@ describe('loadAssets - top-level failure (template read fails)', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      {},
+      { logger: testLogger() as any },
     );
 
     expect(loggerErrorMock).toHaveBeenCalledWith(

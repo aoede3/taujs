@@ -5,7 +5,7 @@ const hoisted = vi.hoisted(() => ({
   matchRouteMock: vi.fn(),
 }));
 
-vi.mock('../../utils/DataRoutes', () => ({
+vi.mock('../../core/routes//DataRoutes', () => ({
   matchRoute: hoisted.matchRouteMock,
 }));
 

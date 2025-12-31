@@ -38,7 +38,7 @@ class MockAppError extends Error {
     return new MockAppError(msg, 'TIMEOUT');
   }
 }
-vi.mock('../../logging/AppError', () => ({ AppError: MockAppError }));
+vi.mock('../../errors/AppError', () => ({ AppError: MockAppError }));
 
 function makeLogger() {
   hoisted.childMock.mockReturnValue({ debug: hoisted.debugMock, error: hoisted.errorMock });

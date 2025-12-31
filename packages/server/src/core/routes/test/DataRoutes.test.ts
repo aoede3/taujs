@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { createRouteMatchers, matchRoute, matchAllRoutes, extractRouteParams, getRouteStats, fetchInitialData } from '../DataRoutes';
-import { AppError } from '../../core/errors/AppError';
+import { AppError } from '../../errors/AppError';
 
 const mkRoute = (path: string, appId = 'app', attr: any = {}) => ({ path, appId, attr }) as any;
 
