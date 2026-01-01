@@ -1,12 +1,13 @@
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
+import { RENDERTYPE } from '../core/constants';
 import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from '../core/assets/Templates';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
 import { fetchInitialData, matchRoute } from '../core/routes/DataRoutes';
 import { isDevelopment } from '../core/system/System';
 import { createRequestContext } from '../core/telemetry/Telemetry';
-import { REGEX, RENDERTYPE } from '../constants';
+import { REGEX } from '../constants';
 import { createLogger } from '../logging/Logger';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';

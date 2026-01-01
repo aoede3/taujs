@@ -1,5 +1,7 @@
 import { performance } from 'node:perf_hooks';
+
 import { AppError } from '../errors/AppError';
+import { resolveLogs } from '../logging/resolve';
 
 import type { Logs } from '../logging/types';
 
@@ -124,7 +126,9 @@ export async function callServiceMethod(
   const method = service[methodName];
   if (!method) throw AppError.notFound(`Unknown method: ${serviceName}.${methodName}`);
 
-  const logger = ctx.logger?.child?.({
+  const baseLogger = resolveLogs(ctx.logger);
+
+  const logger = baseLogger.child({
     component: 'service-call',
     service: serviceName,
     method: methodName,
@@ -140,11 +144,11 @@ export async function callServiceMethod(
       throw AppError.internal(`Non-object result from ${serviceName}.${methodName}`);
     }
 
-    logger?.debug?.({ ms: +(performance.now() - t0).toFixed(1) }, 'Service method ok');
+    logger.debug({ ms: +(performance.now() - t0).toFixed(1) }, 'Service method ok');
 
     return result;
   } catch (err) {
-    logger?.error?.(
+    logger.error(
       {
         params,
         error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
@@ -152,6 +156,7 @@ export async function callServiceMethod(
       },
       'Service method failed',
     );
+
     throw err instanceof AppError
       ? err
       : err instanceof Error

@@ -1,6 +1,6 @@
 import type { ViteDevServer } from 'vite';
 
-import { SSRTAG } from '../../constants';
+import { SSRTAG } from '../constants';
 
 import type { Manifest, SSRManifest } from '../config/types';
 

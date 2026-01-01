@@ -1,9 +1,10 @@
 import type { BaseLogger } from './Logger';
 
-type Meta = Record<string, unknown> | undefined;
+const cleanMeta = (meta: unknown): Record<string, unknown> | undefined => {
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) return Object.keys(meta).length ? (meta as Record<string, unknown>) : undefined;
 
-const cleanMeta = (m: Meta): Meta => (m && Object.keys(m).length === 0 ? undefined : m);
-
+  return undefined;
+};
 export interface MessageMetaLogger {
   debug?: (message?: string, meta?: Record<string, unknown>) => unknown;
   info?: (message?: string, meta?: Record<string, unknown>) => unknown;

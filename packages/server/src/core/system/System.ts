@@ -4,4 +4,6 @@ import { fileURLToPath } from 'node:url';
 
 export const isDevelopment = process.env.NODE_ENV === 'development';
 export const __filename = fileURLToPath(import.meta.url);
-export const __dirname = join(dirname(__filename), !isDevelopment ? './' : '..');
+
+const DIR_SUFFIX = isDevelopment ? '..' : './';
+export const __dirname = join(dirname(__filename), DIR_SUFFIX);

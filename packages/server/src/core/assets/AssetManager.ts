@@ -5,10 +5,11 @@ import { pathToFileURL } from 'url';
 
 import { ENTRY_EXTENSIONS } from '../constants';
 import { AppError } from '../errors/AppError';
+import { resolveLogs } from '../logging/resolve';
 import { isDevelopment } from '../system/System';
 import { getCssLinks, renderPreloadLinks } from './Templates';
-import { noopLogger } from '../logging/noop';
-import type { TEMPLATE } from '../../constants';
+
+import type { TEMPLATE } from '../constants';
 import type { DebugConfig, Logs } from '../logging/types';
 import type { Config, Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../config/types';
 
@@ -71,9 +72,9 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
-  opts: { debug?: DebugConfig; logger?: Logs } = {},
+  opts: { logger?: Logs; debug?: DebugConfig } = {},
 ) => {
-  const logger: Logs = opts.logger ?? noopLogger;
+  const logger = resolveLogs(opts.logger);
 
   for (const config of processedConfigs) {
     const { clientRoot, entryClient, entryServer, htmlTemplate, entryPoint, entryClientFile, entryServerFile } = config;

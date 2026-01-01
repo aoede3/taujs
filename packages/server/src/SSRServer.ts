@@ -10,12 +10,12 @@
 
 import fp from 'fastify-plugin';
 
+import { TEMPLATE } from './core/constants';
 import { AppError } from './core/errors/AppError';
 import { createRouteMatchers } from './core/routes/DataRoutes';
 import { resolveRouteData } from './core/routes/ResolveRouteData';
 import { isDevelopment } from './core/system/System';
 
-import { TEMPLATE } from './constants';
 import { printVitePluginSummary } from './Setup';
 import { createLogger } from './logging/Logger';
 import { toHttp } from './logging/utils';

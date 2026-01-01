@@ -13,7 +13,7 @@ import {
   rebuildTemplate,
   addNonceToInlineScripts,
 } from '../../assets/Templates';
-import { SSRTAG } from '../../../constants';
+import { SSRTAG } from '../../constants';
 
 type Mod = { url: string; importedModules: Set<Mod> };
 type FakeServer = {

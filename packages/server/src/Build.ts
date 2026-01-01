@@ -13,10 +13,9 @@ import path from 'node:path';
 
 import { build } from 'vite';
 
+import { TEMPLATE } from './core/constants';
 import { extractBuildConfigs } from './core/config/Setup';
 import { processConfigs } from './core/assets/AssetManager';
-
-import { TEMPLATE } from './constants';
 
 import type { InlineConfig, PluginOption } from 'vite';
 import type { CoreAppConfig } from './core/config/types';

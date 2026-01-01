@@ -5,40 +5,8 @@ vi.mock('../constants', () => ({
 }));
 
 import { extractBuildConfigs, extractRoutes, extractSecurity } from '../Setup';
-import { createLogger } from '../../../logging/Logger';
 
-import type { CoreTaujsConfig, CoreSecurityConfig } from '../../config/types';
-import type { DebugConfig, LogLevel } from '../../logging/types';
-import type { Route } from '../../config/types';
-
-function makeMemoryLogger(debug?: DebugConfig) {
-  const records: Array<{ level: LogLevel; args: any[] }> = [];
-
-  const push = (level: LogLevel) => (meta?: unknown, message?: string) => {
-    const args = [] as any[];
-    if (message != null) args.push(message);
-    if (meta && typeof meta === 'object' && Object.keys(meta as object).length > 0) args.push(meta);
-    records.push({ level, args });
-  };
-
-  const logger = createLogger({
-    debug,
-    minLevel: 'debug',
-    custom: {
-      debug: push('debug'),
-      info: push('info'),
-      warn: push('warn'),
-      error: push('error'),
-    },
-    includeContext: false,
-  });
-
-  const reset = () => (records.length = 0);
-  const take = (level: LogLevel) => records.filter((r) => r.level === level).map((r) => r.args);
-  const all = () => records;
-
-  return { logger, reset, take, all };
-}
+import type { CoreTaujsConfig, Route } from '../../config/types';
 
 describe('extractBuildConfigs', () => {
   it('maps minimal fields from apps', () => {
