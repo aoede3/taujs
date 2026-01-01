@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { REGEX } from '../../constants';
+import { REGEX } from '../constants';
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Logs } from '../logging/types';

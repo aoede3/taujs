@@ -22,5 +22,5 @@ export interface Logs extends BaseLogger {
   error(meta?: unknown, message?: string): void;
 
   child(context: Record<string, unknown>): Logs;
-  isDebugEnabled?(category: DebugCategory): boolean;
+  isDebugEnabled(category: DebugCategory): boolean;
 }

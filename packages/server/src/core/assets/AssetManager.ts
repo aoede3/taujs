@@ -3,11 +3,11 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
-import { ENTRY_EXTENSIONS } from '../../constants';
+import { ENTRY_EXTENSIONS } from '../constants';
 import { AppError } from '../errors/AppError';
-import { createLogger } from '../../logging/Logger';
 import { isDevelopment } from '../system/System';
 import { getCssLinks, renderPreloadLinks } from './Templates';
+import { noopLogger } from '../logging/noop';
 import type { TEMPLATE } from '../../constants';
 import type { DebugConfig, Logs } from '../logging/types';
 import type { Config, Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../config/types';
@@ -73,12 +73,7 @@ export const loadAssets = async (
   templates: Map<string, string>,
   opts: { debug?: DebugConfig; logger?: Logs } = {},
 ) => {
-  const logger: Logs =
-    opts.logger ??
-    createLogger({
-      debug: opts.debug,
-      includeContext: true,
-    });
+  const logger: Logs = opts.logger ?? noopLogger;
 
   for (const config of processedConfigs) {
     const { clientRoot, entryClient, entryServer, htmlTemplate, entryPoint, entryClientFile, entryServerFile } = config;
