@@ -111,7 +111,7 @@ const {
 
 vi.mock('../logging/Logger', () => ({ createLogger: vi.fn(() => mockLogger) }));
 
-vi.mock('../core/assets/AssetManager', () => ({
+vi.mock('../utils/AssetManager', () => ({
   createMaps: vi.fn(() => maps),
   loadAssets: loadAssetsMock,
   processConfigs: processConfigsMock,
@@ -125,7 +125,7 @@ vi.mock('../security/CSP', () => ({ cspPlugin: cspPluginMock }));
 
 vi.mock('../security/CSPReporting', () => ({ cspReportPlugin: cspReportPluginMock }));
 
-vi.mock('../core/system/System', () => ({
+vi.mock('../System', () => ({
   get isDevelopment() {
     return devRef.value;
   },
@@ -141,7 +141,7 @@ vi.mock('../logging/utils', () => ({ toHttp: toHttpMock }));
 
 vi.mock('../core/errors/AppError', () => ({ AppError: AppErrorFake }));
 
-vi.mock('../core/routes/ResolveRouteData', () => ({ resolveRouteData: resolveRouteDataMock }));
+vi.mock('../utils/ResolveRouteData', () => ({ resolveRouteData: resolveRouteDataMock }));
 
 vi.mock('@fastify/static', () => ({ default: autoStaticPluginMock }));
 
@@ -149,7 +149,7 @@ vi.mock('../Setup', () => ({ printVitePluginSummary: printVitePluginSummaryMock 
 vi.mock('../utils/VitePlugins', () => ({ mergePlugins: mergePluginsMock }));
 
 import { SSRServer, TEMPLATE } from '../SSRServer';
-import { loadAssets } from '../core/assets/AssetManager';
+import { loadAssets } from '../utils/AssetManager';
 import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
 import { mergePlugins } from '../utils/VitePlugins';

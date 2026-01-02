@@ -65,17 +65,10 @@ async function importer(isDev = true) {
   const prev = process.env.NODE_ENV;
   process.env.NODE_ENV = isDev ? 'development' : 'production';
 
-  vi.doMock('node:fs', () => ({ existsSync: hoisted.existsSyncMock }));
-  vi.doMock('fs/promises', () => ({ readFile: hoisted.readFileMock }));
-  vi.doMock('url', () => ({ pathToFileURL: hoisted.pathToFileURLMock, fileURLToPath: hoisted.fileURLToPathMock }));
-  vi.doMock('../system/System', () => ({
+  vi.doMock('../../core/system/System', () => ({
     isDevelopment: isDev,
   }));
-  vi.doMock('../Templates', () => ({
-    getCssLinks: hoisted.getCssLinksMock,
-    renderPreloadLinks: hoisted.renderPreloadLinksMock,
-  }));
-  vi.doMock('../../logging/noop', () => {
+  vi.doMock('../../core/logging/noop', () => {
     const l = {
       debug: () => {},
       info: () => {},
@@ -86,8 +79,7 @@ async function importer(isDev = true) {
     };
     return { noopLogger: l };
   });
-
-  vi.doMock('../../errors/AppError', () => {
+  vi.doMock('../../core/errors/AppError', () => {
     class AppError extends Error {
       code?: string;
       extra?: any;
@@ -104,6 +96,14 @@ async function importer(isDev = true) {
     }
     return { AppError };
   });
+
+  vi.doMock('node:fs', () => ({ existsSync: hoisted.existsSyncMock }));
+  vi.doMock('fs/promises', () => ({ readFile: hoisted.readFileMock }));
+  vi.doMock('url', () => ({ pathToFileURL: hoisted.pathToFileURLMock, fileURLToPath: hoisted.fileURLToPathMock }));
+  vi.doMock('../Templates', () => ({
+    getCssLinks: hoisted.getCssLinksMock,
+    renderPreloadLinks: hoisted.renderPreloadLinksMock,
+  }));
 
   const mod = await import('../AssetManager');
 

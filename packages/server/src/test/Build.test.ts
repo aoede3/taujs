@@ -18,7 +18,7 @@ vi.mock('../core/config/Setup', () => ({
   extractBuildConfigs: vi.fn().mockReturnValue([]),
 }));
 
-vi.mock('../core/assets/AssetManager', () => ({
+vi.mock('../utils/AssetManager', () => ({
   processConfigs: vi.fn().mockReturnValue([]),
 }));
 
@@ -61,7 +61,7 @@ import * as path from 'node:path';
 import { taujsBuild, mergeViteConfig, getFrameworkInvariants, resolveInputs, resolveAppFilter } from '../Build';
 import { build } from 'vite';
 import { extractBuildConfigs } from '../core/config/Setup';
-import { processConfigs } from '../core/assets/AssetManager';
+import { processConfigs } from '../utils/AssetManager';
 
 import type { RollupOutput } from 'rollup';
 import type { ViteConfigOverride, ViteBuildContext } from '../Build';

@@ -2,6 +2,19 @@ import pc from 'picocolors';
 
 import type { CSPDirectives } from './security/CSP';
 
+export const SSRTAG = {
+  ssrHead: '<!--ssr-head-->',
+  ssrHtml: '<!--ssr-html-->',
+} as const;
+
+export const TEMPLATE = {
+  defaultEntryClient: 'entry-client',
+  defaultEntryServer: 'entry-server',
+  defaultHtmlTemplate: 'index.html',
+} as const;
+
+export const ENTRY_EXTENSIONS = ['.ts', '.tsx'] as const;
+
 export const DEV_CSP_DIRECTIVES: CSPDirectives = {
   'default-src': ["'self'"],
   'connect-src': ["'self'", 'ws:', 'http:'],

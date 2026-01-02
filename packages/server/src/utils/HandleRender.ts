@@ -2,20 +2,21 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
 import { RENDERTYPE } from '../core/constants';
-import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from '../core/assets/Templates';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
 import { fetchInitialData, matchRoute } from '../core/routes/DataRoutes';
-import { isDevelopment } from '../core/system/System';
-import { createRequestContext } from '../core/telemetry/Telemetry';
 import { REGEX } from '../constants';
 import { createLogger } from '../logging/Logger';
+import { isDevelopment } from '../System';
+import { createRequestContext } from './Telemetry';
+import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
+import type { PathToRegExpParams } from '../core/config/types';
+import type { DebugConfig, Logs } from '../core/logging/types';
 import type { RouteMatcher } from '../core/routes/DataRoutes';
 import type { ServiceRegistry } from '../core/services/DataServices';
-import type { DebugConfig, Logs } from '../core/logging/types';
-import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../core/config/types';
+import type { Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../types';
 
 export const handleRender = async (
   req: FastifyRequest,

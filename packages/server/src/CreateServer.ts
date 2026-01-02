@@ -17,8 +17,8 @@ import { SSRServer } from './SSRServer';
 
 import type { FastifyInstance } from 'fastify';
 import type { ServiceRegistry } from './core/services/DataServices';
-import type { TaujsConfig } from './Config';
 import type { BaseLogger, DebugConfig } from './core/logging/types';
+import type { TaujsConfig } from './Config';
 import type { NetResolved } from './network/CLI';
 import type { StaticAssetsRegistration } from './utils/StaticAssets';
 

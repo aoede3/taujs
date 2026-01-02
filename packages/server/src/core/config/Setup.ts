@@ -1,4 +1,4 @@
-import { performance } from 'node:perf_hooks';
+import { now } from '../telemetry/Telemetry';
 
 import type { PathToRegExpParams, Route, CoreAppConfig, CoreSecurityConfig, CoreTaujsConfig } from './types';
 
@@ -27,7 +27,7 @@ export const extractBuildConfigs = <A extends CoreAppConfig = CoreAppConfig>(con
 };
 
 export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult => {
-  const t0 = performance.now();
+  const t0 = now();
   const allRoutes: Route<PathToRegExpParams>[] = [];
   const apps: { appId: string; routeCount: number }[] = [];
   const warnings: string[] = [];
@@ -52,7 +52,7 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
   }
 
   const sortedRoutes = allRoutes.sort((a, b) => computeScore(b.path) - computeScore(a.path));
-  const durationMs = performance.now() - t0;
+  const durationMs = now() - t0;
 
   return {
     routes: sortedRoutes,
@@ -66,7 +66,7 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
 export const extractSecurity = <S extends CoreSecurityConfig = CoreSecurityConfig>(
   taujsConfig: CoreTaujsConfig & { security?: S },
 ): ExtractSecurityResult<S> => {
-  const t0 = performance.now();
+  const t0 = now();
   const user = (taujsConfig.security ?? {}) as S;
   const userCsp = user.csp;
 
@@ -96,7 +96,7 @@ export const extractSecurity = <S extends CoreSecurityConfig = CoreSecurityConfi
     reportOnly: !!normalisedCsp?.reporting?.reportOnly,
   };
 
-  const durationMs = performance.now() - t0;
+  const durationMs = now() - t0;
 
   return {
     security,

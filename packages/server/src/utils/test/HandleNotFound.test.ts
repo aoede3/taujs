@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { SSRTAG } from '../../core/constants';
-import * as System from '../../core/system/System';
+import { SSRTAG } from '../../constants';
+import * as System from '../../System';
 
 import { handleNotFound } from '../HandleNotFound';
 

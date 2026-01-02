@@ -153,9 +153,9 @@ export const fetchInitialData = async <Params extends PathToRegExpParams, R exte
   if (!dataHandler || typeof dataHandler !== 'function') return {};
 
   const ctxForData: RequestServiceContext<L> = {
-    ...(ctx as any),
-    headers: (ctx as any).headers ?? {},
-  } as RequestServiceContext<L>;
+    ...ctx,
+    headers: ctx.headers ?? {},
+  } as const;
 
   ensureServiceCaller(serviceRegistry, ctxForData);
 

@@ -1,8 +1,7 @@
-import type { ViteDevServer } from 'vite';
-
 import { SSRTAG } from '../constants';
 
-import type { Manifest, SSRManifest } from '../config/types';
+import type { ViteDevServer } from 'vite';
+import type { Manifest, SSRManifest } from '../types';
 
 // https://github.com/vitejs/vite/issues/16515
 // https://github.com/hi-ogawa/vite-plugins/blob/main/packages/ssr-css/src/collect.ts

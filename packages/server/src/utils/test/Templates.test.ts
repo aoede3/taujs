@@ -12,7 +12,7 @@ import {
   processTemplate,
   rebuildTemplate,
   addNonceToInlineScripts,
-} from '../../assets/Templates';
+} from '../Templates';
 import { SSRTAG } from '../../constants';
 
 type Mod = { url: string; importedModules: Set<Mod> };

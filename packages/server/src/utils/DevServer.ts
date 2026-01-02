@@ -1,9 +1,9 @@
 import path from 'node:path';
 
-import { overrideCSSHMRConsoleError } from '../core/assets/Templates';
-import { __dirname } from '../core/system/System';
 import { CONTENT } from '../constants';
 import { createLogger } from '../logging/Logger';
+import { __dirname } from '../System';
+import { overrideCSSHMRConsoleError } from './Templates';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';

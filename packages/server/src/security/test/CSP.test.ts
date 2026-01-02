@@ -58,7 +58,7 @@ async function importer(isDev = true) {
     createLogger: hoisted.createLoggerMock,
   }));
 
-  vi.doMock('../../core/system/System', () => ({
+  vi.doMock('../../System', () => ({
     isDevelopment: isDev,
   }));
 

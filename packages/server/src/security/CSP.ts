@@ -2,7 +2,7 @@ import fp from 'fastify-plugin';
 import crypto from 'crypto';
 
 import { createRouteMatchers, matchRoute } from '../core/routes/DataRoutes';
-import { isDevelopment } from '../core/system/System';
+import { isDevelopment } from '../System';
 import { DEV_CSP_DIRECTIVES } from '../constants';
 import { createLogger } from '../logging/Logger';
 

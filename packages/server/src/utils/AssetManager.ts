@@ -3,15 +3,14 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
-import { ENTRY_EXTENSIONS } from '../constants';
-import { AppError } from '../errors/AppError';
-import { resolveLogs } from '../logging/resolve';
-import { isDevelopment } from '../system/System';
+import { ENTRY_EXTENSIONS, TEMPLATE } from '../constants';
+import { AppError } from '../core/errors/AppError';
+import { resolveLogs } from '../core/logging/resolve';
+import { isDevelopment } from '../System';
 import { getCssLinks, renderPreloadLinks } from './Templates';
 
-import type { TEMPLATE } from '../constants';
-import type { DebugConfig, Logs } from '../logging/types';
-import type { Config, Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../config/types';
+import type { Logs } from '../core/logging/types';
+import type { Config, Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../types';
 
 /**
  * Resolve entry file by checking filesystem for supported extensions.
@@ -72,12 +71,12 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
-  opts: { logger?: Logs; debug?: DebugConfig } = {},
+  opts: { logger?: Logs } = {},
 ) => {
   const logger = resolveLogs(opts.logger);
 
   for (const config of processedConfigs) {
-    const { clientRoot, entryClient, entryServer, htmlTemplate, entryPoint, entryClientFile, entryServerFile } = config;
+    const { clientRoot, entryServer, htmlTemplate, entryPoint, entryClientFile } = config;
 
     try {
       const templateHtmlPath = path.join(clientRoot, htmlTemplate);
