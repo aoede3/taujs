@@ -206,7 +206,7 @@ describe('SSRServer', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      expect.objectContaining({ logger: mockLogger, debug: false }),
+      expect.objectContaining({ logger: mockLogger }),
     );
 
     // CSP plugin called with route matchers + debug

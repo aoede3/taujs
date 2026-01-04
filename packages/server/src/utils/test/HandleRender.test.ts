@@ -56,6 +56,10 @@ vi.mock('../../core/errors/AppError', async () => {
 
 vi.mock('../../logging/Logger');
 
+vi.mock('../../Build', () => ({
+  resolveEntryFile: vi.fn((clientRoot: string, entryServer: string) => entryServer),
+}));
+
 vi.mock('node:stream', () => {
   class MockPassThrough {
     private _dest: any = null;
@@ -205,7 +209,7 @@ describe('handleRender', () => {
       {
         appId: 'test-app',
         clientRoot: '/test/client',
-        entryServerFile: 'entry-server.tsx',
+        entryServer: 'entry-server.tsx',
       },
     ];
 

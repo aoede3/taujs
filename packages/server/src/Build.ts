@@ -9,11 +9,12 @@
  */
 
 import { existsSync } from 'node:fs';
+import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { build } from 'vite';
 
-import { TEMPLATE } from './constants';
+import { ENTRY_EXTENSIONS, TEMPLATE } from './constants';
 import { extractBuildConfigs } from './core/config/Setup';
 import { processConfigs } from './utils/AssetManager';
 
@@ -32,6 +33,15 @@ export function resolveInputs(isSSRBuild: boolean, mainExists: boolean, paths: {
   if (mainExists) return { client: paths.client, main: paths.main };
 
   return { client: paths.client };
+}
+
+export function resolveEntryFile(clientRoot: string, stem: string, exists: (absPath: string) => boolean = fs.existsSync): string {
+  for (const ext of ENTRY_EXTENSIONS) {
+    const filename = `${stem}${ext}`;
+    if (exists(path.join(clientRoot, filename))) return filename;
+  }
+
+  throw new Error(`Entry file "${stem}" not found in ${clientRoot}. Tried: ${ENTRY_EXTENSIONS.map((e) => stem + e).join(', ')}`);
 }
 
 /**
@@ -135,15 +145,15 @@ export function getFrameworkInvariants(config: InlineConfig): FrameworkInvariant
  *
  * Returns a config safe to pass directly to vite.build().
  */
+export const normalisePlugins = (p: any): any[] => (Array.isArray(p) ? p : p ? [p] : []);
+
 export function mergeViteConfig(framework: InlineConfig, userOverride?: ViteConfigOverride, context?: ViteBuildContext): InlineConfig {
   if (!userOverride) return framework;
 
-  // Resolve user config (function or static)
   const userConfig: Partial<InlineConfig> = typeof userOverride === 'function' && context ? userOverride(context) : (userOverride as Partial<InlineConfig>);
 
   const invariants = getFrameworkInvariants(framework);
 
-  // Targeted shallow clone (plugins/define/functions can't be deep-cloned with structuredClone)
   const merged: InlineConfig = {
     ...framework,
     build: { ...(framework.build ?? {}) },
@@ -153,145 +163,100 @@ export function mergeViteConfig(framework: InlineConfig, userOverride?: ViteConf
     define: { ...(framework.define ?? {}) },
   };
 
-  // Track ignored user overrides for warnings
   const ignoredKeys: string[] = [];
 
-  // Extension Point 1: Plugins (append)
-  if (userConfig.plugins) {
-    const frameworkPlugins = merged.plugins as PluginOption[];
-    merged.plugins = [...frameworkPlugins, ...userConfig.plugins];
-  }
+  if (userConfig.plugins) merged.plugins = [...normalisePlugins(merged.plugins), ...normalisePlugins(userConfig.plugins)];
 
-  // Extension Point 2: Define (shallow merge, user wins)
-  if (userConfig.define && typeof userConfig.define === 'object') {
-    merged.define = {
-      ...merged.define,
-      ...userConfig.define,
-    };
-  }
+  if (userConfig.define && typeof userConfig.define === 'object') merged.define = { ...merged.define, ...userConfig.define };
 
-  // Extension Point 3: CSS preprocessor options (deep merge by engine)
-  if (userConfig.css?.preprocessorOptions && typeof userConfig.css.preprocessorOptions === 'object') {
-    const fpp = merged.css!.preprocessorOptions ?? {};
+  if (userConfig.css?.preprocessorOptions) {
+    const fpp = merged.css?.preprocessorOptions ?? {};
     const upp = userConfig.css.preprocessorOptions;
 
-    merged.css!.preprocessorOptions = Object.keys({ ...fpp, ...upp }).reduce((acc, engine) => {
-      const fppEngine = (fpp as any)[engine];
-      const uppEngine = (upp as any)[engine];
-      (acc as any)[engine] = { ...(fppEngine ?? {}), ...(uppEngine ?? {}) };
-
+    merged.css ??= {};
+    merged.css.preprocessorOptions ??= {};
+    merged.css.preprocessorOptions = Object.keys({ ...fpp, ...upp }).reduce((acc, engine) => {
+      (acc as any)[engine] = {
+        ...(fpp as any)[engine],
+        ...(upp as any)[engine],
+      };
       return acc;
     }, {} as any);
   }
 
-  // Tuning Point 1: Build.sourcemap, minify, terserOptions
   if (userConfig.build) {
-    // Warn if user tried to set protected build fields
     const protectedBuildFields = ['outDir', 'ssr', 'ssrManifest', 'format', 'target'];
+
     for (const field of protectedBuildFields) {
-      if (field in userConfig.build) {
-        ignoredKeys.push(`build.${field}`);
-      }
+      if (field in userConfig.build) ignoredKeys.push(`build.${field}`);
     }
 
-    // sourcemap: allow any value (true, false, 'inline', etc.)
     if ('sourcemap' in userConfig.build) (merged.build as any).sourcemap = (userConfig.build as any).sourcemap;
 
-    // minify: allow any value (true, false, 'terser', 'esbuild', etc.)
     if ('minify' in userConfig.build) (merged.build as any).minify = (userConfig.build as any).minify;
 
-    // terserOptions: shallow merge with our defaults
-    if ((userConfig.build as any).terserOptions && typeof (userConfig.build as any).terserOptions === 'object') {
+    if ((userConfig.build as any).terserOptions) {
       (merged.build as any).terserOptions = {
-        ...((merged.build as any).terserOptions ?? {}),
+        ...(merged.build as any).terserOptions,
         ...(userConfig.build as any).terserOptions,
       };
     }
 
-    // rollupOptions.external and output.manualChunks (chunking strategy)
     if ((userConfig.build as any).rollupOptions) {
-      if (!(merged.build as any).rollupOptions) {
-        (merged.build as any).rollupOptions = {};
-      }
-
       const userRollup = (userConfig.build as any).rollupOptions;
+      const ro = ((merged.build as any).rollupOptions ??= {});
 
       if ('input' in userRollup) ignoredKeys.push('build.rollupOptions.input');
+      if ('external' in userRollup) ro.external = userRollup.external;
 
-      if ('external' in userRollup) ((merged.build as any).rollupOptions as any).external = userRollup.external;
-
-      // Simplified output handling: normalise to single object, merge manualChunks only
       if (userRollup.output) {
-        const mro: any = ((merged.build as any).rollupOptions ??= {});
         const uo = Array.isArray(userRollup.output) ? userRollup.output[0] : userRollup.output;
-        const baseOut = Array.isArray(mro.output) ? (mro.output[0] ?? {}) : (mro.output ?? {});
 
-        mro.output = { ...baseOut, ...(uo?.manualChunks ? { manualChunks: uo.manualChunks } : {}) };
+        ro.output = {
+          ...(Array.isArray(ro.output) ? ro.output[0] : ro.output),
+          ...(uo?.manualChunks ? { manualChunks: uo.manualChunks } : {}),
+        };
       }
     }
   }
 
-  // Tuning Point 2: resolve (but NOT alias)
   if (userConfig.resolve) {
-    const userResolve = userConfig.resolve as any;
-    // Strip out 'alias' key - controlled by top-level option
-    const { alias: _ignore, ...resolveRest } = userResolve;
-
+    const { alias: _ignore, ...rest } = userConfig.resolve as any;
     if (_ignore) ignoredKeys.push('resolve.alias');
-
-    merged.resolve = {
-      ...merged.resolve,
-      ...resolveRest,
-    };
+    merged.resolve = { ...merged.resolve, ...rest };
   }
 
-  // Warn if user tried to set server config (dev-only, ignored in build)
-  if (userConfig.server) ignoredKeys.push('server (ignored in build; dev-only)');
-
-  // Warn if user tried to set protected top-level fields
+  if (userConfig.server) ignoredKeys.push('server');
   if ('root' in userConfig) ignoredKeys.push('root');
   if ('base' in userConfig) ignoredKeys.push('base');
   if ('publicDir' in userConfig) ignoredKeys.push('publicDir');
 
-  // Tuning Point 3: Safe top-level fields (esbuild, logLevel, etc.)
-  const safeTopLevelKeys = new Set([
-    'esbuild',
-    'logLevel',
-    'envPrefix',
-    'optimizeDeps',
-    'ssr',
-    // NOTE: NOT 'server' (build-time irrelevant; dev-server only)
-  ]);
-
-  for (const [key, value] of Object.entries(userConfig)) {
-    if (safeTopLevelKeys.has(key)) (merged as any)[key] = value;
+  for (const key of ['esbuild', 'logLevel', 'envPrefix', 'optimizeDeps', 'ssr']) {
+    if (key in userConfig) (merged as any)[key] = (userConfig as any)[key];
   }
 
-  // GUARANTEE: Restore framework invariants (cannot be overridden)
-  (merged as any).root = invariants.root;
-  (merged as any).base = invariants.base;
-  (merged as any).publicDir = invariants.publicDir;
+  merged.root = invariants.root;
+  merged.base = invariants.base;
+  merged.publicDir = invariants.publicDir as any;
 
   (merged.build as any).outDir = invariants.build.outDir;
   (merged.build as any).manifest = invariants.build.manifest;
 
-  if (invariants.build.ssr !== undefined) (merged.build as any).ssr = invariants.build.ssr;
-
+  (merged.build as any).ssr = invariants.build.ssr;
   (merged.build as any).ssrManifest = invariants.build.ssrManifest;
+  (merged.build as any).format = invariants.build.format;
+  (merged.build as any).target = invariants.build.target;
 
-  if (invariants.build.format) (merged.build as any).format = invariants.build.format;
+  if (invariants.build.ssr === undefined) delete (merged.build as any).ssr;
+  if (invariants.build.format === undefined) delete (merged.build as any).format;
+  if (invariants.build.target === undefined) delete (merged.build as any).target;
 
-  if (invariants.build.target) (merged.build as any).target = invariants.build.target;
+  ((merged.build as any).rollupOptions ??= {}).input = invariants.build.rollupOptions.input;
 
-  if (!(merged.build as any).rollupOptions) (merged.build as any).rollupOptions = {};
-
-  ((merged.build as any).rollupOptions as any).input = invariants.build.rollupOptions.input;
-
-  // WARN: User attempted to override protected fields
   if (ignoredKeys.length > 0) {
-    const uniqueKeys = [...new Set(ignoredKeys)];
     const prefix = context ? `[taujs:build:${context.entryPoint}]` : '[taujs:build]';
-    console.warn(`${prefix} Ignored Vite config overrides: ${uniqueKeys.join(', ')}`);
+
+    console.warn(`${prefix} Ignored Vite config overrides: ${[...new Set(ignoredKeys)].join(', ')}`);
   }
 
   return merged;
@@ -411,7 +376,7 @@ export async function taujsBuild({
   if (!isSSRBuild) await deleteDist();
 
   for (const appConfig of configsToBuild) {
-    const { appId, entryPoint, clientRoot, entryClientFile, entryServerFile, htmlTemplate, plugins = [] } = appConfig;
+    const { appId, entryPoint, clientRoot, entryClient, entryServer, htmlTemplate, plugins = [] } = appConfig;
 
     const outDir = path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
     const root = entryPoint ? path.resolve(clientBaseDir, entryPoint) : clientBaseDir;
@@ -424,8 +389,12 @@ export async function taujsBuild({
 
     const resolvedAlias: Record<string, string> = { ...defaultAlias, ...(userAlias ?? {}) };
 
+    const entryClientFile = resolveEntryFile(clientRoot, entryClient);
+    const entryServerFile = resolveEntryFile(clientRoot, entryServer);
+
     const server = path.resolve(clientRoot, entryServerFile);
     const client = path.resolve(clientRoot, entryClientFile);
+
     const main = path.resolve(clientRoot, htmlTemplate);
 
     const inputs = resolveInputs(isSSRBuild, !isSSRBuild && existsSync(main), { server, client, main });

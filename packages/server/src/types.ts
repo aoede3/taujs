@@ -97,6 +97,4 @@ export type ProcessedConfig<P = unknown> = {
   entryServer: string;
   htmlTemplate: string;
   plugins?: readonly P[];
-  entryClientFile: string;
-  entryServerFile: string;
 };
