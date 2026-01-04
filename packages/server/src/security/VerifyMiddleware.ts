@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { SecurityConfig, Route } from '../core/config/types';
+import type { CoreSecurityConfig, Route } from '../core/config/types';
 
 export type ContractItem = {
   key: string;
@@ -17,7 +17,7 @@ export const hasAuthenticate = (app: FastifyInstance): boolean => typeof (app as
 type MiddlewareContract = {
   key: string;
   errorMessage: string;
-  required: (routes: Route[], security?: SecurityConfig) => boolean;
+  required: (routes: Route[], security?: CoreSecurityConfig) => boolean;
   verify: (app: FastifyInstance) => boolean;
 };
 
@@ -28,7 +28,7 @@ export function formatCspLoadedMsg(hasGlobal: boolean, custom: number) {
   return custom > 0 ? `Loaded development defaults with ${custom} route override(s)` : 'Loaded development defaults';
 }
 
-export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts: MiddlewareContract[], security?: SecurityConfig): ContractReport => {
+export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts: MiddlewareContract[], security?: CoreSecurityConfig): ContractReport => {
   const items: ContractItem[] = [];
 
   for (const contract of contracts) {
