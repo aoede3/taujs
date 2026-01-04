@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { handleNotFound } from '../HandleNotFound';
 import { SSRTAG } from '../../constants';
-import * as System from '../System';
+import * as System from '../../System';
+
+import { handleNotFound } from '../HandleNotFound';
 
 describe('handleNotFound', () => {
   let req: any;

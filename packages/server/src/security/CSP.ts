@@ -1,15 +1,15 @@
 import fp from 'fastify-plugin';
 import crypto from 'crypto';
 
+import { createRouteMatchers, matchRoute } from '../core/routes/DataRoutes';
+import { isDevelopment } from '../System';
 import { DEV_CSP_DIRECTIVES } from '../constants';
-import { isDevelopment } from '../utils/System';
-import { createRouteMatchers, matchRoute } from '../utils/DataRoutes';
 import { createLogger } from '../logging/Logger';
 
-import type { FastifyPluginAsync, FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
-import type { Route, PathToRegExpParams, RouteCSPConfig } from '../types';
-import type { CommonRouteMatcher } from '../utils/DataRoutes';
-import type { DebugConfig } from '../logging/Logger';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { Route, PathToRegExpParams, RouteCSPConfig } from '../core/config/types';
+import type { CommonRouteMatcher } from '../core/routes/DataRoutes';
+import type { DebugConfig } from '../core/logging/types';
 
 export type CSPPluginOptions = {
   directives?: CSPDirectives;

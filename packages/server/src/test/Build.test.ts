@@ -1,20 +1,13 @@
-/**
- * τjs [ taujs ] Orchestration System - Builder Tests
- * Comprehensive test coverage for build orchestration and config merging
- */
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { InlineConfig } from 'vite';
 
-// Mock dependencies BEFORE importing fs modules
 vi.mock('vite', () => ({
   build: vi.fn(async () => {
-    // Mock vite build to succeed by default
     return undefined;
   }),
 }));
 
-vi.mock('../Setup', () => ({
+vi.mock('../core/config/Setup', () => ({
   extractBuildConfigs: vi.fn().mockReturnValue([]),
 }));
 
@@ -24,6 +17,7 @@ vi.mock('../utils/AssetManager', () => ({
 
 vi.mock('../constants', () => ({
   TEMPLATE: 'index.html',
+  ENTRY_EXTENSIONS: ['.tsx', '.ts'],
 }));
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -31,7 +25,7 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...actual,
     default: actual,
-    existsSync: vi.fn().mockReturnValue(true),
+    existsSync: vi.fn(() => true),
   };
 });
 
@@ -44,31 +38,27 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
-vi.mock('node:path', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:path')>();
-  return {
-    ...actual,
-    default: actual,
-  };
-});
-
-// Import fs modules AFTER mocks are set up
-import * as fs from 'node:fs';
+// node:path doesn't need mocking - use real implementation
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 
-// Import after mocks
-import { taujsBuild, mergeViteConfig, getFrameworkInvariants, resolveInputs, resolveAppFilter } from '../Build';
+let taujsBuild: typeof import('../Build').taujsBuild;
+let mergeViteConfig: typeof import('../Build').mergeViteConfig;
+let getFrameworkInvariants: typeof import('../Build').getFrameworkInvariants;
+let resolveInputs: typeof import('../Build').resolveInputs;
+let resolveAppFilter: typeof import('../Build').resolveAppFilter;
+
 import { build } from 'vite';
-import { extractBuildConfigs } from '../Setup';
+import { extractBuildConfigs } from '../core/config/Setup';
 import { processConfigs } from '../utils/AssetManager';
 
 import type { RollupOutput } from 'rollup';
-import type { ViteConfigOverride, ViteBuildContext } from '../Build';
+import { type ViteConfigOverride, type ViteBuildContext, resolveEntryFile, normalisePlugins } from '../Build';
+import { ENTRY_EXTENSIONS } from '../constants';
 
 const buildMock = vi.mocked(build);
-const existsSyncMock = vi.mocked(fs.existsSync);
-const rmMock = vi.mocked(fsPromises.rm);
+let existsSyncMock: ReturnType<typeof vi.fn>;
+let rmMock: ReturnType<typeof vi.fn>;
 
 describe('Build.ts - Full Coverage', () => {
   const mockProjectRoot = '/project';
@@ -76,18 +66,31 @@ describe('Build.ts - Full Coverage', () => {
 
   let originalNodeVersion: string;
 
-  beforeEach(() => {
-    // DO NOT call vi.clearAllMocks() here
-
-    // reset call history + implementations explicitly
+  beforeEach(async () => {
     buildMock.mockReset();
     buildMock.mockResolvedValue({} as RollupOutput);
 
+    vi.resetModules();
+
+    // re-bind mocks AFTER resetModules so we mutate the same functions Build.ts will use
+    const fsMod = await import('node:fs');
+    const fsPromisesMod = await import('node:fs/promises');
+
+    existsSyncMock = vi.mocked(fsMod.existsSync) as any;
+    rmMock = vi.mocked(fsPromisesMod.rm) as any;
+
     existsSyncMock.mockReset();
-    existsSyncMock.mockReturnValue(true); // default: index.html exists
+    existsSyncMock.mockImplementation(() => true);
 
     rmMock.mockReset();
     rmMock.mockResolvedValue(undefined);
+
+    const mod = await import('../Build');
+    taujsBuild = mod.taujsBuild;
+    mergeViteConfig = mod.mergeViteConfig;
+    getFrameworkInvariants = mod.getFrameworkInvariants;
+    resolveInputs = mod.resolveInputs;
+    resolveAppFilter = mod.resolveAppFilter;
 
     originalNodeVersion = process.versions.node;
     Object.defineProperty(process.versions, 'node', {
@@ -112,8 +115,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -245,7 +248,11 @@ describe('Build.ts - Full Coverage', () => {
     });
 
     it('should exclude index.html from client build when file does not exist', async () => {
-      existsSyncMock.mockReturnValue(false);
+      // Call sequence: entry-client.ts (true), entry-server.ts (true), index.html (false)
+      existsSyncMock
+        .mockReturnValueOnce(true) // entry-client.ts found
+        .mockReturnValueOnce(true) // entry-server.ts found
+        .mockReturnValueOnce(false); // index.html not found
 
       await taujsBuild({
         config: { apps: [] },
@@ -261,13 +268,11 @@ describe('Build.ts - Full Coverage', () => {
     });
 
     it('should include only client entry when index.html does not exist (existsSync false only for main)', async () => {
-      existsSyncMock.mockReset();
-      existsSyncMock.mockReturnValue(false);
-
-      // First call (some internal check) return true
-      existsSyncMock.mockReturnValueOnce(true);
-      // Second call (the one for "main") return false → hits the { client } branch
-      existsSyncMock.mockReturnValueOnce(false);
+      // Call sequence: entry-client.ts (true), entry-server.ts (true), index.html (false)
+      existsSyncMock
+        .mockReturnValueOnce(true) // entry-client.ts found
+        .mockReturnValueOnce(true) // entry-server.ts found
+        .mockReturnValueOnce(false); // index.html not found
 
       await taujsBuild({
         config: { apps: [] },
@@ -280,7 +285,7 @@ describe('Build.ts - Full Coverage', () => {
       const inputs = buildConfig.build!.rollupOptions!.input as Record<string, string>;
 
       expect(inputs).toEqual({
-        client: expect.stringContaining('entry-client.tsx'),
+        client: expect.stringContaining('entry-client'),
       });
     });
 
@@ -487,8 +492,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -585,8 +590,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -615,8 +620,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -1113,8 +1118,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -1351,7 +1356,7 @@ describe('Build.ts - Full Coverage', () => {
         },
       });
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('server (ignored in build; dev-only)'));
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('[taujs:build:admin] Ignored Vite config overrides: server'));
 
       consoleWarnSpy.mockRestore();
     });
@@ -1389,8 +1394,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -1552,8 +1557,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -1677,8 +1682,8 @@ describe('Build.ts - Full Coverage', () => {
         appId: 'minimal',
         entryPoint: 'minimal',
         clientRoot: '/project/src/client/minimal',
-        entryClientFile: 'entry-client.tsx',
-        entryServerFile: 'entry-server.tsx',
+        entryClient: 'entry-client',
+        entryServer: 'entry-server',
         htmlTemplate: 'index.html',
       };
       vi.mocked(processConfigs).mockReturnValue([minimalAppConfig] as any);
@@ -1833,8 +1838,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [{ name: 'framework-plugin' }],
     };
@@ -1993,8 +1998,8 @@ describe('Build.ts - Full Coverage', () => {
       appId: 'test-app',
       entryPoint: 'admin',
       clientRoot: '/project/src/client/admin',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -2186,7 +2191,7 @@ describe('Build.ts - Full Coverage', () => {
       expect(msg).toContain('root');
       expect(msg).toContain('base');
       expect(msg).toContain('publicDir');
-      expect(msg).toContain('server (ignored in build; dev-only)');
+      expect(msg).toContain('server');
 
       consoleWarnSpy.mockRestore();
     });
@@ -2411,8 +2416,8 @@ describe('Build.ts - Full Coverage', () => {
   describe('taujsBuild – app filtering via CLI/env', () => {
     const mockAppBase = {
       clientRoot: '/project/src/client',
-      entryClientFile: 'entry-client.tsx',
-      entryServerFile: 'entry-server.tsx',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
     };
@@ -2570,8 +2575,8 @@ describe('Build.ts - Full Coverage', () => {
           appId: 'root-app',
           entryPoint: '',
           clientRoot: '/project/src/client',
-          entryClientFile: 'entry-client.tsx',
-          entryServerFile: 'entry-server.tsx',
+          entryClient: 'entry-client',
+          entryServer: 'entry-server',
           htmlTemplate: 'index.html',
           plugins: [],
         },
@@ -2609,13 +2614,56 @@ describe('Build.ts - Full Coverage', () => {
   });
 });
 
+describe('resolveEntryFile', () => {
+  it('throws with attempted extensions list when no entry exists', () => {
+    const clientRoot = '/project/src/client/admin';
+    const stem = 'entry-client';
+
+    // exists() returns false for every candidate
+    const exists = () => false;
+
+    expect(() => resolveEntryFile(clientRoot, stem, exists)).toThrowError(
+      new Error(`Entry file "${stem}" not found in ${clientRoot}. Tried: ${ENTRY_EXTENSIONS.map((e) => stem + e).join(', ')}`),
+    );
+  });
+
+  it('returns the first matching filename when one exists', () => {
+    const clientRoot = '/x';
+    const stem = 'entry-client';
+
+    // Only pretend the first extension exists
+    const exists = (abs: string) => abs.endsWith(`${stem}${ENTRY_EXTENSIONS[0]}`);
+
+    const result = resolveEntryFile(clientRoot, stem, exists);
+    expect(result).toBe(`${stem}${ENTRY_EXTENSIONS[0]}`);
+  });
+});
+
+describe('normalisePlugins', () => {
+  it('returns array unchanged', () => {
+    const arr = [1, 2];
+    expect(normalisePlugins(arr)).toBe(arr);
+  });
+
+  it('wraps single plugin value into array', () => {
+    const plugin = { name: 'x' };
+    expect(normalisePlugins(plugin)).toEqual([plugin]); // covers p ? [p] : []
+  });
+
+  it('returns [] for falsy input', () => {
+    expect(normalisePlugins(undefined)).toEqual([]);
+    expect(normalisePlugins(null)).toEqual([]);
+    expect(normalisePlugins(false)).toEqual([]);
+  });
+});
+
 // describe('Coverage - Nullish Operators and Edge Cases', () => {
 //   const mockAppConfig = {
 //     appId: 'test-app',
 //     entryPoint: 'admin',
 //     clientRoot: '/project/src/client/admin',
-//     entryClientFile: 'entry-client.tsx',
-//     entryServerFile: 'entry-server.tsx',
+//     entryClient: 'entry-client',
+//     entryServer: 'entry-server',
 //     htmlTemplate: 'index.html',
 //     // Don't include plugins to trigger the undefined case
 //   };

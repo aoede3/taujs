@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
-vi.mock('../DataRoutes', () => ({
+vi.mock('../../core/routes/DataRoutes', () => ({
   matchRoute: vi.fn(),
   fetchInitialData: vi.fn(),
 }));
@@ -10,10 +10,10 @@ vi.mock('../Telemetry', () => ({
   createRequestContext: vi.fn(),
 }));
 
+import { AppError } from '../../core/errors/AppError';
+import { matchRoute, fetchInitialData } from '../../core/routes/DataRoutes';
 import { resolveRouteData } from '../ResolveRouteData';
-import { matchRoute, fetchInitialData } from '../DataRoutes';
 import { createRequestContext } from '../Telemetry';
-import { AppError } from '../../logging/AppError';
 
 type MockFastifyReq = FastifyRequest & { [key: string]: unknown };
 type MockFastifyReply = FastifyReply & { [key: string]: unknown };

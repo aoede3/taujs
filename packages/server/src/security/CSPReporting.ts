@@ -1,10 +1,10 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 
-import { AppError } from '../logging/AppError';
+import { AppError } from '../core/errors/AppError';
 import { createLogger, Logger } from '../logging/Logger';
 
-import type { DebugConfig, Logs } from '../logging/Logger';
+import type { DebugConfig, Logs } from '../core/logging/types';
 
 export type CSPViolationReport = {
   'document-uri': string;

@@ -1,15 +1,10 @@
 import crypto from 'node:crypto';
 
-import { REGEX } from '../constants';
+import { REGEX } from '../core/constants';
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { Logs } from '../logging/Logger';
-
-export type RequestContext<L extends Logs = Logs> = {
-  traceId: string;
-  logger: L;
-  headers: Record<string, string>;
-};
+import type { Logs } from '../core/logging/types';
+import type { RequestContext } from '../core/telemetry/Telemetry';
 
 export function createRequestContext<L extends Logs>(req: FastifyRequest, reply: FastifyReply, baseLogger: L): RequestContext<L> {
   const raw = typeof req.headers['x-trace-id'] === 'string' ? req.headers['x-trace-id'] : '';

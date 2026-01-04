@@ -11,8 +11,11 @@
 import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
+import { AppError } from './core/errors/AppError';
+import { createRouteMatchers } from './core/routes/DataRoutes';
+import { isDevelopment } from './System';
+
 import { printVitePluginSummary } from './Setup';
-import { AppError } from './logging/AppError';
 import { createLogger } from './logging/Logger';
 import { toHttp } from './logging/utils';
 import { createAuthHook } from './security/Auth';
@@ -22,10 +25,8 @@ import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
-import { createRouteMatchers } from './utils/DataRoutes';
 import { resolveRouteData } from './utils/ResolveRouteData';
 import { registerStaticAssets } from './utils/StaticAssets';
-import { isDevelopment } from './utils/System';
 import { mergePlugins } from './utils/VitePlugins';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
@@ -47,6 +48,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     });
 
     const maps = createMaps();
+
     const processedConfigs = processConfigs(configs, clientRoot, TEMPLATE);
     const routeMatchers = createRouteMatchers(routes);
     let viteDevServer: ViteDevServer | undefined;
@@ -61,10 +63,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      {
-        debug: opts.debug,
-        logger,
-      },
+      { logger },
     );
 
     if (!isDevelopment && !opts.staticAssets) {

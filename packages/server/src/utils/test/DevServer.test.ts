@@ -22,7 +22,7 @@ vi.mock('../../logging/Logger', () => ({
   createLogger: hoisted.createLoggerMock,
 }));
 
-vi.mock('../System', () => ({
+vi.mock('../../System', () => ({
   __dirname: '/srv',
 }));
 
@@ -34,7 +34,7 @@ async function importer() {
   vi.resetModules();
   vi.doMock('vite', () => ({ createServer: hoisted.createServerMock }));
   vi.doMock('../../logging/Logger', () => ({ createLogger: hoisted.createLoggerMock }));
-  vi.doMock('../System', () => ({ __dirname: '/srv' }));
+  vi.doMock('../../System', () => ({ __dirname: '/srv' }));
   vi.doMock('../Templates', () => ({ overrideCSSHMRConsoleError: hoisted.overrideCSSHMRConsoleErrorMock }));
   return await import('../DevServer'); // <-- adjust path to your file if needed
 }

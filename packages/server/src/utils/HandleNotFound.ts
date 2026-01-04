@@ -1,11 +1,11 @@
-import { AppError } from '../logging/AppError';
-import { createLogger } from '../logging/Logger';
-import { isDevelopment } from './System';
-import { ensureNonNull } from './Templates';
+import { AppError } from '../core/errors/AppError';
 import { SSRTAG } from '../constants';
+import { createLogger } from '../logging/Logger';
+import { isDevelopment } from '../System';
+import { ensureNonNull } from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import type { DebugConfig, Logs } from '../logging/Logger';
+import type { DebugConfig, Logs } from '../core/logging/types';
 import type { ProcessedConfig } from '../types';
 
 export const handleNotFound = async (

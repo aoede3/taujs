@@ -1,14 +1,14 @@
 import path from 'node:path';
 
-import { createLogger } from '../logging/Logger';
-import { __dirname } from './System';
-import { overrideCSSHMRConsoleError } from './Templates';
 import { CONTENT } from '../constants';
+import { createLogger } from '../logging/Logger';
+import { __dirname } from '../System';
+import { overrideCSSHMRConsoleError } from './Templates';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import type { PluginOption, ViteDevServer } from 'vite';
-import type { DebugConfig } from '../logging/Logger';
+import type { DebugConfig } from '../core/logging/types';
 
 export const setupDevServer = async (
   app: FastifyInstance,

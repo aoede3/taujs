@@ -1,23 +1,24 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { handleRender } from '../HandleRender';
-import * as DataRoutes from '../DataRoutes';
+import { AppError } from '../../core/errors/AppError';
+import * as DataRoutes from '../../core/routes/DataRoutes';
+import * as System from '../../System';
+
 import * as Templates from '../Templates';
-import * as System from '../System';
 import * as Telemetry from '../Telemetry';
-import { AppError } from '../../logging/AppError';
+import { handleRender } from '../HandleRender';
 import { createLogger } from '../../logging/Logger';
 
 import type { Mock } from 'vitest';
 
-vi.mock('../DataRoutes');
-vi.mock('../Templates');
-vi.mock('../System');
+vi.mock('../../core/routes/DataRoutes');
+vi.mock('../../core/system/System');
+vi.mock('..//Templates');
 vi.mock('../Telemetry');
 
-vi.mock('../../logging/AppError', async () => {
-  const actual = await vi.importActual<any>('../../logging/AppError');
+vi.mock('../../core/errors/AppError', async () => {
+  const actual = await vi.importActual<any>('../../core/errors/AppError');
   const { normaliseError, toReason } = actual;
 
   class FakeAppError extends Error {
@@ -54,6 +55,10 @@ vi.mock('../../logging/AppError', async () => {
 });
 
 vi.mock('../../logging/Logger');
+
+vi.mock('../../Build', () => ({
+  resolveEntryFile: vi.fn((clientRoot: string, entryServer: string) => entryServer),
+}));
 
 vi.mock('node:stream', () => {
   class MockPassThrough {
@@ -204,7 +209,7 @@ describe('handleRender', () => {
       {
         appId: 'test-app',
         clientRoot: '/test/client',
-        entryServerFile: 'entry-server.tsx',
+        entryServer: 'entry-server.tsx',
       },
     ];
 

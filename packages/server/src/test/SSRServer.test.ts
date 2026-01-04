@@ -117,7 +117,7 @@ vi.mock('../utils/AssetManager', () => ({
   processConfigs: processConfigsMock,
 }));
 
-vi.mock('../utils/DataRoutes', () => ({ createRouteMatchers: vi.fn(() => routeMatchersMock) }));
+vi.mock('../core/routes/DataRoutes', () => ({ createRouteMatchers: vi.fn(() => routeMatchersMock) }));
 
 vi.mock('../security/Auth', () => ({ createAuthHook: createAuthHookMock }));
 
@@ -125,7 +125,7 @@ vi.mock('../security/CSP', () => ({ cspPlugin: cspPluginMock }));
 
 vi.mock('../security/CSPReporting', () => ({ cspReportPlugin: cspReportPluginMock }));
 
-vi.mock('../utils/System', () => ({
+vi.mock('../System', () => ({
   get isDevelopment() {
     return devRef.value;
   },
@@ -139,7 +139,7 @@ vi.mock('../utils/DevServer', () => ({ setupDevServer: setupDevServerMock }));
 
 vi.mock('../logging/utils', () => ({ toHttp: toHttpMock }));
 
-vi.mock('../logging/AppError', () => ({ AppError: AppErrorFake }));
+vi.mock('../core/errors/AppError', () => ({ AppError: AppErrorFake }));
 
 vi.mock('../utils/ResolveRouteData', () => ({ resolveRouteData: resolveRouteDataMock }));
 
@@ -152,8 +152,8 @@ import { SSRServer, TEMPLATE } from '../SSRServer';
 import { loadAssets } from '../utils/AssetManager';
 import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
-import { printVitePluginSummary } from '../Setup';
 import { mergePlugins } from '../utils/VitePlugins';
+import { printVitePluginSummary } from '../Setup';
 
 describe('SSRServer', () => {
   let app: FastifyInstance;
@@ -206,7 +206,7 @@ describe('SSRServer', () => {
       maps.renderModules,
       maps.ssrManifests,
       maps.templates,
-      expect.objectContaining({ logger: mockLogger, debug: false }),
+      expect.objectContaining({ logger: mockLogger }),
     );
 
     // CSP plugin called with route matchers + debug

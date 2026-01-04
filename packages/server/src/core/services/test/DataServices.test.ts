@@ -8,15 +8,6 @@ const hoisted = vi.hoisted(() => ({
   errorMock: vi.fn(),
 }));
 
-vi.mock('node:perf_hooks', () => {
-  let i = 0;
-  return {
-    performance: {
-      now: () => hoisted.nowCalls[Math.min(i++, hoisted.nowCalls.length - 1)],
-    },
-  };
-});
-
 class MockAppError extends Error {
   code?: string;
   details?: unknown;
@@ -38,7 +29,7 @@ class MockAppError extends Error {
     return new MockAppError(msg, 'TIMEOUT');
   }
 }
-vi.mock('../../logging/AppError', () => ({ AppError: MockAppError }));
+vi.mock('../../errors/AppError', () => ({ AppError: MockAppError }));
 
 function makeLogger() {
   hoisted.childMock.mockReturnValue({ debug: hoisted.debugMock, error: hoisted.errorMock });
@@ -54,6 +45,14 @@ async function importModule() {
   return await import('../DataServices');
 }
 
+const originalPerformance = globalThis.performance;
+const originalDateNow = Date.now;
+
+async function importModuleFresh() {
+  vi.resetModules();
+  return await import('../DataServices');
+}
+
 beforeEach(() => {
   hoisted.childMock.mockReset();
   hoisted.debugMock.mockReset();
@@ -62,6 +61,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  (globalThis as any).performance = originalPerformance;
+  Date.now = originalDateNow;
 });
 
 describe('defineService', () => {

@@ -1,8 +1,8 @@
-import { matchRoute } from '../utils/DataRoutes';
+import { matchRoute } from '../core/routes/DataRoutes';
 
 import type { FastifyRequest, FastifyReply, onRequestHookHandler } from 'fastify';
-import type { PathToRegExpParams } from '../types';
-import type { RouteMatcher } from '../utils/DataRoutes';
+import type { PathToRegExpParams } from '../core/config/types';
+import type { RouteMatcher } from '../core/routes/DataRoutes';
 import type { Logger } from '../logging/Logger';
 
 export const createAuthHook = (routeMatchers: RouteMatcher<PathToRegExpParams>[], logger: Logger): onRequestHookHandler => {

@@ -1,13 +1,13 @@
 import { match } from 'path-to-regexp';
 
-import { callServiceMethod, ensureServiceCaller, isServiceDescriptor } from './DataServices';
-import { AppError } from '../logging/AppError';
+import { callServiceMethod, ensureServiceCaller, isServiceDescriptor } from '../services/DataServices';
+import { AppError } from '../errors/AppError';
 
 import type { MatchFunction, Key } from 'path-to-regexp';
-import type { ServiceContext, ServiceRegistry } from './DataServices';
-import type { Route, RouteAttributes, PathToRegExpParams, RequestServiceContext } from '../types';
-import type { RequestContext } from './Telemetry';
-import type { Logs } from '../logging/Logger';
+import type { ServiceContext, ServiceRegistry } from '../services/DataServices';
+import type { Logs } from '../logging/types';
+import type { Route, RouteAttributes, PathToRegExpParams, RequestServiceContext } from '../config/types';
+import type { RequestContext } from '../telemetry/Telemetry';
 
 type CallServiceOn<R extends ServiceRegistry> = (
   registry: R,
@@ -153,9 +153,9 @@ export const fetchInitialData = async <Params extends PathToRegExpParams, R exte
   if (!dataHandler || typeof dataHandler !== 'function') return {};
 
   const ctxForData: RequestServiceContext<L> = {
-    ...(ctx as any),
-    headers: (ctx as any).headers ?? {},
-  } as RequestServiceContext<L>;
+    ...ctx,
+    headers: ctx.headers ?? {},
+  } as const;
 
   ensureServiceCaller(serviceRegistry, ctxForData);
 

@@ -1,20 +1,23 @@
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
-import { fetchInitialData, matchRoute } from './DataRoutes';
-import { AppError, normaliseError, toReason } from '../logging/AppError';
+import { RENDERTYPE } from '../core/constants';
+import { AppError, normaliseError, toReason } from '../core/errors/AppError';
+import { fetchInitialData, matchRoute } from '../core/routes/DataRoutes';
+import { resolveEntryFile } from '../Build';
+import { REGEX } from '../constants';
 import { createLogger } from '../logging/Logger';
-import { isDevelopment } from './System';
+import { isDevelopment } from '../System';
 import { createRequestContext } from './Telemetry';
 import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
-import { REGEX, RENDERTYPE } from '../constants';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { RouteMatcher } from './DataRoutes';
-import type { ServiceRegistry } from './DataServices';
-import type { DebugConfig, Logs } from '../logging/Logger';
-import type { ProcessedConfig, RenderModule, Manifest, SSRManifest, PathToRegExpParams } from '../types';
+import type { PathToRegExpParams } from '../core/config/types';
+import type { DebugConfig, Logs } from '../core/logging/types';
+import type { RouteMatcher } from '../core/routes/DataRoutes';
+import type { ServiceRegistry } from '../core/services/DataServices';
+import type { Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../types';
 
 export const handleRender = async (
   req: FastifyRequest,
@@ -83,7 +86,7 @@ export const handleRender = async (
       });
     }
 
-    const { clientRoot, entryServerFile } = config;
+    const { clientRoot, entryServer } = config;
 
     let template = ensureNonNull(maps.templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
 
@@ -100,6 +103,7 @@ export const handleRender = async (
         template = template.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '');
         template = template.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
 
+        const entryServerFile = resolveEntryFile(clientRoot, entryServer);
         const entryServerPath = path.join(clientRoot, entryServerFile);
         const executedModule = await viteDevServer.ssrLoadModule(entryServerPath);
         renderModule = executedModule as RenderModule;
@@ -110,7 +114,7 @@ export const handleRender = async (
 
         template = await viteDevServer.transformIndexHtml(url, template);
       } catch (error) {
-        throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServerFile, url } });
+        throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServer, url } });
       }
     } else {
       renderModule = maps.renderModules.get(clientRoot) as RenderModule;

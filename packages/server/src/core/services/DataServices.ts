@@ -1,7 +1,8 @@
-import { performance } from 'node:perf_hooks';
-import { AppError } from '../logging/AppError';
+import { AppError } from '../errors/AppError';
+import { resolveLogs } from '../logging/resolve';
 
-import type { Logs } from '../logging/Logger';
+import type { Logs } from '../logging/types';
+import { now } from '../telemetry/Telemetry';
 
 export type RegistryCaller<R extends ServiceRegistry = ServiceRegistry> = (
   serviceName: keyof R & string,
@@ -124,14 +125,17 @@ export async function callServiceMethod(
   const method = service[methodName];
   if (!method) throw AppError.notFound(`Unknown method: ${serviceName}.${methodName}`);
 
-  const logger = ctx.logger?.child?.({
+  const baseLogger = resolveLogs(ctx.logger);
+
+  const logger = baseLogger.child({
     component: 'service-call',
     service: serviceName,
     method: methodName,
     traceId: ctx.traceId,
   });
 
-  const t0 = performance.now();
+  const t0 = now();
+
   try {
     // No automatic deadlines here; handlers can use ctx.signal or withDeadline(ctx.signal, ms)
     const result = await method(params ?? {}, ctx);
@@ -140,18 +144,19 @@ export async function callServiceMethod(
       throw AppError.internal(`Non-object result from ${serviceName}.${methodName}`);
     }
 
-    logger?.debug?.({ ms: +(performance.now() - t0).toFixed(1) }, 'Service method ok');
+    logger.debug({ ms: +(now() - t0).toFixed(1) }, 'Service method ok');
 
     return result;
   } catch (err) {
-    logger?.error?.(
+    logger.error(
       {
         params,
         error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
-        ms: +(performance.now() - t0).toFixed(1),
+        ms: +(now() - t0).toFixed(1),
       },
       'Service method failed',
     );
+
     throw err instanceof AppError
       ? err
       : err instanceof Error

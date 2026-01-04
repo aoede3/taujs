@@ -1,7 +1,6 @@
-import type { ViteDevServer } from 'vite';
-
 import { SSRTAG } from '../constants';
 
+import type { ViteDevServer } from 'vite';
 import type { Manifest, SSRManifest } from '../types';
 
 // https://github.com/vitejs/vite/issues/16515

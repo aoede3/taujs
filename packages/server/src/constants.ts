@@ -2,11 +2,6 @@ import pc from 'picocolors';
 
 import type { CSPDirectives } from './security/CSP';
 
-export const RENDERTYPE = {
-  ssr: 'ssr',
-  streaming: 'streaming',
-} as const;
-
 export const SSRTAG = {
   ssrHead: '<!--ssr-head-->',
   ssrHtml: '<!--ssr-html-->',
@@ -17,6 +12,8 @@ export const TEMPLATE = {
   defaultEntryServer: 'entry-server',
   defaultHtmlTemplate: 'index.html',
 } as const;
+
+export const ENTRY_EXTENSIONS = ['.ts', '.tsx'] as const;
 
 export const DEV_CSP_DIRECTIVES: CSPDirectives = {
   'default-src': ["'self'"],
@@ -41,7 +38,4 @@ export const DEBUG = {
 
 export const REGEX = {
   BENIGN_NET_ERR: /\b(?:ECONNRESET|EPIPE|ECONNABORTED)\b|socket hang up|aborted|premature(?: close)?/i,
-  SAFE_TRACE: /^[a-zA-Z0-9-_:.]{1,128}$/,
 } as const satisfies Readonly<Record<string, RegExp>>;
-
-export const ENTRY_EXTENSIONS = ['.ts', '.tsx'] as const;
