@@ -1,5 +1,15 @@
 # @taujs/server
 
+v0.5.4 - 04/01/2026
+
+feat: core
+feat: core tests
+feat: logging, constants
+feat: logging, constants, resolver
+feat: core orchestration
+feat: build / asset management; tests
+feat: core types
+
 v0.5.3 - 29/12/2025
 
 feat: rename \_\_taujs/data to \_\_taujs/route as explicit route data contract
