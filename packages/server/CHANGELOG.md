@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.5.5 - 11/01/2026
+
+feat: remove resolve route data
+
 v0.5.4 - 04/01/2026
 
 feat: core
