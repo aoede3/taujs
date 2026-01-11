@@ -25,7 +25,6 @@ import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
-import { resolveRouteData } from './utils/ResolveRouteData';
 import { registerStaticAssets } from './utils/StaticAssets';
 import { mergePlugins } from './utils/VitePlugins';
 
@@ -108,29 +107,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet, plugins);
     }
     app.addHook('onRequest', createAuthHook(routeMatchers, logger));
-
-    // NOTE: this route is still subject to the global onRequest auth hook.
-    // It intentionally uses the same security surface as HTML routes.
-    app.get('/__taujs/route', async (req, reply) => {
-      const query = req.query as Record<string, unknown>;
-      const url = typeof query.url === 'string' ? query.url : '';
-
-      if (!url) {
-        throw AppError.badRequest('url query param required', {
-          details: { query },
-        });
-      }
-
-      const data = await resolveRouteData(url, {
-        req,
-        reply,
-        routeMatchers,
-        serviceRegistry,
-        logger,
-      });
-
-      return reply.status(200).send({ data });
-    });
 
     app.get('/*', async (req, reply) => {
       await handleRender(req, reply, routeMatchers, processedConfigs, serviceRegistry, maps, {
