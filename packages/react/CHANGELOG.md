@@ -1,5 +1,9 @@
 # @taujs/react
 
+v0.1.7 - 11/01/2026
+
+feat: remove resolve route data
+
 v0.1.6 - 29/12/2025
 
 feat: rename \_\_taujs/data to \_\_taujs/route as explicit route data contract
