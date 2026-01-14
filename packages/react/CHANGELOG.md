@@ -1,5 +1,10 @@
 # @taujs/react
 
+v0.1.8 - 14/01/2026
+
+feat: @vitejs/plugin-react shim for preamble streaming
+chore: update packages
+
 v0.1.7 - 11/01/2026
 
 feat: remove resolve route data
