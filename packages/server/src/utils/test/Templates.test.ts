@@ -12,6 +12,7 @@ import {
   processTemplate,
   rebuildTemplate,
   addNonceToInlineScripts,
+  extractHeadInner,
 } from '../Templates';
 import { SSRTAG } from '../../constants';
 
@@ -298,5 +299,140 @@ describe('addNonceToInlineScripts', () => {
     const html = `<script>ok</script>`;
     expect(addNonceToInlineScripts(html, '')).toBe(html);
     expect(addNonceToInlineScripts(html, undefined)).toBe(html);
+  });
+});
+
+describe('extractHeadInner', () => {
+  it('returns inner HTML of <head> trimmed', () => {
+    const html = `<html>
+      <head>
+        <meta charset="utf-8">
+        <title>  X  </title>
+      </head>
+      <body>Y</body>
+    </html>`;
+
+    const out = extractHeadInner(html);
+
+    expect(out).toContain(`<meta charset="utf-8">`);
+    expect(out).toContain(`<title>  X  </title>`);
+    // should be trimmed overall
+    expect(out.startsWith(' ')).toBe(false);
+    expect(out.endsWith(' ')).toBe(false);
+  });
+
+  it('returns empty string when no <head> exists', () => {
+    const html = `<html><body>No head</body></html>`;
+    expect(extractHeadInner(html)).toBe('');
+  });
+
+  it('handles <head ...attrs> forms (case-insensitive)', () => {
+    const html = `<HTML><HeAd data-x="1">\n  <title>A</title>\n</hEaD><body/></HTML>`;
+    expect(extractHeadInner(html)).toBe(`<title>A</title>`);
+  });
+});
+
+describe('collectStyle - handles missing transform results for css modules', () => {
+  it('keeps header but drops undefined code when transformRequest returns null/undefined', async () => {
+    type Mod = { url: string; importedModules: Set<Mod> };
+
+    const onlyCss: Mod = { url: '/styles/a.css', importedModules: new Set() };
+    const entry: Mod = { url: '/src/entry.tsx', importedModules: new Set([onlyCss]) };
+
+    const resolveUrl = vi.fn(async (url: string) => [url, url]);
+    const getModuleById = vi.fn((id: string) => {
+      if (id === entry.url) return entry;
+      if (id === onlyCss.url) return onlyCss;
+      return undefined;
+    });
+
+    const transformRequest = vi.fn(async (id: string) => {
+      if (id === '/src/entry.tsx') return { code: '/* warmup */' };
+      if (id === '/styles/a.css?direct') return null as any; // simulate failure / no result
+      return { code: '??' };
+    });
+
+    const server = {
+      transformRequest,
+      moduleGraph: { resolveUrl, getModuleById },
+    } as any;
+
+    const out = await collectStyle(server, ['/src/entry.tsx']);
+
+    // header should exist
+    expect(out).toContain('/* [collectStyle] /styles/a.css */');
+
+    // but "code for ..." line should NOT exist since res?.code is undefined and filtered out
+    expect(out).not.toContain('code for /styles/a.css');
+
+    // still called as expected
+    expect(transformRequest).toHaveBeenCalledWith('/src/entry.tsx');
+    expect(transformRequest).toHaveBeenCalledWith('/styles/a.css?direct');
+  });
+});
+
+describe('renderPreloadLinks - empty / no-op paths', () => {
+  it('returns empty string for empty manifest', () => {
+    expect(renderPreloadLinks({} as any)).toBe('');
+  });
+
+  it('ignores manifest entries with falsy file arrays', () => {
+    const ssrManifest = {
+      'mod:A': undefined,
+      'mod:B': null,
+    } as any;
+
+    expect(renderPreloadLinks(ssrManifest)).toBe('');
+  });
+});
+
+describe('getCssLinks - empty / no-op paths', () => {
+  it('returns empty string when no entries have css', () => {
+    const manifest = {
+      'a.ts': {},
+      'b.ts': { css: undefined },
+      'c.ts': { css: null },
+    } as any;
+
+    expect(getCssLinks(manifest, '/base')).toBe('');
+  });
+});
+
+describe('processTemplate - trims around body sections on success path', () => {
+  it('trims trailing whitespace before body content and leading whitespace after', () => {
+    // Put whitespace around the ssrHtml split area to hit the replace() trimming.
+    const tpl = `<html><head>${SSRTAG.ssrHead}</head>` + `<body>   \n${SSRTAG.ssrHtml}\n   </body></html>`;
+
+    const parts = processTemplate(tpl);
+
+    // beforeBody is everything between ssrHead marker split and ssrHtml marker,
+    // with trailing whitespace removed via .replace(/\s*$/, '')
+    expect(parts.beforeBody.endsWith(' ')).toBe(false);
+    expect(parts.beforeBody.endsWith('\n')).toBe(false);
+
+    // afterBody starts after ssrHtml marker,
+    // with leading whitespace removed via .replace(/^\s*/, '')
+    expect(parts.afterBody.startsWith(' ')).toBe(false);
+    expect(parts.afterBody.startsWith('\n')).toBe(false);
+
+    // rebuilding should still work
+    const rebuilt = rebuildTemplate(parts, '<meta name="x">', '<div>Y</div>');
+    expect(rebuilt).toContain('<meta name="x">');
+    expect(rebuilt).toContain('<div>Y</div>');
+  });
+});
+
+describe('addNonceToInlineScripts - attribute-order edge cases', () => {
+  it('does not add nonce if a nonce attribute exists later in the tag', () => {
+    // nonce appears after another attribute: should NOT be modified
+    const html = `<script type="module" nonce="keep">x</script>`;
+    const out = addNonceToInlineScripts(html, 'abc123');
+    expect(out).toBe(html);
+  });
+
+  it('adds nonce even when other attributes exist, preserving them', () => {
+    const html = `<script data-x="1" type="module">x</script>`;
+    const out = addNonceToInlineScripts(html, 'abc123');
+    expect(out).toBe(`<script nonce="abc123" data-x="1" type="module">x</script>`);
   });
 });

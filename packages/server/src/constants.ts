@@ -8,7 +8,7 @@ export const SSRTAG = {
 } as const;
 
 export const TEMPLATE = {
-  defaultEntryClient: 'entry-client',
+  defaultEntryClient: 'entry-client.tsx',
   defaultEntryServer: 'entry-server',
   defaultHtmlTemplate: 'index.html',
 } as const;

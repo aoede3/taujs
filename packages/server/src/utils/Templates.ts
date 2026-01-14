@@ -170,5 +170,12 @@ export const rebuildTemplate = (parts: ReturnType<typeof processTemplate>, headC
 
 export const addNonceToInlineScripts = (html: string, nonce?: string) => {
   if (!nonce) return html;
+
   return html.replace(/<script(?![^>]*\bnonce=)([^>]*)>/g, `<script nonce="${nonce}"$1>`);
 };
+
+export function extractHeadInner(html: string): string {
+  const m = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
+
+  return (m?.[1] ?? '').trim();
+}

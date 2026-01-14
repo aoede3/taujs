@@ -13,8 +13,8 @@ import { createLogger } from '../../logging/Logger';
 import type { Mock } from 'vitest';
 
 vi.mock('../../core/routes/DataRoutes');
-vi.mock('../../core/system/System');
-vi.mock('..//Templates');
+vi.mock('../../System');
+vi.mock('../Templates');
 vi.mock('../Telemetry');
 
 vi.mock('../../core/errors/AppError', async () => {
@@ -1030,6 +1030,133 @@ describe('handleRender', () => {
       finishHandler?.();
       expect(mockReq.raw.off).toHaveBeenCalledWith('aborted', abortedHandler);
     });
+
+    it('dev + ssr: calls addNonceToInlineScripts only when nonce is present', async () => {
+      vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+      (mockReq as any).cspNonce = 'nonce-2';
+
+      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      mockViteDevServer.ssrLoadModule.mockResolvedValue({
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }),
+      });
+
+      mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head></head><body></body></html>');
+      vi.mocked(Templates.collectStyle).mockResolvedValue('');
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html/>');
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+        viteDevServer: mockViteDevServer,
+      });
+
+      expect(Templates.addNonceToInlineScripts).toHaveBeenCalled();
+    });
+
+    it('dev + ssr: does not call addNonceToInlineScripts when nonce is empty', async () => {
+      vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+      (mockReq as any).cspNonce = '';
+
+      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      mockViteDevServer.ssrLoadModule.mockResolvedValue({
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }),
+      });
+
+      mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head></head><body></body></html>');
+      vi.mocked(Templates.collectStyle).mockResolvedValue('');
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html/>');
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+        viteDevServer: mockViteDevServer,
+      });
+
+      expect(Templates.addNonceToInlineScripts).not.toHaveBeenCalled();
+    });
+
+    it('ssr: does not append preloadLink when ssrManifest is missing', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+
+      // remove ssrManifest (preload should not be appended)
+      mockMaps.ssrManifests.delete('/test/client');
+
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      const mockRenderModule = {
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '<meta name="x">', appHtml: '<div/>' }),
+      };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      let capturedHead = '';
+      vi.mocked(Templates.rebuildTemplate).mockImplementation((_p, head) => {
+        capturedHead = head;
+        return '<html/>';
+      });
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(capturedHead).toContain('<meta name="x">');
+      expect(capturedHead).not.toContain('<link rel="preload">'); // from your preloadLinks map
+    });
+
+    it('ssr: does not append cssLink when manifest is missing', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+
+      mockMaps.manifests.delete('/test/client');
+
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      const mockRenderModule = {
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '<meta name="x">', appHtml: '<div/>' }),
+      };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      let capturedHead = '';
+      vi.mocked(Templates.rebuildTemplate).mockImplementation((_p, head) => {
+        capturedHead = head;
+        return '<html/>';
+      });
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(capturedHead).toContain('<meta name="x">');
+      expect(capturedHead).not.toContain('rel="stylesheet"'); // from your cssLinks map
+    });
   });
 
   describe('Streaming rendering', () => {
@@ -1585,6 +1712,149 @@ describe('handleRender', () => {
       expect(scriptWrite).toContain('<script');
       expect(scriptWrite).not.toContain('nonce=');
     });
+
+    it('dev + streaming: does not inject nonce into devHead when nonce is empty', async () => {
+      vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+      (mockReq as any).cspNonce = '';
+
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '',
+        beforeBody: '</head><body>',
+        afterBody: '</body></html>',
+      });
+
+      mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>');
+      vi.mocked(Templates.extractHeadInner).mockReturnValue('<script type="module" src="/@vite/client"></script>');
+
+      mockViteDevServer.ssrLoadModule.mockResolvedValue({
+        renderStream: vi.fn((writable: any, callbacks: any) => {
+          callbacks.onHead?.('<title>X</title>');
+          writable.emit('finish');
+          return {};
+        }),
+      });
+
+      vi.mocked(Templates.collectStyle).mockResolvedValue('');
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+        viteDevServer: mockViteDevServer,
+      });
+
+      const writes = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
+      expect(writes).toContain('/@vite/client');
+      expect(writes).not.toContain('nonce=');
+    });
+
+    it('dev + streaming: does not inject nonce into devHead when nonce is empty', async () => {
+      vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+      (mockReq as any).cspNonce = '';
+
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '',
+        beforeBody: '</head><body>',
+        afterBody: '</body></html>',
+      });
+
+      mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>');
+      vi.mocked(Templates.extractHeadInner).mockReturnValue('<script type="module" src="/@vite/client"></script>');
+
+      mockViteDevServer.ssrLoadModule.mockResolvedValue({
+        renderStream: vi.fn((writable: any, callbacks: any) => {
+          callbacks.onHead?.('<title>X</title>');
+          writable.emit('finish');
+          return {};
+        }),
+      });
+
+      vi.mocked(Templates.collectStyle).mockResolvedValue('');
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+        viteDevServer: mockViteDevServer,
+      });
+
+      const writes = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
+      expect(writes).toContain('/@vite/client');
+      expect(writes).not.toContain('nonce=');
+    });
+
+    it('streaming: does not record finalData when already aborted before onAllReady', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '',
+        beforeBody: '</head><body>',
+        afterBody: '</body></html>',
+      });
+
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      let closeHandler: Function | undefined;
+      mockReply.raw.on = vi.fn((event: string, cb: any) => {
+        if (event === 'close') closeHandler = cb;
+        return mockReply.raw;
+      });
+
+      const mockRenderStream = vi.fn((writable: any, callbacks: any) => {
+        // abort first
+        mockReply.raw.writableEnded = false;
+        closeHandler?.(); // sets abortedState.aborted=true in your implementation
+        callbacks.onAllReady?.({ shouldNotBeUsed: true });
+        writable.emit('finish');
+        return {};
+      });
+
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // Should not write data-ready script because finish exits early when abortedState.aborted is true.
+      const writes = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
+      expect(writes).not.toContain('taujs:data-ready');
+    });
+
+    it('streaming: does not add CSP header when getHeader returns undefined', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+
+      mockReply.getHeader = vi.fn().mockReturnValue(undefined);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '',
+        beforeBody: '</head><body>',
+        afterBody: '</body></html>',
+      });
+
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      mockMaps.renderModules.set('/test/client', {
+        renderStream: vi.fn((writable: any, callbacks: any) => {
+          callbacks.onHead?.('<title>X</title>');
+          writable.emit('finish');
+          return {};
+        }),
+      });
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      const [, headers] = mockReply.raw.writeHead.mock.calls[0];
+      expect(headers['Content-Security-Policy']).toBeUndefined();
+    });
   });
 
   describe('Development mode', () => {
@@ -1818,6 +2088,56 @@ describe('handleRender', () => {
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>ok</html>');
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+    });
+
+    it('dev + streaming: injects nonce into devHead scripts that lack nonce', async () => {
+      // 1. Force dev mode
+      vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+
+      // 2. Ensure nonce is truthy
+      (mockReq as any).cspNonce = 'nonce-dev-123';
+
+      // 3. Streaming route
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+
+      // 4. Template + parts
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
+
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '',
+        beforeBody: '</head><body>',
+        afterBody: '</body></html>',
+      });
+
+      // 5. Vite stub returns a <script> WITHOUT nonce
+      mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>');
+
+      // 6. extractHeadInner returns raw script (this is what gets mutated)
+      vi.mocked(Templates.extractHeadInner).mockReturnValue('<script type="module" src="/@vite/client"></script>');
+
+      // 7. Minimal renderStream: emit head once, then finish
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        callbacks.onHead?.('<title>Dev Streaming</title>');
+        writable.emit('finish');
+        return {};
+      });
+
+      mockViteDevServer.ssrLoadModule.mockResolvedValue({
+        renderStream: mockRenderStream,
+      });
+
+      vi.mocked(Templates.collectStyle).mockResolvedValue('');
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      // 8. Execute
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+
+      // 9. Assert: devHead script was nonce-patched
+      const writtenHtml = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
+
+      expect(writtenHtml).toContain('<script nonce="nonce-dev-123" type="module" src="/@vite/client"></script>');
     });
   });
 

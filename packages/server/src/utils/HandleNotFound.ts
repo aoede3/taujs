@@ -5,6 +5,7 @@ import { isDevelopment } from '../System';
 import { ensureNonNull } from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { ViteDevServer } from 'vite';
 import type { DebugConfig, Logs } from '../core/logging/types';
 import type { ProcessedConfig } from '../types';
 
@@ -20,8 +21,11 @@ export const handleNotFound = async (
   opts: {
     debug?: DebugConfig;
     logger?: Logs;
+    viteDevServer?: ViteDevServer;
   } = {},
 ) => {
+  const { viteDevServer } = opts;
+
   const logger =
     opts.logger ??
     createLogger({
@@ -32,6 +36,7 @@ export const handleNotFound = async (
   try {
     if (/\.\w+$/.test(req.raw.url ?? '')) {
       logger.debug?.('ssr', { url: req.raw.url }, 'Delegating asset-like request to Fastify notFound handler');
+
       return reply.callNotFound();
     }
 
@@ -51,21 +56,18 @@ export const handleNotFound = async (
     const cssLink = maps.cssLinks.get(clientRoot);
     const bootstrapModule = maps.bootstrapModules.get(clientRoot);
 
-    logger.debug?.(
-      'ssr',
-      {
-        clientRoot,
-        hasCssLink: !!cssLink,
-        hasBootstrapModule: !!bootstrapModule,
-        isDevelopment,
-        hasCspNonce: !!cspNonce,
-      },
-      'Preparing not-found fallback HTML',
-    );
-
     let processedTemplate = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
 
-    if (!isDevelopment && cssLink) {
+    if (isDevelopment && viteDevServer) {
+      processedTemplate = processedTemplate.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '');
+      processedTemplate = processedTemplate.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
+
+      const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
+
+      processedTemplate = await viteDevServer.transformIndexHtml(url, processedTemplate);
+
+      if (cspNonce) processedTemplate = processedTemplate.replace(/<script(?![^>]*\bnonce=)([^>]*)>/g, `<script nonce="${cspNonce}"$1>`);
+    } else if (!isDevelopment && cssLink) {
       processedTemplate = processedTemplate.replace('</head>', `${cssLink}</head>`);
     }
 
@@ -75,7 +77,10 @@ export const handleNotFound = async (
     }
 
     logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');
-    return reply.status(200).type('text/html').send(processedTemplate);
+
+    const result = reply.status(200).type('text/html').send(processedTemplate);
+
+    return result;
   } catch (err) {
     logger.error?.({ error: err, url: req.url, clientRoot: processedConfigs[0]?.clientRoot }, 'handleNotFound failed');
     throw AppError.internal('handleNotFound failed', err, {
