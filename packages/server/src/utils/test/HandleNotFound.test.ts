@@ -18,6 +18,7 @@ describe('handleNotFound', () => {
     req = {
       raw: { url: '/no-route' },
       url: '/no-route',
+      headers: { host: 'example.test' },
     };
 
     reply = {
@@ -102,7 +103,7 @@ describe('handleNotFound', () => {
     expect(html).not.toContain('window.__INITIAL_DATA__');
   });
 
-  it('does not inject css in development, but injects initial data + bootstrap with nonce when provided', async () => {
+  it('does not inject css in development, but injects bootstrap with nonce when provided', async () => {
     vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
 
     (req as any).cspNonce = 'nonce-xyz';
@@ -164,7 +165,6 @@ describe('handleNotFound', () => {
   });
 
   it('wraps template lookup errors via AppError.internal', async () => {
-    // Map lacks template -> ensureNonNull throws; catch wraps with AppError.internal
     await expect(
       handleNotFound(
         req,
@@ -189,7 +189,8 @@ describe('handleNotFound', () => {
   });
 
   it('handles req.raw.url undefined (does not mistake as asset) and renders', async () => {
-    req.raw.url = undefined; // exercises the `?? ''` path and skips asset guard
+    req.raw.url = undefined;
+
     const cssLinks = new Map();
     const bootstrapModules = new Map();
     const templates = new Map([['/app', makeTemplate()]]);
@@ -215,10 +216,8 @@ describe('handleNotFound', () => {
   });
 
   it('dev: does NOT inject CSS and does NOT set __INITIAL_DATA__, but injects bootstrap with nonce', async () => {
-    // dev
     vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
 
-    // CSP nonce on request
     (req as any).cspNonce = 'nonce-xyz';
 
     const cssLinks = new Map([['/app', '<link rel="stylesheet" href="/dev.css">']]);
@@ -244,9 +243,7 @@ describe('handleNotFound', () => {
     const html = reply.send.mock.calls[0][0] as string;
 
     expect(html).not.toContain('/dev.css');
-
     expect(html).not.toContain('window.__INITIAL_DATA__');
-
     expect(html).toContain('<script nonce="nonce-xyz" type="module" src="/assets/client.js" defer>');
 
     expect(html).not.toContain('<!--ssr-head-->');
@@ -282,13 +279,127 @@ describe('handleNotFound', () => {
     const html = reply.send.mock.calls[0][0] as string;
 
     expect(html).toContain('<link rel="stylesheet" href="/prod.css">');
-
     expect(html).not.toContain('window.__INITIAL_DATA__');
-
     expect(html).toContain('<script nonce="nonce-abc" type="module" src="/assets/client.js" defer>');
 
     expect(html).not.toContain('<!--ssr-head-->');
     expect(html).not.toContain('<!--ssr-html-->');
     expect(html).toMatch(/<div id="root"><\/div>/);
+  });
+
+  it('dev: strips vite client + inline style BEFORE transformIndexHtml, and uses pathname url', async () => {
+    vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+
+    // ensure url parsing hits the pathname branch
+    req.url = '/some/path?x=1';
+    req.headers = { host: 'example.test' };
+
+    const templateWithViteJunk = `
+      <html>
+        <head>
+          ${SSRTAG.ssrHead}
+          <script type="module" src="/@vite/client"></script>
+          <style type="text/css">body{background:red}</style>
+        </head>
+        <body>
+          <div id="root">${SSRTAG.ssrHtml}</div>
+        </body>
+      </html>
+    `;
+
+    const transformIndexHtml = vi.fn(async (url: string, html: string) => {
+      // these asserts prove the two .replace(...) lines ran before transformIndexHtml
+      expect(html).not.toContain('<script type="module" src="/@vite/client"></script>');
+      expect(html).not.toMatch(/<style type="text\/css">[\s\S]*?<\/style>/);
+
+      // prove we passed pathname, not full url with query
+      expect(url).toBe('/some/path');
+
+      return html;
+    });
+
+    const viteDevServer = { transformIndexHtml } as any;
+
+    await handleNotFound(
+      req,
+      reply,
+      [
+        {
+          clientRoot: '/app',
+          appId: 'a',
+          entryPoint: 'x',
+          entryClient: 'e',
+          entryServer: 's',
+          htmlTemplate: 'index.html',
+        } as any,
+      ],
+      {
+        cssLinks: new Map([['/app', '<link rel="stylesheet" href="/dev.css">']]),
+        bootstrapModules: new Map(), // keep this empty so we isolate dev branch behaviour
+        templates: new Map([['/app', templateWithViteJunk]]),
+      },
+      { viteDevServer },
+    );
+
+    expect(transformIndexHtml).toHaveBeenCalledTimes(1);
+    expect(reply.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('dev: injects nonce onto <script> tags lacking one after transformIndexHtml; does not double-inject; url "/" when req.url missing', async () => {
+    vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+
+    (req as any).cspNonce = 'nonce-xyz';
+
+    // cover: req.url ? ... : '/'
+    req.url = undefined;
+    req.headers = { host: 'example.test' };
+
+    const transformIndexHtml = vi.fn(async (url: string, html: string) => {
+      expect(url).toBe('/');
+
+      // Return HTML containing scripts with/without nonce to exercise:
+      // processedTemplate.replace(/<script(?!...nonce=)([^>]*)>/g, ...)
+      return `
+        ${html}
+        <script type="module" src="/a.js"></script>
+        <script nonce="keep-me" src="/b.js"></script>
+        <script>console.log("inline")</script>
+      `;
+    });
+
+    const viteDevServer = { transformIndexHtml } as any;
+
+    await handleNotFound(
+      req,
+      reply,
+      [
+        {
+          clientRoot: '/app',
+          appId: 'a',
+          entryPoint: 'x',
+          entryClient: 'e',
+          entryServer: 's',
+          htmlTemplate: 'index.html',
+        } as any,
+      ],
+      {
+        cssLinks: new Map(),
+        bootstrapModules: new Map(),
+        templates: new Map([['/app', makeTemplate()]]),
+      },
+      { viteDevServer },
+    );
+
+    const out = reply.send.mock.calls[0][0] as string;
+
+    // a.js script gets injected nonce
+    expect(out).toContain('<script nonce="nonce-xyz" type="module" src="/a.js"></script>');
+
+    // existing nonce preserved and not duplicated
+    expect(out).toContain('<script nonce="keep-me" src="/b.js"></script>');
+    expect(out).not.toContain('nonce="nonce-xyz" nonce="keep-me"');
+
+    // inline script also gets nonce (your regex will add it)
+    expect(out).toContain('<script nonce="nonce-xyz">console.log("inline")</script>');
   });
 });

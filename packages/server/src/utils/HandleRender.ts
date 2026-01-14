@@ -9,7 +9,7 @@ import { REGEX } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
 import { createRequestContext } from './Telemetry';
-import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate } from './Templates';
+import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate, addNonceToInlineScripts, extractHeadInner } from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -18,6 +18,7 @@ import type { DebugConfig, Logs } from '../core/logging/types';
 import type { RouteMatcher } from '../core/routes/DataRoutes';
 import type { ServiceRegistry } from '../core/services/DataServices';
 import type { Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../types';
+import { handleNotFound } from './HandleNotFound';
 
 export const handleRender = async (
   req: FastifyRequest,
@@ -62,8 +63,7 @@ export const handleRender = async (
     const cspNonce = rawNonce && rawNonce.length > 0 ? rawNonce : undefined;
 
     if (!matchedRoute) {
-      reply.callNotFound();
-      return;
+      return reply.callNotFound();
     }
 
     const { route, params } = matchedRoute;
@@ -95,6 +95,7 @@ export const handleRender = async (
     const manifest = maps.manifests.get(clientRoot);
     const preloadLink = maps.preloadLinks.get(clientRoot);
     const ssrManifest = maps.ssrManifests.get(clientRoot);
+    let devHead = '';
 
     let renderModule: RenderModule;
 
@@ -112,7 +113,21 @@ export const handleRender = async (
         const styleNonce = cspNonce ? ` nonce="${cspNonce}"` : '';
         template = template?.replace('</head>', `<style type="text/css"${styleNonce}>${styles}</style></head>`);
 
-        template = await viteDevServer.transformIndexHtml(url, template);
+        const isStreaming = attr?.render === RENDERTYPE.streaming;
+
+        if (isStreaming) {
+          // https://github.com/vitejs/vite-plugin-react/issues/222
+          // Generate initial head with a stub to ensure vite HMR scripts/styles are included
+          const stub = '<!doctype html><html><head></head><body></body></html>';
+          const transformed = await viteDevServer.transformIndexHtml(url, stub);
+
+          devHead = extractHeadInner(transformed);
+
+          if (cspNonce) devHead = devHead.replace(/<script(?![^>]*\bnonce=)([^>]*)>/g, `<script nonce="${cspNonce}"$1>`);
+        } else {
+          template = await viteDevServer.transformIndexHtml(url, template);
+          if (cspNonce) template = addNonceToInlineScripts(template, cspNonce);
+        }
       } catch (error) {
         throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServer, url } });
       }
@@ -198,6 +213,7 @@ export const handleRender = async (
       }
 
       let aggregateHeadContent = headContent;
+
       if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
       if (manifest && cssLink) aggregateHeadContent += cssLink;
 
@@ -287,7 +303,11 @@ export const handleRender = async (
         writable,
         {
           onHead: (headContent: string) => {
-            let aggregateHeadContent = headContent;
+            let aggregateHeadContent = '';
+
+            if (devHead) aggregateHeadContent += devHead;
+            aggregateHeadContent += headContent;
+
             if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
             if (manifest && cssLink) aggregateHeadContent += cssLink;
 

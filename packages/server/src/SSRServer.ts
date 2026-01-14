@@ -129,6 +129,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         {
           debug: opts.debug,
           logger,
+          viteDevServer,
         },
       );
     });
