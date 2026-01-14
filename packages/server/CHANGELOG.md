@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.5.6 - 14/01/2026
+
+feat: streaming vite plugins; hmr; tests
+chore: update packages
+
 v0.5.5 - 11/01/2026
 
 feat: remove resolve route data
