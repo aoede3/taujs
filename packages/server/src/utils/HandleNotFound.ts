@@ -2,14 +2,7 @@ import { AppError } from '../core/errors/AppError';
 import { SSRTAG } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
-import {
-  ensureNonNull,
-  addNonceToInlineScripts,
-  applyViteTransform,
-  injectBootstrapModule,
-  injectCssLink,
-  stripDevClientAndStyles,
-} from './Templates';
+import { ensureNonNull, addNonceToInlineScripts, applyViteTransform, injectBootstrapModule, injectCssLink, stripDevClientAndStyles } from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
