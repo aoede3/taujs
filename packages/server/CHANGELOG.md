@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.5.7 - 22/01/2026
+
+feat: consolidate template utilities
+chore: consolidate template utilities - formatting
+
 v0.5.6 - 14/01/2026
 
 feat: streaming vite plugins; hmr; tests
