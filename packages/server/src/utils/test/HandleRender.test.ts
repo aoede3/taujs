@@ -149,7 +149,7 @@ describe('handleRender', () => {
     keys: [],
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockLogger = {
       error: vi.fn(),
       warn: vi.fn(),
@@ -238,6 +238,11 @@ describe('handleRender', () => {
       logger: mockLogger,
       headers: { host: 'localhost' },
     } as any);
+
+    const actualTemplates = await vi.importActual<typeof import('../Templates')>('../Templates');
+    vi.mocked(Templates.addNonceToInlineScripts).mockImplementation(actualTemplates.addNonceToInlineScripts);
+    vi.mocked(Templates.stripDevClientAndStyles).mockImplementation(actualTemplates.stripDevClientAndStyles);
+    vi.mocked(Templates.applyViteTransform).mockImplementation(actualTemplates.applyViteTransform);
   });
 
   afterEach(() => {

@@ -2,7 +2,14 @@ import { AppError } from '../core/errors/AppError';
 import { SSRTAG } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
-import { ensureNonNull } from './Templates';
+import {
+  ensureNonNull,
+  addNonceToInlineScripts,
+  applyViteTransform,
+  injectBootstrapModule,
+  injectCssLink,
+  stripDevClientAndStyles,
+} from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -59,22 +66,18 @@ export const handleNotFound = async (
     let processedTemplate = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
 
     if (isDevelopment && viteDevServer) {
-      processedTemplate = processedTemplate.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '');
-      processedTemplate = processedTemplate.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
+      processedTemplate = stripDevClientAndStyles(processedTemplate);
 
       const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
 
-      processedTemplate = await viteDevServer.transformIndexHtml(url, processedTemplate);
+      processedTemplate = await applyViteTransform(processedTemplate, url, viteDevServer);
 
-      if (cspNonce) processedTemplate = processedTemplate.replace(/<script(?![^>]*\bnonce=)([^>]*)>/g, `<script nonce="${cspNonce}"$1>`);
+      if (cspNonce) processedTemplate = addNonceToInlineScripts(processedTemplate, cspNonce);
     } else if (!isDevelopment && cssLink) {
-      processedTemplate = processedTemplate.replace('</head>', `${cssLink}</head>`);
+      processedTemplate = injectCssLink(processedTemplate, cssLink);
     }
 
-    if (bootstrapModule) {
-      const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
-      processedTemplate = processedTemplate.replace('</body>', `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script></body>`);
-    }
+    processedTemplate = injectBootstrapModule(processedTemplate, bootstrapModule, cspNonce);
 
     logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');
 

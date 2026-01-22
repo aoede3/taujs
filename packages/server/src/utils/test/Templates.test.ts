@@ -12,6 +12,7 @@ import {
   processTemplate,
   rebuildTemplate,
   addNonceToInlineScripts,
+  injectCssLink,
   extractHeadInner,
 } from '../Templates';
 import { SSRTAG } from '../../constants';
@@ -434,5 +435,18 @@ describe('addNonceToInlineScripts - attribute-order edge cases', () => {
     const html = `<script data-x="1" type="module">x</script>`;
     const out = addNonceToInlineScripts(html, 'abc123');
     expect(out).toBe(`<script nonce="abc123" data-x="1" type="module">x</script>`);
+  });
+});
+
+describe('injectCssLink', () => {
+  it('returns original template when cssLink is missing', () => {
+    const tpl = '<html><head></head><body></body></html>';
+    expect(injectCssLink(tpl, undefined)).toBe(tpl);
+  });
+
+  it('injects cssLink before closing head tag', () => {
+    const tpl = '<html><head></head><body></body></html>';
+    const cssLink = '<link rel="stylesheet" href="/app.css">';
+    expect(injectCssLink(tpl, cssLink)).toBe('<html><head><link rel="stylesheet" href="/app.css"></head><body></body></html>');
   });
 });

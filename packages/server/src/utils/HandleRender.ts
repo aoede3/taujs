@@ -9,7 +9,16 @@ import { REGEX } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
 import { createRequestContext } from './Telemetry';
-import { ensureNonNull, collectStyle, processTemplate, rebuildTemplate, addNonceToInlineScripts, extractHeadInner } from './Templates';
+import {
+  ensureNonNull,
+  collectStyle,
+  processTemplate,
+  rebuildTemplate,
+  addNonceToInlineScripts,
+  extractHeadInner,
+  stripDevClientAndStyles,
+  applyViteTransform,
+} from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -101,8 +110,7 @@ export const handleRender = async (
 
     if (isDevelopment && viteDevServer) {
       try {
-        template = template.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '');
-        template = template.replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
+        template = stripDevClientAndStyles(template);
 
         const entryServerFile = resolveEntryFile(clientRoot, entryServer);
         const entryServerPath = path.join(clientRoot, entryServerFile);
@@ -123,9 +131,9 @@ export const handleRender = async (
 
           devHead = extractHeadInner(transformed);
 
-          if (cspNonce) devHead = devHead.replace(/<script(?![^>]*\bnonce=)([^>]*)>/g, `<script nonce="${cspNonce}"$1>`);
+          if (cspNonce) devHead = addNonceToInlineScripts(devHead, cspNonce);
         } else {
-          template = await viteDevServer.transformIndexHtml(url, template);
+          template = await applyViteTransform(template, url, viteDevServer);
           if (cspNonce) template = addNonceToInlineScripts(template, cspNonce);
         }
       } catch (error) {
