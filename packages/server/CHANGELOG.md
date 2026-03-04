@@ -1,5 +1,13 @@
 # @taujs/server
 
+v0.5.8 - 27/02/2026
+
+chore(deps): bump rollup from 4.53.3 to 4.59.0
+chore(deps): bump ajv from 8.17.1 to 8.18.0
+chore(deps): bump fastify from 5.6.2 to 5.7.3
+chore(deps): bump @isaacs/brace-expansion from 5.0.0 to 5.0.1
+chore(deps): bump minimatch
+
 v0.5.7 - 22/01/2026
 
 feat: consolidate template utilities
