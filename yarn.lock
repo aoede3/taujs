@@ -1108,10 +1108,10 @@ fastify-tsconfig@^2.0.0:
   resolved "https://registry.yarnpkg.com/fastify-tsconfig/-/fastify-tsconfig-2.0.0.tgz#960367cdb368562948d446dd14f67bed45a92085"
   integrity sha512-pvYwdtbZUJr/aTD7ZE0rGlvtYpx7IThHKVLBoqCKmT3FJpwm23XA2+PDmq8ZzfqqG4ajpyrHd5bkIixcIFjPhQ==
 
-fastify@^5.6.1, fastify@^5.8.1:
-  version "5.8.1"
-  resolved "https://registry.yarnpkg.com/fastify/-/fastify-5.8.1.tgz#777eef0143c0ba5e3c71076224455885f303504f"
-  integrity sha512-y0kicFvvn7CYWoPOVLOcvn4YyKQz03DIY7UxmyOy21/J8eXm09R+tmb+tVDBW5h+pja30cHI5dqUcSlvY86V2A==
+fastify@^5.6.1, fastify@^5.8.3:
+  version "5.8.3"
+  resolved "https://registry.yarnpkg.com/fastify/-/fastify-5.8.3.tgz#78b5006cf0731d788457b19bd482805316424c8c"
+  integrity sha512-XJXpRQ41+rsJ/GLeP9vyDC+fBXilcTlEXokMSexkdEkla4uf7ZQNaI5xl3el+kW5TZQulqYxLr659ey/KX7XmQ==
   dependencies:
     "@fastify/ajv-compiler" "^4.0.5"
     "@fastify/error" "^4.0.0"
