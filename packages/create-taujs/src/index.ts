@@ -92,7 +92,7 @@ async function main() {
   const nameRes = validateProjectName(projectName);
   if (nameRes !== true) {
     console.log(
-      pc.red(`\n✖ Invalid project name "${projectName}": ${nameRes}`)
+      pc.red(`\n✖ Invalid project name "${projectName}": ${nameRes}`),
     );
     process.exit(1);
   }
@@ -132,7 +132,7 @@ async function createProject(config: ProjectConfig) {
 
   if (installDeps) {
     console.log(
-      pc.cyan(`\nInstalling dependencies with ${packageManager}...\n`)
+      pc.cyan(`\nInstalling dependencies with ${packageManager}...\n`),
     );
     try {
       execSync(PACKAGE_MANAGERS[packageManager], {
@@ -144,8 +144,8 @@ async function createProject(config: ProjectConfig) {
     } catch (error) {
       console.log(
         pc.yellow(
-          "\n⚠ Failed to install dependencies. You can install them manually."
-        )
+          "\n⚠ Failed to install dependencies. You can install them manually.",
+        ),
       );
     }
   }
@@ -153,12 +153,12 @@ async function createProject(config: ProjectConfig) {
   if (installDeps && !depsInstalled) {
     console.log(
       pc.yellow(
-        "⚠ Dependency install failed. Run the install command before starting the dev server.\n"
-      )
+        "⚠ Dependency install failed. Run the install command before starting the dev server.\n",
+      ),
     );
   }
   console.log(
-    pc.green(`\n✓ Project ${pc.bold(projectName)} created successfully!\n`)
+    pc.green(`\n✓ Project ${pc.bold(projectName)} created successfully!\n`),
   );
   console.log(pc.cyan("Next steps:\n"));
   console.log(`  cd ${projectName}`);
@@ -167,7 +167,7 @@ async function createProject(config: ProjectConfig) {
     console.log(
       `  ${PACKAGE_MANAGERS[packageManager]}${
         installDeps ? "  # (install failed earlier)" : ""
-      }`
+      }`,
     );
 
   const pmRun = packageManager === "npm" ? "npm run" : packageManager;
@@ -193,7 +193,7 @@ async function generateFiles(targetDir: string, config: ProjectConfig) {
   await fs.writeJSON(
     path.join(targetDir, "package.json"),
     generatePackageJson(projectName),
-    { spaces: 2 }
+    { spaces: 2 },
   );
 
   await fs.writeFile(path.join(targetDir, "build.ts"), generateBuildTs());
@@ -201,73 +201,73 @@ async function generateFiles(targetDir: string, config: ProjectConfig) {
   await fs.writeJSON(
     path.join(targetDir, "tsconfig.json"),
     generateTsConfig(),
-    { spaces: 2 }
+    { spaces: 2 },
   );
 
   await fs.writeJSON(
     path.join(targetDir, "src/server/tsconfig.json"),
     generateServerTsConfig(),
-    { spaces: 2 }
+    { spaces: 2 },
   );
 
   await fs.writeFile(
     path.join(targetDir, "taujs.config.ts"),
-    generateTaujsConfig()
+    generateTaujsConfig(),
   );
 
   await fs.writeFile(path.join(targetDir, ".gitignore"), generateGitignore());
 
   await fs.writeFile(
     path.join(targetDir, "README.md"),
-    generateReadme(projectName, packageManager)
+    generateReadme(projectName, packageManager),
   );
 
   await fs.writeFile(
     path.join(targetDir, "src/client/index.html"),
-    generateIndexHtml()
+    generateIndexHtml(),
   );
   await fs.writeFile(
     path.join(targetDir, "src/client/App.tsx"),
-    generateAppComponent()
+    generateAppComponent(),
   );
   await fs.writeFile(
     path.join(targetDir, "src/client/entry-client.tsx"),
-    generateEntryClient()
+    generateEntryClient(),
   );
   await fs.writeFile(
     path.join(targetDir, "src/client/entry-server.tsx"),
-    generateEntryServer()
+    generateEntryServer(),
   );
   await fs.writeFile(
     path.join(targetDir, "src/client/styles.css"),
-    generateStyles()
+    generateStyles(),
   );
   await fs.writeFile(
     path.join(targetDir, "src/client/vite-env.d.ts"),
-    generateViteEnv()
+    generateViteEnv(),
   );
 
   // server
   await fs.writeFile(
     path.join(targetDir, "src/server/index.ts"),
-    generateServerIndex()
+    generateServerIndex(),
   );
   await fs.writeFile(
     path.join(targetDir, "src/server/services/registry.ts"),
-    generateServiceRegistry()
+    generateServiceRegistry(),
   );
   await fs.writeFile(
     path.join(targetDir, "src/server/services/example.service.ts"),
-    generateExampleService()
+    generateExampleService(),
   );
   await fs.writeFile(
     path.join(targetDir, "src/server/types.d.ts"),
-    generateServiceTypesAugmentation()
+    generateServiceTypesAugmentation(),
   );
 
   await fs.writeFile(
     path.join(targetDir, "src/client/public/favicon.svg"),
-    generateFavicon()
+    generateFavicon(),
   );
 }
 
@@ -915,12 +915,9 @@ export type ServiceRegistry = typeof serviceRegistry;
 }
 
 function generateServiceTypesAugmentation() {
-  return `import type { RegistryCaller } from '@taujs/server/config';
-import type { serviceRegistry } from './registry';
-
-declare module '@taujs/server/config' {
+  return `declare module '@taujs/server/config' {
   interface ServiceContext {
-    call: RegistryCaller<typeof serviceRegistry>;
+    tenantId?: string;
   }
 }
 `;
