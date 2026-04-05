@@ -1,5 +1,13 @@
 # @taujs/server
 
+v0.5.9 - 05/04/2026
+
+chore(deps): bump fastify from 5.7.3 to 5.8.3
+chore(deps): bump brace-expansion
+chore(deps): bump path-to-regexp from 8.3.0 to 8.4.0
+chore(deps-dev): bump flatted from 3.3.3 to 3.4.2
+chore(deps-dev): bump picomatch from 2.3.1 to 2.3.2
+
 v0.5.8 - 27/02/2026
 
 chore(deps): bump rollup from 4.53.3 to 4.59.0
