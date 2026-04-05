@@ -162,7 +162,7 @@ export const fetchInitialData = async <Params extends PathToRegExpParams, R exte
   try {
     const result = await dataHandler(
       params,
-      (ctxForData as unknown) as RequestServiceContext<L> & {
+      ctxForData as unknown as RequestServiceContext<L> & {
         call: NonNullable<RequestServiceContext<L>['call']>;
       } & { [key: string]: unknown },
     );
