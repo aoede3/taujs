@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.6.0 - 05/04/2026
+
+feat: type augmentation
+feat: type augmentation prettier
+
 v0.5.9 - 05/04/2026
 
 chore(deps): bump fastify from 5.7.3 to 5.8.3
