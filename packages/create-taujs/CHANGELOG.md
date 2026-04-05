@@ -1,5 +1,9 @@
 # @taujs/cli
 
+v0.1.8 - 05/04/2026
+
+feat: align to @taujs/server
+
 v0.1.7 - 29/12/2025
 
 feat: align to @taujs/server
