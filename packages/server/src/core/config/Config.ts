@@ -12,7 +12,7 @@ import type { CoreTaujsConfig } from './types';
 
 export { callServiceMethod, defineService, defineServiceRegistry, withDeadline } from '../services/DataServices';
 
-export type { RegistryCaller, ServiceContext } from '../services/DataServices';
+export type { JsonObject, JsonPrimitive, JsonValue, RegistryCaller, ServiceContext, TypedServiceContext } from '../services/DataServices';
 
 export { AppError } from '../errors/AppError';
 
