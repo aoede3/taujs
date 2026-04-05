@@ -36,7 +36,7 @@ export type TaujsConfig = CoreTaujsConfig & {
 
 export { callServiceMethod, defineService, defineServiceRegistry, withDeadline } from './core/services/DataServices';
 
-export type { RegistryCaller, ServiceContext } from './core/services/DataServices';
+export type { JsonObject, JsonPrimitive, JsonValue, RegistryCaller, ServiceContext, TypedServiceContext } from './core/services/DataServices';
 
 export type RouteContext = CoreRouteContext<TaujsConfig>;
 export type RouteData<C extends TaujsConfig = TaujsConfig, P extends string = string> = CoreRouteData<C, P>;

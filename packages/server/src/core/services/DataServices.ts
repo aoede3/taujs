@@ -4,26 +4,8 @@ import { resolveLogs } from '../logging/resolve';
 import type { Logs } from '../logging/types';
 import { now } from '../telemetry/Telemetry';
 
-export type RegistryCaller<R extends ServiceRegistry = ServiceRegistry> = (
-  serviceName: keyof R & string,
-  methodName: string,
-  args?: JsonObject,
-) => Promise<JsonObject>;
-
-export function createCaller<R extends ServiceRegistry>(registry: R, ctx: ServiceContext): RegistryCaller<R> {
-  return (serviceName, methodName, args) => callServiceMethod(registry, serviceName, methodName, (args ?? {}) as JsonObject, ctx);
-}
-
-// ctx has a bound `call` function (returns the same object reference)?
-export function ensureServiceCaller<R extends ServiceRegistry>(
-  registry: R,
-  ctx: ServiceContext & Partial<{ call: RegistryCaller<R> }>,
-): asserts ctx is ServiceContext & { call: RegistryCaller<R> } {
-  if (!ctx.call) (ctx as any).call = createCaller(registry, ctx);
-}
-
 // runtime checks instead happens at the boundary
-type JsonPrimitive = string | number | boolean | null;
+export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [k: string]: JsonValue };
 export type JsonObject = { [k: string]: JsonValue };
 
@@ -35,14 +17,55 @@ const runSchema = <T>(schema: NarrowSchema<T> | undefined, input: unknown): T =>
   return typeof (schema as any).parse === 'function' ? (schema as any).parse(input) : (schema as (u: unknown) => T)(input);
 };
 
-export type ServiceContext = {
+type BaseServiceContext = {
   signal?: AbortSignal; // request/client abort passed in request
   deadlineMs?: number; // available to userland; not enforced here
   traceId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
-  call?: (service: string, method: string, args?: JsonObject) => Promise<JsonObject>;
 };
+
+type UntypedRegistryCaller = (serviceName: string, methodName: string, args?: JsonObject) => Promise<JsonObject>;
+type RuntimeServiceContext = BaseServiceContext & { call?: UntypedRegistryCaller };
+
+// Augment with app-specific fields only; use TypedServiceContext<typeof serviceRegistry>
+// when you want a registry-aware ctx.call type.
+export interface ServiceContext extends BaseServiceContext {}
+
+export type ServiceMethod<P extends JsonObject = JsonObject, R extends JsonObject = JsonObject, Ctx extends BaseServiceContext = TypedServiceContext> = (
+  params: P,
+  ctx: Ctx,
+) => Promise<R>;
+type RuntimeServiceMethod<P extends JsonObject = JsonObject, R extends JsonObject = JsonObject> = (params: P, ctx: RuntimeServiceContext) => Promise<R>;
+
+export type ServiceDefinition = Readonly<Record<string, RuntimeServiceMethod<any, JsonObject>>>;
+export type ServiceRegistry = Readonly<Record<string, ServiceDefinition>>;
+
+type ServiceMethodParams<M> = M extends (params: infer P, ctx: any) => Promise<any> ? P : never;
+type ServiceMethodResult<M> = Awaited<M extends (...args: any[]) => Promise<infer R> ? R : never>;
+type RegistryCallerArgs<R extends ServiceRegistry, S extends keyof R & string, M extends keyof R[S] & string> = undefined extends ServiceMethodParams<R[S][M]>
+  ? [serviceName: S, methodName: M, args?: ServiceMethodParams<R[S][M]>]
+  : [serviceName: S, methodName: M, args: ServiceMethodParams<R[S][M]>];
+
+export type RegistryCaller<R extends ServiceRegistry = ServiceRegistry> = <S extends keyof R & string, M extends keyof R[S] & string>(
+  ...args: RegistryCallerArgs<R, S, M>
+) => Promise<ServiceMethodResult<R[S][M]>>;
+
+// Binds ctx.call to a concrete registry without creating a parallel contract type.
+export type TypedServiceContext<R extends ServiceRegistry = ServiceRegistry> = ServiceContext & { call?: RegistryCaller<R> };
+
+export function createCaller<R extends ServiceRegistry>(registry: R, ctx: BaseServiceContext): RegistryCaller<R> {
+  return (((serviceName: string, methodName: string, args?: JsonObject) =>
+    callServiceMethod(registry, serviceName, methodName, (args ?? {}) as JsonObject, ctx)) as unknown) as RegistryCaller<R>;
+}
+
+// ctx has a bound `call` function (returns the same object reference)?
+export function ensureServiceCaller<R extends ServiceRegistry>(
+  registry: R,
+  ctx: BaseServiceContext & Partial<{ call: RegistryCaller<R> }>,
+): asserts ctx is BaseServiceContext & { call: RegistryCaller<R> } {
+  if (!ctx.call) (ctx as any).call = createCaller(registry, ctx);
+}
 
 // Helper for userland: combine a parent AbortSignal with a per-call timeout
 export function withDeadline(signal: AbortSignal | undefined, ms?: number): AbortSignal | undefined {
@@ -63,45 +86,42 @@ export function withDeadline(signal: AbortSignal | undefined, ms?: number): Abor
   return ctrl.signal;
 }
 
-export type ServiceMethod<P, R extends JsonObject = JsonObject> = (params: P, ctx: ServiceContext) => Promise<R>;
-export type ServiceDefinition = Readonly<Record<string, ServiceMethod<any, JsonObject>>>;
-export type ServiceRegistry = Readonly<Record<string, ServiceDefinition>>;
-
 export type ServiceDescriptor = {
   serviceName: string;
   serviceMethod: string;
   args?: JsonObject;
 };
 
+type ServiceSpecEntry =
+  | ServiceMethod<any, JsonObject>
+  | { handler: ServiceMethod<any, JsonObject>; params?: NarrowSchema<any>; result?: NarrowSchema<any> };
+type ServiceSpec = Record<string, ServiceSpecEntry>;
+type ExtractServiceMethod<T> = T extends { handler: infer H } ? H : T;
+type NormalizeServiceMethod<M> = M extends (params: infer P extends JsonObject, ctx: any) => Promise<infer R extends JsonObject> ? RuntimeServiceMethod<P, R> : never;
+type NormalizedServiceSpec<T extends ServiceSpec> = {
+  [K in keyof T]: NormalizeServiceMethod<ExtractServiceMethod<T[K]>>;
+};
+
 export function defineService<
-  T extends Record<
-    string,
-    ServiceMethod<any, JsonObject> | { handler: ServiceMethod<any, JsonObject>; params?: NarrowSchema<any>; result?: NarrowSchema<any> }
-  >,
+  T extends ServiceSpec,
 >(spec: T) {
-  const out: Record<string, ServiceMethod<any, JsonObject>> = {};
+  const out: Record<string, RuntimeServiceMethod<any, JsonObject>> = {};
 
   for (const [name, v] of Object.entries(spec)) {
     if (typeof v === 'function') {
-      out[name] = v; // already a handler
+      out[name] = v as RuntimeServiceMethod<any, JsonObject>;
     } else {
       const { handler, params: paramsSchema, result: resultSchema } = v;
       out[name] = async (params, ctx) => {
         const p = runSchema(paramsSchema, params);
-        const r = await handler(p, ctx);
+        const r = await handler(p, ctx as ServiceContext);
 
         return runSchema(resultSchema, r);
       };
     }
   }
 
-  return Object.freeze(out) as {
-    [K in keyof T]: T[K] extends ServiceMethod<infer P, infer R>
-      ? ServiceMethod<P, R>
-      : T[K] extends { handler: ServiceMethod<infer P, infer R> }
-        ? ServiceMethod<P, R>
-        : never;
-  };
+  return Object.freeze(out) as NormalizedServiceSpec<T>;
 }
 
 export const defineServiceRegistry = <R extends ServiceRegistry>(registry: R): R =>
@@ -115,7 +135,7 @@ export async function callServiceMethod(
   serviceName: string,
   methodName: string,
   params: JsonObject | undefined,
-  ctx: ServiceContext,
+  ctx: BaseServiceContext,
 ): Promise<JsonObject> {
   if (ctx.signal?.aborted) throw AppError.timeout('Request canceled');
 
@@ -138,7 +158,7 @@ export async function callServiceMethod(
 
   try {
     // No automatic deadlines here; handlers can use ctx.signal or withDeadline(ctx.signal, ms)
-    const result = await method(params ?? {}, ctx);
+    const result = await method(params ?? {}, ctx as RuntimeServiceContext);
 
     if (typeof result !== 'object' || result === null) {
       throw AppError.internal(`Non-object result from ${serviceName}.${methodName}`);

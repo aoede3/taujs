@@ -157,10 +157,15 @@ export const fetchInitialData = async <Params extends PathToRegExpParams, R exte
     headers: ctx.headers ?? {},
   } as const;
 
-  ensureServiceCaller(serviceRegistry, ctxForData);
+  ensureServiceCaller(serviceRegistry, ctxForData as ServiceContext & Partial<{ call: typeof ctxForData.call }>);
 
   try {
-    const result = await dataHandler(params, ctxForData);
+    const result = await dataHandler(
+      params,
+      (ctxForData as unknown) as RequestServiceContext<L> & {
+        call: NonNullable<RequestServiceContext<L>['call']>;
+      } & { [key: string]: unknown },
+    );
 
     if (isServiceDescriptor(result)) {
       const { serviceName, serviceMethod, args } = result;
