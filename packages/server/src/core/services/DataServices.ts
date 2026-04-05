@@ -43,9 +43,10 @@ export type ServiceRegistry = Readonly<Record<string, ServiceDefinition>>;
 
 type ServiceMethodParams<M> = M extends (params: infer P, ctx: any) => Promise<any> ? P : never;
 type ServiceMethodResult<M> = Awaited<M extends (...args: any[]) => Promise<infer R> ? R : never>;
-type RegistryCallerArgs<R extends ServiceRegistry, S extends keyof R & string, M extends keyof R[S] & string> = undefined extends ServiceMethodParams<R[S][M]>
-  ? [serviceName: S, methodName: M, args?: ServiceMethodParams<R[S][M]>]
-  : [serviceName: S, methodName: M, args: ServiceMethodParams<R[S][M]>];
+type RegistryCallerArgs<R extends ServiceRegistry, S extends keyof R & string, M extends keyof R[S] & string> =
+  undefined extends ServiceMethodParams<R[S][M]>
+    ? [serviceName: S, methodName: M, args?: ServiceMethodParams<R[S][M]>]
+    : [serviceName: S, methodName: M, args: ServiceMethodParams<R[S][M]>];
 
 export type RegistryCaller<R extends ServiceRegistry = ServiceRegistry> = <S extends keyof R & string, M extends keyof R[S] & string>(
   ...args: RegistryCallerArgs<R, S, M>
@@ -55,8 +56,8 @@ export type RegistryCaller<R extends ServiceRegistry = ServiceRegistry> = <S ext
 export type TypedServiceContext<R extends ServiceRegistry = ServiceRegistry> = ServiceContext & { call?: RegistryCaller<R> };
 
 export function createCaller<R extends ServiceRegistry>(registry: R, ctx: BaseServiceContext): RegistryCaller<R> {
-  return (((serviceName: string, methodName: string, args?: JsonObject) =>
-    callServiceMethod(registry, serviceName, methodName, (args ?? {}) as JsonObject, ctx)) as unknown) as RegistryCaller<R>;
+  return ((serviceName: string, methodName: string, args?: JsonObject) =>
+    callServiceMethod(registry, serviceName, methodName, (args ?? {}) as JsonObject, ctx)) as unknown as RegistryCaller<R>;
 }
 
 // ctx has a bound `call` function (returns the same object reference)?
@@ -92,19 +93,17 @@ export type ServiceDescriptor = {
   args?: JsonObject;
 };
 
-type ServiceSpecEntry =
-  | ServiceMethod<any, JsonObject>
-  | { handler: ServiceMethod<any, JsonObject>; params?: NarrowSchema<any>; result?: NarrowSchema<any> };
+type ServiceSpecEntry = ServiceMethod<any, JsonObject> | { handler: ServiceMethod<any, JsonObject>; params?: NarrowSchema<any>; result?: NarrowSchema<any> };
 type ServiceSpec = Record<string, ServiceSpecEntry>;
 type ExtractServiceMethod<T> = T extends { handler: infer H } ? H : T;
-type NormalizeServiceMethod<M> = M extends (params: infer P extends JsonObject, ctx: any) => Promise<infer R extends JsonObject> ? RuntimeServiceMethod<P, R> : never;
+type NormalizeServiceMethod<M> = M extends (params: infer P extends JsonObject, ctx: any) => Promise<infer R extends JsonObject>
+  ? RuntimeServiceMethod<P, R>
+  : never;
 type NormalizedServiceSpec<T extends ServiceSpec> = {
   [K in keyof T]: NormalizeServiceMethod<ExtractServiceMethod<T[K]>>;
 };
 
-export function defineService<
-  T extends ServiceSpec,
->(spec: T) {
+export function defineService<T extends ServiceSpec>(spec: T) {
   const out: Record<string, RuntimeServiceMethod<any, JsonObject>> = {};
 
   for (const [name, v] of Object.entries(spec)) {
