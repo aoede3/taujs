@@ -291,7 +291,7 @@ function generatePackageJson(projectName: string) {
     dependencies: {
       "@taujs/react": "latest",
       "@taujs/server": "latest",
-      fastify: "^5.6.1",
+      fastify: "^5.8.5",
       react: "^19.0.0",
       "react-dom": "^19.0.0",
     },
