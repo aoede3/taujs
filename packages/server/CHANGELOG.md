@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.6.2 - 16/04/2026
+
+chore(deps): bump fastify from 5.8.3 to 5.8.5
+chore(deps): bump fastify from 5.6.1 to 5.8.5
+
 v0.6.1 - 05/04/2026
 
 chore(deps): bump vite from 7.3.1 to 7.3.2
