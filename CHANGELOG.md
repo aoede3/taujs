@@ -1,9 +1,40 @@
 # @taujs
 
+v0.3.4 - 24/04/2026
+
+chore(deps): bump qs from 6.14.0 to 6.14.1
+chore: update packages
+chore(deps): bump @isaacs/brace-expansion from 5.0.0 to 5.0.1
+chore(deps): bump fastify from 5.6.2 to 5.7.3
+chore(deps): bump ajv from 8.17.1 to 8.18.0
+chore(deps): bump minimatch from 10.1.1 to 10.2.4
+chore(deps): bump rollup from 4.55.1 to 4.59.0
+chore(deps): bump immutable from 5.1.4 to 5.1.5
+chore(deps): bump fastify from 5.7.3 to 5.8.1
+chore(deps): bump fastify from 5.8.1 to 5.8.3
+chore(deps): bump picomatch from 4.0.3 to 4.0.4
+chore(deps): bump path-to-regexp from 8.3.0 to 8.4.2
+chore(deps): bump brace-expansion from 5.0.3 to 5.0.5
+chore(deps): bump vite from 7.3.1 to 7.3.2
+chore(deps): bump fastify from 5.8.3 to 5.8.5
+chore(deps): bump @fastify/static from 8.3.0 to 9.1.1
+chore(deps): bump @fastify/static from 9.1.1 to 9.1.3
+
+v0.3.3 - 23/11/2025
+
+chore: integrate taujs/server; packages to 'latest'
+
+v0.3.2 - 04/11/2025
+
+v0.3.1 - 25/10/2025
+
+chore: integrate taujs/server updates
+
 v0.3.0 - 20/10/2025
 
 chore: update fastify; @fastify/static; vite
 chore: align naming; defineConfig; defineServiceRegistry; createServer
+chore(deps): bump sha.js from 2.4.11 to 2.4.12 (#13)
 
 v0.2.8 - 16/08/2025
 
