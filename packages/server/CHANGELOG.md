@@ -1,5 +1,9 @@
 # @taujs/server
 
+v0.6.3 - 16/04/2026
+
+chore(deps): bump @fastify/static from 8.3.0 to 9.1.3
+
 v0.6.2 - 16/04/2026
 
 chore(deps): bump fastify from 5.8.3 to 5.8.5
