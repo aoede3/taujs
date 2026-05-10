@@ -1,5 +1,10 @@
 # @taujs/server
 
+v0.6.4 - 10/05/2026
+
+chore(deps): bump fast-uri from 3.1.0 to 3.1.2
+chore(deps): bump postcss from 8.5.6 to 8.5.14
+
 v0.6.3 - 16/04/2026
 
 chore(deps): bump @fastify/static from 8.3.0 to 9.1.3
