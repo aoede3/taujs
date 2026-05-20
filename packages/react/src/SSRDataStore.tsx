@@ -5,8 +5,8 @@ export type SSRStore<T> = {
   getServerSnapshot: () => T;
   setData: (newData: T) => void;
   subscribe: (callback: () => void) => () => void;
-  status: 'pending' | 'success' | 'error';
-  lastError?: Error;
+  readonly status: 'pending' | 'success' | 'error';
+  readonly lastError?: Error;
 };
 
 export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => Promise<T>)): SSRStore<T> {
@@ -87,8 +87,12 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     getServerSnapshot,
     setData,
     subscribe,
-    status,
-    lastError,
+    get status() {
+      return status;
+    },
+    get lastError() {
+      return lastError;
+    },
   };
 }
 

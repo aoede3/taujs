@@ -289,61 +289,58 @@ describe('SSRStoreProvider and useSSRStore', () => {
     console.error = consoleError;
   });
 
-  it('should use "Unknown error" if lastError is missing', () => {
-    const store = createSSRStore({ foo: 'bar' }) as any;
+  it('exposes a live status of "error" and lastError after a rejected promise settles', async () => {
+    const failure = new Error('Failed to load data');
+    const rejection = Promise.reject(failure);
+    const store = createSSRStore(rejection);
 
-    store.getSnapshot = () => {
-      (store as any).status = 'error';
-      (store as any).lastError = {};
-      return (store as any).originalGetSnapshot();
-    };
+    // Captured before resolution: must reflect the initial pending state.
+    expect(store.status).toBe('pending');
+    expect(store.lastError).toBeUndefined();
 
-    store.originalGetSnapshot = () => {
-      if (store.status === 'error') {
-        throw new Error(`SSR data fetch failed: ${store.lastError?.message || 'Unknown error'}`);
-      }
-      return store.currentData;
-    };
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    expect(() => store.getSnapshot()).toThrow('SSR data fetch failed: Unknown error');
+    await rejection.catch(() => {});
+    await new Promise((r) => setImmediate(r));
+
+    // Read after resolution: must reflect the settled state, not the stale initial value.
+    expect(store.status).toBe('error');
+    expect(store.lastError).toBe(failure);
+
+    spy.mockRestore();
   });
 
-  it('should throw if data is undefined even though status is success (SSR init problem)', () => {
-    const store = createSSRStore({ foo: 'bar' }) as any;
+  it('exposes a live status of "success" after an immediate promise resolves', async () => {
+    const initialDataPromise = Promise.resolve({ foo: 'bar' });
+    const store = createSSRStore(initialDataPromise);
 
-    store.getSnapshot = () => {
-      store.status = 'success';
-      store.currentData = undefined;
-      return store.originalGetSnapshot();
-    };
+    expect(store.status).toBe('pending');
+    expect(store.lastError).toBeUndefined();
 
-    store.originalGetSnapshot = () => {
-      if (store.status === 'success' && store.currentData === undefined) {
-        throw new Error('SSR data is undefined - store initialisation problem');
-      }
-      return store.currentData;
-    };
+    await act(async () => {
+      await initialDataPromise;
+    });
 
-    expect(() => store.getSnapshot()).toThrow('SSR data is undefined - store initialisation problem');
+    expect(store.status).toBe('success');
+    expect(store.lastError).toBeUndefined();
   });
 
-  it('should throw if server data is undefined even though status is success', () => {
-    const store = createSSRStore({ foo: 'bar' }) as any;
-
-    store.getServerSnapshot = () => {
-      store.status = 'success';
-      store.currentData = undefined;
-      return store.originalGetServerSnapshot();
+  it('exposes a live status of "success" after a lazy promise factory resolves', async () => {
+    let internalPromise: Promise<{ foo: string }> | undefined;
+    const lazyFn = () => {
+      internalPromise = Promise.resolve({ foo: 'baz' });
+      return internalPromise;
     };
+    const store = createSSRStore(lazyFn);
 
-    store.originalGetServerSnapshot = () => {
-      if (store.status === 'success' && store.currentData === undefined) {
-        throw new Error('Server data not available - check SSR configuration');
-      }
-      return store.currentData;
-    };
+    expect(store.status).toBe('pending');
 
-    expect(() => store.getServerSnapshot()).toThrow('Server data not available - check SSR configuration');
+    await act(async () => {
+      await internalPromise!;
+    });
+
+    expect(store.status).toBe('success');
+    expect(store.lastError).toBeUndefined();
   });
 
   it('should throw the serverDataPromise when data is pending', () => {
