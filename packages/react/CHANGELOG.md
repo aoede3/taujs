@@ -1,5 +1,9 @@
 # @taujs/react
 
+v0.1.9 - 20/05/2026
+
+feat: Fix `createSSRStore()` exposing stale `status` and `lastError` values.
+
 v0.1.8 - 14/01/2026
 
 feat: @vitejs/plugin-react shim for preamble streaming
