@@ -22,10 +22,6 @@ vi.mock('../../logging/Logger', () => ({
   createLogger: hoisted.createLoggerMock,
 }));
 
-vi.mock('../../System', () => ({
-  __dirname: '/srv',
-}));
-
 vi.mock('../Templates', () => ({
   overrideCSSHMRConsoleError: hoisted.overrideCSSHMRConsoleErrorMock,
 }));
@@ -34,7 +30,6 @@ async function importer() {
   vi.resetModules();
   vi.doMock('vite', () => ({ createServer: hoisted.createServerMock }));
   vi.doMock('../../logging/Logger', () => ({ createLogger: hoisted.createLoggerMock }));
-  vi.doMock('../../System', () => ({ __dirname: '/srv' }));
   vi.doMock('../Templates', () => ({ overrideCSSHMRConsoleError: hoisted.overrideCSSHMRConsoleErrorMock }));
   return await import('../DevServer'); // <-- adjust path to your file if needed
 }
@@ -131,8 +126,8 @@ describe('setupDevServer', () => {
 
     // Alias merge + resolution
     expect(cfg.resolve.alias['@client']).toBe(path.resolve(baseClientRoot));
-    expect(cfg.resolve.alias['@server']).toBe(path.resolve('/srv'));
-    expect(cfg.resolve.alias['@shared']).toBe(path.resolve('/srv', '../shared'));
+    expect(cfg.resolve.alias['@server']).toBe(path.resolve(baseClientRoot, '../server'));
+    expect(cfg.resolve.alias['@shared']).toBe(path.resolve(baseClientRoot, '../shared'));
     expect(cfg.resolve.alias['~foo']).toBe('/bar');
 
     // HMR from devNet overrides env/defaults

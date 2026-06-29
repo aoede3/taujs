@@ -2,7 +2,6 @@ import path from 'node:path';
 
 import { CONTENT } from '../constants';
 import { createLogger } from '../logging/Logger';
-import { __dirname } from '../System';
 import { overrideCSSHMRConsoleError } from './Templates';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -82,8 +81,8 @@ export const setupDevServer = async (
     resolve: {
       alias: {
         '@client': path.resolve(baseClientRoot),
-        '@server': path.resolve(__dirname),
-        '@shared': path.resolve(__dirname, '../shared'),
+        '@server': path.resolve(baseClientRoot, '../server'),
+        '@shared': path.resolve(baseClientRoot, '../shared'),
         ...alias,
       },
     },
