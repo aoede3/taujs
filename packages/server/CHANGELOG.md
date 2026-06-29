@@ -1,5 +1,13 @@
 # @taujs/server
 
+v0.6.5 - 29/06/2026
+
+chore(deps): bump vite from 7.3.2 to 7.3.6
+chore(deps-dev): bump @babel/core from 7.28.5 to 7.29.7
+chore(deps-dev): bump form-data from 4.0.5 to 4.0.6
+chore(deps-dev): bump vitest, @vitest/coverage-v8 and @vitest/ui
+feat: aligning alias / baseClientRoot
+
 v0.6.4 - 10/05/2026
 
 chore(deps): bump fast-uri from 3.1.0 to 3.1.2
