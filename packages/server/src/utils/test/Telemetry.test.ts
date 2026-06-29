@@ -15,11 +15,11 @@ type Reply = {
 
 describe('createRequestContext', () => {
   let reply: Reply;
-  let headerSpy: ReturnType<typeof vi.fn>;
+  let headerSpy: ReturnType<typeof vi.fn<(k: string, v: string) => void>>;
   let baseLogger: any;
 
   beforeEach(() => {
-    headerSpy = vi.fn();
+    headerSpy = vi.fn<(k: string, v: string) => void>();
     reply = { header: headerSpy };
     baseLogger = {
       info: vi.fn(),
