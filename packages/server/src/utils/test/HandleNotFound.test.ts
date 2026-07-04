@@ -56,6 +56,34 @@ describe('handleNotFound', () => {
     expect(reply.send).not.toHaveBeenCalled();
   });
 
+  it('does not treat a query string ending in a filename as an asset (serves fallback)', async () => {
+    req.raw.url = '/search?q=file.txt';
+    req.url = '/search?q=file.txt';
+
+    await handleNotFound(
+      req,
+      reply,
+      [
+        {
+          clientRoot: '/app',
+          appId: 'a',
+          entryPoint: 'x',
+          entryClient: 'e',
+          entryServer: 's',
+          htmlTemplate: 'index.html',
+        } as any,
+      ],
+      {
+        cssLinks: new Map([['/app', '<link rel="stylesheet" href="/app.css">']]),
+        bootstrapModules: new Map([['/app', '/assets/entry-client.js']]),
+        templates: new Map([['/app', makeTemplate()]]),
+      },
+    );
+
+    expect(reply.callNotFound).not.toHaveBeenCalled();
+    expect(reply.send).toHaveBeenCalled();
+  });
+
   it('throws wrapped AppError when no default config exists', async () => {
     await expect(
       handleNotFound(

@@ -63,7 +63,9 @@ export const handleRender = async (
 
   try {
     // fastify/static wildcard: false and /* => checks for .assets here and routes 404
-    if (/\.\w+$/.test(req.raw.url ?? '')) return reply.callNotFound();
+    // Pathname only: a query string like ?q=file.txt must not make a route look like an asset
+    const rawPath = req.raw.url ? new URL(req.raw.url, `http://${req.headers.host}`).pathname : '';
+    if (/\.\w+$/.test(rawPath)) return reply.callNotFound();
 
     const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
     const matchedRoute = matchRoute(url, routeMatchers);

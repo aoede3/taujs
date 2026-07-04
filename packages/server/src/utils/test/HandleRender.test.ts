@@ -271,6 +271,26 @@ describe('handleRender', () => {
         expect(mockReply.callNotFound).toHaveBeenCalled();
       }
     });
+
+    it('does not treat a query string ending in a filename as an asset', async () => {
+      mockReq.url = '/search?q=file.txt';
+      mockReq.raw.url = '/search?q=file.txt';
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(null);
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // Passed the asset gate: route matching ran against the pathname
+      expect(DataRoutes.matchRoute).toHaveBeenCalledWith('/search', mockRouteMatchers);
+    });
+
+    it('still short-circuits assets when a query string is present', async () => {
+      mockReq.raw.url = '/app.js?v=123';
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockReply.callNotFound).toHaveBeenCalled();
+      expect(DataRoutes.matchRoute).not.toHaveBeenCalled();
+    });
   });
 
   describe('CSP nonce handling', () => {
