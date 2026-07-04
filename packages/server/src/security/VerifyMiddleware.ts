@@ -67,7 +67,7 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
 
       if (!hasGlobal && process.env.NODE_ENV === 'production') {
         status = 'warning';
-        tail = ' (consider adding global CSP for production)';
+        tail = ' (no global CSP header is sent in production without security.csp)';
       }
 
       const baseMsg = formatCspLoadedMsg(hasGlobal, custom);

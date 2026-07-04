@@ -234,7 +234,7 @@ describe('verifyContracts', () => {
     );
 
     // hasGlobal=false, custom=1, total=2, disabled=0, enabled=2
-    const tail = ' (consider adding global CSP for production)';
+    const tail = ' (no global CSP header is sent in production without security.csp)';
     expect(report.items).toEqual([
       {
         key: 'csp',

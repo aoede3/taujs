@@ -77,7 +77,10 @@ const findMatchingRoute = (routeMatchers: CommonRouteMatcher[] | null, path: str
 export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
   async (fastify, opts: CSPPluginOptions) => {
     const { generateCSP = defaultGenerateCSP, routes = [], routeMatchers, debug } = opts;
-    const globalDirectives = opts.directives || DEV_CSP_DIRECTIVES;
+    // DEV_CSP_DIRECTIVES is a development-only fallback: in production without
+    // explicit directives no global header is sent (a dev-grade header allowing
+    // ws:/http:/unsafe-inline would only look like protection).
+    const globalDirectives = opts.directives || (isDevelopment ? DEV_CSP_DIRECTIVES : undefined);
     const matchers = routeMatchers || (routes.length > 0 ? createRouteMatchers(routes) : null);
 
     const logger = createLogger({
@@ -105,7 +108,16 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
           return;
         }
 
-        let finalDirectives = globalDirectives;
+        const routeHasCSP = !!routeCSP && typeof routeCSP === 'object' && !routeCSP.disabled;
+
+        // Production without explicit global config: only routes declaring their
+        // own CSP get a header.
+        if (!globalDirectives && !routeHasCSP) {
+          done();
+          return;
+        }
+
+        let finalDirectives = globalDirectives ?? {};
 
         if (routeCSP && typeof routeCSP === 'object' && !routeCSP.disabled) {
           const routeDirectives =
@@ -118,7 +130,7 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
                 })
               : (routeCSP.directives ?? {});
 
-          finalDirectives = routeCSP.mode === 'replace' ? routeDirectives : mergeDirectives(globalDirectives, routeDirectives);
+          finalDirectives = routeCSP.mode === 'replace' ? routeDirectives : mergeDirectives(globalDirectives ?? {}, routeDirectives);
         }
 
         const cspHeader = routeCSP?.generateCSP ? routeCSP.generateCSP(finalDirectives, nonce, req) : generateCSP(finalDirectives, nonce, req);
@@ -133,8 +145,10 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
           'CSP plugin error',
         );
 
-        const fallbackHeader = generateCSP(globalDirectives, nonce, req);
-        reply.header(headerNameFor(routeCSP), fallbackHeader);
+        if (globalDirectives) {
+          const fallbackHeader = generateCSP(globalDirectives, nonce, req);
+          reply.header(headerNameFor(routeCSP), fallbackHeader);
+        }
       }
 
       done();

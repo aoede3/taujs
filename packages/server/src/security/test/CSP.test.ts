@@ -155,6 +155,81 @@ describe('defaultGenerateCSP', () => {
   });
 });
 
+describe('cspPlugin (production, no explicit directives)', () => {
+  it('sends no global CSP header but still sets req.cspNonce', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    createRouteMatchersMock.mockReturnValue(undefined);
+    matchRouteMock.mockReturnValue(undefined);
+
+    await cspPlugin(fastify as any, { routes: [], debug: false });
+
+    const { req, reply, done } = makeReqReply('/prod-no-config');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(reply.header).not.toHaveBeenCalled();
+    expect((req as any).cspNonce).toBeTruthy();
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('still emits a header for routes that declare their own CSP', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    matchRouteMock.mockReturnValue({
+      route: { attr: { middleware: { csp: { directives: { 'img-src': ["'self'"] } } } } },
+      params: {},
+    });
+
+    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+
+    const { req, reply, done } = makeReqReply('/prod-route-csp');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    const header = (reply.header as any).mock.calls[0][1] as string;
+    expect(header).toContain("img-src 'self'");
+    expect(header).toMatch(/script-src 'self' .*'nonce-/);
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('sends no fallback header on processing errors when unconfigured', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    matchRouteMock.mockImplementation(() => {
+      throw new Error('boom');
+    });
+
+    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+
+    const { req, reply, done } = makeReqReply('/prod-err');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(loggerErrorMock).toHaveBeenCalled();
+    expect(reply.header).not.toHaveBeenCalled();
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('explicit directives still produce a header in production', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    createRouteMatchersMock.mockReturnValue(undefined);
+    matchRouteMock.mockReturnValue(undefined);
+
+    await cspPlugin(fastify as any, { directives: { 'default-src': ["'self'"] }, routes: [] });
+
+    const { req, reply, done } = makeReqReply('/prod-configured');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    const header = (reply.header as any).mock.calls[0][1] as string;
+    expect(header).toContain("default-src 'self'");
+    expect(header).toMatch(/script-src 'self' .*'nonce-/);
+    expect(done).toHaveBeenCalled();
+  });
+});
+
 describe('generateNonce', () => {
   it('returns a base64 string from crypto.randomBytes', async () => {
     const { generateNonce } = await importer(true);
