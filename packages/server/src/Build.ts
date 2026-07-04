@@ -9,14 +9,16 @@
  */
 
 import { existsSync } from 'node:fs';
-import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { build } from 'vite';
 
-import { ENTRY_EXTENSIONS, TEMPLATE } from './constants';
+import { TEMPLATE } from './constants';
 import { extractBuildConfigs } from './core/config/Setup';
 import { processConfigs } from './utils/AssetManager';
+import { resolveEntryFile } from './utils/Entry';
+
+export { resolveEntryFile };
 
 import type { InlineConfig, PluginOption } from 'vite';
 import type { CoreAppConfig } from './core/config/types';
@@ -33,15 +35,6 @@ export function resolveInputs(isSSRBuild: boolean, mainExists: boolean, paths: {
   if (mainExists) return { client: paths.client, main: paths.main };
 
   return { client: paths.client };
-}
-
-export function resolveEntryFile(clientRoot: string, stem: string, exists: (absPath: string) => boolean = fs.existsSync): string {
-  for (const ext of ENTRY_EXTENSIONS) {
-    const filename = `${stem}${ext}`;
-    if (exists(path.join(clientRoot, filename))) return filename;
-  }
-
-  throw new Error(`Entry file "${stem}" not found in ${clientRoot}. Tried: ${ENTRY_EXTENSIONS.map((e) => stem + e).join(', ')}`);
 }
 
 /**

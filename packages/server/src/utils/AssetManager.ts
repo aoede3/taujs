@@ -6,6 +6,7 @@ import { ENTRY_EXTENSIONS, TEMPLATE } from '../constants';
 import { AppError } from '../core/errors/AppError';
 import { resolveLogs } from '../core/logging/resolve';
 import { isDevelopment } from '../System';
+import { resolveEntryFile } from './Entry';
 import { getCssLinks, renderPreloadLinks } from './Templates';
 
 import type { Logs } from '../core/logging/types';
@@ -96,7 +97,10 @@ export const loadAssets = async (
       const adjustedRelativePath = relativeBasePath ? `/${relativeBasePath}` : '';
 
       if (isDevelopment) {
-        const bootstrapModule = `/${adjustedRelativePath}/${entryClient}`.replace(/\/{2,}/g, '/');
+        // The bootstrap URL must point at the real file for Vite dev; probe the
+        // stem against ENTRY_EXTENSIONS the same way the server entry is resolved.
+        const entryClientFile = resolveEntryFile(clientRoot, entryClient);
+        const bootstrapModule = `/${adjustedRelativePath}/${entryClientFile}`.replace(/\/{2,}/g, '/');
         bootstrapModules.set(clientRoot, bootstrapModule);
         continue;
       }
