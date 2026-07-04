@@ -25,20 +25,23 @@ export type CSPPluginOptions = {
 export type CSPDirectives = Record<string, string[]>;
 
 export const defaultGenerateCSP = (directives: CSPDirectives, nonce: string, req?: FastifyRequest): string => {
-  const merged: CSPDirectives = { ...directives };
+  // Deep-copy directive arrays: `directives` is the caller's server-lifetime config
+  // object and must never be mutated across requests.
+  const merged: CSPDirectives = {};
+  for (const [directive, values] of Object.entries(directives)) merged[directive] = [...values];
 
-  merged['script-src'] = merged['script-src'] || ["'self'"];
-  if (!merged['script-src'].some((v) => v.startsWith("'nonce-"))) {
-    merged['script-src'].push(`'nonce-${nonce}'`);
-  }
+  // The per-request nonce always wins; any nonce already present is stale.
+  const scriptSrc = (merged['script-src'] ?? ["'self'"]).filter((v) => !v.startsWith("'nonce-"));
+  scriptSrc.push(`'nonce-${nonce}'`);
+  merged['script-src'] = scriptSrc;
 
   if (isDevelopment) {
-    const connect = merged['connect-src'] || ["'self'"];
+    const connect = merged['connect-src'] ?? ["'self'"];
     if (!connect.includes('ws:')) connect.push('ws:');
     if (!connect.includes('http:')) connect.push('http:');
     merged['connect-src'] = connect;
 
-    const style = merged['style-src'] || ["'self'"];
+    const style = merged['style-src'] ?? ["'self'"];
     if (!style.includes("'unsafe-inline'")) style.push("'unsafe-inline'");
     merged['style-src'] = style;
   }

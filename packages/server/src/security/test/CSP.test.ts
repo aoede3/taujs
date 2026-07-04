@@ -117,14 +117,41 @@ describe('defaultGenerateCSP', () => {
     expect(out).toMatch(/style-src 'self'(?: .*?)?'unsafe-inline'/);
   });
 
-  it('does not add dev allowances when isDevelopment = false and avoids duplicate nonce', async () => {
+  it('does not add dev allowances when isDevelopment = false and replaces any stale nonce with the current one', async () => {
     const { defaultGenerateCSP } = await importer(false);
 
     const out = defaultGenerateCSP({ 'script-src': ["'self'", "'nonce-EXISTING'"], 'connect-src': ["'self'"], 'style-src': ["'self'"] }, 'NEW');
     expect(out.match(/'nonce-/g)?.length ?? 0).toBe(1);
+    expect(out).toContain("'nonce-NEW'");
+    expect(out).not.toContain("'nonce-EXISTING'");
     expect(out).not.toContain('ws:');
     expect(out).not.toContain('http:');
     expect(out).not.toContain("'unsafe-inline'");
+  });
+
+  it('emits each request its own nonce and never mutates the shared directives object', async () => {
+    const { defaultGenerateCSP } = await importer(false);
+
+    // Server-lifetime config object, as passed via security.csp.directives
+    const globalDirectives = { 'default-src': ["'self'"], 'script-src': ["'self'"] };
+
+    const first = defaultGenerateCSP(globalDirectives, 'NONCE-A');
+    const second = defaultGenerateCSP(globalDirectives, 'NONCE-B');
+
+    expect(first).toContain("'nonce-NONCE-A'");
+    expect(second).toContain("'nonce-NONCE-B'");
+    expect(second).not.toContain("'nonce-NONCE-A'");
+    expect(globalDirectives).toEqual({ 'default-src': ["'self'"], 'script-src': ["'self'"] });
+  });
+
+  it('does not mutate shared directive arrays via dev allowances', async () => {
+    const { defaultGenerateCSP } = await importer(true);
+
+    const globalDirectives = { 'connect-src': ["'self'"], 'style-src': ["'self'"] };
+    defaultGenerateCSP(globalDirectives, 'N1');
+
+    expect(globalDirectives['connect-src']).toEqual(["'self'"]);
+    expect(globalDirectives['style-src']).toEqual(["'self'"]);
   });
 });
 
