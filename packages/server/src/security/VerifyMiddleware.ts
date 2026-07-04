@@ -80,7 +80,7 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
       items.push({
         key: 'csp',
         status,
-        message: `✓ Verified (${enabled} enabled, ${disabled} disabled, ${total} total). ` + tail,
+        message: `✓ Verified (${enabled} enabled, ${disabled} disabled, ${total} total).`,
       });
     } else {
       const count = routes.filter((r) => contract.required([r], security)).length;

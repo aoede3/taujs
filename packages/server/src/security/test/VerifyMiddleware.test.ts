@@ -166,7 +166,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (2 enabled, 0 disabled, 2 total). ',
+        message: '✓ Verified (2 enabled, 0 disabled, 2 total).',
       },
     ]);
   });
@@ -205,12 +205,12 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (2 enabled, 1 disabled, 3 total). ',
+        message: '✓ Verified (2 enabled, 1 disabled, 3 total).',
       },
     ]);
   });
 
-  it('CSP: no global, PRODUCTION -> status warning and tail note added to BOTH lines', () => {
+  it('CSP: no global, PRODUCTION -> status warning with tail note on the summary line', () => {
     process.env.NODE_ENV = 'production';
 
     const app = {} as any;
@@ -244,7 +244,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'warning',
-        message: `✓ Verified (2 enabled, 0 disabled, 2 total). ${tail}`,
+        message: `✓ Verified (2 enabled, 0 disabled, 2 total).`,
       },
     ]);
   });
@@ -296,7 +296,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (3 enabled, 1 disabled, 4 total). ',
+        message: '✓ Verified (3 enabled, 1 disabled, 4 total).',
       },
     ]);
   });
@@ -337,7 +337,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (3 enabled, 0 disabled, 3 total). ',
+        message: '✓ Verified (3 enabled, 0 disabled, 3 total).',
       },
     ]);
   });
@@ -377,7 +377,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (2 enabled, 0 disabled, 2 total). ',
+        message: '✓ Verified (2 enabled, 0 disabled, 2 total).',
       },
     ]);
   });

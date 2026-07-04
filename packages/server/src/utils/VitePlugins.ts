@@ -13,7 +13,7 @@ function flattenPlugins(input: PluginInput): Plugin[] {
  * Preserves order: internal first, then app plugins (or flip if you prefer).
  * Best-effort dedupe by plugin.name (keeps first occurrence).
  */
-export function mergePlugins(opts: { internal?: PluginInput; apps?: Array<{ plugins?: PluginInput }> }): Plugin[] {
+export function mergePlugins(opts: { internal?: PluginInput; apps?: Array<{ plugins?: PluginInput }>; onDuplicate?: (name: string) => void }): Plugin[] {
   const internal = flattenPlugins(opts.internal);
   const apps = (opts.apps ?? []).flatMap((a) => flattenPlugins(a.plugins));
   const merged = [...internal, ...apps];
@@ -23,7 +23,12 @@ export function mergePlugins(opts: { internal?: PluginInput; apps?: Array<{ plug
     const name = typeof p?.name === 'string' ? p.name : '';
 
     if (!name) return true; // keep anonymous plugins
-    if (seen.has(name)) return false; // drop duplicates
+    if (seen.has(name)) {
+      // Expected for multi-app setups sharing a toolchain, but surfaced so
+      // per-app plugin *options* silently lost to dedupe are discoverable.
+      opts.onDuplicate?.(name);
+      return false;
+    }
     seen.add(name);
 
     return true;

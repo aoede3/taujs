@@ -42,6 +42,22 @@ describe('mergePlugins', () => {
     expect((out[0] as any).tag).toBe('first');
   });
 
+  it('reports each dropped duplicate via onDuplicate', () => {
+    const first = { name: 'dup', tag: 'first' } as any;
+    const second = { name: 'dup', tag: 'second' } as any;
+    const other = { name: 'other' } as any;
+    const dropped: string[] = [];
+
+    const out = mergePlugins({
+      internal: [first] as any,
+      apps: [{ plugins: [second, other] as any }],
+      onDuplicate: (name) => dropped.push(name),
+    });
+
+    expect(out).toHaveLength(2);
+    expect(dropped).toEqual(['dup']);
+  });
+
   it('keeps anonymous plugins (no name, empty name, or non-string name) and does not dedupe them', () => {
     const anon1 = {} as any; // no name -> keep
     const anon2 = { name: '' } as any; // empty string -> keep

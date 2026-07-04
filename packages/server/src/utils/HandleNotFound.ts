@@ -76,6 +76,8 @@ export const handleNotFound = async (
 
     logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');
 
+    // Deliberate SPA fallback: unmatched page URLs get the default app's shell
+    // with a 200 so client-side routes beyond taujs.config still work.
     const result = reply.status(200).type('text/html').send(processedTemplate);
 
     return result;
