@@ -276,16 +276,16 @@ describe('createServer', () => {
     expect(registerMock).toHaveBeenNthCalledWith(2, SSRServerPlugin, expect.objectContaining({ staticAssets: custom }));
   });
 
-  it('logs an error if SSRServer registration throws, but continues and returns normally', async () => {
+  it('logs and rethrows if SSRServer registration throws (no zombie server)', async () => {
     const { createServer } = await importer();
     ssrShouldThrow = true;
 
-    const result = await createServer({
-      config: minimalConfig,
-      serviceRegistry: dummyRegistry,
-    });
-
-    expect(result).toEqual({ app: fakeFastifyInstance, net: netResolved });
+    await expect(
+      createServer({
+        config: minimalConfig,
+        serviceRegistry: dummyRegistry,
+      }),
+    ).rejects.toThrow('SSR register failed');
 
     expect(loggerError).toHaveBeenCalledWith(
       expect.objectContaining({
