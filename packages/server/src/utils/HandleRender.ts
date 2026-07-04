@@ -262,7 +262,14 @@ export const handleRender = async (
       const cspHeader = reply.getHeader('Content-Security-Policy');
       if (cspHeader) headers['Content-Security-Policy'] = cspHeader as any;
 
-      reply.raw.writeHead(200, headers as any);
+      // The raw socket is ours from here. The status is committed on first
+      // output (onHead) rather than up front, so a render failure before any
+      // bytes are written can still produce a real 500 response.
+      reply.hijack();
+
+      const commitHead = () => {
+        if (!reply.raw.headersSent) reply.raw.writeHead(200, headers as any);
+      };
 
       const abortedState = { aborted: false };
       const ac = new AbortController();
@@ -321,6 +328,7 @@ export const handleRender = async (
             if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
             if (manifest && cssLink) aggregateHeadContent += cssLink;
 
+            commitHead();
             reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}`);
 
             if (!pipedToReply) {
@@ -360,6 +368,18 @@ export const handleRender = async (
               logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: abort() failed');
             }
 
+            if (!reply.raw.headersSent) {
+              // Nothing committed yet - send a real error response instead of
+              // tearing down the socket.
+              try {
+                reply.raw.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+                reply.raw.end('Internal Server Error');
+              } catch (e) {
+                logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: error response failed');
+              }
+              return;
+            }
+
             const reason = toReason(err);
 
             try {
@@ -387,6 +407,7 @@ export const handleRender = async (
           '\\u003c',
         )}; window.dispatchEvent(new Event('taujs:data-ready'));</script>`;
 
+        commitHead();
         reply.raw.write(initialDataScript);
         reply.raw.write(templateParts.afterBody);
         reply.raw.end();
