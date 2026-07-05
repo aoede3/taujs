@@ -54,6 +54,13 @@ export const createAuthHook = (routeMatchers: RouteMatcher<PathToRegExpParams>[]
 
       await req.server.authenticate(req, reply);
 
+      // The documented handshake allows the decorator to reject without
+      // throwing (reply.code(401).send(); return;) - that is not a success.
+      if (reply.sent) {
+        logger.debug('auth', { method: req.method, url: req.url }, 'Authentication handled by decorator (reply already sent)');
+        return;
+      }
+
       logger.debug('auth', { method: req.method, url: req.url }, 'Authentication successful');
     } catch (err) {
       logger.debug('auth', { method: req.method, url: req.url }, 'Authentication failed');
