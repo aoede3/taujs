@@ -211,6 +211,36 @@ describe('cspPlugin (production, no explicit directives)', () => {
     expect(done).toHaveBeenCalled();
   });
 
+  it('fails closed when a route-declared CSP throws during processing (unconfigured prod)', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    matchRouteMock.mockReturnValue({
+      route: {
+        attr: {
+          middleware: {
+            csp: {
+              directives: () => {
+                throw new Error('boom');
+              },
+            },
+          },
+        },
+      },
+      params: {},
+    });
+
+    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+
+    const { req, reply, done } = makeReqReply('/prod-route-csp-err');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(loggerErrorMock).toHaveBeenCalled();
+    const header = (reply.header as any).mock.calls[0][1] as string;
+    expect(header).toMatch(/script-src 'self' 'nonce-/);
+    expect(done).toHaveBeenCalled();
+  });
+
   it('explicit directives still produce a header in production', async () => {
     const { cspPlugin } = await importer(false);
     const fastify = makeFastify();

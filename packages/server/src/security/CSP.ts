@@ -145,8 +145,12 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
           'CSP plugin error',
         );
 
-        if (globalDirectives) {
-          const fallbackHeader = generateCSP(globalDirectives, nonce, req);
+        const routeWantedCSP = !!routeCSP && typeof routeCSP === 'object' && !routeCSP.disabled;
+
+        // Fail closed for anything that would have carried a header: global
+        // config, or a route that declared its own CSP before processing threw.
+        if (globalDirectives || routeWantedCSP) {
+          const fallbackHeader = generateCSP(globalDirectives ?? {}, nonce, req);
           reply.header(headerNameFor(routeCSP), fallbackHeader);
         }
       }

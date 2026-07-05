@@ -239,7 +239,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'warning',
-        message: `Loaded development defaults with 1 route override(s)${tail}`,
+        message: `No global CSP configured; 1 route override(s) only${tail}`,
       },
       {
         key: 'csp',
@@ -398,5 +398,10 @@ describe('formatCspLoadedMsg', () => {
 
   it('hasGlobal=true, custom=3', () => {
     expect(formatCspLoadedMsg(true, 3)).toBe('Loaded global config with 3 route override(s)');
+  });
+
+  it('prodNoGlobal: states that no global CSP is configured', () => {
+    expect(formatCspLoadedMsg(false, 0, true)).toBe('No global CSP configured');
+    expect(formatCspLoadedMsg(false, 2, true)).toBe('No global CSP configured; 2 route override(s) only');
   });
 });
