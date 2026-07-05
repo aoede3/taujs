@@ -16,6 +16,11 @@ export const createAuthHook = (routeMatchers: RouteMatcher<PathToRegExpParams>[]
     const { route } = match;
     const authConfig = route.attr?.middleware?.auth;
 
+    // Boundary (taujs.dev/guides/authentication): taujs matches the route,
+    // surfaces the auth metadata below, and invokes the authenticate decorator.
+    // roles / strategy / redirect are metadata for that decorator to read and
+    // enforce - taujs deliberately does not interpret them.
+
     // Decorate auth request with route metadata
     req.routeMeta = {
       path: route.path,
