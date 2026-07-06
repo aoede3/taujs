@@ -1,5 +1,11 @@
 # @taujs/server
 
+v0.7.0 - 06/07/2026
+
+fix: fastify is a peer dependency again
+chore: constructible mocks use function implementations
+fix: AppError identity survives duplicate class copies
+
 v0.6.6 - 06/07/2026
 
 fix: no success log when the auth decorator sends its own rejection
