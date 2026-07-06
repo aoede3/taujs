@@ -1,5 +1,19 @@
 # @taujs/server
 
+v0.6.6 - 06/07/2026
+
+fix: no success log when the auth decorator sends its own rejection
+fix: CSP error path fails closed for routes that declared CSP
+docs: state the auth enforcement boundary in the hook
+chore: surface dropped duplicate plugins; tidy contract report; document SPA fallback
+refactor: one route-specificity algorithm
+fix: streaming commits status on first output, 500s on early failure
+fix: no dev-grade CSP fallback in production
+fix: fail boot when SSRServer registration throws
+fix: asset short-circuit tests the pathname, not the full URL
+fix: restore stem semantics for defaultEntryClient
+fix: per-request CSP nonce; never mutate shared directives
+
 v0.6.5 - 29/06/2026
 
 chore(deps): bump vite from 7.3.2 to 7.3.6
