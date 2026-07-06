@@ -117,6 +117,10 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       },
       'Failed to register SSRServer',
     );
+
+    // Boot must fail loudly: continuing here would return a server with no
+    // routes that "starts" cleanly and 404s everything.
+    throw err;
   }
 
   const t1 = performance.now();

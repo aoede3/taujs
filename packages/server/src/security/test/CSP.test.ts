@@ -117,14 +117,146 @@ describe('defaultGenerateCSP', () => {
     expect(out).toMatch(/style-src 'self'(?: .*?)?'unsafe-inline'/);
   });
 
-  it('does not add dev allowances when isDevelopment = false and avoids duplicate nonce', async () => {
+  it('does not add dev allowances when isDevelopment = false and replaces any stale nonce with the current one', async () => {
     const { defaultGenerateCSP } = await importer(false);
 
     const out = defaultGenerateCSP({ 'script-src': ["'self'", "'nonce-EXISTING'"], 'connect-src': ["'self'"], 'style-src': ["'self'"] }, 'NEW');
     expect(out.match(/'nonce-/g)?.length ?? 0).toBe(1);
+    expect(out).toContain("'nonce-NEW'");
+    expect(out).not.toContain("'nonce-EXISTING'");
     expect(out).not.toContain('ws:');
     expect(out).not.toContain('http:');
     expect(out).not.toContain("'unsafe-inline'");
+  });
+
+  it('emits each request its own nonce and never mutates the shared directives object', async () => {
+    const { defaultGenerateCSP } = await importer(false);
+
+    // Server-lifetime config object, as passed via security.csp.directives
+    const globalDirectives = { 'default-src': ["'self'"], 'script-src': ["'self'"] };
+
+    const first = defaultGenerateCSP(globalDirectives, 'NONCE-A');
+    const second = defaultGenerateCSP(globalDirectives, 'NONCE-B');
+
+    expect(first).toContain("'nonce-NONCE-A'");
+    expect(second).toContain("'nonce-NONCE-B'");
+    expect(second).not.toContain("'nonce-NONCE-A'");
+    expect(globalDirectives).toEqual({ 'default-src': ["'self'"], 'script-src': ["'self'"] });
+  });
+
+  it('does not mutate shared directive arrays via dev allowances', async () => {
+    const { defaultGenerateCSP } = await importer(true);
+
+    const globalDirectives = { 'connect-src': ["'self'"], 'style-src': ["'self'"] };
+    defaultGenerateCSP(globalDirectives, 'N1');
+
+    expect(globalDirectives['connect-src']).toEqual(["'self'"]);
+    expect(globalDirectives['style-src']).toEqual(["'self'"]);
+  });
+});
+
+describe('cspPlugin (production, no explicit directives)', () => {
+  it('sends no global CSP header but still sets req.cspNonce', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    createRouteMatchersMock.mockReturnValue(undefined);
+    matchRouteMock.mockReturnValue(undefined);
+
+    await cspPlugin(fastify as any, { routes: [], debug: false });
+
+    const { req, reply, done } = makeReqReply('/prod-no-config');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(reply.header).not.toHaveBeenCalled();
+    expect((req as any).cspNonce).toBeTruthy();
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('still emits a header for routes that declare their own CSP', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    matchRouteMock.mockReturnValue({
+      route: { attr: { middleware: { csp: { directives: { 'img-src': ["'self'"] } } } } },
+      params: {},
+    });
+
+    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+
+    const { req, reply, done } = makeReqReply('/prod-route-csp');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    const header = (reply.header as any).mock.calls[0][1] as string;
+    expect(header).toContain("img-src 'self'");
+    expect(header).toMatch(/script-src 'self' .*'nonce-/);
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('sends no fallback header on processing errors when unconfigured', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    matchRouteMock.mockImplementation(() => {
+      throw new Error('boom');
+    });
+
+    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+
+    const { req, reply, done } = makeReqReply('/prod-err');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(loggerErrorMock).toHaveBeenCalled();
+    expect(reply.header).not.toHaveBeenCalled();
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('fails closed when a route-declared CSP throws during processing (unconfigured prod)', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    matchRouteMock.mockReturnValue({
+      route: {
+        attr: {
+          middleware: {
+            csp: {
+              directives: () => {
+                throw new Error('boom');
+              },
+            },
+          },
+        },
+      },
+      params: {},
+    });
+
+    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+
+    const { req, reply, done } = makeReqReply('/prod-route-csp-err');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(loggerErrorMock).toHaveBeenCalled();
+    const header = (reply.header as any).mock.calls[0][1] as string;
+    expect(header).toMatch(/script-src 'self' 'nonce-/);
+    expect(done).toHaveBeenCalled();
+  });
+
+  it('explicit directives still produce a header in production', async () => {
+    const { cspPlugin } = await importer(false);
+    const fastify = makeFastify();
+
+    createRouteMatchersMock.mockReturnValue(undefined);
+    matchRouteMock.mockReturnValue(undefined);
+
+    await cspPlugin(fastify as any, { directives: { 'default-src': ["'self'"] }, routes: [] });
+
+    const { req, reply, done } = makeReqReply('/prod-configured');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    const header = (reply.header as any).mock.calls[0][1] as string;
+    expect(header).toContain("default-src 'self'");
+    expect(header).toMatch(/script-src 'self' .*'nonce-/);
+    expect(done).toHaveBeenCalled();
   });
 });
 

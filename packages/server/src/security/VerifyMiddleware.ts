@@ -21,9 +21,12 @@ type MiddlewareContract = {
   verify: (app: FastifyInstance) => boolean;
 };
 
-export function formatCspLoadedMsg(hasGlobal: boolean, custom: number) {
+export function formatCspLoadedMsg(hasGlobal: boolean, custom: number, prodNoGlobal = false) {
   if (hasGlobal) {
     return custom > 0 ? `Loaded global config with ${custom} route override(s)` : 'Loaded global config';
+  }
+  if (prodNoGlobal) {
+    return custom > 0 ? `No global CSP configured; ${custom} route override(s) only` : 'No global CSP configured';
   }
   return custom > 0 ? `Loaded development defaults with ${custom} route override(s)` : 'Loaded development defaults';
 }
@@ -62,15 +65,17 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
       const enabled = total - disabled;
       const hasGlobal = !!security?.csp;
 
+      const prodNoGlobal = !hasGlobal && process.env.NODE_ENV === 'production';
+
       let status: ContractItem['status'] = 'verified';
       let tail = '';
 
-      if (!hasGlobal && process.env.NODE_ENV === 'production') {
+      if (prodNoGlobal) {
         status = 'warning';
-        tail = ' (consider adding global CSP for production)';
+        tail = ' (no global CSP header is sent in production without security.csp)';
       }
 
-      const baseMsg = formatCspLoadedMsg(hasGlobal, custom);
+      const baseMsg = formatCspLoadedMsg(hasGlobal, custom, prodNoGlobal);
       items.push({
         key: 'csp',
         status,
@@ -80,7 +85,7 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
       items.push({
         key: 'csp',
         status,
-        message: `✓ Verified (${enabled} enabled, ${disabled} disabled, ${total} total). ` + tail,
+        message: `✓ Verified (${enabled} enabled, ${disabled} disabled, ${total} total).`,
       });
     } else {
       const count = routes.filter((r) => contract.required([r], security)).length;

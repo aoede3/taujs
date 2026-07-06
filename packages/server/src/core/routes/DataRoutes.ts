@@ -48,7 +48,7 @@ const cleanPath = (path: string): string => {
   return base || '/';
 };
 
-const calculateSpecificity = (path: string): number => {
+export const calculateSpecificity = (path: string): number => {
   let score = 0;
   const segments = path.split('/').filter(Boolean);
 

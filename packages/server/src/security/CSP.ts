@@ -25,20 +25,23 @@ export type CSPPluginOptions = {
 export type CSPDirectives = Record<string, string[]>;
 
 export const defaultGenerateCSP = (directives: CSPDirectives, nonce: string, req?: FastifyRequest): string => {
-  const merged: CSPDirectives = { ...directives };
+  // Deep-copy directive arrays: `directives` is the caller's server-lifetime config
+  // object and must never be mutated across requests.
+  const merged: CSPDirectives = {};
+  for (const [directive, values] of Object.entries(directives)) merged[directive] = [...values];
 
-  merged['script-src'] = merged['script-src'] || ["'self'"];
-  if (!merged['script-src'].some((v) => v.startsWith("'nonce-"))) {
-    merged['script-src'].push(`'nonce-${nonce}'`);
-  }
+  // The per-request nonce always wins; any nonce already present is stale.
+  const scriptSrc = (merged['script-src'] ?? ["'self'"]).filter((v) => !v.startsWith("'nonce-"));
+  scriptSrc.push(`'nonce-${nonce}'`);
+  merged['script-src'] = scriptSrc;
 
   if (isDevelopment) {
-    const connect = merged['connect-src'] || ["'self'"];
+    const connect = merged['connect-src'] ?? ["'self'"];
     if (!connect.includes('ws:')) connect.push('ws:');
     if (!connect.includes('http:')) connect.push('http:');
     merged['connect-src'] = connect;
 
-    const style = merged['style-src'] || ["'self'"];
+    const style = merged['style-src'] ?? ["'self'"];
     if (!style.includes("'unsafe-inline'")) style.push("'unsafe-inline'");
     merged['style-src'] = style;
   }
@@ -74,7 +77,10 @@ const findMatchingRoute = (routeMatchers: CommonRouteMatcher[] | null, path: str
 export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
   async (fastify, opts: CSPPluginOptions) => {
     const { generateCSP = defaultGenerateCSP, routes = [], routeMatchers, debug } = opts;
-    const globalDirectives = opts.directives || DEV_CSP_DIRECTIVES;
+    // DEV_CSP_DIRECTIVES is a development-only fallback: in production without
+    // explicit directives no global header is sent (a dev-grade header allowing
+    // ws:/http:/unsafe-inline would only look like protection).
+    const globalDirectives = opts.directives || (isDevelopment ? DEV_CSP_DIRECTIVES : undefined);
     const matchers = routeMatchers || (routes.length > 0 ? createRouteMatchers(routes) : null);
 
     const logger = createLogger({
@@ -102,7 +108,16 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
           return;
         }
 
-        let finalDirectives = globalDirectives;
+        const routeHasCSP = !!routeCSP && typeof routeCSP === 'object' && !routeCSP.disabled;
+
+        // Production without explicit global config: only routes declaring their
+        // own CSP get a header.
+        if (!globalDirectives && !routeHasCSP) {
+          done();
+          return;
+        }
+
+        let finalDirectives = globalDirectives ?? {};
 
         if (routeCSP && typeof routeCSP === 'object' && !routeCSP.disabled) {
           const routeDirectives =
@@ -115,7 +130,7 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
                 })
               : (routeCSP.directives ?? {});
 
-          finalDirectives = routeCSP.mode === 'replace' ? routeDirectives : mergeDirectives(globalDirectives, routeDirectives);
+          finalDirectives = routeCSP.mode === 'replace' ? routeDirectives : mergeDirectives(globalDirectives ?? {}, routeDirectives);
         }
 
         const cspHeader = routeCSP?.generateCSP ? routeCSP.generateCSP(finalDirectives, nonce, req) : generateCSP(finalDirectives, nonce, req);
@@ -130,8 +145,14 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
           'CSP plugin error',
         );
 
-        const fallbackHeader = generateCSP(globalDirectives, nonce, req);
-        reply.header(headerNameFor(routeCSP), fallbackHeader);
+        const routeWantedCSP = !!routeCSP && typeof routeCSP === 'object' && !routeCSP.disabled;
+
+        // Fail closed for anything that would have carried a header: global
+        // config, or a route that declared its own CSP before processing threw.
+        if (globalDirectives || routeWantedCSP) {
+          const fallbackHeader = generateCSP(globalDirectives ?? {}, nonce, req);
+          reply.header(headerNameFor(routeCSP), fallbackHeader);
+        }
       }
 
       done();

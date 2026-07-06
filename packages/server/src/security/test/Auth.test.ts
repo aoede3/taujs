@@ -200,4 +200,32 @@ describe('createAuthHook', () => {
     expect(reply.status).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
   });
+
+  it('does not log success when the decorator rejects by sending a reply without throwing', async () => {
+    const authenticate = vi.fn(async (_req: any, reply: any) => {
+      // Documented non-throwing rejection: reply.code(401).send(); return;
+      reply.sent = true;
+    });
+
+    matchRouteMock.mockReturnValue({
+      route: { appId: 'appG', attr: { middleware: { auth: { strategy: 'jwt' } } } },
+      params: {},
+    });
+
+    const hook = createAuthHook([], logger as any);
+    const { req, reply, done } = makeReqReply({ url: '/auth/soft-reject', authenticate });
+
+    await (hook as any).call({} as any, req, reply, done);
+
+    expect(logger.debug).toHaveBeenNthCalledWith(
+      2,
+      'auth',
+      {
+        method: 'GET',
+        url: '/auth/soft-reject',
+      },
+      'Authentication handled by decorator (reply already sent)',
+    );
+    expect(logger.debug).not.toHaveBeenCalledWith('auth', expect.anything(), 'Authentication successful');
+  });
 });

@@ -8,7 +8,9 @@ export const SSRTAG = {
 } as const;
 
 export const TEMPLATE = {
-  defaultEntryClient: 'entry-client.tsx',
+  // Entry values are extensionless stems: resolveEntryFile / findManifestEntry
+  // probe ENTRY_EXTENSIONS against them per context (dev fs, build inputs, prod manifest).
+  defaultEntryClient: 'entry-client',
   defaultEntryServer: 'entry-server',
   defaultHtmlTemplate: 'index.html',
 } as const;

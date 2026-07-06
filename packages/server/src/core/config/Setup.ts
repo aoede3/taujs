@@ -1,3 +1,4 @@
+import { calculateSpecificity } from '../routes/DataRoutes';
 import { now } from '../telemetry/Telemetry';
 
 import type { PathToRegExpParams, Route, CoreAppConfig, CoreSecurityConfig, CoreTaujsConfig } from './types';
@@ -51,7 +52,8 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
     if (appIds.length > 1) warnings.push(`Route path "${path}" is declared in multiple apps: ${appIds.join(', ')}`);
   }
 
-  const sortedRoutes = allRoutes.sort((a, b) => computeScore(b.path) - computeScore(a.path));
+  // Same algorithm createRouteMatchers sorts with - one source of truth for specificity
+  const sortedRoutes = allRoutes.sort((a, b) => calculateSpecificity(b.path) - calculateSpecificity(a.path));
   const durationMs = now() - t0;
 
   return {
@@ -104,11 +106,4 @@ export const extractSecurity = <S extends CoreSecurityConfig = CoreSecurityConfi
     hasExplicitCSP,
     summary,
   };
-};
-
-const computeScore = (path: string): number => {
-  return path
-    .split('/')
-    .filter(Boolean)
-    .reduce((score, segment) => score + (segment.startsWith(':') ? 1 : 10), 0);
 };

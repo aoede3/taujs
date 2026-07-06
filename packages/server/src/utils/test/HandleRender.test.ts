@@ -183,10 +183,14 @@ describe('handleRender', () => {
       status: vi.fn().mockReturnThis(),
       header: vi.fn().mockReturnThis(),
       send: vi.fn(),
+      hijack: vi.fn(),
       getHeader: vi.fn().mockReturnValue('default-src self'),
       getHeaders: vi.fn().mockReturnValue({}),
       raw: {
-        writeHead: vi.fn(),
+        headersSent: false,
+        writeHead: vi.fn(function (this: any) {
+          this.headersSent = true;
+        }),
         write: vi.fn(),
         end: vi.fn(),
         on: vi.fn(),
@@ -270,6 +274,26 @@ describe('handleRender', () => {
 
         expect(mockReply.callNotFound).toHaveBeenCalled();
       }
+    });
+
+    it('does not treat a query string ending in a filename as an asset', async () => {
+      mockReq.url = '/search?q=file.txt';
+      mockReq.raw.url = '/search?q=file.txt';
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(null);
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // Passed the asset gate: route matching ran against the pathname
+      expect(DataRoutes.matchRoute).toHaveBeenCalledWith('/search', mockRouteMatchers);
+    });
+
+    it('still short-circuits assets when a query string is present', async () => {
+      mockReq.raw.url = '/app.js?v=123';
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockReply.callNotFound).toHaveBeenCalled();
+      expect(DataRoutes.matchRoute).not.toHaveBeenCalled();
     });
   });
 
@@ -1629,6 +1653,7 @@ describe('handleRender', () => {
 
       const OriginalAbortController = globalThis.AbortController;
       (globalThis as any).AbortController = vi.fn().mockImplementation(() => ({ abort: vi.fn(), signal: { aborted: false } }));
+      mockReply.raw.headersSent = true; // post-commit failure: teardown path, not the 500 path
       mockReply.raw.destroy = vi.fn(() => {
         throw new Error('destroy fail (critical)');
       });
@@ -1653,6 +1678,65 @@ describe('handleRender', () => {
       );
 
       (globalThis as any).AbortController = OriginalAbortController;
+    });
+
+    it('fatal onError before any output sends a 500 instead of destroying the socket', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        writable.on = vi.fn();
+        callbacks.onError?.(new Error('boom'));
+        return { abort: vi.fn() };
+      });
+
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockReply.hijack).toHaveBeenCalled();
+      expect(mockReply.raw.writeHead).toHaveBeenCalledTimes(1);
+      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.objectContaining({ 'Content-Type': 'text/html; charset=utf-8' }));
+      expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
+      expect(mockReply.raw.destroy).not.toHaveBeenCalled();
+    });
+
+    it('does not commit the response status until onHead fires', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      let capturedCallbacks: any;
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        writable.on = vi.fn();
+        capturedCallbacks = callbacks;
+        return { abort: vi.fn() };
+      });
+
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockReply.raw.writeHead).not.toHaveBeenCalled();
+
+      capturedCallbacks.onHead?.('<title>Late</title>');
+
+      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
     });
 
     it('streaming initialDataScript includes nonce attribute when cspNonce is present', async () => {
@@ -2377,6 +2461,9 @@ describe('handleRender', () => {
           afterBody: '</body></html>',
         });
         vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+        // Post-commit failures: uncommitted fatal errors take the 500 path instead
+        mockReply.raw.headersSent = true;
 
         const mockRenderStream = vi.fn((writable, callbacks) => {
           if (!writable.on) writable.on = vi.fn();

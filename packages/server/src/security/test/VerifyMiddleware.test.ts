@@ -166,7 +166,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (2 enabled, 0 disabled, 2 total). ',
+        message: '✓ Verified (2 enabled, 0 disabled, 2 total).',
       },
     ]);
   });
@@ -205,12 +205,12 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (2 enabled, 1 disabled, 3 total). ',
+        message: '✓ Verified (2 enabled, 1 disabled, 3 total).',
       },
     ]);
   });
 
-  it('CSP: no global, PRODUCTION -> status warning and tail note added to BOTH lines', () => {
+  it('CSP: no global, PRODUCTION -> status warning with tail note on the summary line', () => {
     process.env.NODE_ENV = 'production';
 
     const app = {} as any;
@@ -234,17 +234,17 @@ describe('verifyContracts', () => {
     );
 
     // hasGlobal=false, custom=1, total=2, disabled=0, enabled=2
-    const tail = ' (consider adding global CSP for production)';
+    const tail = ' (no global CSP header is sent in production without security.csp)';
     expect(report.items).toEqual([
       {
         key: 'csp',
         status: 'warning',
-        message: `Loaded development defaults with 1 route override(s)${tail}`,
+        message: `No global CSP configured; 1 route override(s) only${tail}`,
       },
       {
         key: 'csp',
         status: 'warning',
-        message: `✓ Verified (2 enabled, 0 disabled, 2 total). ${tail}`,
+        message: `✓ Verified (2 enabled, 0 disabled, 2 total).`,
       },
     ]);
   });
@@ -296,7 +296,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (3 enabled, 1 disabled, 4 total). ',
+        message: '✓ Verified (3 enabled, 1 disabled, 4 total).',
       },
     ]);
   });
@@ -337,7 +337,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (3 enabled, 0 disabled, 3 total). ',
+        message: '✓ Verified (3 enabled, 0 disabled, 3 total).',
       },
     ]);
   });
@@ -377,7 +377,7 @@ describe('verifyContracts', () => {
       {
         key: 'csp',
         status: 'verified',
-        message: '✓ Verified (2 enabled, 0 disabled, 2 total). ',
+        message: '✓ Verified (2 enabled, 0 disabled, 2 total).',
       },
     ]);
   });
@@ -398,5 +398,10 @@ describe('formatCspLoadedMsg', () => {
 
   it('hasGlobal=true, custom=3', () => {
     expect(formatCspLoadedMsg(true, 3)).toBe('Loaded global config with 3 route override(s)');
+  });
+
+  it('prodNoGlobal: states that no global CSP is configured', () => {
+    expect(formatCspLoadedMsg(false, 0, true)).toBe('No global CSP configured');
+    expect(formatCspLoadedMsg(false, 2, true)).toBe('No global CSP configured; 2 route override(s) only');
   });
 });

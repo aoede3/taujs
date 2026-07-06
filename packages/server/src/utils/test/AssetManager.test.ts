@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ENTRY_EXTENSIONS } from '../../constants';
+import { ENTRY_EXTENSIONS, TEMPLATE } from '../../constants';
 
 const hoisted = vi.hoisted(() => ({
   // fs
@@ -25,6 +25,10 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('url', () => ({
   pathToFileURL: hoisted.pathToFileURLMock,
+}));
+
+vi.mock('../Entry', () => ({
+  resolveEntryFile: vi.fn((_clientRoot: string, stem: string) => `${stem}.tsx`),
 }));
 
 vi.mock('../Templates', () => ({
@@ -156,11 +160,10 @@ describe('createMaps & processConfigs', () => {
   it('processConfigs maps inputs and applies TEMPLATE defaults (no file resolution side effects)', async () => {
     const { processConfigs } = await importer(true);
 
-    const TEMPLATE = {
-      defaultEntryClient: 'entry-client',
-      defaultEntryServer: 'entry-server',
-      defaultHtmlTemplate: 'index.html',
-    } as any;
+    // Regression pin: shipped defaults must be extensionless stems — resolveEntryFile
+    // and findManifestEntry both append ENTRY_EXTENSIONS to them.
+    expect(TEMPLATE.defaultEntryClient).toBe('entry-client');
+    expect(TEMPLATE.defaultEntryServer).toBe('entry-server');
 
     const cfgs = [
       { appId: 'a', entryPoint: '' },
@@ -232,7 +235,7 @@ describe('loadAssets (development)', () => {
     expect(resolveLogsMock).toHaveBeenCalledWith(logger);
 
     expect(maps.templates.get('/root/src/client/appA')).toBe('<html>dev A</html>');
-    expect(maps.bootstrapModules.get('/root/src/client/appA')).toBe('/appA/entry-client');
+    expect(maps.bootstrapModules.get('/root/src/client/appA')).toBe('/appA/entry-client.tsx');
 
     // dev skips these
     expect(maps.manifests.size).toBe(0);
@@ -274,7 +277,7 @@ describe('loadAssets (development)', () => {
       { logger },
     );
 
-    expect(maps.bootstrapModules.get('/root/src/client')).toBe('/entry-client');
+    expect(maps.bootstrapModules.get('/root/src/client')).toBe('/entry-client.tsx');
   });
 
   it('dev: logs non-AppError non-Error as String(err) and does not throw', async () => {

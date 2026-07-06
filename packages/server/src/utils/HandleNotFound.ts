@@ -34,7 +34,9 @@ export const handleNotFound = async (
     });
 
   try {
-    if (/\.\w+$/.test(req.raw.url ?? '')) {
+    // Pathname only: a query string like ?q=file.txt must not make a route look like an asset
+    const rawPath = req.raw.url ? new URL(req.raw.url, `http://${req.headers.host}`).pathname : '';
+    if (/\.\w+$/.test(rawPath)) {
       logger.debug?.('ssr', { url: req.raw.url }, 'Delegating asset-like request to Fastify notFound handler');
 
       return reply.callNotFound();
@@ -74,6 +76,8 @@ export const handleNotFound = async (
 
     logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');
 
+    // Deliberate SPA fallback: unmatched page URLs get the default app's shell
+    // with a 200 so client-side routes beyond taujs.config still work.
     const result = reply.status(200).type('text/html').send(processedTemplate);
 
     return result;

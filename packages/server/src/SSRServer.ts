@@ -93,6 +93,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       const plugins = mergePlugins({
         internal: [],
         apps: processedConfigs,
+        onDuplicate: (name) => logger.debug('vite', { plugin: name }, 'Duplicate plugin dropped (first occurrence wins)'),
       });
 
       printVitePluginSummary(
