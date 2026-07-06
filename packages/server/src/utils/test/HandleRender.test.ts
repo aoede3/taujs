@@ -159,7 +159,8 @@ describe('handleRender', () => {
     };
 
     abortControllers = [];
-    (globalThis as any).AbortController = vi.fn().mockImplementation(() => {
+    // vitest 4: constructible mocks must use function/class implementations
+    (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
       const api = { abort: vi.fn(), signal: { aborted: false } };
       abortControllers.push(api);
       return api;
@@ -584,7 +585,7 @@ describe('handleRender', () => {
         (this as any)._signal.aborted = true;
       });
 
-      (globalThis as any).AbortController = vi.fn().mockImplementation(() => {
+      (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
         const api = { _signal: { aborted: false }, abort: abortSpy } as any;
         Object.defineProperty(api, 'signal', {
           get() {
@@ -622,7 +623,9 @@ describe('handleRender', () => {
 
     it('aborts with "socket_closed" on reply close when not ended', async () => {
       const abortSpy = vi.fn();
-      (globalThis as any).AbortController = vi.fn().mockImplementation(() => ({ abort: abortSpy, signal: { aborted: false } }));
+      (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
+        return { abort: abortSpy, signal: { aborted: false } };
+      });
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -653,7 +656,9 @@ describe('handleRender', () => {
     });
 
     it('skips SSR immediately when signal is already aborted', async () => {
-      (globalThis as any).AbortController = vi.fn().mockImplementation(() => ({ abort: vi.fn(), signal: { aborted: true } }));
+      (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
+        return { abort: vi.fn(), signal: { aborted: true } };
+      });
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -1610,12 +1615,14 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
       const OriginalAbortController = globalThis.AbortController;
-      (globalThis as any).AbortController = vi.fn().mockImplementation(() => ({
-        abort: vi.fn(() => {
-          throw new Error('abort fail');
-        }),
-        signal: { aborted: false },
-      }));
+      (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
+        return {
+          abort: vi.fn(() => {
+            throw new Error('abort fail');
+          }),
+          signal: { aborted: false },
+        };
+      });
       mockReply.raw.destroy = vi.fn();
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
@@ -1653,7 +1660,9 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
       const OriginalAbortController = globalThis.AbortController;
-      (globalThis as any).AbortController = vi.fn().mockImplementation(() => ({ abort: vi.fn(), signal: { aborted: false } }));
+      (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
+        return { abort: vi.fn(), signal: { aborted: false } };
+      });
       mockReply.raw.headersSent = true; // post-commit failure: teardown path, not the 500 path
       mockReply.raw.destroy = vi.fn(() => {
         throw new Error('destroy fail (critical)');
