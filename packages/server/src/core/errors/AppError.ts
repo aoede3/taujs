@@ -10,6 +10,12 @@ const HTTP_STATUS: Record<ErrorKind, number> = {
   timeout: 504,
 } as const;
 
+// Global-registry brand so AppError identity survives duplicate copies of this
+// class (multiple bundle entry points, nested installs, version skew).
+// `instanceof` alone fails across those boundaries and turned domain errors
+// (404s) into 500s at the callServiceMethod boundary.
+const APP_ERROR_BRAND = Symbol.for('taujs.AppError');
+
 export class AppError extends Error {
   readonly kind: ErrorKind;
   readonly httpStatus: number;
@@ -24,6 +30,7 @@ export class AppError extends Error {
     super(message);
     this.name = 'AppError';
     Object.setPrototypeOf(this, new.target.prototype);
+    Object.defineProperty(this, APP_ERROR_BRAND, { value: true, enumerable: false });
 
     if (options.cause !== undefined) {
       Object.defineProperty(this, 'cause', {
@@ -58,7 +65,7 @@ export class AppError extends Error {
         name: value.name,
         message: value.message,
         stack: value.stack,
-        ...(value instanceof AppError && {
+        ...(AppError.isAppError(value) && {
           kind: value.kind,
           httpStatus: value.httpStatus,
           code: value.code,
@@ -128,8 +135,17 @@ export class AppError extends Error {
     return new AppError(message, 'infra', { httpStatus: 503, cause, details, code });
   }
 
+  /**
+   * Brand-based identity check: true for any AppError instance, including ones
+   * constructed by a different copy of this class. Use this instead of
+   * `instanceof AppError` everywhere an error may cross a module boundary.
+   */
+  static isAppError(value: unknown): value is AppError {
+    return value instanceof AppError || (typeof value === 'object' && value !== null && (value as Record<PropertyKey, unknown>)[APP_ERROR_BRAND] === true);
+  }
+
   static from(err: unknown, fallback = 'Internal error'): AppError {
-    return err instanceof AppError ? err : AppError.internal((err as any)?.message ?? fallback, err);
+    return AppError.isAppError(err) ? err : AppError.internal((err as any)?.message ?? fallback, err);
   }
 }
 

@@ -54,6 +54,9 @@ vi.mock('../../core/errors/AppError', () => {
       (e as any).extra = extra;
       return e;
     }
+    static isAppError(v: unknown) {
+      return v instanceof AppError;
+    }
   }
   return { AppError };
 });

@@ -45,6 +45,7 @@ vi.mock('../../core/errors/AppError', async () => {
   });
 
   (FakeAppError as any).internal = internalSpy;
+  (FakeAppError as any).isAppError = (v: unknown) => v instanceof FakeAppError;
 
   return {
     ...actual,
