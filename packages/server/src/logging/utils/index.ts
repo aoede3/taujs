@@ -1,6 +1,6 @@
 import { AppError } from '../../core/errors/AppError';
 
-export const httpStatusFrom = (err: unknown, fallback = 500): number => (err instanceof AppError ? err.httpStatus : fallback);
+export const httpStatusFrom = (err: unknown, fallback = 500): number => (AppError.isAppError(err) ? err.httpStatus : fallback);
 
 export const toHttp = (err: unknown): { status: number; body: Record<string, unknown> } => {
   const app = AppError.from(err);

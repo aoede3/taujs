@@ -166,6 +166,46 @@ describe('AppError – toJSON & serialiseValue', () => {
   });
 });
 
+describe('AppError – cross-copy identity (brand)', () => {
+  // Simulates an AppError constructed by a different copy of the class
+  // (e.g. the one bundled into the @taujs/server/config entry): structurally
+  // identical and branded, but NOT instanceof this module's AppError.
+  const makeForeignCopy = () => {
+    const foreign = Object.assign(new Error('Item not found'), {
+      name: 'AppError',
+      kind: 'domain' as const,
+      httpStatus: 404,
+      safeMessage: 'Item not found',
+    });
+    Object.defineProperty(foreign, Symbol.for('taujs.AppError'), { value: true, enumerable: false });
+    return foreign;
+  };
+
+  it('isAppError accepts real instances and brand-marked foreign copies', () => {
+    expect(AppError.isAppError(AppError.notFound('x'))).toBe(true);
+    expect(AppError.isAppError(makeForeignCopy())).toBe(true);
+    expect(AppError.isAppError(new Error('x'))).toBe(false);
+    expect(AppError.isAppError(null)).toBe(false);
+    expect(AppError.isAppError('AppError')).toBe(false);
+  });
+
+  it('from() returns a foreign-copy AppError unchanged, preserving its domain status', () => {
+    const foreign = makeForeignCopy();
+    const out = AppError.from(foreign);
+
+    expect(out).toBe(foreign as unknown as AppError);
+    expect(out.httpStatus).toBe(404);
+  });
+
+  it('brands instances via the global symbol registry, non-enumerable', () => {
+    const e = AppError.notFound('x');
+    const desc = Object.getOwnPropertyDescriptor(e, Symbol.for('taujs.AppError'));
+
+    expect(desc?.value).toBe(true);
+    expect(desc?.enumerable).toBe(false);
+  });
+});
+
 describe('normaliseError', () => {
   it.each([
     { label: 'Error', val: new Error('boom'), exp: { name: 'Error', msg: 'boom' } },

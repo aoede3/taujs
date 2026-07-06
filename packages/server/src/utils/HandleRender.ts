@@ -414,7 +414,7 @@ export const handleRender = async (
       });
     }
   } catch (err) {
-    if (err instanceof AppError) throw err;
+    if (AppError.isAppError(err)) throw err;
 
     throw AppError.internal('handleRender failed', err, {
       url: req.url,

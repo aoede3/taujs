@@ -28,6 +28,9 @@ class MockAppError extends Error {
   static timeout(msg: string) {
     return new MockAppError(msg, 'TIMEOUT');
   }
+  static isAppError(v: unknown): boolean {
+    return v instanceof MockAppError || (typeof v === 'object' && v !== null && (v as any)[Symbol.for('taujs.AppError')] === true);
+  }
 }
 vi.mock('../../errors/AppError', () => ({ AppError: MockAppError }));
 
@@ -208,6 +211,26 @@ describe('callServiceMethod', () => {
       },
     } as any;
     await expect(S.callServiceMethod(registry, 's', 'm', {}, { logger: makeLogger() as any })).rejects.toBe(err);
+  });
+
+  it('rethrows a brand-marked AppError from another copy of the class without wrapping', async () => {
+    const S = await importModule();
+
+    // The published package bundles AppError once per entry point; a service
+    // throwing AppError.notFound() from @taujs/server/config is not instanceof
+    // the SSR path's class. The brand must keep its 404 from becoming a 500.
+    const foreign = Object.assign(new Error('Item not found'), { kind: 'domain', httpStatus: 404 });
+    Object.defineProperty(foreign, Symbol.for('taujs.AppError'), { value: true, enumerable: false });
+
+    const registry = {
+      s: {
+        m: async () => {
+          throw foreign;
+        },
+      },
+    } as any;
+
+    await expect(S.callServiceMethod(registry, 's', 'm', {}, { logger: makeLogger() as any })).rejects.toBe(foreign);
   });
 
   it('wraps generic Error as AppError.internal with cause', async () => {

@@ -39,7 +39,7 @@ export const processConfigs = <P = unknown>(configs: readonly Config<P>[], baseC
 };
 
 const logAssetError = (logger: Logs, stage: string, err: unknown) => {
-  if (err instanceof AppError) {
+  if (AppError.isAppError(err)) {
     logger.error(
       {
         error: {
