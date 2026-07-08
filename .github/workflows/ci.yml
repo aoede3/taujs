@@ -33,4 +33,5 @@ jobs:
       - run: pnpm run build
       - run: pnpm run typecheck
       - run: pnpm run check-format
+      - run: pnpm run check-exports
       - run: pnpm run test

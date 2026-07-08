@@ -1,17 +1,18 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "lib": ["ES2022"],
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "lib": ["dom", "es2022"],
+    "moduleDetection": "force",
+    "moduleResolution": "Node",
     "noEmit": true,
-    "isolatedModules": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "skipLibCheck": true
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["node", "vitest/globals"],
+    "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*"]
+  "exclude": ["node_modules"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/types.d.ts"]
 }

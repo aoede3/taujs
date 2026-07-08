@@ -27,12 +27,12 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./plugin": {
-      "import": "./dist/plugin.js",
-      "types": "./dist/plugin.d.ts"
+      "types": "./dist/plugin.d.ts",
+      "import": "./dist/plugin.js"
     },
     "./package.json": "./package.json"
   },
@@ -40,9 +40,8 @@
     "dist"
   ],
   "devDependencies": {
-    "@arethetypeswrong/cli": "^0.15.4",
+    "@arethetypeswrong/cli": "^0.18.4",
     "@babel/preset-typescript": "^7.24.7",
-    "@changesets/cli": "^2.27.7",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^24.0.7",
@@ -76,16 +75,12 @@
   },
   "scripts": {
     "build": "tsup",
-    "build-local": "tsup && ./move.sh",
-    "ci": "npm run build && npm run check-format && npm run lint",
-    "lint": "tsc",
+    "typecheck": "tsc",
     "test": "vitest run",
     "test:ui": "vitest --ui --coverage.enabled=true",
     "coverage": "vitest run --coverage",
     "format": "prettier --write .",
     "check-format": "prettier --check .",
-    "check-exports": "attw --pack . --ignore-rules=cjs-resolves-to-esm",
-    "prepublishOnly": "npm run ci",
-    "local-release": "npm run ci && changeset version && changeset publish"
+    "check-exports": "attw --pack . --profile esm-only"
   }
 }
