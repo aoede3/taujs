@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Never cancel an in-flight publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push the "version packages" branch + git tags
+  pull-requests: write # open/update the Version Packages PR
+  id-token: write # OIDC for npm provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # changesets needs full history for changelogs/tags
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.17.0 # publish from the exact .nvmrc version
+          cache: pnpm
+          registry-url: https://registry.npmjs.org # writes .npmrc that reads NODE_AUTH_TOKEN
+
+      - run: pnpm install --frozen-lockfile
+
+      # If changesets exist on main -> opens/updates the "Version Packages" PR.
+      # If versions were just bumped (that PR merged) -> runs `publish`.
+      - name: Version or publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm run version
+          publish: pnpm run release
+          commit: 'chore: version packages'
+          title: 'chore: version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
