@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.7.1
+
+### Patch Changes
+
+- [#2](https://github.com/aoede3/taujs/pull/2) [`5f0720c`](https://github.com/aoede3/taujs/commit/5f0720c30d6cf5e19ff453b060f784eaa3730428) Thanks [@aoede3](https://github.com/aoede3)! - Declare `picocolors` as a dependency. It is imported at runtime (logging, network, and server bootstrap) but was previously undeclared and resolved only via package hoisting — which fails under pnpm's strict `node_modules` layout and for consumers installing the package on its own.
+
 v0.7.0 - 06/07/2026
 
 fix: fastify is a peer dependency again
