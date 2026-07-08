@@ -9,10 +9,11 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
     "check-format": "prettier --check .",
     "format": "prettier --write .",
-    "ci": "pnpm run build && pnpm run typecheck && pnpm run check-format && pnpm run test",
+    "check-exports": "pnpm -r check-exports",
+    "check": "pnpm run build && pnpm run typecheck && pnpm run check-format && pnpm run check-exports && pnpm run test",
     "version": "changeset version",
     "release": "pnpm -r build && changeset publish"
   },
