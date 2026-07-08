@@ -47,9 +47,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aoede3/create-taujs.git"
+    "url": "git+https://github.com/aoede3/taujs.git",
+    "directory": "packages/create-taujs"
   },
   "bugs": {
-    "url": "https://github.com/aoede3/create-taujs/issues"
+    "url": "https://github.com/aoede3/taujs/issues"
   }
 }

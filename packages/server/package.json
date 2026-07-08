@@ -7,10 +7,11 @@
   "homepage": "https://taujs.dev/",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aoede3/taujs-server.git"
+    "url": "git+https://github.com/aoede3/taujs.git",
+    "directory": "packages/server"
   },
   "bugs": {
-    "url": "https://github.com/aoede3/taujs-server/issues"
+    "url": "https://github.com/aoede3/taujs/issues"
   },
   "keywords": [
     "fastify",
