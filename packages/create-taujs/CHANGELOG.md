@@ -1,5 +1,11 @@
 # @taujs/cli
 
+## 0.1.10
+
+### Patch Changes
+
+- [#4](https://github.com/aoede3/taujs/pull/4) [`8a8ea77`](https://github.com/aoede3/taujs/commit/8a8ea77c0f5e6c0746f82d929ad924f973ebe80e) Thanks [@aoede3](https://github.com/aoede3)! - Remove `@changesets/cli` from runtime dependencies. It was never imported, so every `npx @taujs/create-taujs` was downloading the entire changesets toolchain for nothing. Releases continue to use the copy provided by the workspace root.
+
 v0.1.9 - 16/04/2026
 
 feat: align to @taujs/server
