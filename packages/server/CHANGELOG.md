@@ -1,0 +1,363 @@
+# @taujs/server
+
+v0.7.0 - 06/07/2026
+
+fix: fastify is a peer dependency again
+chore: constructible mocks use function implementations
+fix: AppError identity survives duplicate class copies
+
+v0.6.6 - 06/07/2026
+
+fix: no success log when the auth decorator sends its own rejection
+fix: CSP error path fails closed for routes that declared CSP
+docs: state the auth enforcement boundary in the hook
+chore: surface dropped duplicate plugins; tidy contract report; document SPA fallback
+refactor: one route-specificity algorithm
+fix: streaming commits status on first output, 500s on early failure
+fix: no dev-grade CSP fallback in production
+fix: fail boot when SSRServer registration throws
+fix: asset short-circuit tests the pathname, not the full URL
+fix: restore stem semantics for defaultEntryClient
+fix: per-request CSP nonce; never mutate shared directives
+
+v0.6.5 - 29/06/2026
+
+chore(deps): bump vite from 7.3.2 to 7.3.6
+chore(deps-dev): bump @babel/core from 7.28.5 to 7.29.7
+chore(deps-dev): bump form-data from 4.0.5 to 4.0.6
+chore(deps-dev): bump vitest, @vitest/coverage-v8 and @vitest/ui
+feat: aligning alias / baseClientRoot
+
+v0.6.4 - 10/05/2026
+
+chore(deps): bump fast-uri from 3.1.0 to 3.1.2
+chore(deps): bump postcss from 8.5.6 to 8.5.14
+
+v0.6.3 - 16/04/2026
+
+chore(deps): bump @fastify/static from 8.3.0 to 9.1.3
+
+v0.6.2 - 16/04/2026
+
+chore(deps): bump fastify from 5.8.3 to 5.8.5
+chore(deps): bump fastify from 5.6.1 to 5.8.5
+
+v0.6.1 - 05/04/2026
+
+chore(deps): bump vite from 7.3.1 to 7.3.2
+
+v0.6.0 - 05/04/2026
+
+feat: type augmentation
+feat: type augmentation prettier
+
+v0.5.9 - 05/04/2026
+
+chore(deps): bump fastify from 5.7.3 to 5.8.3
+chore(deps): bump brace-expansion
+chore(deps): bump path-to-regexp from 8.3.0 to 8.4.0
+chore(deps-dev): bump flatted from 3.3.3 to 3.4.2
+chore(deps-dev): bump picomatch from 2.3.1 to 2.3.2
+
+v0.5.8 - 27/02/2026
+
+chore(deps): bump rollup from 4.53.3 to 4.59.0
+chore(deps): bump ajv from 8.17.1 to 8.18.0
+chore(deps): bump fastify from 5.6.2 to 5.7.3
+chore(deps): bump @isaacs/brace-expansion from 5.0.0 to 5.0.1
+chore(deps): bump minimatch
+
+v0.5.7 - 22/01/2026
+
+feat: consolidate template utilities
+chore: consolidate template utilities - formatting
+
+v0.5.6 - 14/01/2026
+
+feat: streaming vite plugins; hmr; tests
+chore: update packages
+
+v0.5.5 - 11/01/2026
+
+feat: remove resolve route data
+
+v0.5.4 - 04/01/2026
+
+feat: core
+feat: core tests
+feat: logging, constants
+feat: logging, constants, resolver
+feat: core orchestration
+feat: build / asset management; tests
+feat: core types
+
+v0.5.3 - 29/12/2025
+
+feat: rename \_\_taujs/data to \_\_taujs/route as explicit route data contract
+
+v0.5.2 - 19/12/2025
+
+feat: align streaming ownership boundary to template
+
+v0.5.1 - 17/12/2025
+
+feat: plugin alignment
+feat: .ts, .tsx file extensions for entry points
+
+v0.5.0 - 11/12/2025
+
+feat: update path resolution
+
+v0.4.9 - 03/12/2025
+
+feat: static assets dev/prod; default paths, prod serving
+
+v0.4.8 - 02/12/2025
+
+feat: build types readonly
+
+v0.4.7 - 01/12/2025
+
+test: RouteContext streaming test
+feat: RouteContext; tests
+
+v0.4.6 - 25/11/2025
+
+chore: update packages; clean
+feat: remove FastifyStatic dependancy; test
+
+v0.4.5 - 24/11/2025
+
+feat: serviceRegistry change to optional; tests
+feat: Build isolated app; tests
+test: Logger coverage in hasMeta
+
+v0.4.4 - 23/11/2025
+
+feat: logger wrap strings; tests
+
+v0.4.3 - 23/11/2025
+
+feat: ctx.call functionality
+feat: Logging fixes for logging: false; Updates to abort logging
+feat: Build system; user vite configuration; ssr manifest isolation; tests
+feat: render logging; barrel exports; tests
+feat: RouteData; \_\_taujs/data route; tests
+feat: align HandleRender / Logger; tests
+
+v0.4.2 - 04/11/2025
+
+feat: CSP reporting
+feat: auth routeMeta; decorator
+feat: Logger; silent Pino
+feat: ServiceDescriptor standardisation
+feat: CSP plugin cleanup; test
+feat: DataServices cleanup; test
+test: CreateServer coverage
+
+v0.4.1 - 25/10/2025
+
+feat: Focus on Pino as first class logger; associated files, tests
+feat: Add friendly attr.data error; suppress duplicate errors when already logged by component
+feat: tightening api surface
+chore: update vite-plugin-node-polyfills
+feat: static asset registration; tests
+
+v0.4.0 - 20/10/2025
+
+chore: update vite
+chore: update packages vite; vitest; tests
+feat: HandleNotFound logger
+feat: onHead raw.write callback return
+chore: sorting import hierarchy
+feat: csr rendering; tests
+chore: package updates
+feat: Associated file updates; tests; project details
+feat: Associated file updates; tests; project details
+feat: Logger; AppError, Parser; associated file updates
+feat: Logger; associated file updates
+feat: csp routes; observability
+feat: createConfig; network; banner; debug
+feat: CreateServer; logging; verification; startup; types
+feat: Logging / Telemetry
+feat: file splitting; optimisation
+feat: file splitting; optimisation
+feat: data; services, schema addition
+
+v0.3.7 - 16/08/2025
+
+chore(deps): bump tmp and @changesets/cli
+feat: csp test types
+feat: csp updates; plugin; tests
+
+v0.3.6 - 22/07/2025
+
+chore(deps-dev): bump form-data from 4.0.3 to 4.0.4
+
+v0.3.5 - 16/07/2025
+
+sec: env; remove await; tests
+
+v0.3.4 - 16/07/2025
+
+sec: fastify dependencies static
+
+v0.3.3 - 16/07/2025
+
+sec: fastify dependencies
+
+v0.3.2 - 15/07/2025
+
+sec: fetch network access; typing; tests
+feat: rename fetch to data
+sec: fetch network access; types
+
+v0.3.1 - 10/07/2025
+
+feat: url matching; test; cleanup
+
+v0.3.0 - 10/07/2025 - Orchestration Foundations
+
+- Introduced middleware as an orchestration-layer primitive
+- Added attribution notice and clarified τjs [ taujs ] system scope
+- Consolidated route and config handling under `taujs.config.ts`
+- Moving toward a formal build-time orchestration model
+
+feat: middleware intro; auth; tests; cleanup
+feat: taujs.config
+feat: selective hydration; types; constants; tests
+feat: attribution
+
+v0.2.9 - 08/07/2025
+
+feat: middleware intro; auth; tests; cleanup
+
+v0.2.8 - 07/07/2025
+
+feat: taujs.config
+feat: selective hydration; types; constants; tests
+
+v0.2.7 - 05/07/2025
+
+feat: SSRServer clean up typing
+feat: utils; service method typing
+test: utils service method coverage
+
+v0.2.6 - 03/07/2025
+
+feat: Security csp dev standard
+
+v0.2.5 - 03/07/2025
+
+feat: Security csp
+test: Security csp
+test: build
+feat: Security csp
+
+v0.2.4 - 01/07/2025
+
+feat: service typing; cleanup
+
+v0.2.3 - 30/06/2025
+
+feat: Integrate build; tsup config; clean up package.json;
+chore: update to node 22.17.0
+feat: defer dynamic module injection
+
+v0.2.2 - 17/06/2025
+
+chore(deps): bump brace-expansion from 2.0.1 to 2.0.2
+
+v0.2.1 - 10/07/2025
+
+feat: split renderer to own package
+chore: update vite 6.3.5
+
+v0.2.0 - 09/07/2025
+
+chore: update vite 6.3.5
+
+v0.1.9 - 09/07/2025
+
+test: Vite createViteRuntime -> ssrLoadModule
+chore: Update Fastify 5.2.0 --> 5.3.3
+feat: Introducing picolors and associated messaging
+chore: Update Vite 5.4.2 -> 6.3.5
+
+v0.1.8 - 24/01/2025
+
+chore(deps-dev): bump vite from 5.4.7 to 5.4.14
+chore(deps-dev): bump vite from 5.4.7 to 5.4.14 - release
+
+v0.1.7 - 19/12/2024
+
+chore: Update React to v19 + associated packages
+
+v0.1.6 - 17/12/2024
+
+chore: Update Fastify + associated packages
+
+v0.1.5 - 12/12/2024
+
+feat: Micro-frontend; processConfigs utill; testing; CHANGELOG; README
+feat: Micro-frontend; testing; utils
+feat: Micro-frontend; server orchestration; utility alignment
+
+v0.1.4 - 02/12/2024
+
+fix: ssr css and preload links in header
+
+v0.1.3 - 22/22/2024
+
+chore(deps): bump cross-spawn and @changesets/cli
+chore: Update README; cleanup debug
+
+v0.1.2 - 08/11/2024
+
+release: 0.1.2; type change; audit, cleanse; ReadMe update
+
+v0.1.1 - 31/10/2024
+
+feat: SSRHydration createRoot + hydrateRoot; tests; vite css modern; clearup
+
+v0.1.0 - 31/10/2024
+
+fix: fastify dependency change to 4.28.1 compatibililty between static/compress
+
+v0.0.9 - 31/10/2024
+
+Merge branch 'integrate-spa-ssr' Integrated @taujs/server SPA, SSR, Streaming SSR, SSRDataStore; Hydration
+
+v0.0.8 - 03/10/2024
+
+Merge branch 'integrate-hydration' SSRHydration; Logger; updated build, package
+
+v0.0.7 - 23/09/2024
+
+Optional 'alias' on plugin registration
+CI @testing-library/dom for 'screen'
+
+v0.0.6 - 21/09/2024
+
+Fastify upgrade 4.28.0 to 5.0.0; test suite; cleanup
+
+v0.0.5 - 12/09/2024
+
+path-to-regex upgrade 7.0.0 to 8.1.0
+path-to-regexp outputs backtracking regular expressions - https://github.com/advisories/GHSA-9wv6-86v2-598j
+
+v0.0.4 - 08/09/2024
+
+SSRRender readme
+
+v0.0.3 - 08/09/2024
+
+SSRRender; tsup config
+
+v0.0.2 - 08/09/2024
+
+Custom alias
+
+v0.0.1 - 07/09/2024
+
+Initial taujs-server
