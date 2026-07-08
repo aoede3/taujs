@@ -17,6 +17,7 @@
     "ci": "npm run build && npm run lint",
     "lint": "tsc",
     "dev": "tsup --watch",
+    "test": "vitest run --passWithNoTests",
     "prepublishOnly": "npm run ci",
     "local-release": "npm run ci && changeset version && changeset publish"
   },
@@ -31,7 +32,8 @@
     "@types/node": "^20.11.0",
     "@types/prompts": "^2.4.9",
     "tsup": "^8.0.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^3.2.4"
   },
   "keywords": [
     "taujs",
