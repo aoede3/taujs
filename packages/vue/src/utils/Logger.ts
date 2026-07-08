@@ -22,12 +22,7 @@ type Opts = {
   enableDebug?: boolean;
 };
 
-const toJSONString = (v: unknown) =>
-  typeof v === "string"
-    ? v
-    : v instanceof Error
-    ? v.stack ?? v.message
-    : JSON.stringify(v);
+const toJSONString = (v: unknown) => (typeof v === 'string' ? v : v instanceof Error ? (v.stack ?? v.message) : JSON.stringify(v));
 
 const splitMsgAndMeta = (args: unknown[]) => {
   const [first, ...rest] = args;
@@ -35,21 +30,13 @@ const splitMsgAndMeta = (args: unknown[]) => {
   if (rest.length === 0) return { msg, meta: undefined };
 
   const only = rest.length === 1 ? rest[0] : undefined;
-  const meta =
-    only && typeof only === "object" && !(only instanceof Error)
-      ? only
-      : { args: rest.map(toJSONString) };
+  const meta = only && typeof only === 'object' && !(only instanceof Error) ? only : { args: rest.map(toJSONString) };
 
   return { msg, meta };
 };
 
 export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
-  const {
-    debugCategory = "ssr",
-    context,
-    preferDebug = false,
-    enableDebug = false,
-  } = opts;
+  const { debugCategory = 'ssr', context, preferDebug = false, enableDebug = false } = opts;
 
   if (!enableDebug) {
     return {
@@ -59,12 +46,7 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
     };
   }
 
-  const looksServer =
-    !!logger &&
-    ("info" in logger ||
-      "debug" in logger ||
-      "child" in logger ||
-      "isDebugEnabled" in logger);
+  const looksServer = !!logger && ('info' in logger || 'debug' in logger || 'child' in logger || 'isDebugEnabled' in logger);
 
   if (looksServer) {
     let s = logger as Partial<ServerLogs>;
@@ -79,36 +61,26 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
 
     const info = s.info
       ? (msg: string, meta?: unknown) => s.info!(meta, msg)
-      : (msg: string, meta?: unknown) =>
-          meta ? console.log(msg, meta) : console.log(msg);
+      : (msg: string, meta?: unknown) => (meta ? console.log(msg, meta) : console.log(msg));
 
     const warn = s.warn
       ? (msg: string, meta?: unknown) => s.warn!(meta, msg)
-      : (msg: string, meta?: unknown) =>
-          meta ? console.warn(msg, meta) : console.warn(msg);
+      : (msg: string, meta?: unknown) => (meta ? console.warn(msg, meta) : console.warn(msg));
 
     const error = s.error
       ? (msg: string, meta?: unknown) => s.error!(meta, msg)
-      : (msg: string, meta?: unknown) =>
-          meta ? console.error(msg, meta) : console.error(msg);
+      : (msg: string, meta?: unknown) => (meta ? console.error(msg, meta) : console.error(msg));
 
-    const debug = s.debug
-      ? (category: string, msg: string, meta?: unknown) =>
-          s.debug!(category, meta, msg)
-      : undefined;
+    const debug = s.debug ? (category: string, msg: string, meta?: unknown) => s.debug!(category, meta, msg) : undefined;
 
-    const isDebugEnabled = s.isDebugEnabled
-      ? (category: string) => s.isDebugEnabled!(category)
-      : undefined;
+    const isDebugEnabled = s.isDebugEnabled ? (category: string) => s.isDebugEnabled!(category) : undefined;
 
     return {
       log: (...args: unknown[]) => {
         const { msg, meta } = splitMsgAndMeta(args);
 
         if (debug) {
-          const enabled =
-            (isDebugEnabled ? isDebugEnabled(debugCategory) : false) ||
-            preferDebug;
+          const enabled = (isDebugEnabled ? isDebugEnabled(debugCategory) : false) || preferDebug;
 
           if (enabled) {
             debug(debugCategory, msg, meta);
@@ -147,14 +119,11 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
  * const app = createSSRApp(...);
  * app.config.errorHandler = createVueErrorHandler(logger, enableDebug);
  */
-export function createVueErrorHandler(
-  logger?: LoggerLike,
-  enableDebug = false
-) {
+export function createVueErrorHandler(logger?: LoggerLike, enableDebug = false) {
   const { error } = createUILogger(logger, { enableDebug });
 
   return (err: unknown, instance: any, info: string) => {
-    error("Vue error", {
+    error('Vue error', {
       err,
       info,
       component: instance?.type?.name ?? instance?.$options?.name,

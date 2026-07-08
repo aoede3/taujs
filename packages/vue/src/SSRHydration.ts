@@ -1,9 +1,9 @@
-import { createApp, createSSRApp, h, type Component, type VNode } from "vue";
+import { createApp, createSSRApp, h, type Component, type VNode } from 'vue';
 
-import { createSSRStore, SSRStoreProvider } from "./SSRDataStore";
-import { createUILogger } from "./utils/Logger";
+import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
+import { createUILogger } from './utils/Logger';
 
-import type { LoggerLike } from "./utils/Logger";
+import type { LoggerLike } from './utils/Logger';
 
 export type HydrateAppOptions<T> = {
   /** Root app component. */
@@ -26,69 +26,63 @@ export type HydrateAppOptions<T> = {
  */
 export function hydrateApp<T>({
   appComponent,
-  rootElementId = "root",
+  rootElementId = 'root',
   enableDebug = false,
   logger,
-  dataKey = "__INITIAL_DATA__",
+  dataKey = '__INITIAL_DATA__',
   onHydrationError,
   onStart,
   onSuccess,
 }: HydrateAppOptions<T>) {
   const { log, warn, error } = createUILogger(logger, {
-    debugCategory: "ssr",
-    context: { scope: "vue-hydration" },
+    debugCategory: 'ssr',
+    context: { scope: 'vue-hydration' },
     enableDebug,
   });
 
   const normalizeRoot = (): Component => {
     // Allow passing either a component or a render function.
-    if (
-      typeof appComponent === "function" &&
-      !(appComponent as any).setup &&
-      !(appComponent as any).render
-    ) {
-      return { name: "TauJsRoot", render: appComponent as any };
+    if (typeof appComponent === 'function' && !(appComponent as any).setup && !(appComponent as any).render) {
+      return { name: 'TauJsRoot', render: appComponent as any };
     }
     return appComponent as Component;
   };
 
   const mountCSR = (rootEl: HTMLElement, initialData: T) => {
-    rootEl.innerHTML = "";
+    rootEl.innerHTML = '';
 
     const store = createSSRStore(initialData);
 
     const app = createApp({
-      name: "TauJsCSR",
-      render: () =>
-        h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
+      name: 'TauJsCSR',
+      render: () => h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
     });
 
     app.mount(rootEl);
   };
 
   const startHydration = (rootEl: HTMLElement, initialData: T) => {
-    if (enableDebug) log("Hydration started");
+    if (enableDebug) log('Hydration started');
     onStart?.();
 
-    if (enableDebug) log("Initial data loaded:", initialData);
+    if (enableDebug) log('Initial data loaded:', initialData);
 
     const store = createSSRStore(initialData);
-    if (enableDebug) log("Store created:", store);
+    if (enableDebug) log('Store created:', store);
 
     try {
       const app = createSSRApp({
-        name: "TauJsHydration",
-        render: () =>
-          h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
+        name: 'TauJsHydration',
+        render: () => h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
       });
 
       // 2nd arg true => hydrate
       app.mount(rootEl, true);
 
-      if (enableDebug) log("Hydration completed");
+      if (enableDebug) log('Hydration completed');
       onSuccess?.();
     } catch (err) {
-      error("Hydration error:", err);
+      error('Hydration error:', err);
       onHydrationError?.(err);
     }
   };
@@ -104,8 +98,7 @@ export function hydrateApp<T>({
 
     if (data === undefined) {
       const empty = {} as T;
-      if (enableDebug)
-        warn(`No initial SSR data at window["${dataKey}"]. Mounting CSR.`);
+      if (enableDebug) warn(`No initial SSR data at window["${dataKey}"]. Mounting CSR.`);
       mountCSR(rootEl, empty);
       return;
     }
@@ -113,9 +106,9 @@ export function hydrateApp<T>({
     startHydration(rootEl, data);
   };
 
-  if (document.readyState !== "loading") {
+  if (document.readyState !== 'loading') {
     bootstrap();
   } else {
-    document.addEventListener("DOMContentLoaded", bootstrap, { once: true });
+    document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
   }
 }

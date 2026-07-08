@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 
-import { execSync } from "child_process";
-import fs from "fs-extra";
-import path from "path";
-import pc from "picocolors";
-import prompts from "prompts";
+import { execSync } from 'child_process';
+import fs from 'fs-extra';
+import path from 'path';
+import pc from 'picocolors';
+import prompts from 'prompts';
 
 type ProjectConfig = {
   projectName: string;
-  packageManager: "npm" | "pnpm" | "yarn";
+  packageManager: 'npm' | 'pnpm' | 'yarn';
   installDeps: boolean;
 };
 
 const PACKAGE_MANAGERS = {
-  npm: "npm install",
-  pnpm: "pnpm install",
-  yarn: "yarn install",
+  npm: 'npm install',
+  pnpm: 'pnpm install',
+  yarn: 'yarn install',
 } as const;
 
 function parseArgs(): { projectName?: string } {
@@ -23,7 +23,7 @@ function parseArgs(): { projectName?: string } {
   let projectName: string | undefined;
 
   for (const arg of rawArgs) {
-    if (!arg.startsWith("-") && !projectName) {
+    if (!arg.startsWith('-') && !projectName) {
       projectName = arg;
       continue;
     }
@@ -33,15 +33,15 @@ function parseArgs(): { projectName?: string } {
 }
 
 function validateProjectName(value: string): true | string {
-  if (!value) return "Project name is required";
+  if (!value) return 'Project name is required';
   if (!/^[a-z0-9-_]+$/.test(value)) {
-    return "Project name can only contain lowercase letters, numbers, hyphens, and underscores";
+    return 'Project name can only contain lowercase letters, numbers, hyphens, and underscores';
   }
   return true;
 }
 
 async function main() {
-  console.log(pc.cyan("\nWelcome to τjs (taujs)\n"));
+  console.log(pc.cyan('\nWelcome to τjs (taujs)\n'));
 
   const { projectName: argName } = parseArgs();
 
@@ -55,34 +55,34 @@ async function main() {
 
   const questions: prompts.PromptObject[] = [
     {
-      type: argName ? null : "text",
-      name: "projectName",
-      message: "Project name:",
-      initial: "my-taujs-app",
+      type: argName ? null : 'text',
+      name: 'projectName',
+      message: 'Project name:',
+      initial: 'my-taujs-app',
       validate: validateProjectName,
     },
     {
-      type: "select",
-      name: "packageManager",
-      message: "Package manager:",
+      type: 'select',
+      name: 'packageManager',
+      message: 'Package manager:',
       choices: [
-        { title: "npm", value: "npm" },
-        { title: "pnpm", value: "pnpm" },
-        { title: "yarn", value: "yarn" },
+        { title: 'npm', value: 'npm' },
+        { title: 'pnpm', value: 'pnpm' },
+        { title: 'yarn', value: 'yarn' },
       ],
       initial: 0,
     },
     {
-      type: "confirm",
-      name: "installDeps",
-      message: "Install dependencies now?",
+      type: 'confirm',
+      name: 'installDeps',
+      message: 'Install dependencies now?',
       initial: true,
     },
   ];
 
   const answers = await prompts(questions, {
     onCancel: () => {
-      console.log(pc.red("\n✖ Operation cancelled"));
+      console.log(pc.red('\n✖ Operation cancelled'));
       process.exit(1);
     },
   });
@@ -91,14 +91,12 @@ async function main() {
 
   const nameRes = validateProjectName(projectName);
   if (nameRes !== true) {
-    console.log(
-      pc.red(`\n✖ Invalid project name "${projectName}": ${nameRes}`),
-    );
+    console.log(pc.red(`\n✖ Invalid project name "${projectName}": ${nameRes}`));
     process.exit(1);
   }
 
   if (!projectName) {
-    console.log(pc.red("\n✖ Project name is required"));
+    console.log(pc.red('\n✖ Project name is required'));
     process.exit(1);
   }
 
@@ -126,61 +124,40 @@ async function createProject(config: ProjectConfig) {
   await createDirectoryStructure(targetDir);
   await generateFiles(targetDir, config);
 
-  console.log(pc.green("Project files created"));
+  console.log(pc.green('Project files created'));
 
   let depsInstalled = false;
 
   if (installDeps) {
-    console.log(
-      pc.cyan(`\nInstalling dependencies with ${packageManager}...\n`),
-    );
+    console.log(pc.cyan(`\nInstalling dependencies with ${packageManager}...\n`));
     try {
       execSync(PACKAGE_MANAGERS[packageManager], {
         cwd: targetDir,
-        stdio: "inherit",
+        stdio: 'inherit',
       });
       depsInstalled = true;
-      console.log(pc.green("\nDependencies installed"));
+      console.log(pc.green('\nDependencies installed'));
     } catch (error) {
-      console.log(
-        pc.yellow(
-          "\n⚠ Failed to install dependencies. You can install them manually.",
-        ),
-      );
+      console.log(pc.yellow('\n⚠ Failed to install dependencies. You can install them manually.'));
     }
   }
 
   if (installDeps && !depsInstalled) {
-    console.log(
-      pc.yellow(
-        "⚠ Dependency install failed. Run the install command before starting the dev server.\n",
-      ),
-    );
+    console.log(pc.yellow('⚠ Dependency install failed. Run the install command before starting the dev server.\n'));
   }
-  console.log(
-    pc.green(`\n✓ Project ${pc.bold(projectName)} created successfully!\n`),
-  );
-  console.log(pc.cyan("Next steps:\n"));
+  console.log(pc.green(`\n✓ Project ${pc.bold(projectName)} created successfully!\n`));
+  console.log(pc.cyan('Next steps:\n'));
   console.log(`  cd ${projectName}`);
 
-  if (!depsInstalled)
-    console.log(
-      `  ${PACKAGE_MANAGERS[packageManager]}${
-        installDeps ? "  # (install failed earlier)" : ""
-      }`,
-    );
+  if (!depsInstalled) console.log(`  ${PACKAGE_MANAGERS[packageManager]}${installDeps ? '  # (install failed earlier)' : ''}`);
 
-  const pmRun = packageManager === "npm" ? "npm run" : packageManager;
+  const pmRun = packageManager === 'npm' ? 'npm run' : packageManager;
   console.log(`  ${pmRun} dev\n`);
-  console.log(pc.dim("Documentation: https://taujs.dev\n"));
+  console.log(pc.dim('Documentation: https://taujs.dev\n'));
 }
 
 async function createDirectoryStructure(targetDir: string) {
-  const dirs: string[] = [
-    "src/server/services",
-    "src/client",
-    "src/client/public",
-  ];
+  const dirs: string[] = ['src/server/services', 'src/client', 'src/client/public'];
 
   for (const dir of dirs) {
     await fs.ensureDir(path.join(targetDir, dir));
@@ -190,120 +167,69 @@ async function createDirectoryStructure(targetDir: string) {
 async function generateFiles(targetDir: string, config: ProjectConfig) {
   const { projectName, packageManager } = config;
 
-  await fs.writeJSON(
-    path.join(targetDir, "package.json"),
-    generatePackageJson(projectName),
-    { spaces: 2 },
-  );
+  await fs.writeJSON(path.join(targetDir, 'package.json'), generatePackageJson(projectName), { spaces: 2 });
 
-  await fs.writeFile(path.join(targetDir, "build.ts"), generateBuildTs());
+  await fs.writeFile(path.join(targetDir, 'build.ts'), generateBuildTs());
 
-  await fs.writeJSON(
-    path.join(targetDir, "tsconfig.json"),
-    generateTsConfig(),
-    { spaces: 2 },
-  );
+  await fs.writeJSON(path.join(targetDir, 'tsconfig.json'), generateTsConfig(), { spaces: 2 });
 
-  await fs.writeJSON(
-    path.join(targetDir, "src/server/tsconfig.json"),
-    generateServerTsConfig(),
-    { spaces: 2 },
-  );
+  await fs.writeJSON(path.join(targetDir, 'src/server/tsconfig.json'), generateServerTsConfig(), { spaces: 2 });
 
-  await fs.writeFile(
-    path.join(targetDir, "taujs.config.ts"),
-    generateTaujsConfig(),
-  );
+  await fs.writeFile(path.join(targetDir, 'taujs.config.ts'), generateTaujsConfig());
 
-  await fs.writeFile(path.join(targetDir, ".gitignore"), generateGitignore());
+  await fs.writeFile(path.join(targetDir, '.gitignore'), generateGitignore());
 
-  await fs.writeFile(
-    path.join(targetDir, "README.md"),
-    generateReadme(projectName, packageManager),
-  );
+  await fs.writeFile(path.join(targetDir, 'README.md'), generateReadme(projectName, packageManager));
 
-  await fs.writeFile(
-    path.join(targetDir, "src/client/index.html"),
-    generateIndexHtml(),
-  );
-  await fs.writeFile(
-    path.join(targetDir, "src/client/App.tsx"),
-    generateAppComponent(),
-  );
-  await fs.writeFile(
-    path.join(targetDir, "src/client/entry-client.tsx"),
-    generateEntryClient(),
-  );
-  await fs.writeFile(
-    path.join(targetDir, "src/client/entry-server.tsx"),
-    generateEntryServer(),
-  );
-  await fs.writeFile(
-    path.join(targetDir, "src/client/styles.css"),
-    generateStyles(),
-  );
-  await fs.writeFile(
-    path.join(targetDir, "src/client/vite-env.d.ts"),
-    generateViteEnv(),
-  );
+  await fs.writeFile(path.join(targetDir, 'src/client/index.html'), generateIndexHtml());
+  await fs.writeFile(path.join(targetDir, 'src/client/App.tsx'), generateAppComponent());
+  await fs.writeFile(path.join(targetDir, 'src/client/entry-client.tsx'), generateEntryClient());
+  await fs.writeFile(path.join(targetDir, 'src/client/entry-server.tsx'), generateEntryServer());
+  await fs.writeFile(path.join(targetDir, 'src/client/styles.css'), generateStyles());
+  await fs.writeFile(path.join(targetDir, 'src/client/vite-env.d.ts'), generateViteEnv());
 
   // server
-  await fs.writeFile(
-    path.join(targetDir, "src/server/index.ts"),
-    generateServerIndex(),
-  );
-  await fs.writeFile(
-    path.join(targetDir, "src/server/services/registry.ts"),
-    generateServiceRegistry(),
-  );
-  await fs.writeFile(
-    path.join(targetDir, "src/server/services/example.service.ts"),
-    generateExampleService(),
-  );
-  await fs.writeFile(
-    path.join(targetDir, "src/server/types.d.ts"),
-    generateServiceTypesAugmentation(),
-  );
+  await fs.writeFile(path.join(targetDir, 'src/server/index.ts'), generateServerIndex());
+  await fs.writeFile(path.join(targetDir, 'src/server/services/registry.ts'), generateServiceRegistry());
+  await fs.writeFile(path.join(targetDir, 'src/server/services/example.service.ts'), generateExampleService());
+  await fs.writeFile(path.join(targetDir, 'src/server/types.d.ts'), generateServiceTypesAugmentation());
 
-  await fs.writeFile(
-    path.join(targetDir, "src/client/public/favicon.svg"),
-    generateFavicon(),
-  );
+  await fs.writeFile(path.join(targetDir, 'src/client/public/favicon.svg'), generateFavicon());
 }
 
 function generatePackageJson(projectName: string) {
   return {
     name: projectName,
-    version: "0.1.0",
+    version: '0.1.0',
     private: true,
-    type: "module",
+    type: 'module',
     scripts: {
-      dev: "cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose",
-      "build:client": "tsx build.ts",
-      "build:entry-server": "cross-env BUILD_MODE=ssr tsx build.ts",
-      "build:server":
-        "esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react",
+      dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
+      'build:client': 'tsx build.ts',
+      'build:entry-server': 'cross-env BUILD_MODE=ssr tsx build.ts',
+      'build:server':
+        'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
       build:
-        "tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react",
-      start: "cross-env NODE_ENV=production node dist/server/index.js",
-      lint: "tsc --noEmit",
+        'tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
+      start: 'cross-env NODE_ENV=production node dist/server/index.js',
+      lint: 'tsc --noEmit',
     },
     dependencies: {
-      "@taujs/react": "latest",
-      "@taujs/server": "latest",
-      fastify: "^5.8.5",
-      react: "^19.0.0",
-      "react-dom": "^19.0.0",
+      '@taujs/react': 'latest',
+      '@taujs/server': 'latest',
+      fastify: '^5.8.5',
+      react: '^19.0.0',
+      'react-dom': '^19.0.0',
     },
     devDependencies: {
-      "@types/node": "^22.10.5",
-      "@types/react": "^19.0.2",
-      "@types/react-dom": "^19.0.2",
-      "@vitejs/plugin-react": "^4.6.0",
-      "cross-env": "^7.0.3",
-      tsx: "^4.19.3",
-      typescript: "^5.7.3",
-      vite: "^7.1.11",
+      '@types/node': '^22.10.5',
+      '@types/react': '^19.0.2',
+      '@types/react-dom': '^19.0.2',
+      '@vitejs/plugin-react': '^4.6.0',
+      'cross-env': '^7.0.3',
+      tsx: '^4.19.3',
+      typescript: '^5.7.3',
+      vite: '^7.1.11',
     },
   };
 }
@@ -324,11 +250,11 @@ await taujsBuild({
 function generateTsConfig() {
   return {
     compilerOptions: {
-      target: "ES2022",
-      module: "ESNext",
-      lib: ["ES2022", "DOM", "DOM.Iterable"],
-      jsx: "react-jsx",
-      moduleResolution: "bundler",
+      target: 'ES2022',
+      module: 'ESNext',
+      lib: ['ES2022', 'DOM', 'DOM.Iterable'],
+      jsx: 'react-jsx',
+      moduleResolution: 'bundler',
       resolveJsonModule: true,
       allowImportingTsExtensions: true,
       noEmit: true,
@@ -339,18 +265,18 @@ function generateTsConfig() {
       skipLibCheck: true,
       types: [],
       paths: {
-        "@client/*": ["./src/client/*"],
-        "@server/*": ["./src/server/*"],
+        '@client/*': ['./src/client/*'],
+        '@server/*': ['./src/server/*'],
       },
     },
-    include: ["src/client/**/*", "src/server/**/*", "taujs.config.ts"],
+    include: ['src/client/**/*', 'src/server/**/*', 'taujs.config.ts'],
   };
 }
 
 function generateServerTsConfig() {
   return {
-    extends: "../../tsconfig.json",
-    include: ["./**/*"],
+    extends: '../../tsconfig.json',
+    include: ['./**/*'],
   };
 }
 
@@ -448,7 +374,7 @@ coverage
 }
 
 function generateReadme(projectName: string, packageManager: string) {
-  const pmRun = packageManager === "npm" ? "npm run" : packageManager;
+  const pmRun = packageManager === 'npm' ? 'npm run' : packageManager;
   return `# ${projectName}
 
 A τjs (taujs) application with server-side rendering, streaming, and a type-safe service layer.
@@ -967,6 +893,6 @@ function generateFavicon() {
 }
 
 main().catch((error) => {
-  console.error(pc.red("\n✖ Error creating project:"), error);
+  console.error(pc.red('\n✖ Error creating project:'), error);
   process.exit(1);
 });

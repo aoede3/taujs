@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+pnpm-workspace.yaml
+**/dist
+**/coverage
+node_modules
+**/CHANGELOG.md

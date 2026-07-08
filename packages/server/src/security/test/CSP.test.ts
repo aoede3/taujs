@@ -514,11 +514,7 @@ describe('cspPlugin', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    createRouteMatchersMock.mockReturnValue([
-      {
-        /* matcher */
-      },
-    ] as any);
+    createRouteMatchersMock.mockReturnValue([{/* matcher */}] as any);
 
     const routes = [{ path: '/foo', attr: { middleware: {} } }] as any;
     await cspPlugin(fastify as any, { routes }); // no routeMatchers passed
@@ -565,9 +561,7 @@ describe('cspPlugin', () => {
       route: {
         attr: {
           middleware: {
-            csp: {
-              /* no directives */
-            },
+            csp: {/* no directives */},
           },
         },
       },
