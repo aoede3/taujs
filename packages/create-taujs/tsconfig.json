@@ -1,18 +1,4 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "allowImportingTsExtensions": true,
-    "allowJs": true,
-    "jsx": "react-jsx",
-    "lib": ["dom", "es2022"],
-    "moduleDetection": "force",
-    "moduleResolution": "Node",
-    "noEmit": true,
-    "noImplicitOverride": true,
-    "noUncheckedIndexedAccess": true,
-    "types": ["node", "vitest/globals"],
-    "verbatimModuleSyntax": true
-  },
-  "exclude": ["node_modules"],
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/types.d.ts"]
+  "include": ["src/**/*"]
 }
