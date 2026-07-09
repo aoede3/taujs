@@ -12,6 +12,7 @@ import { isDevelopment } from '../System';
 import { createRequestContext, getRequestContext } from './Telemetry';
 import {
   ensureNonNull,
+  buildTaujsDevStamp,
   collectStyle,
   processTemplate,
   rebuildTemplate,
@@ -160,6 +161,10 @@ export const handleRender = async (
     // Hoisted by SSRServer's onRequest hook (P0B-01); created in place only when handleRender
     // is invoked without the hook, preserving standalone behaviour byte-for-byte.
     const { traceId, logger: reqLogger, headers } = hoistedContext ?? createRequestContext(req, reply, baseLogger);
+    // Dev stamp (spec 03 §7): present only when the structural gate holds — the decoration
+    // exists solely on dev boots, so production HTML never carries it.
+    const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
+    const devStamp = devtools ? buildTaujsDevStamp(traceId, devtools.token, cspNonce) : '';
     const ctx = { traceId, logger: reqLogger, headers, recorder };
     const initialDataInput = async () => {
       const dataT0 = now();
@@ -256,7 +261,7 @@ export const handleRender = async (
       const bootstrapScriptTag = shouldHydrate && bootstrapModule ? `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script>` : '';
 
       const safeAppHtml = appHtml.trim();
-      const fullHtml = rebuildTemplate(templateParts, aggregateHeadContent, `${safeAppHtml}${initialDataScript}${bootstrapScriptTag}`);
+      const fullHtml = rebuildTemplate(templateParts, aggregateHeadContent, `${safeAppHtml}${initialDataScript}${devStamp}${bootstrapScriptTag}`);
 
       logger.debug?.('ssr', {}, 'ssr template rebuilt and sending response');
 
@@ -360,7 +365,7 @@ export const handleRender = async (
             if (manifest && cssLink) aggregateHeadContent += cssLink;
 
             commitHead();
-            reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}`);
+            reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}${devStamp}`);
             recorder?.streamPhase({ traceId, phase: 'head' });
 
             if (!pipedToReply) {

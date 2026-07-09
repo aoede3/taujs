@@ -26,7 +26,7 @@ const mkLogger = (): any => {
   return l;
 };
 
-const mkReq = (url: string, recorder?: TraceRecorder): any => {
+const mkReq = (url: string, recorder?: TraceRecorder, server?: unknown): any => {
   const raw = new EventEmitter() as any;
   raw.url = url;
   return {
@@ -34,6 +34,7 @@ const mkReq = (url: string, recorder?: TraceRecorder): any => {
     method: 'GET',
     headers: { host: 'localhost' },
     raw,
+    server,
     taujsRequestContext: { traceId: T, logger: mkLogger(), headers: {}, recorder },
   };
 };
@@ -182,6 +183,92 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
 
     const [trace] = dev.getTraces();
     expect(trace).toMatchObject({ route: null, mode: 'fallthrough', outcome: 'complete', status: 200 });
+  });
+});
+
+describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
+  const devServer = { taujsIntrospection: { token: 'boot-token-abc' } };
+
+  it('SSR HTML carries the stamp + hook + beacon script when the dev decoration exists', async () => {
+    vi.mocked(matchRoute).mockReturnValue(ssrRoute as any);
+    const req = mkReq('/product/42', undefined, devServer);
+    const reply = mkReply();
+
+    await handleRender(req, reply, [] as any, configs, {} as any, maps(renderSSRModule), { logger: mkLogger() });
+
+    const html = String(reply.sent[0]);
+    expect(html).toContain(`window.__TAUJS_TRACE_ID__="${T}"`);
+    expect(html).toContain('window.__TAUJS_DEV_TOKEN__="boot-token-abc"');
+    expect(html).toContain('__TAUJS_DEVTOOLS_HOOK__');
+    expect(html).toContain('/__taujs/beacon');
+  });
+
+  it('SSR HTML carries no stamp without the decoration (prod shape)', async () => {
+    const reply = await runSSR(undefined);
+
+    const html = String(reply.sent[0]);
+    expect(html).not.toContain('__TAUJS_TRACE_ID__');
+    expect(html).not.toContain('__taujs');
+  });
+
+  it('streaming head write carries the stamp when the decoration exists', async () => {
+    vi.mocked(matchRoute).mockReturnValue(streamingRoute as any);
+    const streamingModule = {
+      renderStream: vi.fn((writable: PassThrough, cb: any, initialDataInput: () => Promise<unknown>) => {
+        cb.onHead('<title>s</title>');
+        void initialDataInput().then((data) => {
+          cb.onAllReady(data);
+          writable.end();
+        });
+      }),
+    };
+    const req = mkReq('/live', undefined, devServer);
+    const reply = mkReply();
+    const writes: string[] = [];
+    const origWrite = reply.raw.write.bind(reply.raw);
+    reply.raw.write = (chunk: unknown) => {
+      writes.push(String(chunk));
+      return origWrite(chunk);
+    };
+
+    await handleRender(req, reply, [] as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() });
+    await vi.waitFor(() => {
+      expect(writes.join('')).toContain('__TAUJS_TRACE_ID__');
+    });
+
+    expect(writes[0]).toContain(`window.__TAUJS_TRACE_ID__="${T}"`);
+  });
+
+  it('the fallthrough shell gets its own stamp', async () => {
+    const req = mkReq('/spa/deep', undefined, devServer);
+    const reply = mkReply();
+
+    await handleNotFound(
+      req,
+      reply,
+      configs,
+      { cssLinks: new Map(), bootstrapModules: new Map(), templates: maps(renderSSRModule).templates },
+      { logger: mkLogger() },
+    );
+
+    const html = String(reply.sent[0]);
+    expect(html).toContain(`window.__TAUJS_TRACE_ID__="${T}"`);
+    expect(html).toContain('boot-token-abc');
+  });
+
+  it('the fallthrough shell carries no stamp without the decoration', async () => {
+    const req = mkReq('/spa/deep', undefined, undefined);
+    const reply = mkReply();
+
+    await handleNotFound(
+      req,
+      reply,
+      configs,
+      { cssLinks: new Map(), bootstrapModules: new Map(), templates: maps(renderSSRModule).templates },
+      { logger: mkLogger() },
+    );
+
+    expect(String(reply.sent[0])).not.toContain('__TAUJS');
   });
 });
 

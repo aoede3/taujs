@@ -3,7 +3,15 @@ import { SSRTAG } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
 import { getRequestContext } from './Telemetry';
-import { ensureNonNull, addNonceToInlineScripts, applyViteTransform, injectBootstrapModule, injectCssLink, stripDevClientAndStyles } from './Templates';
+import {
+  ensureNonNull,
+  addNonceToInlineScripts,
+  applyViteTransform,
+  buildTaujsDevStamp,
+  injectBootstrapModule,
+  injectCssLink,
+  stripDevClientAndStyles,
+} from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -79,6 +87,13 @@ export const handleNotFound = async (
     }
 
     processedTemplate = injectBootstrapModule(processedTemplate, bootstrapModule, cspNonce);
+
+    // Dev stamp (spec 03 §7): the fallthrough shell has no __INITIAL_DATA__ script to ride
+    // with, so it gets its own — only when the structural gate holds (dev decoration).
+    const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
+    if (devtools && requestContext) {
+      processedTemplate = processedTemplate.replace('</body>', `${buildTaujsDevStamp(requestContext.traceId, devtools.token, cspNonce)}</body>`);
+    }
 
     logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');
 
