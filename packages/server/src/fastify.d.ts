@@ -1,8 +1,12 @@
 import 'fastify';
 
+import type { RequestContext } from './core/telemetry/Telemetry';
+
 declare module 'fastify' {
   interface FastifyRequest {
     cspNonce?: string;
+    /** Per-request trace context, set by SSRServer's onRequest hook (trace before auth). */
+    taujsRequestContext?: RequestContext | null;
     routeMeta?: {
       path?: string;
       appId?: string;

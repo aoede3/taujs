@@ -2,6 +2,7 @@ import { AppError } from '../core/errors/AppError';
 import { SSRTAG } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
+import { getRequestContext } from './Telemetry';
 import { ensureNonNull, addNonceToInlineScripts, applyViteTransform, injectBootstrapModule, injectCssLink, stripDevClientAndStyles } from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
@@ -26,7 +27,12 @@ export const handleNotFound = async (
 ) => {
   const { viteDevServer } = opts;
 
+  // Hoisted context (P0B-01): fallthrough logs carry the request traceId; the x-trace-id
+  // response header is already set by the hook. Without the hook, behaviour is unchanged.
+  const requestContext = getRequestContext(req);
+
   const logger =
+    requestContext?.logger ??
     opts.logger ??
     createLogger({
       debug: opts.debug,

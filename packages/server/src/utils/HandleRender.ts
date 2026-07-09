@@ -8,7 +8,7 @@ import { resolveEntryFile } from '../Build';
 import { REGEX } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
-import { createRequestContext } from './Telemetry';
+import { createRequestContext, getRequestContext } from './Telemetry';
 import {
   ensureNonNull,
   collectStyle,
@@ -150,7 +150,9 @@ export const handleRender = async (
     const templateParts = processTemplate(template);
 
     const baseLogger = (opts.logger ?? logger) as Logs;
-    const { traceId, logger: reqLogger, headers } = createRequestContext(req, reply, baseLogger);
+    // Hoisted by SSRServer's onRequest hook (P0B-01); created in place only when handleRender
+    // is invoked without the hook, preserving standalone behaviour byte-for-byte.
+    const { traceId, logger: reqLogger, headers } = getRequestContext(req) ?? createRequestContext(req, reply, baseLogger);
     const ctx = { traceId, logger: reqLogger, headers };
     const initialDataInput = () => fetchInitialData(attr, params, serviceRegistry, ctx);
 

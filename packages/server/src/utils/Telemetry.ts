@@ -6,6 +6,13 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Logs } from '../core/logging/types';
 import type { RequestContext } from '../core/telemetry/Telemetry';
 
+// Reads the context hoisted by SSRServer's onRequest hook (P0B-01). undefined when the
+// hook is not installed — callers fall back to creating a context in place, which keeps
+// direct handler invocation (tests, userland composition) behaving exactly as before.
+export function getRequestContext<L extends Logs>(req: FastifyRequest): RequestContext<L> | undefined {
+  return (req.taujsRequestContext as RequestContext<L> | null | undefined) ?? undefined;
+}
+
 export function createRequestContext<L extends Logs>(req: FastifyRequest, reply: FastifyReply, baseLogger: L): RequestContext<L> {
   const raw = typeof req.headers['x-trace-id'] === 'string' ? req.headers['x-trace-id'] : '';
   const traceId = raw && REGEX.SAFE_TRACE.test(raw) ? raw : typeof (req as any).id === 'string' ? (req as any).id : crypto.randomUUID();

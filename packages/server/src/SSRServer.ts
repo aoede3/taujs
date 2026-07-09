@@ -23,6 +23,7 @@ import { cspPlugin } from './security/CSP';
 import { cspReportPlugin } from './security/CSPReporting';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
+import { createRequestContext } from './utils/Telemetry';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { registerStaticAssets } from './utils/StaticAssets';
@@ -107,6 +108,13 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
       viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet, plugins);
     }
+    // Trace context first, deliberately before auth: every request — rendered, fallthrough,
+    // asset-like — gets a traceId and the x-trace-id response header before route matching,
+    // and auth logging can carry the traceId (P0B-01).
+    app.decorateRequest('taujsRequestContext', null);
+    app.addHook('onRequest', async (req, reply) => {
+      req.taujsRequestContext = createRequestContext(req, reply, logger);
+    });
     app.addHook('onRequest', createAuthHook(routeMatchers, logger));
 
     app.get('/*', async (req, reply) => {
