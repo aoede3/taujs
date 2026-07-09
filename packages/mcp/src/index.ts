@@ -11,6 +11,9 @@ export {
   stalenessLineFor,
 } from './SubstrateReader';
 
+export { createTaujsMcpServer, allTools } from './server';
+export { skills } from './skills';
+
 export type { GraphReadResult, ObservationsReadResult, SubstrateDiscovery, SubstratePaths } from './SubstrateReader';
 export type {
   DevJson,

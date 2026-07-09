@@ -6,6 +6,8 @@ import path from 'path';
 import pc from 'picocolors';
 import prompts from 'prompts';
 
+import { generateClaudeMd, generateMcpJson } from './mcp';
+
 type ProjectConfig = {
   projectName: string;
   packageManager: 'npm' | 'pnpm' | 'yarn';
@@ -181,6 +183,11 @@ async function generateFiles(targetDir: string, config: ProjectConfig) {
 
   await fs.writeFile(path.join(targetDir, 'README.md'), generateReadme(projectName, packageManager));
 
+  // Agent wiring (P1-04): pinned local-bin MCP config + a short CLAUDE.md pointer whose
+  // substance ships in @taujs/mcp.
+  await fs.writeJSON(path.join(targetDir, '.mcp.json'), generateMcpJson(packageManager), { spaces: 2 });
+  await fs.writeFile(path.join(targetDir, 'CLAUDE.md'), generateClaudeMd());
+
   await fs.writeFile(path.join(targetDir, 'src/client/index.html'), generateIndexHtml());
   await fs.writeFile(path.join(targetDir, 'src/client/App.tsx'), generateAppComponent());
   await fs.writeFile(path.join(targetDir, 'src/client/entry-client.tsx'), generateEntryClient());
@@ -222,6 +229,7 @@ function generatePackageJson(projectName: string) {
       'react-dom': '^19.0.0',
     },
     devDependencies: {
+      '@taujs/mcp': 'latest',
       '@types/node': '^22.10.5',
       '@types/react': '^19.0.2',
       '@types/react-dom': '^19.0.2',

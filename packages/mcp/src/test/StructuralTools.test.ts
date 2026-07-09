@@ -165,6 +165,15 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     expect(payload.ok).toBe(true);
     expect(payload.routeCount).toBe(4);
 
+    const prompts = await client.listPrompts();
+    expect(prompts.prompts.map((p) => p.name).sort()).toEqual([
+      'taujs_skill_add_streamed_route',
+      'taujs_skill_diagnose_broken_route',
+      'taujs_skill_hydration_mismatch',
+    ]);
+    const skill = await client.getPrompt({ name: 'taujs_skill_diagnose_broken_route' });
+    expect(JSON.stringify(skill.messages)).toContain('taujs_get_recent_traces');
+
     await client.close();
     await server.close();
   });

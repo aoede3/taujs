@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import pkg from '../package.json';
+import { skills } from './skills';
 import { runtimeTools } from './tools/runtime';
 import { structuralTools } from './tools/structural';
 
@@ -21,6 +22,13 @@ export const createTaujsMcpServer = (root: string = process.cwd()): McpServer =>
     server.registerTool(tool.name, { title: tool.title, description: tool.description, inputSchema: tool.inputSchema as never }, ((
       args: Record<string, unknown>,
     ) => toContent(tool.handler(args ?? {}))) as never);
+  }
+
+  // Skills ride the MCP prompts surface: versioned with the package, zero per-project files.
+  for (const skill of skills) {
+    server.registerPrompt(skill.name, { title: skill.title, description: skill.description }, () => ({
+      messages: [{ role: 'user' as const, content: { type: 'text' as const, text: skill.text } }],
+    }));
   }
 
   return server;
