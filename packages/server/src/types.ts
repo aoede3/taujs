@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 
-import type { Route, PathToRegExpParams } from './core/config/types';
+import type { CoreTaujsConfig, Route, PathToRegExpParams } from './core/config/types';
 import type { DebugConfig, Logs } from './core/logging/types';
 import type { ServiceRegistry } from './core/services/DataServices';
 
@@ -17,6 +17,8 @@ export type SSRServerOptions = {
   staticAssets?: StaticAssetsRegistration;
   debug?: DebugConfig;
   devNet?: { host: string; hmrPort: number };
+  /** Full resolved config — consumed only by dev introspection surfaces (graph endpoint). */
+  taujsConfig?: CoreTaujsConfig;
 };
 
 export type GenericPlugin = FastifyPluginCallback<Record<string, unknown>> | FastifyPluginAsync<Record<string, unknown>>;

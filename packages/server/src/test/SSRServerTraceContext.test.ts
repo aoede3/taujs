@@ -108,4 +108,15 @@ describe('trace-context hoist (P0B-01)', () => {
 
     expect(seenByAuth).toEqual([{ traceId: 'order-check-1' }]);
   });
+
+  it('non-dev boot registers no /__taujs routes and no introspection state (spec 03 §8 #1)', async () => {
+    const app = await buildApp();
+
+    const res = await app.inject({ method: 'GET', url: '/__taujs/graph', headers: { 'x-taujs-token': 'anything' } });
+
+    // No overlay route exists: the URL falls into the ordinary catch-all render path.
+    expect(handleRenderMock).toHaveBeenCalledTimes(1);
+    expect(res.json().traceId).toBeTruthy();
+    expect((app as any).taujsIntrospection).toBeUndefined();
+  });
 });

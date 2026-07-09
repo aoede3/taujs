@@ -110,11 +110,20 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
       viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet, plugins);
 
-      // Structural gate (spec 03 invariant 1): the recorder exists only when the dev Vite
-      // middleware exists, loaded via lazy dynamic import. Failure is non-fatal.
+      // Structural gate (spec 03 invariant 1): recorder, dev files, and overlay endpoints
+      // exist only when the dev Vite middleware exists, loaded via lazy dynamic import.
+      // Failure is non-fatal.
       try {
         const { createDevIntrospection } = await import('./core/introspection/DevIntrospection');
-        introspection = createDevIntrospection({ logger });
+        const { registerDevFiles } = await import('./core/introspection/DevFiles');
+        const { registerIntrospectionEndpoints } = await import('./core/introspection/DevEndpoints');
+
+        const redaction = opts.taujsConfig?.introspection?.redaction;
+        introspection = createDevIntrospection({ logger, denyKeys: redaction?.denyKeys, replaceDefaultDenyKeys: redaction?.replaceDefaultDenyKeys });
+
+        app.decorate('taujsIntrospection', introspection);
+        registerDevFiles(app, introspection, logger);
+        registerIntrospectionEndpoints(app, { introspection, taujsConfig: opts.taujsConfig, serviceRegistry, logger });
       } catch (err) {
         logger.warn({ component: 'introspection', error: (err as Error)?.message ?? String(err) }, 'Trace recording unavailable (non-fatal)');
       }

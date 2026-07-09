@@ -95,4 +95,26 @@ describe('createServer — graph emission wiring (structural gate)', () => {
 
     await expect(bootWith('development')).resolves.toBeTruthy();
   });
+
+  it('allowNonLoopback shouts the exact boot-summary warning in dev, and never in prod', async () => {
+    const shoutText = 'τjs introspection overlay exposed to non-loopback clients. For trusted dev networks only.';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      process.env.NODE_ENV = 'development';
+      vi.resetModules();
+      let { createServer } = await import('../CreateServer');
+      await createServer({ config: { ...config, introspection: { allowNonLoopback: true } }, fastify: mkApp() });
+      expect(warnSpy.mock.calls.some((c) => c.join(' ').includes(shoutText))).toBe(true);
+
+      warnSpy.mockClear();
+      process.env.NODE_ENV = 'production';
+      vi.resetModules();
+      ({ createServer } = await import('../CreateServer'));
+      await createServer({ config: { ...config, introspection: { allowNonLoopback: true } }, fastify: mkApp() });
+      expect(warnSpy.mock.calls.some((c) => c.join(' ').includes(shoutText))).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });

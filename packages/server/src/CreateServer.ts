@@ -76,6 +76,12 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   printConfigSummary(logger, apps, configs.length, totalRoutes, durationMs, warnings);
   printSecuritySummary(logger, routes, security, hasExplicitCSP, securityDuration);
 
+  // RFC security model §2: relaxing the loopback guard must shout in the boot summary —
+  // exact text, not a debug line.
+  if (isDevelopment && opts.config.introspection?.allowNonLoopback) {
+    logger.warn({ component: 'introspection' }, 'τjs introspection overlay exposed to non-loopback clients. For trusted dev networks only.');
+  }
+
   const report = verifyContracts(
     app,
     routes,
@@ -109,6 +115,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       alias: opts.alias,
       security,
       devNet: { host: net.host, hmrPort: net.hmrPort },
+      taujsConfig: opts.config,
     });
   } catch (err) {
     logger.error(
