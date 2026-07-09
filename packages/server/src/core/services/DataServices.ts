@@ -2,6 +2,7 @@ import { AppError } from '../errors/AppError';
 import { resolveLogs } from '../logging/resolve';
 
 import type { Logs } from '../logging/types';
+import type { TraceRecorder } from '../introspection/TraceRecorder';
 import { now } from '../telemetry/Telemetry';
 
 // runtime checks instead happens at the boundary
@@ -23,6 +24,7 @@ type BaseServiceContext = {
   traceId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
+  recorder?: TraceRecorder; // dev-only, safety-wrapped; absent in production
 };
 
 type UntypedRegistryCaller = (serviceName: string, methodName: string, args?: JsonObject) => Promise<JsonObject>;
@@ -203,18 +205,22 @@ export async function callServiceMethod(
       throw AppError.internal(`Non-object result from ${serviceName}.${methodName}`);
     }
 
-    logger.debug({ ms: +(now() - t0).toFixed(1) }, 'Service method ok');
+    const ms = +(now() - t0).toFixed(1);
+    logger.debug({ ms }, 'Service method ok');
+    if (ctx.recorder && ctx.traceId) ctx.recorder.serviceCall({ traceId: ctx.traceId, service: serviceName, method: methodName, ms, ok: true });
 
     return result;
   } catch (err) {
+    const ms = +(now() - t0).toFixed(1);
     logger.error(
       {
         params,
         error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
-        ms: +(now() - t0).toFixed(1),
+        ms,
       },
       'Service method failed',
     );
+    if (ctx.recorder && ctx.traceId) ctx.recorder.serviceCall({ traceId: ctx.traceId, service: serviceName, method: methodName, ms, ok: false });
 
     // Brand check, not instanceof: the thrown error may come from another copy
     // of AppError (e.g. the @taujs/server/config entry) and must keep its

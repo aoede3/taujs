@@ -86,6 +86,10 @@ export const handleNotFound = async (
     // with a 200 so client-side routes beyond taujs.config still work.
     const result = reply.status(200).type('text/html').send(processedTemplate);
 
+    // Fallthrough terminal event (spec 03 §1): requestStart → sent, no routeMatched — this
+    // is what makes accidental CSR visible.
+    requestContext?.recorder?.sent({ traceId: requestContext.traceId, status: 200, mode: 'fallthrough' });
+
     return result;
   } catch (err) {
     logger.error?.({ error: err, url: req.url, clientRoot: processedConfigs[0]?.clientRoot }, 'handleNotFound failed');
