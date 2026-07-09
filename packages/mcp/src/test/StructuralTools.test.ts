@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
 import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitGraph';
 import { createRequestGraph } from '../../../server/src/core/introspection/RequestGraph';
-import { createServiceData, getServiceDataMetadata } from '../../../server/src/core/services/ServiceData';
+import { createServiceData } from '../../../server/src/core/services/ServiceData';
 import { defineService, defineServiceRegistry } from '../../../server/src/core/services/DataServices';
 
 import { createTaujsMcpServer, allTools } from '../server';
@@ -64,7 +64,6 @@ beforeAll(async () => {
 
   // No dev.json → stale mode: structural tools must work cold and cite staleness.
   toolByName = new Map(allTools(root).map((t) => [t.name, t.handler]));
-  void getServiceDataMetadata; // imported to keep fixture parity with server tests
 });
 
 const call = (name: string, args: Record<string, unknown> = {}): any => {
