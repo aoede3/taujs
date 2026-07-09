@@ -1,7 +1,7 @@
 {
   "name": "@taujs/mcp",
   "version": "0.0.0",
-  "description": "τjs [ taujs ] MCP adapter — a thin file reader over the introspection substrate",
+  "description": "\u03c4js [ taujs ] MCP adapter \u2014 a thin file reader over the introspection substrate",
   "author": "John Smith | Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
   "license": "MIT",
   "homepage": "https://taujs.dev/",
@@ -47,5 +47,12 @@
     "format": "prettier --write .",
     "check-format": "prettier --check .",
     "check-exports": "attw --pack . --profile esm-only"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "bin": {
+    "taujs-mcp": "./dist/bin.js"
   }
 }
