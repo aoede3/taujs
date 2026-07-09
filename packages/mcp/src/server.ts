@@ -1,11 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import pkg from '../package.json';
+import { runtimeTools } from './tools/runtime';
 import { structuralTools } from './tools/structural';
 
 import type { ToolDefinition } from './toolkit';
 
-export const allTools = (root: string): ToolDefinition[] => [...structuralTools(root)];
+export const allTools = (root: string): ToolDefinition[] => [...structuralTools(root), ...runtimeTools(root)];
 
 // Tool results are JSON text content: agents parse structure, humans read it too.
 const toContent = (result: Record<string, unknown>) => ({

@@ -148,8 +148,12 @@ describe('MCP server end-to-end (InMemory transport)', () => {
 
     const tools = await client.listTools();
     expect(tools.tools.map((t) => t.name).sort()).toEqual([
+      'taujs_doctor',
       'taujs_explain_route',
+      'taujs_get_recent_traces',
       'taujs_get_route',
+      'taujs_get_trace',
+      'taujs_get_trace_logs',
       'taujs_list_routes',
       'taujs_overview',
       'taujs_who_calls_service',
