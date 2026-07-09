@@ -15,13 +15,14 @@ import { build } from 'vite';
 
 import { TEMPLATE } from './constants';
 import { extractBuildConfigs } from './core/config/Setup';
+import { emitGraphArtifact } from './core/introspection/EmitGraph';
 import { processConfigs } from './utils/AssetManager';
 import { resolveEntryFile } from './utils/Entry';
 
 export { resolveEntryFile };
 
 import type { InlineConfig, PluginOption } from 'vite';
-import type { CoreAppConfig } from './core/config/types';
+import type { CoreTaujsConfig } from './core/config/types';
 
 export type ViteBuildContext = {
   appId: string;
@@ -313,7 +314,7 @@ export async function taujsBuild({
   alias: userAlias,
   vite: userViteConfig,
 }: {
-  config: { apps: readonly CoreAppConfig[] };
+  config: CoreTaujsConfig;
   projectRoot: string;
   clientBaseDir: string;
   isSSRBuild?: boolean;
@@ -441,4 +442,11 @@ export async function taujsBuild({
       process.exit(1);
     }
   }
+
+  // After successful builds only (failures exit above). No registry at build time, so the
+  // emitted graph carries services: null — "registry unavailable", never "no services".
+  await emitGraphArtifact(path.resolve(projectRoot, 'dist', '.taujs'), config, {
+    source: 'build',
+    logger: { warn: (meta?: unknown, message?: string) => console.warn(`[taujs:build] ${message ?? ''}`, meta) },
+  });
 }
