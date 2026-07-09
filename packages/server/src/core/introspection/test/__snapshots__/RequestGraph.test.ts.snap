@@ -1,0 +1,764 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (a) minimal single app 1`] = `
+{
+  "apps": [
+    {
+      "appId": "web",
+      "entryPoint": "web",
+      "routeCount": 1,
+    },
+  ],
+  "disclosure": "conservative",
+  "emittedAt": "2026-07-09T10:12:03.412Z",
+  "fallthrough": {
+    "appId": "web",
+    "assetLike": 404,
+    "mode": "spa",
+    "reachable": true,
+  },
+  "routes": [
+    {
+      "appId": "web",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "web:/",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/",
+      "render": {
+        "defaulted": true,
+        "strategy": "ssr",
+      },
+      "specificity": 0,
+    },
+  ],
+  "schemaVersion": 1,
+  "security": {
+    "cspDefaultMode": "merge",
+    "reporting": false,
+  },
+  "services": null,
+  "source": "boot",
+  "taujs": {
+    "server": "0.7.1",
+  },
+  "warnings": [
+    {
+      "code": "csp.dev_directives",
+      "message": "No security.csp configured; development default CSP directives apply",
+      "severity": "warn",
+      "source": "security",
+    },
+    {
+      "code": "render.defaulted",
+      "message": "Route "/" declares no render strategy; runtime default "ssr" applies",
+      "routeId": "web:/",
+      "severity": "warn",
+      "source": "extract-routes",
+    },
+  ],
+}
+`;
+
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) multi-app with registry: kinds, usedBy, csp variants 1`] = `
+{
+  "apps": [
+    {
+      "appId": "storefront",
+      "entryPoint": "storefront",
+      "routeCount": 3,
+    },
+    {
+      "appId": "admin",
+      "entryPoint": "admin",
+      "routeCount": 2,
+    },
+  ],
+  "disclosure": "conservative",
+  "emittedAt": "2026-07-09T10:12:03.412Z",
+  "fallthrough": {
+    "appId": "storefront",
+    "assetLike": 404,
+    "mode": "spa",
+    "reachable": true,
+  },
+  "routes": [
+    {
+      "appId": "admin",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "admin:/admin/settings",
+      "middleware": {
+        "auth": {
+          "declared": true,
+        },
+        "csp": {
+          "declared": true,
+          "disabled": "soft",
+        },
+      },
+      "path": "/admin/settings",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 20.2,
+    },
+    {
+      "appId": "admin",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "admin:/admin",
+      "middleware": {
+        "auth": {
+          "declared": true,
+        },
+        "csp": {
+          "declared": true,
+          "disabled": "hard",
+        },
+      },
+      "path": "/admin",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "storefront",
+      "data": {
+        "kind": "service",
+        "method": "getProduct",
+        "service": "catalog",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "storefront:/product/:id",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": true,
+          "dynamic": false,
+          "mode": "replace",
+          "reportOnly": true,
+        },
+      },
+      "path": "/product/:id",
+      "render": {
+        "defaulted": false,
+        "strategy": "streaming",
+      },
+      "specificity": 11.2,
+    },
+    {
+      "appId": "storefront",
+      "data": {
+        "kind": "dynamic",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "storefront:/search",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": true,
+          "dynamic": true,
+          "mode": "merge",
+          "reportOnly": false,
+        },
+      },
+      "path": "/search",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "storefront",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": false,
+        "enabled": false,
+      },
+      "id": "storefront:/terms",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/terms",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+  ],
+  "schemaVersion": 1,
+  "security": {
+    "cspDefaultMode": "merge",
+    "reporting": true,
+  },
+  "services": [
+    {
+      "methods": [
+        {
+          "name": "getProduct",
+          "params": {
+            "declared": true,
+            "kind": "parse",
+          },
+          "result": {
+            "declared": false,
+          },
+          "usedBy": [
+            {
+              "appId": "storefront",
+              "path": "/product/:id",
+              "routeId": "storefront:/product/:id",
+            },
+          ],
+        },
+        {
+          "name": "listSpecials",
+          "params": {
+            "declared": false,
+          },
+          "result": {
+            "declared": false,
+          },
+          "usedBy": [],
+        },
+      ],
+      "name": "catalog",
+    },
+    {
+      "methods": [
+        {
+          "name": "page",
+          "params": {
+            "declared": true,
+            "kind": "function",
+          },
+          "result": {
+            "declared": true,
+            "kind": "parse",
+          },
+          "usedBy": [],
+        },
+      ],
+      "name": "content",
+    },
+  ],
+  "source": "boot",
+  "taujs": {
+    "server": "0.7.1",
+  },
+  "warnings": [],
+}
+`;
+
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) without a registry: services is null, never [] 1`] = `
+{
+  "apps": [
+    {
+      "appId": "storefront",
+      "entryPoint": "storefront",
+      "routeCount": 3,
+    },
+    {
+      "appId": "admin",
+      "entryPoint": "admin",
+      "routeCount": 2,
+    },
+  ],
+  "disclosure": "conservative",
+  "emittedAt": "2026-07-09T10:12:03.412Z",
+  "fallthrough": {
+    "appId": "storefront",
+    "assetLike": 404,
+    "mode": "spa",
+    "reachable": true,
+  },
+  "routes": [
+    {
+      "appId": "admin",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "admin:/admin/settings",
+      "middleware": {
+        "auth": {
+          "declared": true,
+        },
+        "csp": {
+          "declared": true,
+          "disabled": "soft",
+        },
+      },
+      "path": "/admin/settings",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 20.2,
+    },
+    {
+      "appId": "admin",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "admin:/admin",
+      "middleware": {
+        "auth": {
+          "declared": true,
+        },
+        "csp": {
+          "declared": true,
+          "disabled": "hard",
+        },
+      },
+      "path": "/admin",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "storefront",
+      "data": {
+        "kind": "service",
+        "method": "getProduct",
+        "service": "catalog",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "storefront:/product/:id",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": true,
+          "dynamic": false,
+          "mode": "replace",
+          "reportOnly": true,
+        },
+      },
+      "path": "/product/:id",
+      "render": {
+        "defaulted": false,
+        "strategy": "streaming",
+      },
+      "specificity": 11.2,
+    },
+    {
+      "appId": "storefront",
+      "data": {
+        "kind": "dynamic",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "storefront:/search",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": true,
+          "dynamic": true,
+          "mode": "merge",
+          "reportOnly": false,
+        },
+      },
+      "path": "/search",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "storefront",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": false,
+        "enabled": false,
+      },
+      "id": "storefront:/terms",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/terms",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+  ],
+  "schemaVersion": 1,
+  "security": {
+    "cspDefaultMode": "merge",
+    "reporting": true,
+  },
+  "services": null,
+  "source": "build",
+  "taujs": {
+    "server": "0.7.1",
+  },
+  "warnings": [],
+}
+`;
+
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (c) app-shell wildcard: fallthrough unreachable 1`] = `
+{
+  "apps": [
+    {
+      "appId": "shell",
+      "entryPoint": "shell",
+      "routeCount": 2,
+    },
+  ],
+  "disclosure": "conservative",
+  "emittedAt": "2026-07-09T10:12:03.412Z",
+  "fallthrough": {
+    "appId": "shell",
+    "assetLike": 404,
+    "mode": "spa",
+    "reachable": false,
+  },
+  "routes": [
+    {
+      "appId": "shell",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "shell:/*",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/*",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 0.2,
+    },
+    {
+      "appId": "shell",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "shell:/",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 0,
+    },
+  ],
+  "schemaVersion": 1,
+  "security": {
+    "cspDefaultMode": "replace",
+    "reporting": false,
+  },
+  "services": null,
+  "source": "boot",
+  "taujs": {
+    "server": "0.7.1",
+  },
+  "warnings": [
+    {
+      "code": "fallthrough.unreachable",
+      "message": "Route "/*" matches all page URLs (app-shell pattern); fallthrough is unreachable",
+      "routeId": "shell:/*",
+      "severity": "info",
+      "source": "graph",
+    },
+  ],
+}
+`;
+
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (d) every warning code fires at least once 1`] = `
+{
+  "apps": [
+    {
+      "appId": "alpha",
+      "entryPoint": "alpha",
+      "routeCount": 4,
+    },
+    {
+      "appId": "beta",
+      "entryPoint": "beta",
+      "routeCount": 1,
+    },
+  ],
+  "disclosure": "conservative",
+  "emittedAt": "2026-07-09T10:12:03.412Z",
+  "fallthrough": {
+    "appId": "alpha",
+    "assetLike": 404,
+    "mode": "spa",
+    "reachable": false,
+  },
+  "routes": [
+    {
+      "appId": "alpha",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "alpha:/defaulted",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/defaulted",
+      "render": {
+        "defaulted": true,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "alpha",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "alpha:/dup",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/dup",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "alpha",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "alpha:/live",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/live",
+      "render": {
+        "defaulted": false,
+        "strategy": "streaming",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "alpha",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "alpha:*",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "*",
+      "render": {
+        "defaulted": true,
+        "strategy": "ssr",
+      },
+      "specificity": 0.2,
+    },
+    {
+      "appId": "beta",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "beta:/dup",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/dup",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+  ],
+  "schemaVersion": 1,
+  "security": {
+    "cspDefaultMode": "merge",
+    "reporting": false,
+  },
+  "services": null,
+  "source": "boot",
+  "taujs": {
+    "server": "0.7.1",
+  },
+  "warnings": [
+    {
+      "code": "csp.dev_directives",
+      "message": "No security.csp configured; development default CSP directives apply",
+      "severity": "warn",
+      "source": "security",
+    },
+    {
+      "code": "fallthrough.unreachable",
+      "message": "Route "*" matches all page URLs (app-shell pattern); fallthrough is unreachable",
+      "routeId": "alpha:*",
+      "severity": "info",
+      "source": "graph",
+    },
+    {
+      "code": "render.defaulted",
+      "message": "Route "*" declares no render strategy; runtime default "ssr" applies",
+      "routeId": "alpha:*",
+      "severity": "warn",
+      "source": "extract-routes",
+    },
+    {
+      "code": "render.defaulted",
+      "message": "Route "/defaulted" declares no render strategy; runtime default "ssr" applies",
+      "routeId": "alpha:/defaulted",
+      "severity": "warn",
+      "source": "extract-routes",
+    },
+    {
+      "code": "routes.duplicate_path",
+      "message": "Route path "/dup" is declared in multiple apps: alpha, beta",
+      "severity": "error",
+      "source": "extract-routes",
+    },
+    {
+      "code": "streaming.missing_meta",
+      "message": "Streaming route "/live" has no meta",
+      "routeId": "alpha:/live",
+      "severity": "error",
+      "source": "extract-routes",
+    },
+  ],
+}
+`;
