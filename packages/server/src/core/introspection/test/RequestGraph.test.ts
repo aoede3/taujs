@@ -113,6 +113,45 @@ const fixtureAllWarnings: CoreTaujsConfig = {
   ],
 };
 
+// (e) mirrors fixtures/playground/taujs.config.ts (P0B-05) — keep the two in sync; the
+// playground README points back here. Registry mirrors content/catalog kinds.
+const playgroundCatalog = defineService({
+  getProduct: {
+    handler: async (p: { id: string }) => ({ product: { id: p.id, title: `Product ${p.id}`, price: 42 } }),
+    params: { parse: (u: unknown) => u as { id: string } },
+    result: (u: unknown) => u as { product: { id: string; title: string; price: number } },
+  },
+});
+const playgroundContent = defineService({
+  home: async (_p: {}) => ({ heading: 'τjs playground', blurb: '' }),
+});
+const playgroundRegistry = defineServiceRegistry({ catalog: playgroundCatalog, content: playgroundContent });
+const playgroundServiceData = createServiceData<typeof playgroundRegistry>();
+
+const fixturePlayground: CoreTaujsConfig = {
+  server: { port: 5173, host: 'localhost', hmrPort: 5174 },
+  apps: [
+    {
+      appId: 'playground',
+      entryPoint: '',
+      routes: [
+        { path: '/', attr: { render: 'ssr', data: playgroundServiceData('content', 'home') } },
+        {
+          path: '/product/:id',
+          attr: {
+            render: 'streaming',
+            meta: { title: 'τjs playground — product' },
+            data: playgroundServiceData('catalog', 'getProduct', (p) => ({ id: String(p.id) })),
+          },
+        },
+        { path: '/legacy', attr: { render: 'ssr', data: async () => ({ legacy: true }) } },
+        { path: '/terms', attr: { render: 'ssr', hydrate: false } },
+        { path: '/admin', attr: { render: 'ssr', middleware: { auth: { roles: ['admin'] } } } },
+      ],
+    },
+  ],
+};
+
 describe('createRequestGraph — fixture snapshots (spec 02 schema v1)', () => {
   it('(a) minimal single app', () => {
     expect(createRequestGraph(fixtureMinimal, OPTS)).toMatchSnapshot();
@@ -128,6 +167,14 @@ describe('createRequestGraph — fixture snapshots (spec 02 schema v1)', () => {
 
   it('(c) app-shell wildcard: fallthrough unreachable', () => {
     expect(createRequestGraph(fixtureAppShell, OPTS)).toMatchSnapshot();
+  });
+
+  it('(e) playground fixture: the P0B-05 app shape, registry-enriched', () => {
+    const graph = createRequestGraph(fixturePlayground, { ...OPTS, serviceRegistry: playgroundRegistry });
+
+    expect(graph.fallthrough.reachable).toBe(true);
+    expect(graph.routes.map((r) => r.data.kind)).toEqual(expect.arrayContaining(['service', 'dynamic', 'none']));
+    expect(graph).toMatchSnapshot();
   });
 
   it('(d) every warning code fires at least once', () => {

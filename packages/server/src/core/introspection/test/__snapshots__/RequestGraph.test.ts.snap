@@ -762,3 +762,217 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (d) ever
   ],
 }
 `;
+
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) playground fixture: the P0B-05 app shape, registry-enriched 1`] = `
+{
+  "apps": [
+    {
+      "appId": "playground",
+      "entryPoint": "",
+      "routeCount": 5,
+    },
+  ],
+  "disclosure": "conservative",
+  "emittedAt": "2026-07-09T10:12:03.412Z",
+  "fallthrough": {
+    "appId": "playground",
+    "assetLike": 404,
+    "mode": "spa",
+    "reachable": true,
+  },
+  "routes": [
+    {
+      "appId": "playground",
+      "data": {
+        "kind": "service",
+        "method": "getProduct",
+        "service": "catalog",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "playground:/product/:id",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/product/:id",
+      "render": {
+        "defaulted": false,
+        "strategy": "streaming",
+      },
+      "specificity": 11.2,
+    },
+    {
+      "appId": "playground",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "playground:/admin",
+      "middleware": {
+        "auth": {
+          "declared": true,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/admin",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "playground",
+      "data": {
+        "kind": "dynamic",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "playground:/legacy",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/legacy",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "playground",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": false,
+        "enabled": false,
+      },
+      "id": "playground:/terms",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/terms",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 10.1,
+    },
+    {
+      "appId": "playground",
+      "data": {
+        "kind": "service",
+        "method": "home",
+        "service": "content",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "playground:/",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 0,
+    },
+  ],
+  "schemaVersion": 1,
+  "security": {
+    "cspDefaultMode": "merge",
+    "reporting": false,
+  },
+  "services": [
+    {
+      "methods": [
+        {
+          "name": "getProduct",
+          "params": {
+            "declared": true,
+            "kind": "parse",
+          },
+          "result": {
+            "declared": true,
+            "kind": "function",
+          },
+          "usedBy": [
+            {
+              "appId": "playground",
+              "path": "/product/:id",
+              "routeId": "playground:/product/:id",
+            },
+          ],
+        },
+      ],
+      "name": "catalog",
+    },
+    {
+      "methods": [
+        {
+          "name": "home",
+          "params": {
+            "declared": false,
+          },
+          "result": {
+            "declared": false,
+          },
+          "usedBy": [
+            {
+              "appId": "playground",
+              "path": "/",
+              "routeId": "playground:/",
+            },
+          ],
+        },
+      ],
+      "name": "content",
+    },
+  ],
+  "source": "boot",
+  "taujs": {
+    "server": "0.7.1",
+  },
+  "warnings": [
+    {
+      "code": "csp.dev_directives",
+      "message": "No security.csp configured; development default CSP directives apply",
+      "severity": "warn",
+      "source": "security",
+    },
+  ],
+}
+`;

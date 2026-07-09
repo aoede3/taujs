@@ -1,0 +1,27 @@
+{
+  "name": "playground",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "τjs introspection fixture playground — the app the whole effort drives against (P0B-05)",
+  "scripts": {
+    "dev": "NODE_ENV=development tsx watch --ignore vite.config.ts --tsconfig ./src/server/tsconfig.json ./src/server/index.ts",
+    "build": "tsx build.ts && BUILD_MODE=ssr tsx build.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@taujs/react": "workspace:*",
+    "@taujs/server": "workspace:*",
+    "fastify": "^5.8.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.5.4",
+    "vite": "^7.3.6"
+  }
+}
