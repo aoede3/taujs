@@ -38,6 +38,10 @@ export { callServiceMethod, defineService, defineServiceRegistry, withDeadline }
 
 export type { JsonObject, JsonPrimitive, JsonValue, RegistryCaller, ServiceContext, TypedServiceContext } from './core/services/DataServices';
 
+export { createServiceData, getServiceDataMetadata } from './core/services/ServiceData';
+
+export type { ServiceDataMetadata } from './core/services/ServiceData';
+
 export type RouteContext = CoreRouteContext<TaujsConfig>;
 export type RouteData<C extends TaujsConfig = TaujsConfig, P extends string = string> = CoreRouteData<C, P>;
 

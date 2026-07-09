@@ -41,7 +41,7 @@ type RuntimeServiceMethod<P extends JsonObject = JsonObject, R extends JsonObjec
 export type ServiceDefinition = Readonly<Record<string, RuntimeServiceMethod<any, JsonObject>>>;
 export type ServiceRegistry = Readonly<Record<string, ServiceDefinition>>;
 
-type ServiceMethodParams<M> = M extends (params: infer P, ctx: any) => Promise<any> ? P : never;
+export type ServiceMethodParams<M> = M extends (params: infer P, ctx: any) => Promise<any> ? P : never;
 type ServiceMethodResult<M> = Awaited<M extends (...args: any[]) => Promise<infer R> ? R : never>;
 type RegistryCallerArgs<R extends ServiceRegistry, S extends keyof R & string, M extends keyof R[S] & string> =
   undefined extends ServiceMethodParams<R[S][M]>
