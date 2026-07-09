@@ -89,6 +89,27 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@20.19.43)(@vitest/ui@3.2.7)(jsdom@25.0.1)(tsx@4.23.0)
 
+  packages/mcp:
+    devDependencies:
+      '@arethetypeswrong/cli':
+        specifier: ^0.18.4
+        version: 0.18.4
+      '@types/node':
+        specifier: ^20.14.9
+        version: 20.19.43
+      prettier:
+        specifier: ^3.3.3
+        version: 3.9.4
+      tsup:
+        specifier: ^8.2.4
+        version: 8.5.1(postcss@8.5.16)(tsx@4.23.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.10(@types/node@20.19.43)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(jsdom@25.0.1)(vite@7.3.6(@types/node@20.19.43)(tsx@4.23.0))
+
   packages/react:
     dependencies:
       '@vitejs/plugin-react':
