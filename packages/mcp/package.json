@@ -1,0 +1,58 @@
+{
+  "name": "@taujs/mcp",
+  "version": "0.0.0",
+  "description": "\u03c4js [ taujs ] MCP adapter \u2014 a thin file reader over the introspection substrate",
+  "author": "John Smith | Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
+  "license": "MIT",
+  "homepage": "https://taujs.dev/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aoede3/taujs.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/aoede3/taujs/issues"
+  },
+  "keywords": [
+    "taujs",
+    "mcp",
+    "introspection",
+    "ssr"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.4",
+    "@types/node": "^20.14.9",
+    "prettier": "^3.3.3",
+    "tsup": "^8.2.4",
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.9"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "check-format": "prettier --check .",
+    "check-exports": "attw --pack . --profile esm-only"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "bin": {
+    "taujs-mcp": "./dist/bin.js"
+  }
+}

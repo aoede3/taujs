@@ -14,6 +14,7 @@ import { bannerPlugin } from './network/Network';
 import { verifyContracts, isAuthRequired, hasAuthenticate } from './security/VerifyMiddleware';
 import { printConfigSummary, printContractReport, printSecuritySummary } from './Setup';
 import { SSRServer } from './SSRServer';
+import { isDevelopment } from './System';
 
 import type { FastifyInstance } from 'fastify';
 import type { ServiceRegistry } from './core/services/DataServices';
@@ -75,6 +76,12 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   printConfigSummary(logger, apps, configs.length, totalRoutes, durationMs, warnings);
   printSecuritySummary(logger, routes, security, hasExplicitCSP, securityDuration);
 
+  // RFC security model §2: relaxing the loopback guard must shout in the boot summary —
+  // exact text, not a debug line.
+  if (isDevelopment && opts.config.introspection?.allowNonLoopback) {
+    logger.warn({ component: 'introspection' }, 'τjs introspection overlay exposed to non-loopback clients. For trusted dev networks only.');
+  }
+
   const report = verifyContracts(
     app,
     routes,
@@ -108,6 +115,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       alias: opts.alias,
       security,
       devNet: { host: net.host, hmrPort: net.hmrPort },
+      taujsConfig: opts.config,
     });
   } catch (err) {
     logger.error(
@@ -121,6 +129,17 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     // Boot must fail loudly: continuing here would return a server with no
     // routes that "starts" cleanly and 404s everything.
     throw err;
+  }
+
+  // Structural gate (RFC security model §1): in production this branch never runs, so the
+  // introspection emission code is never even loaded — absence, not a disabled flag.
+  if (isDevelopment) {
+    try {
+      const { registerBootGraphEmission } = await import('./core/introspection/EmitGraph');
+      registerBootGraphEmission(app, opts.config, opts.serviceRegistry, logger);
+    } catch (err) {
+      logger.warn({ component: 'introspection', error: normaliseError(err) }, 'Graph emission unavailable (non-fatal)');
+    }
   }
 
   const t1 = performance.now();

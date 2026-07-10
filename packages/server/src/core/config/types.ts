@@ -114,9 +114,22 @@ export type CoreAppConfig = {
   routes?: readonly AppRoute[];
 };
 
+// Dev-only introspection posture (RFC `introspection` config surface). Deliberately no
+// `enabled` flag: dev-on / prod-absent is structural, not a toggle.
+export type CoreIntrospectionConfig = {
+  /** Relaxes ONLY the overlay remote-address check; shouts in the boot summary when enabled. */
+  allowNonLoopback?: boolean;
+  redaction?: {
+    /** Extends the default denylist (password, token, secret, ssn, auth, cookie, session, key). */
+    denyKeys?: string[];
+    replaceDefaultDenyKeys?: boolean;
+  };
+};
+
 export type CoreTaujsConfig = {
   apps: readonly CoreAppConfig[];
   security?: CoreSecurityConfig;
+  introspection?: CoreIntrospectionConfig;
   server?: {
     host?: string;
     port?: number;

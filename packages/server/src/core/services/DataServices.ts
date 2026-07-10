@@ -2,6 +2,7 @@ import { AppError } from '../errors/AppError';
 import { resolveLogs } from '../logging/resolve';
 
 import type { Logs } from '../logging/types';
+import type { TraceRecorder } from '../introspection/TraceRecorder';
 import { now } from '../telemetry/Telemetry';
 
 // runtime checks instead happens at the boundary
@@ -23,6 +24,7 @@ type BaseServiceContext = {
   traceId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
+  recorder?: TraceRecorder; // dev-only, safety-wrapped; absent in production
 };
 
 type UntypedRegistryCaller = (serviceName: string, methodName: string, args?: JsonObject) => Promise<JsonObject>;
@@ -41,7 +43,7 @@ type RuntimeServiceMethod<P extends JsonObject = JsonObject, R extends JsonObjec
 export type ServiceDefinition = Readonly<Record<string, RuntimeServiceMethod<any, JsonObject>>>;
 export type ServiceRegistry = Readonly<Record<string, ServiceDefinition>>;
 
-type ServiceMethodParams<M> = M extends (params: infer P, ctx: any) => Promise<any> ? P : never;
+export type ServiceMethodParams<M> = M extends (params: infer P, ctx: any) => Promise<any> ? P : never;
 type ServiceMethodResult<M> = Awaited<M extends (...args: any[]) => Promise<infer R> ? R : never>;
 type RegistryCallerArgs<R extends ServiceRegistry, S extends keyof R & string, M extends keyof R[S] & string> =
   undefined extends ServiceMethodParams<R[S][M]>
@@ -103,25 +105,65 @@ type NormalizedServiceSpec<T extends ServiceSpec> = {
   [K in keyof T]: NormalizeServiceMethod<ExtractServiceMethod<T[K]>>;
 };
 
+// --- Introspection metadata (P0A-02) ------------------------------------------------
+// Retains the schema shape declared for each normalised method so createRequestGraph can
+// read it without executing handlers. Module-private symbol; graph code reads via
+// getServiceMethodMetadata, never the symbol. Mirrors the serviceData() stamping pattern
+// (core/services/ServiceData.ts).
+const SERVICE_METHOD_METADATA = Symbol('taujs.serviceMethod');
+
+export type ServiceSchemaKind = 'parse' | 'function';
+// `kind` is only what NarrowSchema honestly reveals — an object with `.parse` vs a bare
+// function. We never claim "zod" (spec 02 §Services; decisions.md #1).
+export type ServiceSchemaMetadata = Readonly<{ declared: boolean; kind?: ServiceSchemaKind }>;
+export type ServiceMethodMetadata = Readonly<{ params: ServiceSchemaMetadata; result: ServiceSchemaMetadata }>;
+
+// Same detection runSchema uses at runtime (line 17), so recorded metadata can never
+// disagree with how the schema is actually applied.
+const describeSchema = (schema: NarrowSchema<unknown> | undefined): ServiceSchemaMetadata =>
+  !schema
+    ? Object.freeze({ declared: false })
+    : Object.freeze({ declared: true, kind: typeof (schema as { parse?: unknown }).parse === 'function' ? 'parse' : 'function' });
+
+const methodMetadata = (paramsSchema: NarrowSchema<unknown> | undefined, resultSchema: NarrowSchema<unknown> | undefined): ServiceMethodMetadata =>
+  Object.freeze({ params: describeSchema(paramsSchema), result: describeSchema(resultSchema) });
+
+const stampServiceMethodMetadata = (fn: object, metadata: ServiceMethodMetadata): void => {
+  // Skip when already stamped (a bare-function entry keeps its identity, so the same
+  // function reused across defineService calls would otherwise hit a non-configurable
+  // redefine) or non-extensible (a frozen/sealed user handler — an honest gap beats a
+  // throw). Both keep runtime behaviour byte-for-byte unchanged.
+  if (!Object.isExtensible(fn) || Object.prototype.hasOwnProperty.call(fn, SERVICE_METHOD_METADATA)) return;
+  Object.defineProperty(fn, SERVICE_METHOD_METADATA, { value: metadata, enumerable: false });
+};
+
 export function defineService<T extends ServiceSpec>(spec: T) {
   const out: Record<string, RuntimeServiceMethod<any, JsonObject>> = {};
 
   for (const [name, v] of Object.entries(spec)) {
     if (typeof v === 'function') {
       out[name] = v as RuntimeServiceMethod<any, JsonObject>;
+      stampServiceMethodMetadata(out[name], methodMetadata(undefined, undefined));
     } else {
       const { handler, params: paramsSchema, result: resultSchema } = v;
-      out[name] = async (params, ctx) => {
+      const method: RuntimeServiceMethod<any, JsonObject> = async (params, ctx) => {
         const p = runSchema(paramsSchema, params);
         const r = await handler(p, ctx as ServiceContext);
 
         return runSchema(resultSchema, r);
       };
+      stampServiceMethodMetadata(method, methodMetadata(paramsSchema, resultSchema));
+      out[name] = method;
     }
   }
 
   return Object.freeze(out) as NormalizedServiceSpec<T>;
 }
+
+// Internal accessor for introspection (P0A-03). Returns undefined for non-functions and
+// unstamped functions — the caller's honest `kind: 'dynamic'` / gap case.
+export const getServiceMethodMetadata = (fn: unknown): ServiceMethodMetadata | undefined =>
+  typeof fn === 'function' ? (fn as { [SERVICE_METHOD_METADATA]?: ServiceMethodMetadata })[SERVICE_METHOD_METADATA] : undefined;
 
 export const defineServiceRegistry = <R extends ServiceRegistry>(registry: R): R =>
   Object.freeze(Object.fromEntries(Object.entries(registry).map(([k, v]) => [k, Object.freeze(v)]))) as R;
@@ -163,18 +205,22 @@ export async function callServiceMethod(
       throw AppError.internal(`Non-object result from ${serviceName}.${methodName}`);
     }
 
-    logger.debug({ ms: +(now() - t0).toFixed(1) }, 'Service method ok');
+    const ms = +(now() - t0).toFixed(1);
+    logger.debug({ ms }, 'Service method ok');
+    if (ctx.recorder && ctx.traceId) ctx.recorder.serviceCall({ traceId: ctx.traceId, service: serviceName, method: methodName, ms, ok: true });
 
     return result;
   } catch (err) {
+    const ms = +(now() - t0).toFixed(1);
     logger.error(
       {
         params,
         error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
-        ms: +(now() - t0).toFixed(1),
+        ms,
       },
       'Service method failed',
     );
+    if (ctx.recorder && ctx.traceId) ctx.recorder.serviceCall({ traceId: ctx.traceId, service: serviceName, method: methodName, ms, ok: false });
 
     // Brand check, not instanceof: the thrown error may come from another copy
     // of AppError (e.g. the @taujs/server/config entry) and must keep its

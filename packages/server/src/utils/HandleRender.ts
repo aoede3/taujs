@@ -4,13 +4,15 @@ import { PassThrough } from 'node:stream';
 import { RENDERTYPE } from '../core/constants';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
 import { fetchInitialData, matchRoute } from '../core/routes/DataRoutes';
+import { now } from '../core/telemetry/Telemetry';
 import { resolveEntryFile } from '../Build';
 import { REGEX } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
-import { createRequestContext } from './Telemetry';
+import { createRequestContext, getRequestContext } from './Telemetry';
 import {
   ensureNonNull,
+  buildTaujsDevStamp,
   collectStyle,
   processTemplate,
   rebuildTemplate,
@@ -79,6 +81,12 @@ export const handleRender = async (
 
     const { route, params } = matchedRoute;
     const { attr, appId } = route;
+
+    // Dev-only recorder riding the hoisted context (P0B-02); absent → all calls no-op.
+    const hoistedContext = getRequestContext(req);
+    const recorder = hoistedContext?.recorder;
+    if (recorder && hoistedContext)
+      recorder.routeMatched({ traceId: hoistedContext.traceId, path: route.path, appId: appId ?? '', render: attr?.render ?? RENDERTYPE.ssr });
     const routeContext = {
       appId,
       path: route.path,
@@ -150,9 +158,25 @@ export const handleRender = async (
     const templateParts = processTemplate(template);
 
     const baseLogger = (opts.logger ?? logger) as Logs;
-    const { traceId, logger: reqLogger, headers } = createRequestContext(req, reply, baseLogger);
-    const ctx = { traceId, logger: reqLogger, headers };
-    const initialDataInput = () => fetchInitialData(attr, params, serviceRegistry, ctx);
+    // Hoisted by SSRServer's onRequest hook (P0B-01); created in place only when handleRender
+    // is invoked without the hook, preserving standalone behaviour byte-for-byte.
+    const { traceId, logger: reqLogger, headers } = hoistedContext ?? createRequestContext(req, reply, baseLogger);
+    // Dev stamp (spec 03 §7): present only when the structural gate holds — the decoration
+    // exists solely on dev boots, so production HTML never carries it.
+    const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
+    const devStamp = devtools ? buildTaujsDevStamp(traceId, devtools.token, cspNonce) : '';
+    const ctx = { traceId, logger: reqLogger, headers, recorder };
+    const initialDataInput = async () => {
+      const dataT0 = now();
+      try {
+        const out = await fetchInitialData(attr, params, serviceRegistry, ctx);
+        recorder?.dataFetch({ traceId, ms: +(now() - dataT0).toFixed(1), ok: true });
+        return out;
+      } catch (err) {
+        recorder?.dataFetch({ traceId, ms: +(now() - dataT0).toFixed(1), ok: false });
+        throw err;
+      }
+    };
 
     if (renderType === RENDERTYPE.ssr) {
       const { renderSSR } = renderModule;
@@ -179,6 +203,7 @@ export const handleRender = async (
 
       if (ac.signal.aborted) {
         logger.warn({ url: req.url }, 'SSR skipped; already aborted');
+        recorder?.aborted({ traceId, phase: 'pre-render' });
         return;
       }
 
@@ -195,6 +220,7 @@ export const handleRender = async (
 
         if (ac.signal.aborted) {
           logger.warn({}, 'SSR completed but client disconnected');
+          recorder?.aborted({ traceId, phase: 'post-render' });
           return;
         }
       } catch (err) {
@@ -209,6 +235,7 @@ export const handleRender = async (
             },
             'SSR aborted mid-render (benign)',
           );
+          recorder?.aborted({ traceId, phase: 'render' });
           return;
         }
 
@@ -234,18 +261,25 @@ export const handleRender = async (
       const bootstrapScriptTag = shouldHydrate && bootstrapModule ? `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script>` : '';
 
       const safeAppHtml = appHtml.trim();
-      const fullHtml = rebuildTemplate(templateParts, aggregateHeadContent, `${safeAppHtml}${initialDataScript}${bootstrapScriptTag}`);
+      const fullHtml = rebuildTemplate(templateParts, aggregateHeadContent, `${safeAppHtml}${initialDataScript}${devStamp}${bootstrapScriptTag}`);
 
       logger.debug?.('ssr', {}, 'ssr template rebuilt and sending response');
 
       try {
-        return reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
+        const sendResult = reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
+        recorder?.sent({ traceId, status: 200, mode: 'ssr' });
+        return sendResult;
       } catch (err) {
         const msg = String((err as any)?.message ?? err ?? '');
         const benign = REGEX.BENIGN_NET_ERR.test(msg);
 
-        if (!benign) logger.error({ url: req.url, error: normaliseError(err) }, 'SSR send failed');
-        else logger.warn({ url: req.url, reason: msg }, 'SSR send aborted (benign)');
+        if (!benign) {
+          logger.error({ url: req.url, error: normaliseError(err) }, 'SSR send failed');
+          recorder?.failed({ traceId, error: { kind: 'send', message: msg } });
+        } else {
+          logger.warn({ url: req.url, reason: msg }, 'SSR send aborted (benign)');
+          recorder?.aborted({ traceId, phase: 'send' });
+        }
 
         return;
       }
@@ -278,6 +312,7 @@ export const handleRender = async (
         if (!abortedState.aborted) {
           logger.warn({}, 'Client disconnected before stream finished');
           abortedState.aborted = true;
+          recorder?.aborted({ traceId, phase: 'stream' });
         }
         ac.abort();
       };
@@ -288,6 +323,7 @@ export const handleRender = async (
           if (!abortedState.aborted) {
             logger.warn({}, 'Client disconnected before stream finished');
             abortedState.aborted = true;
+            recorder?.aborted({ traceId, phase: 'stream' });
           }
           ac.abort();
         }
@@ -329,20 +365,25 @@ export const handleRender = async (
             if (manifest && cssLink) aggregateHeadContent += cssLink;
 
             commitHead();
-            reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}`);
+            reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}${devStamp}`);
+            recorder?.streamPhase({ traceId, phase: 'head' });
 
             if (!pipedToReply) {
               pipedToReply = true;
               writable.pipe(reply.raw, { end: false });
             }
           },
-          onShellReady: () => {},
+          onShellReady: () => {
+            recorder?.streamPhase({ traceId, phase: 'shellReady' });
+          },
           onAllReady: (data: unknown) => {
             if (!abortedState.aborted) finalData = data;
+            recorder?.streamPhase({ traceId, phase: 'allReady' });
           },
           onError: (err: unknown) => {
             if (abortedState.aborted || isBenignSocketAbort(err)) {
               logger.warn({}, 'Client disconnected before stream finished');
+              recorder?.aborted({ traceId, phase: 'stream' });
               try {
                 if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
               } catch (e) {
@@ -352,6 +393,10 @@ export const handleRender = async (
             }
 
             abortedState.aborted = true;
+            recorder?.failed({
+              traceId,
+              error: { kind: AppError.isAppError(err) ? (err as any).kind : 'stream', message: String((err as any)?.message ?? err ?? '') },
+            });
 
             logger.error(
               {
@@ -411,9 +456,16 @@ export const handleRender = async (
         reply.raw.write(initialDataScript);
         reply.raw.write(templateParts.afterBody);
         reply.raw.end();
+        recorder?.sent({ traceId, status: 200, mode: 'streaming' });
       });
     }
   } catch (err) {
+    const hoisted = getRequestContext(req);
+    hoisted?.recorder?.failed({
+      traceId: hoisted.traceId,
+      error: { kind: AppError.isAppError(err) ? (err as any).kind : 'internal', message: String((err as any)?.message ?? err ?? '') },
+    });
+
     if (AppError.isAppError(err)) throw err;
 
     throw AppError.internal('handleRender failed', err, {

@@ -23,6 +23,7 @@ import { cspPlugin } from './security/CSP';
 import { cspReportPlugin } from './security/CSPReporting';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
+import { createRequestContext } from './utils/Telemetry';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { registerStaticAssets } from './utils/StaticAssets';
@@ -30,6 +31,7 @@ import { mergePlugins } from './utils/VitePlugins';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
+import type { DevIntrospection } from './core/introspection/DevIntrospection';
 import type { SSRServerOptions } from './types';
 
 export { TEMPLATE };
@@ -51,6 +53,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     const processedConfigs = processConfigs(configs, clientRoot, TEMPLATE);
     const routeMatchers = createRouteMatchers(routes);
     let viteDevServer: ViteDevServer | undefined;
+    let introspection: DevIntrospection | undefined;
 
     await loadAssets(
       processedConfigs,
@@ -106,7 +109,39 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       );
 
       viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet, plugins);
+
+      // Structural gate (spec 03 invariant 1): recorder, dev files, and overlay endpoints
+      // exist only when the dev Vite middleware exists, loaded via lazy dynamic import.
+      // Failure is non-fatal.
+      try {
+        const { createDevIntrospection } = await import('./core/introspection/DevIntrospection');
+        const { registerDevFiles } = await import('./core/introspection/DevFiles');
+        const { registerIntrospectionEndpoints } = await import('./core/introspection/DevEndpoints');
+
+        const redaction = opts.taujsConfig?.introspection?.redaction;
+        introspection = createDevIntrospection({ logger, denyKeys: redaction?.denyKeys, replaceDefaultDenyKeys: redaction?.replaceDefaultDenyKeys });
+
+        app.decorate('taujsIntrospection', introspection);
+        registerDevFiles(app, introspection, logger);
+        registerIntrospectionEndpoints(app, { introspection, taujsConfig: opts.taujsConfig, serviceRegistry, logger });
+      } catch (err) {
+        logger.warn({ component: 'introspection', error: (err as Error)?.message ?? String(err) }, 'Trace recording unavailable (non-fatal)');
+      }
     }
+    // Trace context first, deliberately before auth: every request — rendered, fallthrough,
+    // asset-like — gets a traceId and the x-trace-id response header before route matching,
+    // and auth logging can carry the traceId (P0B-01). In dev the request logger is teed
+    // into the logs annex and the recorder rides the context (P0B-02).
+    app.decorateRequest('taujsRequestContext', null);
+    app.addHook('onRequest', async (req, reply) => {
+      const requestContext = createRequestContext(req, reply, logger);
+      if (introspection) {
+        requestContext.logger = introspection.wrapRequestLogger(requestContext.logger, requestContext.traceId);
+        requestContext.recorder = introspection.recorder;
+      }
+      req.taujsRequestContext = requestContext;
+      requestContext.recorder?.requestStart({ traceId: requestContext.traceId, url: req.url, method: req.method });
+    });
     app.addHook('onRequest', createAuthHook(routeMatchers, logger));
 
     app.get('/*', async (req, reply) => {

@@ -200,3 +200,22 @@ export const extractHeadInner = (html: string): string => {
 
   return (m?.[1] ?? '').trim();
 };
+
+// Dev-only introspection stamp (spec 03 §7, P0B-04): traceId + per-boot token plus the
+// devtools hook that hydrateApp emits into and the beacon POST. Injected ONLY when the
+// structural dev gate holds (callers check for the introspection decoration) — the Gate 0B
+// prod test asserts its absence. Values are JSON-encoded; traceId is SAFE_TRACE-validated
+// upstream and the token is base64url, so neither can break out of the script context.
+export const buildTaujsDevStamp = (traceId: string, token: string, nonce?: string): string => {
+  const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
+  const script =
+    `window.__TAUJS_TRACE_ID__=${JSON.stringify(traceId)};window.__TAUJS_DEV_TOKEN__=${JSON.stringify(token)};` +
+    '(function(){var t=window.__TAUJS_TRACE_ID__,k=window.__TAUJS_DEV_TOKEN__;if(!t||!k)return;var t0=null,sent=false;' +
+    'function send(ok,err){if(sent)return;sent=true;var b={traceId:t,ok:ok};if(t0!=null)b.ms=Math.round(performance.now()-t0);' +
+    'if(err)b.error=String(err).slice(0,500);' +
+    "try{fetch('/__taujs/beacon',{method:'POST',headers:{'content-type':'application/json','x-taujs-token':k},body:JSON.stringify(b),keepalive:true}).catch(function(){})}catch(e){}}" +
+    "window.__TAUJS_DEVTOOLS_HOOK__={emit:function(ev,p){if(ev==='hydration:start')t0=performance.now();" +
+    "else if(ev==='hydration:success')send(true);else if(ev==='hydration:error')send(false,(p&&p.message)||p)}};})();";
+
+  return `<script${nonceAttr}>${script}</script>`;
+};

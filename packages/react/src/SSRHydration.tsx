@@ -6,6 +6,20 @@ import { createUILogger } from './utils/Logger';
 
 import type { LoggerLike } from './utils/Logger';
 
+// Dev-only introspection hook, set by the server-injected dev script (never by users).
+// Absent in production: emission costs one property check and can never throw into
+// hydration. User callbacks always run, unchanged, after the internal emission.
+type TaujsDevtoolsHook = { emit?: (event: 'hydration:start' | 'hydration:success' | 'hydration:error', payload?: unknown) => void };
+
+const emitDevHook = (event: 'hydration:start' | 'hydration:success' | 'hydration:error', payload?: unknown): void => {
+  try {
+    const hook = (window as { __TAUJS_DEVTOOLS_HOOK__?: TaujsDevtoolsHook }).__TAUJS_DEVTOOLS_HOOK__;
+    hook?.emit?.(event, payload);
+  } catch {
+    // the beacon must never affect hydration
+  }
+};
+
 export type HydrateAppOptions<T> = {
   appComponent: React.ReactElement;
   rootElementId?: string;
@@ -43,6 +57,7 @@ export function hydrateApp<T>({
 
   const startHydration = (rootEl: HTMLElement, initialData: T) => {
     if (enableDebug) log('Hydration started');
+    emitDevHook('hydration:start');
     onStart?.();
 
     if (enableDebug) log('Initial data loaded:', initialData);
@@ -63,9 +78,11 @@ export function hydrateApp<T>({
         },
       );
       if (enableDebug) log('Hydration completed');
+      emitDevHook('hydration:success');
       onSuccess?.();
     } catch (err) {
       error('Hydration error:', err);
+      emitDevHook('hydration:error', err);
       onHydrationError?.(err);
     }
   };

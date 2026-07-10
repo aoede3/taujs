@@ -1,0 +1,66 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`registerBootGraphEmission > registers an onListen hook that writes node_modules/.taujs/graph.json (source: boot) 1`] = `
+{
+  "apps": [
+    {
+      "appId": "web",
+      "entryPoint": "web",
+      "routeCount": 1,
+    },
+  ],
+  "disclosure": "conservative",
+  "emittedAt": "<emittedAt>",
+  "fallthrough": {
+    "appId": "web",
+    "assetLike": 404,
+    "mode": "spa",
+    "reachable": true,
+  },
+  "routes": [
+    {
+      "appId": "web",
+      "data": {
+        "kind": "none",
+      },
+      "hydrate": {
+        "defaulted": true,
+        "enabled": true,
+      },
+      "id": "web:/",
+      "middleware": {
+        "auth": {
+          "declared": false,
+        },
+        "csp": {
+          "declared": false,
+        },
+      },
+      "path": "/",
+      "render": {
+        "defaulted": false,
+        "strategy": "ssr",
+      },
+      "specificity": 0,
+    },
+  ],
+  "schemaVersion": 1,
+  "security": {
+    "cspDefaultMode": "merge",
+    "reporting": false,
+  },
+  "services": null,
+  "source": "boot",
+  "taujs": {
+    "server": "0.7.1",
+  },
+  "warnings": [
+    {
+      "code": "csp.dev_directives",
+      "message": "No security.csp configured; development default CSP directives apply",
+      "severity": "warn",
+      "source": "security",
+    },
+  ],
+}
+`;

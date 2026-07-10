@@ -1,8 +1,13 @@
 import 'fastify';
 
+import type { DevIntrospection } from './core/introspection/DevIntrospection';
+import type { RequestContext } from './core/telemetry/Telemetry';
+
 declare module 'fastify' {
   interface FastifyRequest {
     cspNonce?: string;
+    /** Per-request trace context, set by SSRServer's onRequest hook (trace before auth). */
+    taujsRequestContext?: RequestContext | null;
     routeMeta?: {
       path?: string;
       appId?: string;
@@ -34,5 +39,7 @@ declare module 'fastify' {
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     showBanner(): void;
     cspNonce?: string;
+    /** Dev-only introspection state (recorder, buffers, token); absent in production. */
+    taujsIntrospection?: DevIntrospection;
   }
 }

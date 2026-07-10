@@ -2,7 +2,16 @@ import { AppError } from '../core/errors/AppError';
 import { SSRTAG } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
-import { ensureNonNull, addNonceToInlineScripts, applyViteTransform, injectBootstrapModule, injectCssLink, stripDevClientAndStyles } from './Templates';
+import { getRequestContext } from './Telemetry';
+import {
+  ensureNonNull,
+  addNonceToInlineScripts,
+  applyViteTransform,
+  buildTaujsDevStamp,
+  injectBootstrapModule,
+  injectCssLink,
+  stripDevClientAndStyles,
+} from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -26,7 +35,12 @@ export const handleNotFound = async (
 ) => {
   const { viteDevServer } = opts;
 
+  // Hoisted context (P0B-01): fallthrough logs carry the request traceId; the x-trace-id
+  // response header is already set by the hook. Without the hook, behaviour is unchanged.
+  const requestContext = getRequestContext(req);
+
   const logger =
+    requestContext?.logger ??
     opts.logger ??
     createLogger({
       debug: opts.debug,
@@ -74,11 +88,22 @@ export const handleNotFound = async (
 
     processedTemplate = injectBootstrapModule(processedTemplate, bootstrapModule, cspNonce);
 
+    // Dev stamp (spec 03 §7): the fallthrough shell has no __INITIAL_DATA__ script to ride
+    // with, so it gets its own — only when the structural gate holds (dev decoration).
+    const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
+    if (devtools && requestContext) {
+      processedTemplate = processedTemplate.replace('</body>', `${buildTaujsDevStamp(requestContext.traceId, devtools.token, cspNonce)}</body>`);
+    }
+
     logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');
 
     // Deliberate SPA fallback: unmatched page URLs get the default app's shell
     // with a 200 so client-side routes beyond taujs.config still work.
     const result = reply.status(200).type('text/html').send(processedTemplate);
+
+    // Fallthrough terminal event (spec 03 §1): requestStart → sent, no routeMatched — this
+    // is what makes accidental CSR visible.
+    requestContext?.recorder?.sent({ traceId: requestContext.traceId, status: 200, mode: 'fallthrough' });
 
     return result;
   } catch (err) {

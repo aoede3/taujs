@@ -1378,8 +1378,11 @@ describe('Build.ts - Full Coverage', () => {
         },
       });
 
-      expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
-      const warningMessage = consoleWarnSpy.mock.calls[0]![0];
+      // Scoped to the override warning: unrelated non-fatal warns (e.g. graph emission
+      // against this test's unwritable projectRoot) don't count here.
+      const overrideWarnings = consoleWarnSpy.mock.calls.filter(([msg]) => typeof msg === 'string' && msg.includes('Ignored Vite config overrides'));
+      expect(overrideWarnings).toHaveLength(1);
+      const warningMessage = overrideWarnings[0]![0];
       expect(warningMessage).toContain('root');
       expect(warningMessage).toContain('base');
       expect(warningMessage).toContain('build.outDir');
@@ -1774,7 +1777,8 @@ describe('Build.ts - Full Coverage', () => {
         },
       });
 
-      expect(consoleWarnSpy).not.toHaveBeenCalled();
+      const overrideWarnings = consoleWarnSpy.mock.calls.filter(([msg]) => typeof msg === 'string' && msg.includes('Ignored Vite config overrides'));
+      expect(overrideWarnings).toHaveLength(0);
 
       consoleWarnSpy.mockRestore();
     });
