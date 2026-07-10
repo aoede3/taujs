@@ -38,7 +38,18 @@ export type HeadContext<T extends Record<string, unknown> = Record<string, unkno
   routeContext?: R;
 };
 
-type SSRResult = { headContent: string; appHtml: string; aborted: boolean };
+type SSRResult = {
+  headContent: string;
+  appHtml: string;
+  aborted: boolean;
+  /**
+   * `<Teleport>` buffers collected during `renderSSR`, keyed by target selector (e.g.
+   * `'#modal'`). Populated only by `renderSSR` (the ssr strategy); the server currently
+   * reads only `headContent`/`appHtml`, so standalone consumers are the audience.
+   * Streaming does **not** produce teleports — see `createRenderer`'s JSDoc.
+   */
+  teleports?: Record<string, string>;
+};
 
 type StreamCallOptions<R> = StreamOptions & {
   logger?: LoggerLike;
@@ -67,6 +78,17 @@ function createAppWithStore<T>(store: SSRStore<T>, root: Component | ((props: an
   });
 }
 
+/**
+ * Create the τjs Vue renderer: `{ renderSSR, renderStream }`.
+ *
+ * **Teleports.** `renderSSR` collects `<Teleport>` content into its `teleports` result
+ * (keyed by target selector). `renderStream` does **not** — teleported content cannot be
+ * injected into an in-order stream after the fact, and τjs does not fake it. Applications
+ * that render `<Teleport>` targets outside the app root must use the `ssr` strategy for
+ * those routes, or render the teleported content client-side after hydration. Note τjs's
+ * server consumes only `headContent`/`appHtml` today, so splicing `teleports` into a page
+ * is a standalone-consumer concern.
+ */
 export function createRenderer<T extends Record<string, unknown> = Record<string, unknown>, R = unknown>({
   appComponent,
   headContent,
@@ -124,7 +146,10 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         location,
         routeContext,
       });
-      const html = await renderToString(app);
+      // Pass a real SSRContext so <Teleport> content is collected into ctx.teleports
+      // (additive: the server reads only headContent/appHtml).
+      const ctx: SSRContext = {};
+      const html = await renderToString(app, ctx);
 
       if (aborted) {
         warn('SSR completed after client abort', { location });
@@ -133,7 +158,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
       log('Completed SSR:', location);
 
-      return { headContent: dynamicHead, appHtml: html, aborted: false };
+      return { headContent: dynamicHead, appHtml: html, aborted: false, teleports: ctx.teleports };
     } finally {
       try {
         signal?.removeEventListener('abort', onAbort);

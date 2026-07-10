@@ -7,7 +7,7 @@
 // server-appended __INITIAL_DATA__ script — in that order.
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, Teleport } from 'vue';
 
 import { createRenderer } from '../SSRRender';
 import { useSSRData, useSSRDataAsync } from '../SSRDataStore';
@@ -165,6 +165,44 @@ describe('renderStream — server integration (byte order)', () => {
     expect(doc).toContain(boot);
     expect(doc).toContain('window.__INITIAL_DATA__ = {"msg":"streamed"}');
     expect(doc.indexOf(boot)).toBeLessThan(doc.indexOf('__INITIAL_DATA__'));
+  });
+
+  it('renderSSR collects <Teleport> content into result.teleports, not appHtml (F12)', async () => {
+    const App = defineComponent({
+      name: 'App',
+      setup() {
+        const data = useSSRData<{ msg: string }>();
+        return () =>
+          h('div', { id: 'app' }, [
+            `main:${data.value?.msg ?? ''}`,
+            h(Teleport, { to: '#modal' }, [h('span', { class: 'tp' }, 'teleported-body')]),
+          ]);
+      },
+    });
+
+    const { renderSSR } = createRenderer<{ msg: string }>({
+      appComponent: () => h(App),
+      headContent: () => '<title>t</title>',
+    });
+
+    const result = await renderSSR({ msg: 'hi' }, '/');
+
+    expect(result.teleports).toBeDefined();
+    expect(result.teleports!['#modal']).toContain('teleported-body');
+    // The teleported content is buffered out of the app HTML, not left inline.
+    expect(result.appHtml).toContain('main:hi');
+    expect(result.appHtml).not.toContain('teleported-body');
+  });
+
+  it('renderSSR with no teleports yields an empty/absent teleports map (installed-version behaviour)', async () => {
+    const { renderSSR } = createRenderer<{ msg: string }>({
+      appComponent: () => h('div', { id: 'app' }, 'plain'),
+      headContent: () => '<title>t</title>',
+    });
+
+    const result = await renderSSR({ msg: 'x' }, '/');
+
+    expect(result.teleports == null || Object.keys(result.teleports).length === 0).toBe(true);
   });
 
   it('a throwing component routes through app.config.errorHandler to a fatal onError', async () => {
