@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync } from 'child_process';
+import { pathToFileURL } from 'node:url';
 import fs from 'fs-extra';
 import path from 'path';
 import pc from 'picocolors';
@@ -8,10 +9,13 @@ import prompts from 'prompts';
 
 import { generateClaudeMd, generateMcpJson } from './mcp';
 
-type ProjectConfig = {
+export type Framework = 'react' | 'vue';
+
+export type ProjectConfig = {
   projectName: string;
   packageManager: 'npm' | 'pnpm' | 'yarn';
   installDeps: boolean;
+  framework: Framework;
 };
 
 const PACKAGE_MANAGERS = {
@@ -20,18 +24,30 @@ const PACKAGE_MANAGERS = {
   yarn: 'yarn install',
 } as const;
 
-function parseArgs(): { projectName?: string } {
+const FRAMEWORKS: readonly Framework[] = ['react', 'vue'];
+
+function parseArgs(): { projectName?: string; framework?: string } {
   const rawArgs = process.argv.slice(2);
   let projectName: string | undefined;
+  let framework: string | undefined;
 
-  for (const arg of rawArgs) {
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i]!;
+    if (arg === '--framework') {
+      framework = rawArgs[++i];
+      continue;
+    }
+    if (arg.startsWith('--framework=')) {
+      framework = arg.slice('--framework='.length);
+      continue;
+    }
     if (!arg.startsWith('-') && !projectName) {
       projectName = arg;
       continue;
     }
   }
 
-  return { projectName };
+  return { projectName, framework };
 }
 
 function validateProjectName(value: string): true | string {
@@ -42,15 +58,27 @@ function validateProjectName(value: string): true | string {
   return true;
 }
 
+function validateFramework(value: string): true | string {
+  return (FRAMEWORKS as readonly string[]).includes(value) ? true : `Framework must be one of: ${FRAMEWORKS.join(', ')}`;
+}
+
 async function main() {
   console.log(pc.cyan('\nWelcome to τjs (taujs)\n'));
 
-  const { projectName: argName } = parseArgs();
+  const { projectName: argName, framework: argFramework } = parseArgs();
 
   if (argName) {
     const res = validateProjectName(argName);
     if (res !== true) {
       console.log(pc.red(`\n✖ Invalid project name "${argName}": ${res}`));
+      process.exit(1);
+    }
+  }
+
+  if (argFramework) {
+    const res = validateFramework(argFramework);
+    if (res !== true) {
+      console.log(pc.red(`\n✖ Invalid framework "${argFramework}": ${res}`));
       process.exit(1);
     }
   }
@@ -62,6 +90,16 @@ async function main() {
       message: 'Project name:',
       initial: 'my-taujs-app',
       validate: validateProjectName,
+    },
+    {
+      type: argFramework ? null : 'select',
+      name: 'framework',
+      message: 'Framework:',
+      choices: [
+        { title: 'React', value: 'react' },
+        { title: 'Vue', value: 'vue' },
+      ],
+      initial: 0,
     },
     {
       type: 'select',
@@ -102,10 +140,18 @@ async function main() {
     process.exit(1);
   }
 
+  const framework = (argFramework ?? answers.framework) as Framework;
+  const frameworkRes = validateFramework(framework);
+  if (frameworkRes !== true) {
+    console.log(pc.red(`\n✖ Invalid framework "${framework}": ${frameworkRes}`));
+    process.exit(1);
+  }
+
   const config: ProjectConfig = {
     projectName,
     packageManager: answers.packageManager,
     installDeps: answers.installDeps,
+    framework,
   };
 
   await createProject(config);
@@ -166,45 +212,108 @@ async function createDirectoryStructure(targetDir: string) {
   }
 }
 
-async function generateFiles(targetDir: string, config: ProjectConfig) {
-  const { projectName, packageManager } = config;
+type FileEntry = { path: string; content: string } | { path: string; json: unknown };
 
-  await fs.writeJSON(path.join(targetDir, 'package.json'), generatePackageJson(projectName), { spaces: 2 });
+/**
+ * Pure description of the scaffolded file set for a config. Exported so tests can assert the
+ * React output is byte-identical and the Vue file set/content is correct without touching the
+ * filesystem. The React branch calls the exact same generators as before — output is unchanged.
+ */
+export function planFiles(config: ProjectConfig): FileEntry[] {
+  const { projectName, packageManager, framework } = config;
 
-  await fs.writeFile(path.join(targetDir, 'build.ts'), generateBuildTs());
+  const shared: FileEntry[] = [
+    { path: 'package.json', json: generatePackageJson(projectName, framework) },
+    { path: 'build.ts', content: generateBuildTs() },
+    { path: 'tsconfig.json', json: generateTsConfig(framework) },
+    { path: 'src/server/tsconfig.json', json: generateServerTsConfig() },
+    { path: 'taujs.config.ts', content: generateTaujsConfig(framework) },
+    { path: '.gitignore', content: generateGitignore() },
+    { path: 'README.md', content: generateReadme(projectName, packageManager, framework) },
+    // Agent wiring (P1-04): pinned local-bin MCP config + a short CLAUDE.md pointer whose
+    // substance ships in @taujs/mcp.
+    { path: '.mcp.json', json: generateMcpJson(packageManager) },
+    { path: 'CLAUDE.md', content: generateClaudeMd() },
+    { path: 'src/client/index.html', content: generateIndexHtml() },
+    { path: 'src/client/styles.css', content: generateStyles() },
+    // server (framework-independent — a single shared source)
+    { path: 'src/server/index.ts', content: generateServerIndex() },
+    { path: 'src/server/services/registry.ts', content: generateServiceRegistry() },
+    { path: 'src/server/services/example.service.ts', content: generateExampleService() },
+    { path: 'src/server/types.d.ts', content: generateServiceTypesAugmentation() },
+    { path: 'src/client/public/favicon.svg', content: generateFavicon() },
+  ];
 
-  await fs.writeJSON(path.join(targetDir, 'tsconfig.json'), generateTsConfig(), { spaces: 2 });
+  const client: FileEntry[] =
+    framework === 'vue'
+      ? [
+          { path: 'src/client/App.vue', content: generateAppVue() },
+          { path: 'src/client/HomePage.vue', content: generateHomePageVue() },
+          { path: 'src/client/StreamingPage.vue', content: generateStreamingPageVue() },
+          { path: 'src/client/entry-client.ts', content: generateEntryClientVue() },
+          { path: 'src/client/entry-server.ts', content: generateEntryServerVue() },
+          { path: 'src/client/vite-env.d.ts', content: generateViteEnvVue() },
+        ]
+      : [
+          { path: 'src/client/App.tsx', content: generateAppComponent() },
+          { path: 'src/client/entry-client.tsx', content: generateEntryClient() },
+          { path: 'src/client/entry-server.tsx', content: generateEntryServer() },
+          { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
+        ];
 
-  await fs.writeJSON(path.join(targetDir, 'src/server/tsconfig.json'), generateServerTsConfig(), { spaces: 2 });
-
-  await fs.writeFile(path.join(targetDir, 'taujs.config.ts'), generateTaujsConfig());
-
-  await fs.writeFile(path.join(targetDir, '.gitignore'), generateGitignore());
-
-  await fs.writeFile(path.join(targetDir, 'README.md'), generateReadme(projectName, packageManager));
-
-  // Agent wiring (P1-04): pinned local-bin MCP config + a short CLAUDE.md pointer whose
-  // substance ships in @taujs/mcp.
-  await fs.writeJSON(path.join(targetDir, '.mcp.json'), generateMcpJson(packageManager), { spaces: 2 });
-  await fs.writeFile(path.join(targetDir, 'CLAUDE.md'), generateClaudeMd());
-
-  await fs.writeFile(path.join(targetDir, 'src/client/index.html'), generateIndexHtml());
-  await fs.writeFile(path.join(targetDir, 'src/client/App.tsx'), generateAppComponent());
-  await fs.writeFile(path.join(targetDir, 'src/client/entry-client.tsx'), generateEntryClient());
-  await fs.writeFile(path.join(targetDir, 'src/client/entry-server.tsx'), generateEntryServer());
-  await fs.writeFile(path.join(targetDir, 'src/client/styles.css'), generateStyles());
-  await fs.writeFile(path.join(targetDir, 'src/client/vite-env.d.ts'), generateViteEnv());
-
-  // server
-  await fs.writeFile(path.join(targetDir, 'src/server/index.ts'), generateServerIndex());
-  await fs.writeFile(path.join(targetDir, 'src/server/services/registry.ts'), generateServiceRegistry());
-  await fs.writeFile(path.join(targetDir, 'src/server/services/example.service.ts'), generateExampleService());
-  await fs.writeFile(path.join(targetDir, 'src/server/types.d.ts'), generateServiceTypesAugmentation());
-
-  await fs.writeFile(path.join(targetDir, 'src/client/public/favicon.svg'), generateFavicon());
+  return [...shared, ...client];
 }
 
-function generatePackageJson(projectName: string) {
+async function generateFiles(targetDir: string, config: ProjectConfig) {
+  for (const entry of planFiles(config)) {
+    const full = path.join(targetDir, entry.path);
+    await fs.ensureDir(path.dirname(full));
+    if ('json' in entry) {
+      await fs.writeJSON(full, entry.json, { spaces: 2 });
+    } else {
+      await fs.writeFile(full, entry.content);
+    }
+  }
+}
+
+function generatePackageJson(projectName: string, framework: Framework) {
+  if (framework === 'vue') {
+    return {
+      name: projectName,
+      version: '0.1.0',
+      private: true,
+      type: 'module',
+      scripts: {
+        dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
+        'build:client': 'tsx build.ts',
+        'build:entry-server': 'cross-env BUILD_MODE=ssr tsx build.ts',
+        'build:server':
+          'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
+        build:
+          'tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
+        start: 'cross-env NODE_ENV=production node dist/server/index.js',
+        lint: 'vue-tsc --noEmit',
+      },
+      dependencies: {
+        '@taujs/server': 'latest',
+        '@taujs/vue': 'latest',
+        '@vue/server-renderer': '^3.5.0',
+        fastify: '^5.8.5',
+        vue: '^3.5.0',
+      },
+      devDependencies: {
+        '@taujs/mcp': 'latest',
+        '@types/node': '^22.10.5',
+        '@vitejs/plugin-vue': '^6.0.0',
+        'cross-env': '^7.0.3',
+        tsx: '^4.19.3',
+        typescript: '^5.7.3',
+        vite: '^7.1.11',
+        'vue-tsc': '^2.1.10',
+      },
+    };
+  }
+
   return {
     name: projectName,
     version: '0.1.0',
@@ -255,13 +364,14 @@ await taujsBuild({
 `;
 }
 
-function generateTsConfig() {
+function generateTsConfig(framework: Framework) {
   return {
     compilerOptions: {
       target: 'ES2022',
       module: 'ESNext',
       lib: ['ES2022', 'DOM', 'DOM.Iterable'],
-      jsx: 'react-jsx',
+      // Vue SFCs are typed by vue-tsc; React needs the automatic JSX runtime.
+      ...(framework === 'react' ? { jsx: 'react-jsx' } : {}),
       moduleResolution: 'bundler',
       resolveJsonModule: true,
       allowImportingTsExtensions: true,
@@ -288,8 +398,10 @@ function generateServerTsConfig() {
   };
 }
 
-function generateTaujsConfig() {
-  return `import { defineConfig } from '@taujs/server/config';
+function generateTaujsConfig(framework: Framework) {
+  const pluginImport = framework === 'vue' ? `\nimport { pluginVue } from '@taujs/vue/plugin';` : '';
+  const pluginsLine = framework === 'vue' ? `\n      plugins: [pluginVue()],` : '';
+  return `import { defineConfig } from '@taujs/server/config';${pluginImport}
 
 export default defineConfig({
   server: {
@@ -300,7 +412,7 @@ export default defineConfig({
   apps: [
     {
       appId: 'main',
-      entryPoint: '',
+      entryPoint: '',${pluginsLine}
       routes: [
         {
           path: '/',
@@ -381,8 +493,24 @@ coverage
 `;
 }
 
-function generateReadme(projectName: string, packageManager: string) {
+function generateReadme(projectName: string, packageManager: string, framework: Framework) {
   const pmRun = packageManager === 'npm' ? 'npm run' : packageManager;
+
+  const clientTree =
+    framework === 'vue'
+      ? `│   │   ├── App.vue             # Root component (route switch)
+│   │   ├── HomePage.vue        # SSR route (useSSRData + v-if)
+│   │   ├── StreamingPage.vue   # Streaming route (await useSSRDataAsync)
+│   │   ├── entry-client.ts     # Client hydration entry
+│   │   ├── entry-server.ts     # SSR render entry`
+      : `│   │   ├── App.tsx             # Root component
+│   │   ├── entry-client.tsx    # Client hydration entry
+│   │   ├── entry-server.tsx    # SSR render entry`;
+
+  const mainUi = framework === 'vue' ? 'App.vue' : 'App.tsx';
+  const clientExt = framework === 'vue' ? 'ts' : 'tsx';
+  const frameworkDoc = framework === 'vue' ? '- [Vue Documentation](https://vuejs.org)' : '- [React Documentation](https://react.dev)';
+
   return `# ${projectName}
 
 A τjs (taujs) application with server-side rendering, streaming, and a type-safe service layer.
@@ -415,9 +543,7 @@ ${pmRun} start
 ${projectName}/
 ├── src/
 │   ├── client/              
-│   │   ├── App.tsx             # Root component
-│   │   ├── entry-client.tsx    # Client hydration entry
-│   │   ├── entry-server.tsx    # SSR render entry
+${clientTree}
 │   │   ├── styles.css          # Global styles
 │   │   ├── vite-env.d.ts       # Vite client types
 │   │   └── public/
@@ -436,10 +562,10 @@ ${projectName}/
 
 ## Editing the App
 
-- Main UI: \`src/client/App.tsx\`
+- Main UI: \`src/client/${mainUi}\`
 - Styles: \`src/client/styles.css\`
-- SSR entry: \`src/client/entry-server.tsx\`
-- Client entry: \`src/client/entry-client.tsx\`
+- SSR entry: \`src/client/entry-server.${clientExt}\`
+- Client entry: \`src/client/entry-client.${clientExt}\`
 - Routes: \`taujs.config.ts\`
 - Services: \`src/server/services/\`
 
@@ -447,7 +573,7 @@ ${projectName}/
 
 - [τjs Documentation](https://taujs.dev)
 - [Fastify Documentation](https://fastify.dev)
-- [React Documentation](https://react.dev)
+${frameworkDoc}
 
 ## License
 
@@ -783,6 +909,171 @@ function generateViteEnv() {
 `;
 }
 
+function generateViteEnvVue() {
+  return `/// <reference types="vite/client" />
+
+declare module '*.vue' {
+  import type { DefineComponent } from 'vue';
+  const component: DefineComponent<Record<string, unknown>, Record<string, unknown>, unknown>;
+  export default component;
+}
+`;
+}
+
+function generateAppVue() {
+  return `<script setup lang="ts">
+import { computed } from 'vue';
+
+import HomePage from './HomePage.vue';
+import StreamingPage from './StreamingPage.vue';
+
+import './styles.css';
+
+const props = defineProps<{ location?: string; routeContext?: unknown }>();
+
+// The server passes \`location\`; on the client fall back to the current path so hydration matches.
+const path = computed(() => props.location ?? (typeof window !== 'undefined' ? window.location.pathname : '/'));
+const isStreaming = computed(() => path.value.startsWith('/streaming'));
+</script>
+
+<template>
+  <div class="app">
+    <header class="app-header">
+      <h1 class="app-title">τjs - Composing systems, not just apps</h1>
+      <p class="app-subtitle">Request-first application composition with explicit per-route rendering control.</p>
+    </header>
+
+    <Suspense v-if="isStreaming">
+      <template #default>
+        <StreamingPage />
+      </template>
+      <template #fallback>
+        <section class="card card--primary">
+          <p class="card-message">Loading greeting…</p>
+          <p class="card-meta">Streaming data from the server.</p>
+        </section>
+      </template>
+    </Suspense>
+    <HomePage v-else />
+
+    <section class="section">
+      <h2 class="section-title">Quick start</h2>
+      <ul class="list">
+        <li>Edit <code>src/client/App.vue</code> to change this page.</li>
+        <li>Adjust styles in <code>src/client/styles.css</code>.</li>
+        <li>Configure routes in <code>taujs.config.ts</code>.</li>
+        <li>Visit <a href="/">/</a> for standard SSR and <a href="/streaming">/streaming</a> for streaming SSR.</li>
+        <li>Further information can be found at <a href="http://taujs.dev" target="_blank">τjs Documentation and Guides</a>.</li>
+      </ul>
+    </section>
+
+    <section class="tip">
+      <p>
+        <strong>SSR:</strong> The <code>/</code> route resolves data on the server, then consumes it with
+        <code>useSSRData</code> + <code>v-if</code> (non-blocking fallback rendering).
+      </p>
+      <p>
+        <strong>STREAM:</strong> The <code>/streaming</code> route <code>await</code>s <code>useSSRDataAsync</code>
+        in async <code>setup</code> under <code>&lt;Suspense&gt;</code>, so the render blocks until data resolves.
+      </p>
+    </section>
+
+    <footer class="app-footer">
+      <p>
+        Built with
+        <a href="https://taujs.dev" target="_blank" rel="noopener">τjs</a>
+        ·
+        <a href="https://fastify.dev" target="_blank" rel="noopener">Fastify</a>
+        ·
+        <a href="https://vuejs.org" target="_blank" rel="noopener">Vue</a>
+      </p>
+    </footer>
+  </div>
+</template>
+`;
+}
+
+function generateHomePageVue() {
+  return `<script setup lang="ts">
+import { useSSRData } from '@taujs/vue';
+
+type GreetingData = {
+  message: string;
+  timestamp: string;
+};
+
+// Fallback idiom: non-blocking; \`data\` is undefined until ready, guarded with v-if.
+const data = useSSRData<GreetingData>();
+</script>
+
+<template>
+  <section v-if="data" class="card card--primary">
+    <p class="card-message">{{ data.message }}</p>
+    <p class="card-meta">Generated at: {{ new Date(data.timestamp).toLocaleString() }}</p>
+  </section>
+  <section v-else class="card card--primary">
+    <p class="card-message">Loading greeting…</p>
+    <p class="card-meta">Resolving data on the server.</p>
+  </section>
+</template>
+`;
+}
+
+function generateStreamingPageVue() {
+  return `<script setup lang="ts">
+import { useSSRDataAsync } from '@taujs/vue';
+
+type GreetingData = {
+  message: string;
+  timestamp: string;
+};
+
+// Suspense idiom: async setup blocks on the data, so streamed routes deliver it in the payload.
+const data = await useSSRDataAsync<GreetingData>();
+</script>
+
+<template>
+  <section class="card card--primary">
+    <p class="card-message">{{ data.message }}</p>
+    <p class="card-meta">Generated at: {{ new Date(data.timestamp).toLocaleString() }}</p>
+  </section>
+</template>
+`;
+}
+
+function generateEntryClientVue() {
+  return `import { hydrateApp } from '@taujs/vue';
+
+import App from './App.vue';
+
+hydrateApp({
+  appComponent: App,
+  rootElementId: 'root',
+  enableDebug: import.meta.env.DEV,
+});
+`;
+}
+
+function generateEntryServerVue() {
+  return `import { createRenderer } from '@taujs/vue';
+
+import App from './App.vue';
+
+export const { renderSSR, renderStream } = createRenderer({
+  appComponent: App,
+  headContent: ({ data, meta }) => \`
+    <title>\${meta?.title || "τjs - Composing systems, not just apps"}</title>
+    <meta name="description" content="\${
+      meta?.description ||
+      (data as { message?: string })?.message ||
+      "τjs - Composing systems, not just apps"
+    }">
+  \`,
+  enableDebug: process.env.NODE_ENV === "development",
+});
+`;
+}
+
 function generateEntryClient() {
   return `import { hydrateApp } from '@taujs/react';
 import { App } from './App';
@@ -900,7 +1191,19 @@ function generateFavicon() {
 `;
 }
 
-main().catch((error) => {
-  console.error(pc.red('\n✖ Error creating project:'), error);
-  process.exit(1);
-});
+// Run the CLI only when executed directly (not when imported, e.g. by tests). realpathSync
+// resolves the bin symlink so `create-taujs` still runs when installed.
+const invokedDirectly = (() => {
+  try {
+    return !!process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  main().catch((error) => {
+    console.error(pc.red('\n✖ Error creating project:'), error);
+    process.exit(1);
+  });
+}
