@@ -178,12 +178,14 @@ describe('hydrateApp — setupApp (V1-06)', () => {
       }),
     ).not.toThrow();
 
-    expect(events).toEqual(['hydration:start', 'hydration:error']);
+    // R4: setupApp runs before emitDevHook('hydration:start'), so a setupApp failure emits
+    // hydration:error with no preceding start (hydration never began).
+    expect(events).toEqual(['hydration:error']);
     expect(onHydrationError).toHaveBeenCalledTimes(1);
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
-  it('a throwing setupApp in the CSR path routes to onHydrationError + hydration:error', () => {
+  it('a throwing setupApp in the CSR path routes to onHydrationError only (no beacon, R2)', () => {
     setRoot('<div>stale</div>');
     setData(undefined);
     const events: string[] = [];
@@ -198,8 +200,39 @@ describe('hydrateApp — setupApp (V1-06)', () => {
       onHydrationError,
     });
 
-    expect(events).toEqual(['hydration:error']);
+    // CSR is not a hydration — no beacon events, but the error still reaches onHydrationError.
+    expect(events).toEqual([]);
     expect(onHydrationError).toHaveBeenCalledTimes(1);
+  });
+
+  it('R3: a user errorHandler installed in setupApp still fires alongside τjs on a hydration error', () => {
+    const Boom = defineComponent({
+      name: 'Boom',
+      setup() {
+        throw new Error('hydrate boom');
+      },
+      render() {
+        return h('div', { id: 'app' }, 'x');
+      },
+    });
+    setRoot('<div id="app">x</div>');
+    setData({});
+    const events: string[] = [];
+    (window as any).__TAUJS_DEVTOOLS_HOOK__ = { emit: (ev: string) => events.push(ev) };
+    const userHandler = vi.fn();
+    const onHydrationError = vi.fn();
+
+    hydrateApp({
+      appComponent: Boom,
+      setupApp: (app: App) => {
+        app.config.errorHandler = userHandler;
+      },
+      onHydrationError,
+    });
+
+    expect(userHandler).toHaveBeenCalled(); // user's handler still observes
+    expect(onHydrationError).toHaveBeenCalledTimes(1); // AND τjs's routing still ran
+    expect(events).toContain('hydration:error');
   });
 
   it('onStart, onSuccess, and setupApp all receive the same App instance', () => {

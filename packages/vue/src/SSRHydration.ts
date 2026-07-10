@@ -32,7 +32,8 @@ export type HydrateAppOptions<T> = {
    * Configure the client `App` before mount (`app.use`, directives, provides). Pass the
    * SAME function used for `createRenderer`'s `setupApp` so Pinia/vue-i18n/etc. attach
    * identically on server and client. Synchronous, no `window`/DOM access, idempotent per
-   * app instance; a throw is routed to `onHydrationError` (+ `hydration:error` beacon).
+   * app instance; a throw is routed to `onHydrationError` (plus a `hydration:error` beacon
+   * on the hydrate path — the CSR-fallback path emits no beacon events).
    */
   setupApp?: (app: App) => void;
   /** Receives the `App` instance (divergence from react, whose callbacks take no args). */
@@ -42,9 +43,8 @@ export type HydrateAppOptions<T> = {
 };
 
 /**
- * Vue client bootstrap.
- *
- * Behaviour matches taujs/react:
+ * Vue client bootstrap. Contract-parity with taujs/react, with documented Vue-native
+ * divergences:
  * - If window[dataKey] is missing, mount CSR (and clear existing DOM) — no hydration
  *   events are emitted (a CSR mount is not a hydration).
  * - Otherwise, hydrate SSR markup, emitting `hydration:start|success|error` to the
@@ -53,6 +53,7 @@ export type HydrateAppOptions<T> = {
  * Unlike React (which surfaces hydration failures as synchronous throws), Vue reports them
  * through `app.config.errorHandler` and recoverable warnings — so this installs an error
  * handler before mount and treats errors during the hydration phase as hydration failures.
+ * `onStart`/`onSuccess` receive the `App` instance (react's take no args).
  */
 export function hydrateApp<T>({
   appComponent,
@@ -91,14 +92,14 @@ export function hydrateApp<T>({
 
     try {
       // Same setupApp runs on the CSR path so it works whether the client hydrates or falls
-      // back to CSR. A normal CSR mount emits no hydration events.
+      // back to CSR.
       setupApp?.(app);
       app.mount(rootEl);
     } catch (err) {
-      // A throwing setupApp/mount is an application error — route to the client error
-      // channel (design §7.2).
+      // R2: a throwing setupApp/mount is an application error — route to onHydrationError
+      // (the only client error channel). The CSR path emits NO beacon events: a CSR mount is
+      // not a hydration, and react's CSR path emits nothing either.
       error('CSR mount error:', err);
-      emitDevHook('hydration:error', err);
       onHydrationError?.(err);
     }
   };
@@ -134,8 +135,20 @@ export function hydrateApp<T>({
         render: () => h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
       });
 
-      // Install BEFORE mount: Vue surfaces hydration problems here, not as throws.
+      // R4: configure the app (setupApp) before notifying, so onStart/onSuccess and the
+      // mount all see a fully-configured app. A throw here is caught below and routed to
+      // reportHydrationFailure (it fires before emitDevHook('hydration:start'), so a setupApp
+      // failure emits hydration:error without a preceding start — hydration never began).
+      setupApp?.(app);
+
+      // Install BEFORE mount (Vue surfaces hydration problems here, not as throws). R3: chain
+      // after any handler a user installed in setupApp (Sentry etc.) so τjs's routing always
+      // runs and the user's still observes.
+      const userErrorHandler = app.config.errorHandler;
       app.config.errorHandler = (err, instance, info) => {
+        try {
+          userErrorHandler?.(err, instance, info);
+        } catch {}
         vueErrLog(err, instance, info);
         reportHydrationFailure(err);
       };
@@ -148,12 +161,9 @@ export function hydrateApp<T>({
         };
       }
 
-      // start beacon + onStart receive the App (divergence from react, design §7.3);
-      // setupApp configures it before mount. A throw from onStart/setupApp is caught below
-      // and routed to reportHydrationFailure (onHydrationError + hydration:error).
+      // Beacon then user callback (internal-first), onStart receiving the configured App.
       emitDevHook('hydration:start');
       onStart?.(app);
-      setupApp?.(app);
 
       // createSSRApp(...).mount() hydrates by default; no non-public second argument (F11).
       app.mount(rootEl);

@@ -18,7 +18,8 @@ export type RenderCallbacks<T> = {
   onHead?: (head: string) => void;
   onShellReady?: () => void;
   onAllReady?: (data: T) => void;
-  onFinish?: (data: T) => void; // legacy alias of onAllReady
+  /** @deprecated Legacy alias of `onAllReady`, kept for `@taujs/react` parity. Use `onAllReady`. */
+  onFinish?: (data: T) => void;
   onError?: (err: unknown) => void;
 };
 
@@ -259,27 +260,44 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     log('Starting stream:', location);
 
     let firstChunkSeen = false;
+    // Assigned inside the try below, before renderToSimpleStream drives the sink; the sink's
+    // completion handler reads it (R1).
+    let store: SSRStore<T> | undefined;
+
+    // Finalize the response: emit the client bootstrap (so a streamed route hydrates — the
+    // server injects none in streaming strategy, delegating it here), then end the writable.
+    // The server's `finish` handler appends the __INITIAL_DATA__ script and template tail;
+    // hydrateApp defers to DOMContentLoaded, by which time that data script has executed, so
+    // ordering (bootstrap before data script) is safe.
+    const finishStream = () => {
+      if (controller.isAborted) return;
+      if (bootstrapModules) {
+        const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
+        try {
+          writable.write(`<script type="module" src="${bootstrapModules}" async${nonceAttr}></script>`);
+        } catch {}
+      }
+      try {
+        writable.end();
+      } catch {}
+    };
 
     const sink: SimpleReadable = {
       push: (chunk: string | null) => {
         if (controller.isAborted) return;
 
         if (chunk === null) {
-          // End of render. Emit the client bootstrap so a streamed route hydrates (the
-          // server injects no bootstrap in streaming strategy — it delegates that here),
-          // then end the writable. The server's `finish` handler appends the
-          // __INITIAL_DATA__ script and template tail. hydrateApp defers to
-          // DOMContentLoaded, by which time that data script has executed, so ordering
-          // (bootstrap before data script) is safe.
-          if (bootstrapModules) {
-            const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
-            try {
-              writable.write(`<script type="module" src="${bootstrapModules}" async${nonceAttr}></script>`);
-            } catch {}
-          }
-          try {
-            writable.end();
-          } catch {}
+          // R1: gate end-of-stream on the store settling, so the server always serializes
+          // resolved data into __INITIAL_DATA__ even when no component awaited it. The
+          // non-blocking useSSRData idiom would otherwise end the stream before the data
+          // thunk resolves → empty payload. onAllReady (subscribed below, hence before this)
+          // fires first and sets the server's finalData; on rejection that chain's .catch →
+          // fail() owns teardown, so we do nothing here. Trade-off: a never-settling thunk
+          // now holds the stream open — react's semantics for a suspending render, an app
+          // bug not a τjs one.
+          const ready = store?.ready;
+          if (ready) ready.then(finishStream, () => {});
+          else finishStream();
           return;
         }
 
@@ -312,8 +330,11 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     };
 
     try {
-      const store = createSSRStore(initialData);
-      const app = createAppWithStore(store, appComponent, { location, routeContext });
+      // `store` (the outer let) is what the sink's completion handler reads; `s` is a
+      // non-nullable alias for use within this synchronous+async block.
+      const s = createSSRStore(initialData);
+      store = s;
+      const app = createAppWithStore(s, appComponent, { location, routeContext });
 
       // App-instance customization before render (a throw is caught by this try and routed
       // through fail → onError + fatal abort).
@@ -323,7 +344,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       // streaming strategy the snapshot is usually still pending, so heads must be
       // derivable from meta/routeContext.
       const head = headContent({
-        data: (store.getSnapshot() ?? {}) as T,
+        data: (s.getSnapshot() ?? {}) as T,
         meta,
         routeContext,
       });
@@ -333,17 +354,27 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         warn('onHead callback threw:', cbErr);
       }
 
-      // Route Vue render-time errors into the fatal path (see `fail` above).
-      app.config.errorHandler = (err) => fail(err);
+      // Route Vue render-time errors into the fatal path (see `fail` above). R3: chain after
+      // any handler a user installed in setupApp (Sentry etc.) so τjs's routing always runs
+      // and the user's still observes.
+      const userErrorHandler = app.config.errorHandler;
+      app.config.errorHandler = (err, instance, info) => {
+        try {
+          userErrorHandler?.(err, instance, info);
+        } catch {}
+        fail(err);
+      };
 
       const ssrCtx: SSRContext = {};
       renderToSimpleStream(app, ssrCtx, sink);
 
-      // Deliver final data when the store settles.
-      store.ready
+      // Deliver final data when the store settles. Subscribed here — before the sink's
+      // push(null) subscribes finishStream (R1) — so onAllReady sets the server's finalData
+      // before the stream ends.
+      s.ready
         .then(() => {
           if (controller.isAborted) return;
-          const data = store.getSnapshot();
+          const data = s.getSnapshot();
           if (data !== undefined) {
             cb.onAllReady(data);
             cb.onFinish(data);

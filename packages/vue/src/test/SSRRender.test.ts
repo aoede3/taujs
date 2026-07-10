@@ -181,7 +181,7 @@ describe('createRenderer.renderStream — head contract (F2)', () => {
 });
 
 describe('createRenderer.renderStream — bootstrap & hydration (F3)', () => {
-  it('emits the module bootstrap tag once, before end(), with nonce', () => {
+  it('emits the module bootstrap tag once, before end(), with nonce', async () => {
     const writable = new Collector();
 
     makeRenderer().renderStream(writable as any, {}, {} as any, '/', '/entry-client.js', {}, 'nonce-123');
@@ -189,6 +189,7 @@ describe('createRenderer.renderStream — bootstrap & hydration (F3)', () => {
     const sink = getSink();
     sink.push('<div id="app"></div>');
     sink.push(null);
+    await new Promise((r) => setTimeout(r, 0)); // R1: end-of-stream is gated on store.ready
 
     const boot = '<script type="module" src="/entry-client.js" async nonce="nonce-123"></script>';
     expect(writable.writeCalls.filter((c) => c.includes('type="module"'))).toEqual([boot]);
@@ -197,7 +198,7 @@ describe('createRenderer.renderStream — bootstrap & hydration (F3)', () => {
     expect(writable.ended).toBe(true);
   });
 
-  it('emits the bootstrap tag without a nonce attribute when cspNonce is absent', () => {
+  it('emits the bootstrap tag without a nonce attribute when cspNonce is absent', async () => {
     const writable = new Collector();
 
     makeRenderer().renderStream(writable as any, {}, {} as any, '/', '/entry-client.js');
@@ -205,12 +206,13 @@ describe('createRenderer.renderStream — bootstrap & hydration (F3)', () => {
     const sink = getSink();
     sink.push('x');
     sink.push(null);
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(writable.output()).toContain('<script type="module" src="/entry-client.js" async></script>');
     expect(writable.output()).not.toContain('nonce=');
   });
 
-  it('emits no bootstrap tag when bootstrapModules is undefined', () => {
+  it('emits no bootstrap tag when bootstrapModules is undefined', async () => {
     const writable = new Collector();
 
     makeRenderer().renderStream(writable as any, {}, {} as any, '/');
@@ -218,6 +220,7 @@ describe('createRenderer.renderStream — bootstrap & hydration (F3)', () => {
     const sink = getSink();
     sink.push('x');
     sink.push(null);
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(writable.output()).not.toContain('type="module"');
     expect(writable.ended).toBe(true);

@@ -13,7 +13,8 @@ export type RenderCallbacks<T> = {
   onHead?: (head: string) => void;
   onShellReady?: () => void;
   onAllReady?: (data: T) => void;
-  onFinish?: (data: T) => void; // optional, legacy fires when final data is available (onAllReady)
+  /** @deprecated Legacy alias of `onAllReady`, fires when final data is available. Use `onAllReady`. */
+  onFinish?: (data: T) => void;
   onError?: (err: unknown) => void;
 };
 

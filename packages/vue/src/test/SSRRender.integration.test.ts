@@ -263,6 +263,61 @@ describe('renderStream — server integration (byte order)', () => {
     expect(r.appHtml).toContain('data-mark="on"');
   });
 
+  it('R1: streamed non-blocking idiom + async data still serializes real __INITIAL_DATA__', async () => {
+    // The fallback idiom (useSSRData, no await) renders 'loading' immediately; without R1 the
+    // stream would end before the macrotask thunk resolves and the server would serialize {}.
+    const Fallback = defineComponent({
+      name: 'Fallback',
+      setup() {
+        const data = useSSRData<{ msg: string }>();
+        return () => h('div', { id: 'app' }, data.value?.msg ?? 'loading');
+      },
+    });
+
+    const { renderStream } = createRenderer<{ msg: string }>({
+      appComponent: () => h(Fallback),
+      headContent: () => '<title>t</title>',
+    });
+
+    const { doc, onError } = await driveLikeServer(
+      renderStream,
+      () => new Promise<{ msg: string }>((r) => setTimeout(() => r({ msg: 'slow-data' }), 5)),
+      { bootstrapModule: '/entry-client.js' },
+    );
+
+    expect(onError).toEqual([]);
+    // SSR rendered the fallback (data was pending)...
+    expect(doc).toContain('<div id="app">loading</div>');
+    // ...but the resolved data is still in the payload for the client (R1 gate on store.ready).
+    expect(doc).toContain('window.__INITIAL_DATA__ = {"msg":"slow-data"}');
+    expect(doc).not.toContain('__INITIAL_DATA__ = {}');
+  });
+
+  it('R3: a user errorHandler installed in setupApp still fires alongside τjs fatal routing', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const Boom = defineComponent({
+      name: 'Boom',
+      setup() {
+        throw new Error('render boom');
+      },
+    });
+    const userHandler = vi.fn();
+
+    const { renderStream } = createRenderer<{ x: number }>({
+      appComponent: () => h(Boom),
+      headContent: () => '<title>t</title>',
+      setupApp: (app) => {
+        app.config.errorHandler = userHandler;
+      },
+    });
+
+    const { onError } = await driveLikeServer(renderStream, { x: 1 } as any).catch((e) => ({ onError: [e] }));
+
+    expect(userHandler).toHaveBeenCalledTimes(1); // the user's handler still observes
+    expect(onError.length).toBeGreaterThanOrEqual(1); // AND τjs's fatal routing still ran
+  });
+
   it('a throwing component routes through app.config.errorHandler to a fatal onError', async () => {
     const Boom = defineComponent({
       name: 'Boom',
