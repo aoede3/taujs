@@ -16,7 +16,7 @@
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [`@taujs/server`](packages/server)             | Fastify plugin & render orchestration - CSR / SSR / Streaming SSR for SPA, MPA, and build‑time micro‑frontends (MFE). React 19, Vite HMR + tsx in dev. |
 | [`@taujs/react`](packages/react)               | React renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                              |
-| [`@taujs/vue`](packages/vue)                   | Framework‑agnostic Vue SSR primitives - transport layer for server‑side rendering and hydration. _In development, unpublished._                        |
+| [`@taujs/vue`](packages/vue)                   | Vue renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                                 |
 | [`@taujs/mcp`](packages/mcp)                   | MCP server for AI agents: reads the dev‑emitted request graph and live request traces (filesystem‑only stdio adapter). Wired by the scaffolder.        |
 | [`@taujs/create-taujs`](packages/create-taujs) | Scaffolder for a new τjs application.                                                                                                                  |
 
@@ -48,7 +48,7 @@ taujs/
 └── packages/
     ├── server/         # @taujs/server
     ├── react/          # @taujs/react
-    ├── vue/            # @taujs/vue    (unpublished)
+    ├── vue/            # @taujs/vue
     ├── mcp/            # @taujs/mcp
     └── create-taujs/   # @taujs/create-taujs
 ```
