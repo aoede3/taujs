@@ -1,5 +1,5 @@
 import { createSSRApp, h, type Component, type VNode } from 'vue';
-import { renderToString, pipeToNodeWritable, type SSRContext } from '@vue/server-renderer';
+import { renderToSimpleStream, renderToString, type SimpleReadable, type SSRContext } from '@vue/server-renderer';
 
 import { createSSRStore, SSRStoreProvider, type SSRStore } from './SSRDataStore';
 import { createUILogger } from './utils/Logger';
@@ -10,7 +10,12 @@ import type { LoggerLike } from './utils/Logger';
 import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming';
 
 export type RenderCallbacks<T> = {
-  onHead?: (head: string) => boolean | void;
+  /**
+   * Receives the head string. The server owns the HTML template and writes the head into
+   * `<head>`; the renderer must never write head bytes into the stream. Return value is
+   * ignored (parity with `@taujs/server`'s `RenderCallbacks.onHead` and `@taujs/react`).
+   */
+  onHead?: (head: string) => void;
   onShellReady?: () => void;
   onAllReady?: (data: T) => void;
   onFinish?: (data: T) => void; // legacy alias of onAllReady
@@ -18,10 +23,13 @@ export type RenderCallbacks<T> = {
 };
 
 export type StreamOptions = {
-  /** Timeout in ms for shell to be ready (default: 10000) */
+  /**
+   * Time-to-first-content watchdog, in ms (default: 10000). Started before rendering and
+   * cleared on the first streamed chunk. If no content is produced before it expires the
+   * stream is aborted with a fatal error. Vue streaming is in-order and blocks at async
+   * boundaries — there is no React-style shell phase, so this guards first-byte latency.
+   */
   shellTimeoutMs?: number;
-  /** Whether to use cork/uncork for batched writes (default: true) */
-  useCork?: boolean;
 };
 
 export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>, R = unknown> = {
@@ -38,10 +46,6 @@ type StreamCallOptions<R> = StreamOptions & {
 };
 
 const NOOP = () => {};
-
-function isPromiseLike(x: unknown): x is Promise<unknown> {
-  return !!x && (typeof x === 'object' || typeof x === 'function') && typeof (x as any).then === 'function';
-}
 
 function normalizeRootComponent(root: Component | ((props: any) => VNode), props: any): Component {
   // Treat as render function if it doesn't look like a Vue component
@@ -80,7 +84,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
 }) {
-  const { shellTimeoutMs = 10_000, useCork = true } = streamOptions;
+  const { shellTimeoutMs = 10_000 } = streamOptions;
 
   const renderSSR = async (
     initialData: T,
@@ -142,9 +146,9 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     callbacks: RenderCallbacks<T>,
     initialData: T | Promise<T> | (() => Promise<T>),
     location: string,
-    _bootstrapModules?: string, // Vue SSR doesn't use React bootstrapModules; kept for signature parity.
+    bootstrapModules?: string,
     meta: Record<string, unknown> = {},
-    _cspNonce?: string, // Vue SSR renderer doesn't accept nonce here; keep parity for TauJS.
+    cspNonce?: string,
     signal?: AbortSignal,
     opts?: StreamCallOptions<R>,
   ) => {
@@ -163,11 +167,19 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     });
 
     const routeContext = opts?.routeContext;
-
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
-    const effectiveUseCork = opts?.useCork ?? useCork;
 
     const controller = createStreamController(writable, { log, warn, error });
+
+    // Single, idempotent fatal path. Vue swallows a component error once an
+    // app.config.errorHandler is installed (see @vue/server-renderer handleError), so the
+    // handler must abort itself rather than relying on the render promise to reject; the
+    // isAborted guard makes this safe to call from both errorHandler and sink.destroy.
+    const fail = (err: unknown) => {
+      if (controller.isAborted) return;
+      cb.onError(err);
+      controller.fatalAbort(err);
+    };
 
     // AbortSignal (benign cancel)
     if (signal) {
@@ -189,130 +201,99 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     // Writable guards BEFORE any writes/piping
     const { cleanup: guardsCleanup } = wireWritableGuards(writable, {
       benignAbort: (why) => controller.benignAbort(why),
-      fatalAbort: (err) => {
-        // Vue Suspense can throw Promises; don't treat that as fatal.
-        if (isPromiseLike(err)) return;
-        cb.onError(err);
-        controller.fatalAbort(err);
-      },
-      onError: (err) => {
-        // Vue Suspense can throw Promises; don't treat that as an error.
-        if (isPromiseLike(err)) return;
-        cb.onError(err);
-      },
+      fatalAbort: (err) => fail(err),
       onFinish: () => controller.complete('Stream finished (normal completion)'),
     });
     controller.setGuardsCleanup(guardsCleanup);
 
-    // Shell timeout guard (Vue doesn't give a real "shell ready" hook; we stop this once head is written and piping begins)
+    // Time-to-first-content watchdog: fires only if no chunk is produced before it expires.
     const stopShellTimer = startShellTimer(effectiveShellTimeout, () => {
       if (controller.isAborted) return;
 
-      const timeoutErr = new Error(`Shell not ready after ${effectiveShellTimeout}ms`);
-      cb.onError(timeoutErr);
-      controller.fatalAbort(timeoutErr);
+      fail(new Error(`Stream produced no content within ${effectiveShellTimeout}ms`));
     });
     controller.setStopShellTimer(stopShellTimer);
 
     log('Starting stream:', location);
 
-    let started = false;
+    let firstChunkSeen = false;
 
-    const writeHeadAndMaybeWait = (head: string) => {
-      // Enable only when both requested and supported
-      const canCork = effectiveUseCork && typeof (writable as any).cork === 'function' && typeof (writable as any).uncork === 'function';
+    const sink: SimpleReadable = {
+      push: (chunk: string | null) => {
+        if (controller.isAborted) return;
 
-      if (canCork)
-        try {
-          (writable as any).cork();
-        } catch {}
-
-      let wroteOk = true;
-      try {
-        const res = typeof (writable as any).write === 'function' ? (writable as any).write(head) : true;
-        wroteOk = res !== false;
-      } finally {
-        if (canCork)
+        if (chunk === null) {
+          // End of render. Emit the client bootstrap so a streamed route hydrates (the
+          // server injects no bootstrap in streaming strategy — it delegates that here),
+          // then end the writable. The server's `finish` handler appends the
+          // __INITIAL_DATA__ script and template tail. hydrateApp defers to
+          // DOMContentLoaded, by which time that data script has executed, so ordering
+          // (bootstrap before data script) is safe.
+          if (bootstrapModules) {
+            const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
+            try {
+              writable.write(`<script type="module" src="${bootstrapModules}" async${nonceAttr}></script>`);
+            } catch {}
+          }
           try {
-            (writable as any).uncork();
+            writable.end();
           } catch {}
-      }
+          return;
+        }
 
-      let forceWait = false;
-      try {
-        forceWait = cb.onHead(head) === false;
-      } catch (cbErr) {
-        warn('onHead callback threw:', cbErr);
-      }
+        if (!firstChunkSeen) {
+          firstChunkSeen = true;
+          // Honest shell semantics: first streamed content byte.
+          try {
+            stopShellTimer();
+          } catch {}
+          log('Shell ready:', location);
+          try {
+            cb.onShellReady();
+          } catch (cbErr) {
+            warn('onShellReady callback threw:', cbErr);
+          }
+        }
 
-      return { wroteOk, forceWait };
+        try {
+          writable.write(chunk);
+        } catch {}
+      },
+      destroy: (err: unknown) => {
+        if (controller.isAborted) return;
+        if (isBenignStreamErr(err)) {
+          controller.benignAbort('Client disconnected during stream');
+          return;
+        }
+        fail(err);
+      },
     };
 
     try {
       const store = createSSRStore(initialData);
       const app = createAppWithStore(store, appComponent, { location, routeContext });
 
-      // Prefer current snapshot if available (sync path).
-      let headData: T | undefined;
-      try {
-        headData = store.getSnapshot();
-      } catch {
-        // Ignore any errors; data will be undefined
-      }
-
+      // Head is built once from the current snapshot and delivered ONLY via onHead. In
+      // streaming strategy the snapshot is usually still pending, so heads must be
+      // derivable from meta/routeContext.
       const head = headContent({
-        data: headData ?? ({} as T),
+        data: (store.getSnapshot() ?? {}) as T,
         meta,
         routeContext,
       });
-      const { wroteOk, forceWait } = writeHeadAndMaybeWait(head);
-
-      const startPipe = () => {
-        if (controller.isAborted || started) return;
-        started = true;
-
-        // "shell ready": head is written and we’re about to start piping HTML
-        try {
-          stopShellTimer();
-        } catch {}
-        log('Shell ready:', location);
-
-        // Ensure Vue SSR errors flow into TauJS abort path, but ignore Suspense Promises.
-        app.config.errorHandler = (err) => {
-          if (controller.isAborted) return;
-          if (isPromiseLike(err)) return;
-          cb.onError(err);
-          controller.fatalAbort(err);
-        };
-
-        const ssrCtx: SSRContext = {};
-        try {
-          pipeToNodeWritable(app, ssrCtx, writable);
-        } catch (err) {
-          if (controller.isAborted) return;
-          if (isPromiseLike(err)) return; // Suspense control flow
-          cb.onError(err);
-          controller.fatalAbort(err);
-        }
-      };
-
-      if (forceWait || !wroteOk) {
-        if (typeof (writable as any).once === 'function') {
-          (writable as any).once('drain', startPipe);
-        } else {
-          startPipe();
-        }
-      } else {
-        startPipe();
-      }
-
       try {
-        cb.onShellReady();
+        cb.onHead(head);
       } catch (cbErr) {
-        warn('onShellReady callback threw:', cbErr);
+        warn('onHead callback threw:', cbErr);
       }
 
-      // Deliver final data when ready.
+      // Route Vue render-time errors into the fatal path (see `fail` above).
+      app.config.errorHandler = (err) => fail(err);
+
+      const ssrCtx: SSRContext = {};
+      renderToSimpleStream(app, ssrCtx, sink);
+
+      // Deliver final data when the store settles.
       store.ready
         .then(() => {
           if (controller.isAborted) return;
@@ -324,25 +305,19 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         })
         .catch((e) => {
           if (controller.isAborted) return;
-          // Promise rejection is real failure (not "suspense")
           error('Data promise rejected:', e);
-          cb.onError(e);
-          controller.fatalAbort(e);
+          fail(e);
         });
 
       controller.setStreamAbort(() => {
-        // With pipeToNodeWritable we don’t hold a Readable. Writable guards + AbortSignal
-        // should handle the disconnect path; optionally destroy the writable:
+        // No Readable is held; writable guards + AbortSignal handle disconnects. Destroy
+        // the writable defensively on manual/fatal abort.
         try {
-          (writable as any)?.destroy?.();
+          (writable as { destroy?: () => void }).destroy?.();
         } catch {}
       });
     } catch (err) {
-      if (!isPromiseLike(err)) {
-        cb.onError(err);
-        controller.fatalAbort(err);
-      }
-      // If it's a Promise, it's Suspense control flow; do not abort the stream.
+      fail(err);
     }
 
     return {
