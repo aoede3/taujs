@@ -3,16 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, Suspense, type Component } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 
-import {
-  createSSRStore,
-  SSRStoreProvider,
-  useSSRData,
-  useSSRDataAsync,
-  useSSRReady,
-  useSSRStatus,
-  useSSRStore,
-  type SSRStore,
-} from '../SSRDataStore';
+import { createSSRStore, SSRStoreProvider, useSSRData, useSSRDataAsync, useSSRReady, useSSRStatus, useSSRStore, type SSRStore } from '../SSRDataStore';
 import * as pkg from '..';
 
 const mountWithStore = (child: Component, store: SSRStore<any>) =>

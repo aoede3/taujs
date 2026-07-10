@@ -111,10 +111,14 @@ describe('renderStream — server integration (byte order)', () => {
       headContent: ({ data }) => `<title>${(data as any)?.msg ?? 'no-data'}</title>`,
     });
 
-    const { doc, onError } = await driveLikeServer(renderStream, { msg: 'hello' }, {
-      bootstrapModule: '/entry-client.js',
-      cspNonce: 'test-nonce',
-    });
+    const { doc, onError } = await driveLikeServer(
+      renderStream,
+      { msg: 'hello' },
+      {
+        bootstrapModule: '/entry-client.js',
+        cspNonce: 'test-nonce',
+      },
+    );
 
     expect(onError).toEqual([]);
 
@@ -172,11 +176,7 @@ describe('renderStream — server integration (byte order)', () => {
       name: 'App',
       setup() {
         const data = useSSRData<{ msg: string }>();
-        return () =>
-          h('div', { id: 'app' }, [
-            `main:${data.value?.msg ?? ''}`,
-            h(Teleport, { to: '#modal' }, [h('span', { class: 'tp' }, 'teleported-body')]),
-          ]);
+        return () => h('div', { id: 'app' }, [`main:${data.value?.msg ?? ''}`, h(Teleport, { to: '#modal' }, [h('span', { class: 'tp' }, 'teleported-body')])]);
       },
     });
 
@@ -279,11 +279,9 @@ describe('renderStream — server integration (byte order)', () => {
       headContent: () => '<title>t</title>',
     });
 
-    const { doc, onError } = await driveLikeServer(
-      renderStream,
-      () => new Promise<{ msg: string }>((r) => setTimeout(() => r({ msg: 'slow-data' }), 5)),
-      { bootstrapModule: '/entry-client.js' },
-    );
+    const { doc, onError } = await driveLikeServer(renderStream, () => new Promise<{ msg: string }>((r) => setTimeout(() => r({ msg: 'slow-data' }), 5)), {
+      bootstrapModule: '/entry-client.js',
+    });
 
     expect(onError).toEqual([]);
     // SSR rendered the fallback (data was pending)...
