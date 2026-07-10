@@ -4,6 +4,7 @@
 
 [![@taujs/server](https://img.shields.io/npm/v/@taujs/server?label=%40taujs%2Fserver)](https://www.npmjs.com/package/@taujs/server)
 [![@taujs/react](https://img.shields.io/npm/v/@taujs/react?label=%40taujs%2Freact)](https://www.npmjs.com/package/@taujs/react)
+[![@taujs/mcp](https://img.shields.io/npm/v/@taujs/mcp?label=%40taujs%2Fmcp)](https://www.npmjs.com/package/@taujs/mcp)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.11-brightgreen)](.nvmrc)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -16,6 +17,7 @@
 | [`@taujs/server`](packages/server)             | Fastify plugin & render orchestration - CSR / SSR / Streaming SSR for SPA, MPA, and build‑time micro‑frontends (MFE). React 19, Vite HMR + tsx in dev. |
 | [`@taujs/react`](packages/react)               | React renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                              |
 | [`@taujs/vue`](packages/vue)                   | Framework‑agnostic Vue SSR primitives - transport layer for server‑side rendering and hydration. _In development, unpublished._                        |
+| [`@taujs/mcp`](packages/mcp)                   | MCP server for AI agents: reads the dev‑emitted request graph and live request traces (filesystem‑only stdio adapter). Wired by the scaffolder.        |
 | [`@taujs/create-taujs`](packages/create-taujs) | Scaffolder for a new τjs application.                                                                                                                  |
 
 Current versions are shown by the badges above.
@@ -41,10 +43,13 @@ taujs/
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
 ├── .changeset/
+├── fixtures/
+│   └── playground/     # private fixture app (introspection e2e + demos)
 └── packages/
     ├── server/         # @taujs/server
     ├── react/          # @taujs/react
     ├── vue/            # @taujs/vue    (unpublished)
+    ├── mcp/            # @taujs/mcp
     └── create-taujs/   # @taujs/create-taujs
 ```
 
