@@ -1,5 +1,18 @@
 # @taujs/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- [#10](https://github.com/aoede3/taujs/pull/10) [`dafd344`](https://github.com/aoede3/taujs/commit/dafd3444fe50ea7e09347cb892b0333b7bae4c32) Thanks [@aoede3](https://github.com/aoede3)! - Add a Vue framework option to the scaffolder (V2-02). `create-taujs` now prompts
+  "Framework: React / Vue" (React default) and accepts a non-interactive
+  `--framework react|vue` flag. The Vue template scaffolds an app equivalent to the React
+  one — same `/` (ssr) and `/streaming` (streaming) routes, same shared server half, same MCP
+  wiring — using `@taujs/vue`: `App.vue` with a route switch, `HomePage.vue` (`useSSRData` +
+  `v-if`) and `StreamingPage.vue` (`await useSSRDataAsync` under `<Suspense>`), `.ts` client
+  entries, a `*.vue` type shim, `plugins: [pluginVue()]` in `taujs.config.ts`, and `vue-tsc`
+  for client typechecking. React output is unchanged (byte-identical, golden-tested).
+
 ## 0.2.0
 
 ### Minor Changes

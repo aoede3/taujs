@@ -1,5 +1,12 @@
 # @taujs/react
 
+## 0.2.1
+
+### Patch Changes
+
+- [#10](https://github.com/aoede3/taujs/pull/10) [`c8712a6`](https://github.com/aoede3/taujs/commit/c8712a655909512d044bc4baccbedc1312fe4237) Thanks [@aoede3](https://github.com/aoede3)! - Mark the `onFinish` render callback as `@deprecated` in its JSDoc (it is a legacy alias of
+  `onAllReady`); use `onAllReady` instead. Documentation-only; no behaviour change.
+
 ## 0.2.0
 
 ### Minor Changes
