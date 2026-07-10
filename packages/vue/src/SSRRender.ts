@@ -1,4 +1,4 @@
-import { createSSRApp, h, type Component, type VNode } from 'vue';
+import { createSSRApp, h, type App, type Component, type VNode } from 'vue';
 import { renderToSimpleStream, renderToString, type SimpleReadable, type SSRContext } from '@vue/server-renderer';
 
 import { createSSRStore, SSRStoreProvider, type SSRStore } from './SSRDataStore';
@@ -95,6 +95,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   streamOptions = {},
   logger,
   enableDebug = false,
+  setupApp,
 }: {
   /**
    * Vue root. You can supply a Vue component, or a function returning VNode.
@@ -105,6 +106,19 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   enableDebug?: boolean;
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
+  /**
+   * Configure the `App` instance τjs creates per request (`app.use`, directives, global
+   * components, provides) — this is how Vue-ecosystem integrations (Pinia, vue-i18n) attach
+   * under τjs SSR. Invoked after app creation, before render, on `renderSSR` and
+   * `renderStream`; the identical function is also passed to `hydrateApp` on the client.
+   *
+   * Constraints (must hold for the same function to run verbatim on server and client):
+   * synchronous only (no promise form), no `window`/DOM access, and idempotent per app
+   * instance (a fresh `App` is created per request and per mount). A throwing `setupApp` is
+   * treated as an application error and routed to the path's error channel (`onError` +
+   * fatal abort here; `onHydrationError` client-side) — never swallowed.
+   */
+  setupApp?: (app: App) => void;
 }) {
   const { shellTimeoutMs = 10_000 } = streamOptions;
 
@@ -146,6 +160,9 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         location,
         routeContext,
       });
+      // App-instance customization before render (a throw propagates as this promise's
+      // rejection — renderSSR's error channel).
+      setupApp?.(app);
       // Pass a real SSRContext so <Teleport> content is collected into ctx.teleports
       // (additive: the server reads only headContent/appHtml).
       const ctx: SSRContext = {};
@@ -297,6 +314,10 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     try {
       const store = createSSRStore(initialData);
       const app = createAppWithStore(store, appComponent, { location, routeContext });
+
+      // App-instance customization before render (a throw is caught by this try and routed
+      // through fail → onError + fatal abort).
+      setupApp?.(app);
 
       // Head is built once from the current snapshot and delivered ONLY via onHead. In
       // streaming strategy the snapshot is usually still pending, so heads must be

@@ -446,3 +446,41 @@ describe('createRenderer.renderStream — error & abort paths', () => {
     await expect(done).resolves.toBeUndefined();
   });
 });
+
+describe('createRenderer — setupApp (V1-06)', () => {
+  it('setupApp receives the created app and runs before renderToSimpleStream', () => {
+    const writable = new Collector();
+    const seen: unknown[] = [];
+
+    makeRenderer({ setupApp: (app: any) => seen.push(app) } as any).renderStream(writable as any, {}, {} as any, '/setup');
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeTruthy();
+    expect(SR.renderToSimpleStream).toHaveBeenCalledTimes(1);
+  });
+
+  it('renderSSR rejects when setupApp throws (renderSSR error channel)', async () => {
+    const renderer = makeRenderer({
+      setupApp: () => {
+        throw new Error('setup boom');
+      },
+    } as any);
+
+    await expect(renderer.renderSSR({} as any, '/setup-ssr')).rejects.toThrow('setup boom');
+  });
+
+  it('renderStream: a throwing setupApp aborts the stream (onError + done rejects) before render', async () => {
+    const writable = new Collector();
+    const onError = vi.fn();
+
+    const { done } = makeRenderer({
+      setupApp: () => {
+        throw new Error('setup boom');
+      },
+    } as any).renderStream(writable as any, { onError }, {} as any, '/setup-stream');
+
+    await expect(done).rejects.toThrow('setup boom');
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect(SR.renderToSimpleStream).not.toHaveBeenCalled();
+  });
+});

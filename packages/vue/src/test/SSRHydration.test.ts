@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h, nextTick, ref, watch } from 'vue';
+import { defineComponent, h, inject, nextTick, ref, watch, type App, type InjectionKey } from 'vue';
 
 import { hydrateApp } from '../SSRHydration';
 
@@ -129,5 +129,93 @@ describe('hydrateApp — error handler wiring (F11)', () => {
 
     const warned = warn.mock.calls.some(([msg]) => String(msg).includes('Vue warning during hydration'));
     expect(warned).toBe(true);
+  });
+});
+
+describe('hydrateApp — setupApp (V1-06)', () => {
+  const MSG: InjectionKey<string> = Symbol('msg');
+  let captured: string | undefined;
+  const Capturer = defineComponent({
+    setup() {
+      captured = inject(MSG, 'no-plugin');
+      return () => h('div', { id: 'app' }, 'x');
+    },
+  });
+  beforeEach(() => {
+    captured = undefined;
+  });
+
+  it('runs setupApp on the hydrate path (a provided value is injectable by the component)', () => {
+    setRoot('<div id="app">x</div>');
+    setData({});
+    hydrateApp({ appComponent: Capturer, setupApp: (app: App) => app.provide(MSG, 'from-plugin') });
+    expect(captured).toBe('from-plugin');
+  });
+
+  it('runs setupApp on the CSR fallback path too', () => {
+    setRoot('<div>stale</div>');
+    setData(undefined);
+    hydrateApp({ appComponent: Capturer, setupApp: (app: App) => app.provide(MSG, 'from-plugin') });
+    expect(captured).toBe('from-plugin');
+  });
+
+  it('a throwing setupApp in the hydrate path routes to onHydrationError + hydration:error (no success)', () => {
+    setRoot('<div id="app">x</div>');
+    setData({});
+    const events: string[] = [];
+    (window as any).__TAUJS_DEVTOOLS_HOOK__ = { emit: (ev: string) => events.push(ev) };
+    const onHydrationError = vi.fn();
+    const onSuccess = vi.fn();
+
+    expect(() =>
+      hydrateApp({
+        appComponent: () => h('div', { id: 'app' }, 'x'),
+        setupApp: () => {
+          throw new Error('setup boom');
+        },
+        onHydrationError,
+        onSuccess,
+      }),
+    ).not.toThrow();
+
+    expect(events).toEqual(['hydration:start', 'hydration:error']);
+    expect(onHydrationError).toHaveBeenCalledTimes(1);
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('a throwing setupApp in the CSR path routes to onHydrationError + hydration:error', () => {
+    setRoot('<div>stale</div>');
+    setData(undefined);
+    const events: string[] = [];
+    (window as any).__TAUJS_DEVTOOLS_HOOK__ = { emit: (ev: string) => events.push(ev) };
+    const onHydrationError = vi.fn();
+
+    hydrateApp({
+      appComponent: () => h('div'),
+      setupApp: () => {
+        throw new Error('csr boom');
+      },
+      onHydrationError,
+    });
+
+    expect(events).toEqual(['hydration:error']);
+    expect(onHydrationError).toHaveBeenCalledTimes(1);
+  });
+
+  it('onStart, onSuccess, and setupApp all receive the same App instance', () => {
+    setRoot('<div id="app">x</div>');
+    setData({});
+    const apps: unknown[] = [];
+
+    hydrateApp({
+      appComponent: () => h('div', { id: 'app' }, 'x'),
+      setupApp: (a: App) => apps.push(a),
+      onStart: (a: App) => apps.push(a),
+      onSuccess: (a: App) => apps.push(a),
+    });
+
+    expect(apps).toHaveLength(3);
+    expect(apps[0]).toBe(apps[1]);
+    expect(apps[1]).toBe(apps[2]);
   });
 });

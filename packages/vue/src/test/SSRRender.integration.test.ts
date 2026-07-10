@@ -7,7 +7,7 @@
 // server-appended __INITIAL_DATA__ script — in that order.
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
-import { defineComponent, h, Teleport } from 'vue';
+import { defineComponent, h, inject, resolveDirective, Teleport, withDirectives, type App, type InjectionKey } from 'vue';
 
 import { createRenderer } from '../SSRRender';
 import { useSSRData, useSSRDataAsync } from '../SSRDataStore';
@@ -203,6 +203,64 @@ describe('renderStream — server integration (byte order)', () => {
     const result = await renderSSR({ msg: 'x' }, '/');
 
     expect(result.teleports == null || Object.keys(result.teleports).length === 0).toBe(true);
+  });
+
+  it('setupApp: a plugin installed on the app is usable by a rendered component (renderSSR)', async () => {
+    const MSG: InjectionKey<string> = Symbol('msg');
+    const Consumer = defineComponent({
+      setup() {
+        const m = inject(MSG, 'no-plugin');
+        return () => h('div', { id: 'app' }, m);
+      },
+    });
+
+    const { renderSSR } = createRenderer<Record<string, never>>({
+      appComponent: () => h(Consumer),
+      headContent: () => '<title>t</title>',
+      setupApp: (app: App) => app.use({ install: (a: App) => a.provide(MSG, 'from-plugin') }),
+    });
+
+    const r = await renderSSR({}, '/');
+    expect(r.appHtml).toContain('from-plugin');
+    expect(r.appHtml).not.toContain('no-plugin');
+  });
+
+  it('setupApp: a plugin installed on the app is usable by a streamed component (renderStream)', async () => {
+    const MSG: InjectionKey<string> = Symbol('msg');
+    const Consumer = defineComponent({
+      setup() {
+        const m = inject(MSG, 'no-plugin');
+        return () => h('div', { id: 'app' }, m);
+      },
+    });
+
+    const { renderStream } = createRenderer<Record<string, never>>({
+      appComponent: () => h(Consumer),
+      headContent: () => '<title>t</title>',
+      setupApp: (app: App) => app.provide(MSG, 'from-plugin'),
+    });
+
+    const { doc, onError } = await driveLikeServer(renderStream, {}, { bootstrapModule: '/entry-client.js' });
+    expect(onError).toEqual([]);
+    expect(doc).toContain('from-plugin');
+  });
+
+  it('setupApp: a directive registered on the app renders (getSSRProps) in renderSSR output', async () => {
+    const Marked = defineComponent({
+      render() {
+        const dir = resolveDirective('mark');
+        return withDirectives(h('div', { id: 'app' }, 'x'), dir ? [[dir]] : []);
+      },
+    });
+
+    const { renderSSR } = createRenderer<Record<string, never>>({
+      appComponent: () => h(Marked),
+      headContent: () => '<title>t</title>',
+      setupApp: (app: App) => app.directive('mark', { getSSRProps: () => ({ 'data-mark': 'on' }) }),
+    });
+
+    const r = await renderSSR({}, '/');
+    expect(r.appHtml).toContain('data-mark="on"');
   });
 
   it('a throwing component routes through app.config.errorHandler to a fatal onError', async () => {

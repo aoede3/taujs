@@ -1,4 +1,4 @@
-import { createApp, createSSRApp, h, nextTick, type Component, type VNode } from 'vue';
+import { createApp, createSSRApp, h, nextTick, type App, type Component, type VNode } from 'vue';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
 import { createUILogger, createVueErrorHandler } from './utils/Logger';
@@ -28,8 +28,17 @@ export type HydrateAppOptions<T> = {
   logger?: LoggerLike;
   dataKey?: string;
   onHydrationError?: (err: unknown) => void;
-  onStart?: () => void;
-  onSuccess?: () => void;
+  /**
+   * Configure the client `App` before mount (`app.use`, directives, provides). Pass the
+   * SAME function used for `createRenderer`'s `setupApp` so Pinia/vue-i18n/etc. attach
+   * identically on server and client. Synchronous, no `window`/DOM access, idempotent per
+   * app instance; a throw is routed to `onHydrationError` (+ `hydration:error` beacon).
+   */
+  setupApp?: (app: App) => void;
+  /** Receives the `App` instance (divergence from react, whose callbacks take no args). */
+  onStart?: (app: App) => void;
+  /** Receives the `App` instance (divergence from react, whose callbacks take no args). */
+  onSuccess?: (app: App) => void;
 };
 
 /**
@@ -54,6 +63,7 @@ export function hydrateApp<T>({
   onHydrationError,
   onStart,
   onSuccess,
+  setupApp,
 }: HydrateAppOptions<T>) {
   const { log, warn, error } = createUILogger(logger, {
     debugCategory: 'ssr',
@@ -79,14 +89,22 @@ export function hydrateApp<T>({
       render: () => h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
     });
 
-    app.mount(rootEl);
+    try {
+      // Same setupApp runs on the CSR path so it works whether the client hydrates or falls
+      // back to CSR. A normal CSR mount emits no hydration events.
+      setupApp?.(app);
+      app.mount(rootEl);
+    } catch (err) {
+      // A throwing setupApp/mount is an application error — route to the client error
+      // channel (design §7.2).
+      error('CSR mount error:', err);
+      emitDevHook('hydration:error', err);
+      onHydrationError?.(err);
+    }
   };
 
   const startHydration = (rootEl: HTMLElement, initialData: T) => {
     if (enableDebug) log('Hydration started');
-    emitDevHook('hydration:start');
-    onStart?.();
-
     if (enableDebug) log('Initial data loaded:', initialData);
 
     const store = createSSRStore(initialData);
@@ -130,13 +148,20 @@ export function hydrateApp<T>({
         };
       }
 
+      // start beacon + onStart receive the App (divergence from react, design §7.3);
+      // setupApp configures it before mount. A throw from onStart/setupApp is caught below
+      // and routed to reportHydrationFailure (onHydrationError + hydration:error).
+      emitDevHook('hydration:start');
+      onStart?.(app);
+      setupApp?.(app);
+
       // createSSRApp(...).mount() hydrates by default; no non-public second argument (F11).
       app.mount(rootEl);
 
       if (!errored) {
         if (enableDebug) log('Hydration completed');
         emitDevHook('hydration:success');
-        onSuccess?.();
+        onSuccess?.(app);
       }
 
       // Close the hydration phase after the current tick.
