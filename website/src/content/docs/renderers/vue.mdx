@@ -1,0 +1,985 @@
+---
+title: Vue
+description: taujs/vue reference
+---
+
+import { LinkButton, Aside } from "@astrojs/starlight/components";
+
+# @taujs/vue
+
+**Vue SSR (Server-Side Rendering) with Streaming Support**
+
+A lightweight, Vue 3 SSR library with streaming capabilities, built for modern TypeScript applications. Designed as part of the taujs (τjs) ecosystem but fully standalone and runtime-agnostic.
+
+<LinkButton
+  href="https://github.com/aoede3/taujs"
+  icon="external"
+  iconPlacement="start"
+  target="\_blank"
+>
+  τjs @taujs/vue
+</LinkButton>
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Installation](#installation)
+- [Core Concepts](#core-concepts)
+- [Consuming SSR data](#consuming-ssr-data)
+  - [Suspense (recommended)](#suspense-recommended)
+  - [Fallback rendering](#fallback-rendering)
+- [API Reference](#api-reference)
+  - [Server-side rendering](#server-side-rendering)
+  - [Client-side hydration](#client-side-hydration)
+  - [Data store](#data-store)
+  - [Vite plugin](#vite-plugin)
+- [App customization with setupApp](#app-customization-with-setupapp)
+- [Lazy hydration](#lazy-hydration)
+- [Handling hydration mismatches](#handling-hydration-mismatches)
+- [Usage in the taujs ecosystem](#usage-in-the-taujs-ecosystem)
+- [Standalone usage](#standalone-usage)
+- [TypeScript support](#typescript-support)
+- [Best practices](#best-practices)
+
+---
+
+## Overview
+
+`@taujs/vue` provides:
+
+- **Streaming SSR** with `renderToSimpleStream` from `@vue/server-renderer`
+- **Static SSR** with `renderToString` for simpler use cases and `<Teleport>` support
+- **Automatic hydration** with built-in data synchronisation and CSR fallback
+- **Vue-native data store** using reactive refs, `provide`/`inject` and `<Suspense>`
+- **App-instance customization** via `setupApp` — the integration point for Pinia, vue-i18n, directives and global components
+- **Robust error handling** routed through `app.config.errorHandler`
+- **Runtime agnostic** — works with Node.js, Fastify, Express, or any HTTP server
+
+`@taujs/vue` mirrors the *contract and capability* of `@taujs/react` — the same render surface, the same server behaviour, the same hydration beacon events — but it is Vue-native, not a React transliteration. Where React throws promises and uses `useSyncExternalStore`, Vue uses reactivity, async `setup` and `<Suspense>`. The documented divergences (for example, `useSSRStore` returning the store) are deliberate and called out in place.
+
+---
+
+## Installation
+
+```bash
+npm install @taujs/vue vue @vue/server-renderer
+```
+
+<Aside type="caution" title="Peer version rule">
+`@vue/server-renderer` must be installed at the **same version** as `vue`. A version skew between the two is unsupported and produces subtle SSR/hydration failures. `@vitejs/plugin-vue` is required only when you consume `@taujs/vue/plugin`.
+</Aside>
+
+Recommended dependency ranges:
+
+```json
+{
+  "dependencies": {
+    "@taujs/vue": "latest",
+    "@vue/server-renderer": "^3.5.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0"
+  }
+}
+```
+
+---
+
+## Core Concepts
+
+### 1. SSR data store
+
+The `SSRStore` is a type-safe, reactive container that synchronises data between server and client. Unlike the React store, it exposes Vue refs and a `ready` promise rather than throwing snapshots:
+
+```typescript
+type SSRStoreStatus = "pending" | "success" | "error";
+
+type SSRStore<T> = {
+  /** Reactive data ref for Vue components. */
+  data: Ref<T | undefined>;
+  status: Ref<SSRStoreStatus>;
+  lastError: Ref<Error | undefined>;
+  /** Resolves when initial data is available (or rejects on error). */
+  ready: Promise<void>;
+  /** Vue-safe: returns data or undefined (never throws). */
+  getSnapshot: () => T | undefined;
+  setData: (newData: T) => void;
+  /** Subscription API for non-Vue consumers / tests. */
+  subscribe: (callback: () => void) => () => void;
+};
+```
+
+### 2. Renderer pattern
+
+The `createRenderer` function creates a reusable renderer from your root component and configuration, returning both a static and a streaming render method:
+
+```typescript
+const { renderSSR, renderStream } = createRenderer({
+  appComponent: App, // a Vue component, or a render function
+  headContent: ({ data, meta }) => `<title>${data.title}</title>`,
+  streamOptions: { shellTimeoutMs: 10000 },
+});
+```
+
+### 3. Hydration strategy
+
+Client-side hydration automatically:
+
+- Detects SSR data from `window.__INITIAL_DATA__`
+- Creates a synchronised store and provides it via `SSRStoreProvider`
+- Hydrates the Vue tree with `createSSRApp(...).mount()`
+- Falls back to a fresh CSR mount if no SSR data exists
+
+---
+
+## Consuming SSR data
+
+There are two idioms for reading store data inside a component, **in order of preference**. This preference order is the one stated in the package's own JSDoc — reach for Suspense first.
+
+### Suspense (recommended)
+
+`await` the data in an async `setup` under a `<Suspense>` boundary. The render blocks until data resolves, so the resolved value is present in the server-rendered HTML:
+
+```vue
+<script setup lang="ts">
+import { useSSRDataAsync } from "@taujs/vue";
+
+type GreetingData = { message: string; timestamp: string };
+
+const data = await useSSRDataAsync<GreetingData>();
+</script>
+
+<template>
+  <div>{{ data.message }}</div>
+</template>
+```
+
+`useSSRDataAsync<T>()` returns `Promise<T>`, so `data` is the resolved value (not a ref) — use it directly in the template.
+
+<Aside type="tip" title="This is the required idiom for streaming routes">
+On a `streaming` route the blocking Suspense idiom is what puts the resolved data into the streamed HTML. See [Streaming semantics](#streaming-semantics) for exactly what happens if you use the fallback idiom on a streamed route instead.
+</Aside>
+
+### Fallback rendering
+
+Read a non-throwing computed and guard with `v-if`. `useSSRData<T>()` returns `ComputedRef<T | undefined>` — `undefined` while pending, the value once ready — so you can render a fallback without forcing Suspense:
+
+```vue
+<script setup lang="ts">
+import { useSSRData } from "@taujs/vue";
+
+type GreetingData = { message: string; timestamp: string };
+
+const data = useSSRData<GreetingData>();
+</script>
+
+<template>
+  <section v-if="data" class="card">
+    <p>{{ data.message }}</p>
+    <p>Generated at: {{ new Date(data.timestamp).toLocaleString() }}</p>
+  </section>
+  <section v-else class="card">
+    <p>Loading greeting…</p>
+  </section>
+</template>
+```
+
+This idiom is a good fit for `ssr` routes, where the server has already resolved the data before rendering begins, so the `v-else` fallback is never actually shown in the SSR output.
+
+---
+
+## API Reference
+
+### Server-side rendering
+
+#### `createRenderer<T, R>(options)`
+
+Creates a renderer instance with streaming and static SSR capabilities.
+
+**Type signature:**
+
+```typescript
+function createRenderer<
+  T extends Record<string, unknown> = Record<string, unknown>,
+  R = unknown
+>(options: {
+  /** A Vue component, or a function returning a VNode. Rendered with props { location, routeContext? }. */
+  appComponent: Component | ((props: { location: string; routeContext?: R }) => VNode);
+  headContent: (ctx: HeadContext<T, R>) => string;
+  streamOptions?: StreamOptions;
+  logger?: LoggerLike;
+  enableDebug?: boolean;
+  setupApp?: (app: App) => void;
+}): {
+  renderSSR: (
+    initialData: T,
+    location: string,
+    meta?: Record<string, unknown>,
+    signal?: AbortSignal,
+    opts?: { logger?: LoggerLike; routeContext?: R }
+  ) => Promise<{
+    headContent: string;
+    appHtml: string;
+    aborted: boolean;
+    teleports?: Record<string, string>;
+  }>;
+  renderStream: (
+    writable: Writable,
+    callbacks: RenderCallbacks<T>,
+    initialData: T | Promise<T> | (() => Promise<T>),
+    location: string,
+    bootstrapModules?: string,
+    meta?: Record<string, unknown>,
+    cspNonce?: string,
+    signal?: AbortSignal,
+    opts?: StreamOptions & { logger?: LoggerLike; routeContext?: R }
+  ) => { abort: () => void; done: Promise<void> };
+};
+```
+
+**Parameters:**
+
+- `appComponent`: Your Vue root. Pass the component directly (it receives `{ location, routeContext? }` as props) or a render function returning a VNode.
+- `headContent`: Generates HTML head content from `{ data, meta, routeContext? }`. **Note:** in streaming mode the data snapshot is usually still pending when the head is built, so heads must be derivable from `meta`/`routeContext` — guard optional `data` fields.
+- `streamOptions.shellTimeoutMs`: Time-to-first-content watchdog in ms (default `10000`). See [Streaming semantics](#streaming-semantics).
+- `logger`: Custom logger implementation (`LoggerLike`).
+- `enableDebug`: Enable detailed logging (default `false`).
+- `setupApp`: Configure the per-request `App` instance (`app.use`, directives, provides). See [App customization](#app-customization-with-setupapp).
+
+**Returns** an object with two rendering methods: `renderSSR` (static, returns complete HTML plus teleports) and `renderStream` (streaming, pipes to a writable).
+
+The `HeadContext`, `RenderCallbacks` and `StreamOptions` types:
+
+```typescript
+type HeadContext<
+  T extends Record<string, unknown> = Record<string, unknown>,
+  R = unknown
+> = {
+  data: T;
+  meta: Record<string, unknown>;
+  routeContext?: R;
+};
+
+type RenderCallbacks<T> = {
+  /** Receives the head string; the server writes it into <head>. Return value is ignored. */
+  onHead?: (head: string) => void;
+  onShellReady?: () => void;
+  onAllReady?: (data: T) => void;
+  /** @deprecated Legacy alias of onAllReady, kept for @taujs/react parity. Use onAllReady. */
+  onFinish?: (data: T) => void;
+  onError?: (err: unknown) => void;
+};
+
+type StreamOptions = {
+  /** Time-to-first-content watchdog, in ms (default 10000). */
+  shellTimeoutMs?: number;
+};
+```
+
+#### Route-aware rendering with `routeContext`
+
+`@taujs/vue` doesn't know anything about your router, but it can carry route information from the server into both your Vue tree (`appComponent`) and your head generator (`headContent`) through the generic `R` and a `routeContext` value:
+
+```typescript
+type RouteContext = {
+  name: "home" | "article";
+  path: string;
+  params: Record<string, string>;
+};
+
+type PageData = { title: string; description?: string };
+
+const { renderSSR, renderStream } = createRenderer<PageData, RouteContext>({
+  appComponent: App, // receives { location, routeContext } as props
+  headContent: ({ data, meta, routeContext }) => {
+    const baseTitle =
+      data.title ?? (meta.title as string | undefined) ?? "My App";
+    const suffix = routeContext?.name === "article" ? " · Article" : "";
+    return `<title>${baseTitle}${suffix}</title>`;
+  },
+});
+```
+
+On the server you pass `routeContext` per request via the final `opts` argument of `renderSSR` / `renderStream`.
+
+<Aside type="caution" title="routeContext is server-only">
+`routeContext` is never serialized to the client. Rendering visible content from it would hydration-mismatch by construction. Use it for head generation and server-side branching only; anything the client must also see belongs in the SSR data payload.
+</Aside>
+
+#### `renderSSR()`
+
+Renders the complete application to a string (static SSR). Returns `{ headContent, appHtml, aborted, teleports? }`.
+
+```typescript
+const { renderSSR } = createRenderer<{ msg: string }>({
+  appComponent: () => h(App),
+  headContent: ({ data }) => `<title>${data?.msg ?? "no-data"}</title>`,
+});
+
+const { headContent, appHtml, teleports } = await renderSSR(
+  { msg: "hello" },
+  "/",
+  { requestId: "123" } // meta
+);
+```
+
+##### Teleports
+
+`renderSSR` collects `<Teleport>` content into its result's `teleports` map, keyed by target selector (for example `'#modal'`). The teleported content is buffered *out* of `appHtml`, not left inline:
+
+```typescript
+const App = defineComponent({
+  setup() {
+    const data = useSSRData<{ msg: string }>();
+    return () =>
+      h("div", { id: "app" }, [
+        `main:${data.value?.msg ?? ""}`,
+        h(Teleport, { to: "#modal" }, [h("span", "teleported-body")]),
+      ]);
+  },
+});
+
+const result = await renderSSR({ msg: "hi" }, "/");
+result.appHtml; // contains "main:hi", NOT "teleported-body"
+result.teleports?.["#modal"]; // contains "teleported-body"
+```
+
+<Aside type="caution" title="Teleports are unavailable in streaming">
+`renderStream` does **not** produce teleports — teleported content cannot be injected into an in-order stream after the fact, and τjs does not fake it. If a route renders `<Teleport>` targets outside the app root, use the `ssr` strategy for that route, or render the teleported content client-side after hydration.
+</Aside>
+
+#### `renderStream()`
+
+Streams the application with `@vue/server-renderer`'s `renderToSimpleStream`. When `bootstrapModules` is provided, the renderer emits the client bootstrap `<script type="module" ... async>` tag before ending the stream, so a streamed route hydrates. The `cspNonce`, when present, is applied to that bootstrap tag.
+
+```typescript
+const { done, abort } = renderStream(
+  res, // Node.js Writable
+  {
+    onHead: (head) => {
+      // Server writes `head` into <head>; the renderer never writes head bytes.
+    },
+    onShellReady: () => {
+      // Fires on the first streamed content byte.
+    },
+    onAllReady: (data) => {
+      // Fires once the store settles; the resolved data is delivered here.
+    },
+    onError: (err) => {
+      console.error("Stream error:", err);
+    },
+  },
+  { msg: "hello" }, // initialData: T | Promise<T> | (() => Promise<T>)
+  "/streaming", // location
+  "/assets/entry-client.js", // bootstrapModules
+  { requestId: "123" }, // meta
+  "nonce-abc123" // cspNonce
+);
+
+await done;
+```
+
+##### Streaming semantics
+
+Vue streaming is **honest and in-order**. It emits chunked HTML in document order and **blocks at async boundaries** (an async `setup` under `<Suspense>` stalls the stream until it resolves). There is **no** React-style out-of-order shell with fallback patching — nothing is streamed early and rewritten later.
+
+Because of that:
+
+- `shellTimeoutMs` is a **time-to-first-content watchdog**, not a shell deadline. It starts before rendering and is cleared on the first streamed chunk; if no content is produced before it expires, the stream is aborted with a fatal error routed to `onError`.
+- `onShellReady()` fires on the **first content byte**, which is the honest meaning of "shell ready" for an in-order stream.
+- `onAllReady(data)` (and its deprecated alias `onFinish(data)`) fire once the store settles, delivering the resolved data.
+
+<Aside type="caution" title="Streamed routes must use the blocking Suspense idiom">
+Use `await useSSRDataAsync` under `<Suspense>` on a `streaming` route so the resolved data is rendered into the streamed HTML.
+
+If you use the non-blocking `useSSRData` + `v-if` idiom on a streamed route, the data is still pending when the chunk is produced, so the stream renders the **fallback**. τjs gates the end of the stream on the store settling, so the resolved data is still serialized into `window.__INITIAL_DATA__` and the client hydrates with real data — but the streamed markup itself shows only the fallback, forfeiting the first-paint / SEO benefit of SSR content. Prefer the blocking idiom on streamed routes.
+</Aside>
+
+**Per-call options (`opts`)**
+
+Both methods accept a final `opts` argument:
+
+- `logger`: Optional per-call logger (overrides the one passed to `createRenderer`).
+- `routeContext`: Per-request route context forwarded into `appComponent` and `headContent`.
+- `renderStream` additionally accepts `shellTimeoutMs` here to override the renderer default per call.
+
+**Cancellation and lifecycle**
+
+`renderStream` accepts an `AbortSignal` (a triggered signal is a benign cancel). It returns `{ abort, done }`: `abort()` performs a manual benign abort, and `done` resolves on normal completion (or rejects on a fatal error). Client disconnects (`ECONNRESET`, `EPIPE`, `socket hang up`, `aborted`, `premature close`) are classified as benign and never surface as fatal errors.
+
+---
+
+### Client-side hydration
+
+#### `hydrateApp<T>(options)`
+
+Hydrates a server-rendered Vue application on the client, or mounts a fresh CSR app if no SSR data is present.
+
+**Type signature** (the options object is typed as `HydrateAppOptions<T>`):
+
+```typescript
+function hydrateApp<T>(options: {
+  /** Root app component, or a render function. */
+  appComponent: Component | (() => VNode);
+  rootElementId?: string; // default 'root'
+  enableDebug?: boolean;
+  logger?: LoggerLike;
+  dataKey?: string; // default '__INITIAL_DATA__'
+  onHydrationError?: (err: unknown) => void;
+  /** Receives the App instance (divergence from react, whose callbacks take no args). */
+  onStart?: (app: App) => void;
+  /** Receives the App instance (divergence from react, whose callbacks take no args). */
+  onSuccess?: (app: App) => void;
+  setupApp?: (app: App) => void;
+}): void;
+```
+
+**Example:**
+
+```typescript
+// entry-client.ts
+import { hydrateApp } from "@taujs/vue";
+import App from "./App.vue";
+
+hydrateApp({
+  appComponent: App,
+  rootElementId: "root",
+  enableDebug: import.meta.env.DEV,
+  onHydrationError: (err) => {
+    console.error("Hydration failed:", err);
+  },
+  onSuccess: (app) => {
+    console.log("App hydrated successfully!", app);
+  },
+});
+```
+
+**Behaviour:**
+
+- If `window[dataKey]` exists: hydrates the SSR markup with `createSSRApp(...).mount(rootEl)`.
+- If `window[dataKey]` is missing: clears any stale markup and mounts a fresh CSR app. **No hydration callbacks or beacon events fire** — a CSR mount is not a hydration.
+- Automatically handles `DOMContentLoaded` timing.
+- Wraps your app in `SSRStoreProvider` on both the hydrate and CSR paths.
+
+**Error reporting (Vue-native).** Unlike React, which surfaces hydration failures as synchronous throws, Vue reports them through `app.config.errorHandler` and recoverable warnings. So `hydrateApp` installs an error handler **before** `mount()` and treats errors during the hydration phase as hydration failures, routing them to `onHydrationError`. In `enableDebug` mode it also forwards Vue hydration-mismatch warnings to the logger. A user handler installed via `setupApp` still fires alongside τjs's routing.
+
+<Aside type="note" title="onStart / onSuccess receive the App instance">
+This is a deliberate divergence from `@taujs/react`, whose callbacks take no arguments. `setupApp`, `onStart` and `onSuccess` all receive the same `App` instance, so you can inspect or interact with the fully-configured app.
+</Aside>
+
+**Devtools beacon (dev-only).** On the hydrate path, `hydrateApp` emits `hydration:start`, `hydration:success` and `hydration:error` to `window.__TAUJS_DEVTOOLS_HOOK__` around your callbacks (internal emission first, user callback second). The hook is only ever set by the server-injected dev script, is absent in production, and emission can never throw into hydration. The CSR-fallback path emits nothing.
+
+**HTML template requirements.** Your server-rendered HTML must include the root element, an initial data script, and the client bundle:
+
+```html
+<main id="root"><!-- SSR content here --></main>
+<script>
+  window.__INITIAL_DATA__ = { message: "Hello" };
+</script>
+<script type="module" src="/assets/entry-client.js"></script>
+```
+
+---
+
+### Data store
+
+#### `createSSRStore<T>(initial)`
+
+Creates a store for managing SSR data synchronisation. Accepts synchronous data, a promise, or a lazy promise factory:
+
+```typescript
+import { createSSRStore } from "@taujs/vue";
+
+// Synchronous data → status is 'success' immediately.
+const store1 = createSSRStore({ a: 1 });
+
+// Promise → 'pending' until it settles.
+const store2 = createSSRStore(Promise.resolve({ b: 2 }));
+
+// Lazy promise factory → 'pending' until it settles.
+const store3 = createSSRStore(() => Promise.resolve({ c: 3 }));
+
+await store2.ready;
+store2.status.value; // 'success'
+store2.getSnapshot(); // { b: 2 }
+```
+
+The store is reactive: `data`, `status` and `lastError` are `shallowReadonly` refs, so `getSnapshot()` and `data.value` preserve object identity with the value you passed in. On a rejected promise, `status` becomes `'error'`, `lastError` holds the normalised `Error`, and `ready` rejects. Calling `setData` on a still-pending or failed store recovers it: it flips `status` to `'success'` and resolves `ready`.
+
+Inside components you rarely call `createSSRStore` directly — `@taujs/server` and `hydrateApp` create and provide the store for you. You consume it with the composables below.
+
+#### `useSSRStore<T>()`
+
+Returns the **store** (`SSRStore<T>`), not the resolved value.
+
+```typescript
+import { useSSRStore } from "@taujs/vue";
+
+const store = useSSRStore<{ user: string }>();
+store.status.value; // 'pending' | 'success' | 'error'
+await store.ready;
+store.getSnapshot(); // { user: "Alice" } | undefined
+```
+
+<Aside type="note" title="Deliberate divergence from @taujs/react">
+`@taujs/react`'s `useSSRStore` returns the resolved *value* via `useSyncExternalStore`. Vue has no equivalent value-hook idiom, so `@taujs/vue`'s `useSSRStore` returns the whole store — letting components pick the right access pattern (reactive refs, `await store.ready`, `store.getSnapshot()`). This is intentional; do not expect it to mirror React. For the common cases, prefer `useSSRData` / `useSSRDataAsync` below.
+</Aside>
+
+Must be called within an `SSRStoreProvider` — it throws `"useSSRStore must be used within a SSRStoreProvider"` otherwise.
+
+#### `useSSRData<T>()`
+
+Returns `ComputedRef<T | undefined>` — the non-throwing fallback path. `undefined` while pending, the value once ready. Pair with `v-if` (see [Fallback rendering](#fallback-rendering)).
+
+```typescript
+const data = useSSRData<{ message: string }>();
+// data.value is undefined while pending, then the payload.
+```
+
+#### `useSSRDataAsync<T>()`
+
+Returns `Promise<T>` — the recommended Suspense path. `await` it in an async `setup` under `<Suspense>` (see [Suspense](#suspense-recommended)). It awaits `store.ready`, then returns the snapshot; if the snapshot is still `undefined` after ready resolves it throws, and if the underlying data load rejected, the await rejects with that error (catchable in `setup` or surfaced through the `<Suspense>` boundary).
+
+```typescript
+const data = await useSSRDataAsync<{ message: string }>();
+```
+
+#### `useSSRReady()` and `useSSRStatus()`
+
+- `useSSRReady()` returns the store's `ready` promise (`Promise<void>`), for awaiting in async setup without needing the value.
+- `useSSRStatus()` returns `ComputedRef<SSRStoreStatus>`, a reactive view of the store's `'pending' | 'success' | 'error'` status.
+
+```typescript
+const status = useSSRStatus();
+// status.value === 'pending' while loading, 'success' once ready.
+
+await useSSRReady();
+// data is now available via useSSRStore().getSnapshot()
+```
+
+#### `SSRStoreProvider` and `SSR_STORE_KEY`
+
+`SSRStoreProvider` is a Composition-API provider component that makes a store available to descendants (parity with `@taujs/react`'s `SSRStoreProvider`). `@taujs/vue` wraps your app in it automatically on every render and hydration path; you only need it directly when composing stores by hand or in tests:
+
+```typescript
+import { h } from "vue";
+import { createSSRStore, SSRStoreProvider } from "@taujs/vue";
+
+const store = createSSRStore({ a: 1 });
+
+const Root = {
+  render: () => h(SSRStoreProvider, { store }, { default: () => h(Child) }),
+};
+```
+
+`SSR_STORE_KEY` is the `InjectionKey` the provider uses. It is exported for advanced interop (a custom provider, or reading the store outside the composables via `inject(SSR_STORE_KEY)`).
+
+---
+
+### Vite plugin
+
+#### `pluginVue(options?)`
+
+A thin passthrough over `@vitejs/plugin-vue`, for parity with `@taujs/react/plugin`. Options are forwarded verbatim.
+
+```typescript
+function pluginVue(opts?: Parameters<typeof vue>[0]): PluginOption;
+```
+
+```typescript
+// vite.config.ts
+import { defineConfig } from "vite";
+import { pluginVue } from "@taujs/vue/plugin";
+
+export default defineConfig({
+  plugins: [pluginVue()],
+});
+```
+
+Within the taujs ecosystem you register it per app in `taujs.config.ts` instead — see [Usage in the taujs ecosystem](#usage-in-the-taujs-ecosystem).
+
+---
+
+## App customization with `setupApp`
+
+Vue applications are configured through the `App` instance (`app.use`, `app.directive`, global components, `app.provide`). React composes the equivalent in JSX, so `@taujs/react` never needed a hook — but `@taujs/vue` creates its apps internally, so `setupApp` is the sanctioned integration point for Pinia, vue-i18n, custom directives and global components under τjs SSR.
+
+`setupApp?: (app: App) => void` is accepted by **both** `createRenderer` and `hydrateApp`. It runs after the internal store provide and before render/mount, on **every** path: `renderSSR`, `renderStream`, hydration, and the CSR fallback.
+
+**Constraints** (so the identical function runs verbatim on server and client):
+
+- **Synchronous only** — no promise form.
+- **No `window`/DOM access** — it runs on the server too.
+- **Idempotent per app instance** — a fresh `App` is created per request and per mount.
+
+A throwing `setupApp` is treated as an application error and routed to the path's error channel (`onError` + fatal abort on the server; `onHydrationError` on the client) — never swallowed.
+
+```typescript
+// A plugin installed via setupApp is usable by any rendered component.
+import type { App } from "vue";
+
+const setupApp = (app: App) => {
+  app.provide(MESSAGE_KEY, "from-plugin");
+  app.directive("focus", {
+    /* getSSRProps for SSR-visible directives */
+  });
+};
+
+// Server
+const { renderSSR } = createRenderer({ appComponent: App, headContent, setupApp });
+// Client — the SAME function
+hydrateApp({ appComponent: App, setupApp });
+```
+
+### Pinia
+
+Because `setupApp` runs identically on server and client, it is where you install Pinia. τjs adds **no state-serialization channel** — data flow stays request-first. Seed Pinia store state from the SSR data you already receive (`useSSRData` / `useSSRDataAsync`), which arrives via `window.__INITIAL_DATA__`:
+
+```typescript
+// setup-app.ts — shared by entry-server and entry-client
+import { createPinia } from "pinia";
+import type { App } from "vue";
+
+export const setupApp = (app: App) => {
+  app.use(createPinia());
+};
+```
+
+```vue
+<!-- A component seeds the Pinia store from request-first SSR data. -->
+<script setup lang="ts">
+import { useSSRDataAsync } from "@taujs/vue";
+import { useUserStore } from "./stores/user";
+
+type PageData = { user: { id: string; name: string } };
+
+const data = await useSSRDataAsync<PageData>();
+const userStore = useUserStore();
+userStore.$patch({ user: data.user }); // seed from SSR data — no extra channel
+</script>
+
+<template>
+  <div>{{ userStore.user.name }}</div>
+</template>
+```
+
+The same seed runs during SSR (populating server-rendered markup) and during hydration (populating the client store from the identical `__INITIAL_DATA__` payload), so the two never diverge.
+
+---
+
+## Lazy hydration
+
+Vue 3.5's lazy-hydration strategies compose with `hydrateApp`. Wrap a component with `defineAsyncComponent` and pass a `hydrate` strategy; the root app that `hydrateApp` mounts will defer that component's hydration accordingly. This is a per-component concern inside your tree — `hydrateApp` itself is unchanged.
+
+```vue
+<script setup lang="ts">
+import {
+  defineAsyncComponent,
+  hydrateOnVisible,
+  hydrateOnIdle,
+  hydrateOnInteraction,
+  hydrateOnMediaQuery,
+} from "vue";
+
+// Hydrate when the element scrolls into view.
+const Comments = defineAsyncComponent({
+  loader: () => import("./Comments.vue"),
+  hydrate: hydrateOnVisible(),
+});
+
+// Hydrate when the browser is idle (optionally with a timeout).
+const Sidebar = defineAsyncComponent({
+  loader: () => import("./Sidebar.vue"),
+  hydrate: hydrateOnIdle(2000),
+});
+
+// Hydrate on first interaction of the given event(s).
+const Widget = defineAsyncComponent({
+  loader: () => import("./Widget.vue"),
+  hydrate: hydrateOnInteraction("click"),
+});
+
+// Hydrate when a media query matches.
+const DesktopNav = defineAsyncComponent({
+  loader: () => import("./DesktopNav.vue"),
+  hydrate: hydrateOnMediaQuery("(min-width: 768px)"),
+});
+</script>
+
+<template>
+  <Comments />
+  <Sidebar />
+  <Widget />
+  <DesktopNav />
+</template>
+```
+
+Each strategy (`hydrateOnVisible`, `hydrateOnIdle`, `hydrateOnInteraction`, `hydrateOnMediaQuery`) is imported from `vue` and requires Vue ≥ 3.5. Use them to shrink the client's initial hydration cost while keeping server-rendered markup intact.
+
+---
+
+## Handling hydration mismatches
+
+For content that is *intentionally* different between server and client — timestamps, locale-formatted dates, randomised values — annotate the element with Vue's official `data-allow-mismatch` attribute to suppress the hydration-mismatch warning for it:
+
+```vue
+<template>
+  <!-- Suppress the mismatch warning for this deliberately client-varying text. -->
+  <span data-allow-mismatch>{{ new Date().toLocaleString() }}</span>
+</template>
+```
+
+`data-allow-mismatch` accepts an optional value to narrow what is allowed to differ: `text`, `children`, `class`, `style`, or `attribute` (for example `data-allow-mismatch="text"`). Use it sparingly and only for genuinely intentional divergence — it silences a correctness signal, so a stray mismatch elsewhere in the subtree can go unnoticed.
+
+---
+
+## Usage in the taujs ecosystem
+
+With `@taujs/server`, you don't call the render functions directly. You define rendering once in `entry-server`, hydration once in `entry-client`, and declare routes and data in `taujs.config.ts`; the server orchestrates everything.
+
+**taujs.config.ts** — register `pluginVue()` per app and declare each route's rendering strategy:
+
+```typescript
+import { defineConfig } from "@taujs/server/config";
+import { pluginVue } from "@taujs/vue/plugin";
+
+export default defineConfig({
+  server: { port: 5173, host: "localhost", hmrPort: 5174 },
+  apps: [
+    {
+      appId: "main",
+      entryPoint: "",
+      plugins: [pluginVue()],
+      routes: [
+        {
+          path: "/",
+          attr: {
+            render: "ssr",
+            hydrate: true,
+            // Direct service invocation: standard SSR
+            data: async (params, ctx) => {
+              return ctx.call("example", "greet", { name: "SSR" });
+            },
+          },
+        },
+        {
+          path: "/streaming",
+          attr: {
+            render: "streaming",
+            hydrate: true,
+            // Descriptor-based data: resolved by the server
+            data: async (params) => ({
+              args: { name: "Streaming" },
+              serviceName: "example",
+              serviceMethod: "greet",
+            }),
+            // meta recommended for streaming routes for SEO/social and render timing
+            meta: {
+              title: "τjs — Streaming",
+              description:
+                "Streaming SSR route (Suspense progressively reveals content).",
+            },
+          },
+        },
+      ],
+    },
+  ],
+});
+```
+
+<Aside type="note" title="Rendering strategies">
+`render` is either `'ssr'` or `'streaming'`. A route not declared in `taujs.config.ts` stays client-rendered — that is the fallthrough model, not a per-route render value. When `render` is omitted the server defaults to `ssr`.
+</Aside>
+
+**entry-server.ts** — the renderer `@taujs/server` calls internally:
+
+```typescript
+import { createRenderer } from "@taujs/vue";
+import App from "./App.vue";
+
+export const { renderSSR, renderStream } = createRenderer({
+  appComponent: App,
+  headContent: ({ data, meta }) => `
+    <title>${meta?.title || "τjs - Composing systems, not just apps"}</title>
+    <meta name="description" content="${
+      meta?.description ||
+      (data as { message?: string })?.message ||
+      "τjs - Composing systems, not just apps"
+    }">
+  `,
+  enableDebug: process.env.NODE_ENV === "development",
+});
+```
+
+**entry-client.ts** — hydration entry:
+
+```typescript
+import { hydrateApp } from "@taujs/vue";
+import App from "./App.vue";
+
+hydrateApp({
+  appComponent: App,
+  rootElementId: "root",
+  enableDebug: import.meta.env.DEV,
+});
+```
+
+**App.vue** — the root receives `location` from the server and picks the page. Note the `ssr` route uses the fallback idiom while the `streaming` route awaits under `<Suspense>`:
+
+```vue
+<script setup lang="ts">
+import { computed } from "vue";
+import HomePage from "./HomePage.vue";
+import StreamingPage from "./StreamingPage.vue";
+
+const props = defineProps<{ location?: string; routeContext?: unknown }>();
+
+// The server passes `location`; on the client fall back to the current path so hydration matches.
+const path = computed(
+  () => props.location ?? (typeof window !== "undefined" ? window.location.pathname : "/")
+);
+const isStreaming = computed(() => path.value.startsWith("/streaming"));
+</script>
+
+<template>
+  <Suspense v-if="isStreaming">
+    <template #default>
+      <StreamingPage />
+    </template>
+    <template #fallback>
+      <p>Loading greeting…</p>
+    </template>
+  </Suspense>
+  <HomePage v-else />
+</template>
+```
+
+**HomePage.vue** and **StreamingPage.vue** are the two page components. `HomePage.vue` (the `ssr` route) uses the fallback idiom shown in [Fallback rendering](#fallback-rendering); `StreamingPage.vue` (the `streaming` route) uses the blocking Suspense idiom shown in [Suspense](#suspense-recommended). They are the exact snippets from those sections, one per route.
+
+**index.html** — the template the server fills in (`<!--ssr-head-->` / `<!--ssr-html-->`):
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--ssr-head-->
+  </head>
+  <body>
+    <main id="root"><!--ssr-html--></main>
+  </body>
+</html>
+```
+
+That is the complete request flow: the server matches a route, runs its `data` loader, calls `renderSSR` / `renderStream`, assembles the HTML with your head and the `__INITIAL_DATA__` payload, and your `entry-client.ts` hydrates it. You never inject `__INITIAL_DATA__` or manage the template yourself.
+
+---
+
+## Standalone usage
+
+Outside `@taujs/server`, `createRenderer` and `hydrateApp` are framework-agnostic. The server plumbing — Express, Hono, native Node HTTP, backpressure, CSP nonces, `AbortSignal` — is identical to `@taujs/react`; see the [React reference](/renderers/react/#standalone-usage) for those framework-specific server walkthroughs. The only Vue-specific differences are:
+
+- `appComponent` is a Vue component (or render function), not a JSX element.
+- Data is consumed with the Vue composables and idioms above.
+- Static SSR can return `teleports`, which you splice into your template yourself.
+
+Static SSR (no streaming), for edge runtimes or simple cases — `renderSSR` returns the head and app HTML (and any `teleports`); assemble the document and inject `window.__INITIAL_DATA__` yourself:
+
+```typescript
+import { createRenderer } from "@taujs/vue";
+import App from "./App.vue";
+
+const { renderSSR } = createRenderer<{ message: string }>({
+  appComponent: App,
+  headContent: ({ data }) => `<title>${data?.message ?? "App"}</title>`,
+});
+
+const data = { message: "Hello World" };
+const { headContent, appHtml } = await renderSSR(data, "/");
+// Build: <head>${headContent}</head>, <main id="root">${appHtml}</main>,
+// a <script>window.__INITIAL_DATA__=…</script>, and the entry-client module tag.
+```
+
+---
+
+## TypeScript support
+
+The package is written in TypeScript with full type definitions included.
+
+### Typed data contracts
+
+Type the payload once and thread it through the renderer and the composables:
+
+```typescript
+interface PageData {
+  message: string;
+  user: { id: string; name: string };
+}
+
+const { renderSSR, renderStream } = createRenderer<PageData>({
+  appComponent: App,
+  headContent: ({ data }) => `<title>${data?.message ?? "App"}</title>`,
+});
+```
+
+```vue
+<script setup lang="ts">
+import { useSSRDataAsync } from "@taujs/vue";
+
+interface PageData {
+  message: string;
+  user: { id: string; name: string };
+}
+
+const data = await useSSRDataAsync<PageData>(); // data is PageData
+</script>
+```
+
+### Logger types
+
+`ServerLogs` and `LoggerLike` describe the accepted logger shapes; `createVueErrorHandler` builds a default `app.config.errorHandler` that logs through them:
+
+```typescript
+import type { ServerLogs } from "@taujs/vue";
+import { createVueErrorHandler } from "@taujs/vue";
+
+const logger: ServerLogs = {
+  info: (meta, message) => console.log(message, meta),
+  warn: (meta, message) => console.warn(message, meta),
+  error: (meta, message) => console.error(message, meta),
+};
+
+// Inside setupApp, if you want the τjs default handler explicitly:
+const setupApp = (app) => {
+  app.config.errorHandler = createVueErrorHandler(logger, true);
+};
+```
+
+---
+
+## Best practices
+
+1. **Prefer Suspense for data.** Reach for `await useSSRDataAsync<T>()` under `<Suspense>` first; fall back to `useSSRData<T>()` + `v-if` only when you specifically want a non-blocking render.
+2. **Streamed routes block on data.** Always use the blocking Suspense idiom on `streaming` routes so the data lands in the streamed HTML, not just in `__INITIAL_DATA__`.
+3. **Keep `headContent` derivable from `meta`.** In streaming mode the data snapshot is usually pending when the head is built — guard optional `data` fields and lean on `meta`/`routeContext`.
+4. **Share one `setupApp` across server and client.** Keep it synchronous, DOM-free and idempotent so the identical function runs on both sides; seed Pinia/state from SSR data rather than adding a serialization channel.
+5. **Match `@vue/server-renderer` to `vue`.** Pin both to the same version.
+6. **Handle CSR fallback.** Provide `onHydrationError` so a hydration failure degrades gracefully; remember the CSR path emits no hydration callbacks by design.
+7. **Reserve teleports for `ssr` routes.** `<Teleport>` targets outside the app root are only captured by `renderSSR`.
+8. **Client-side updates after SSR are userland.** For data that changes after the initial render, call your own `/api/*` endpoints with a client library such as TanStack Query or SWR — τjs keeps SSR request-first and does not add a client data channel.
+
+---
+
+## Related packages
+
+- `@taujs/server` — Fastify-based server with SSR orchestration, routing and data loading.
+- `@taujs/react` — the React renderer; shares this package's contract and streaming semantics.
+
+---
+
+## License
+
+MIT

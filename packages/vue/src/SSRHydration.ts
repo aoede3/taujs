@@ -1,9 +1,24 @@
-import { createApp, createSSRApp, h, type Component, type VNode } from 'vue';
+import { createApp, createSSRApp, h, nextTick, type App, type Component, type VNode } from 'vue';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
-import { createUILogger } from './utils/Logger';
+import { createUILogger, createVueErrorHandler } from './utils/Logger';
 
 import type { LoggerLike } from './utils/Logger';
+
+// Dev-only introspection hook, set by the server-injected dev script (never by users).
+// Absent in production: emission costs one property check and can never throw into
+// hydration. User callbacks always run, unchanged, after the internal emission. Ported
+// verbatim from @taujs/react's SSRHydration (P0B-04) — same event names, same guard.
+type TaujsDevtoolsHook = { emit?: (event: 'hydration:start' | 'hydration:success' | 'hydration:error', payload?: unknown) => void };
+
+const emitDevHook = (event: 'hydration:start' | 'hydration:success' | 'hydration:error', payload?: unknown): void => {
+  try {
+    const hook = (window as { __TAUJS_DEVTOOLS_HOOK__?: TaujsDevtoolsHook }).__TAUJS_DEVTOOLS_HOOK__;
+    hook?.emit?.(event, payload);
+  } catch {
+    // the beacon must never affect hydration
+  }
+};
 
 export type HydrateAppOptions<T> = {
   /** Root app component. */
@@ -13,16 +28,32 @@ export type HydrateAppOptions<T> = {
   logger?: LoggerLike;
   dataKey?: string;
   onHydrationError?: (err: unknown) => void;
-  onStart?: () => void;
-  onSuccess?: () => void;
+  /**
+   * Configure the client `App` before mount (`app.use`, directives, provides). Pass the
+   * SAME function used for `createRenderer`'s `setupApp` so Pinia/vue-i18n/etc. attach
+   * identically on server and client. Synchronous, no `window`/DOM access, idempotent per
+   * app instance; a throw is routed to `onHydrationError` (plus a `hydration:error` beacon
+   * on the hydrate path — the CSR-fallback path emits no beacon events).
+   */
+  setupApp?: (app: App) => void;
+  /** Receives the `App` instance (divergence from react, whose callbacks take no args). */
+  onStart?: (app: App) => void;
+  /** Receives the `App` instance (divergence from react, whose callbacks take no args). */
+  onSuccess?: (app: App) => void;
 };
 
 /**
- * Vue client bootstrap.
+ * Vue client bootstrap. Contract-parity with taujs/react, with documented Vue-native
+ * divergences:
+ * - If window[dataKey] is missing, mount CSR (and clear existing DOM) — no hydration
+ *   events are emitted (a CSR mount is not a hydration).
+ * - Otherwise, hydrate SSR markup, emitting `hydration:start|success|error` to the
+ *   dev-only `window.__TAUJS_DEVTOOLS_HOOK__` around the user callbacks.
  *
- * Behaviour matches taujs/react:
- * - If window[dataKey] is missing, mount CSR (and clear existing DOM).
- * - Otherwise, hydrate SSR markup.
+ * Unlike React (which surfaces hydration failures as synchronous throws), Vue reports them
+ * through `app.config.errorHandler` and recoverable warnings — so this installs an error
+ * handler before mount and treats errors during the hydration phase as hydration failures.
+ * `onStart`/`onSuccess` receive the `App` instance (react's take no args).
  */
 export function hydrateApp<T>({
   appComponent,
@@ -33,6 +64,7 @@ export function hydrateApp<T>({
   onHydrationError,
   onStart,
   onSuccess,
+  setupApp,
 }: HydrateAppOptions<T>) {
   const { log, warn, error } = createUILogger(logger, {
     debugCategory: 'ssr',
@@ -58,17 +90,44 @@ export function hydrateApp<T>({
       render: () => h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
     });
 
-    app.mount(rootEl);
+    try {
+      // Same setupApp runs on the CSR path so it works whether the client hydrates or falls
+      // back to CSR.
+      setupApp?.(app);
+      app.mount(rootEl);
+    } catch (err) {
+      // R2: a throwing setupApp/mount is an application error — route to onHydrationError
+      // (the only client error channel). The CSR path emits NO beacon events: a CSR mount is
+      // not a hydration, and react's CSR path emits nothing either.
+      error('CSR mount error:', err);
+      onHydrationError?.(err);
+    }
   };
 
   const startHydration = (rootEl: HTMLElement, initialData: T) => {
     if (enableDebug) log('Hydration started');
-    onStart?.();
-
     if (enableDebug) log('Initial data loaded:', initialData);
 
     const store = createSSRStore(initialData);
     if (enableDebug) log('Store created:', store);
+
+    // "Hydration phase": the window during which an error is attributable to hydration.
+    // It ends on the first post-mount tick, so ordinary runtime errors afterwards are
+    // logged only, not reported as hydration failures. `errored` guards against the
+    // double-emit that would otherwise happen when app.config.errorHandler fires DURING a
+    // mount() that still returns normally (Vue swallows a handled error) — once we've
+    // emitted hydration:error we must suppress hydration:success. Known limitation: an
+    // async/<Suspense> error completing after the first tick is misclassified as post-phase.
+    let inHydrationPhase = true;
+    let errored = false;
+    const vueErrLog = createVueErrorHandler(logger, enableDebug);
+
+    const reportHydrationFailure = (err: unknown) => {
+      if (!inHydrationPhase || errored) return;
+      errored = true;
+      emitDevHook('hydration:error', err);
+      onHydrationError?.(err);
+    };
 
     try {
       const app = createSSRApp({
@@ -76,14 +135,53 @@ export function hydrateApp<T>({
         render: () => h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
       });
 
-      // 2nd arg true => hydrate
-      app.mount(rootEl, true);
+      // R4: configure the app (setupApp) before notifying, so onStart/onSuccess and the
+      // mount all see a fully-configured app. A throw here is caught below and routed to
+      // reportHydrationFailure (it fires before emitDevHook('hydration:start'), so a setupApp
+      // failure emits hydration:error without a preceding start — hydration never began).
+      setupApp?.(app);
 
-      if (enableDebug) log('Hydration completed');
-      onSuccess?.();
+      // Install BEFORE mount (Vue surfaces hydration problems here, not as throws). R3: chain
+      // after any handler a user installed in setupApp (Sentry etc.) so τjs's routing always
+      // runs and the user's still observes.
+      const userErrorHandler = app.config.errorHandler;
+      app.config.errorHandler = (err, instance, info) => {
+        try {
+          userErrorHandler?.(err, instance, info);
+        } catch {}
+        vueErrLog(err, instance, info);
+        reportHydrationFailure(err);
+      };
+
+      // Debug-only: forward Vue warnings (hydration mismatches surface as warnings) to the
+      // logger. Log-only — do NOT auto-classify a mismatch warning as a hydration failure.
+      if (enableDebug) {
+        app.config.warnHandler = (msg, _instance, trace) => {
+          warn('Vue warning during hydration:', { msg, trace });
+        };
+      }
+
+      // Beacon then user callback (internal-first), onStart receiving the configured App.
+      emitDevHook('hydration:start');
+      onStart?.(app);
+
+      // createSSRApp(...).mount() hydrates by default; no non-public second argument (F11).
+      app.mount(rootEl);
+
+      if (!errored) {
+        if (enableDebug) log('Hydration completed');
+        emitDevHook('hydration:success');
+        onSuccess?.(app);
+      }
+
+      // Close the hydration phase after the current tick.
+      void nextTick(() => {
+        inHydrationPhase = false;
+      });
     } catch (err) {
+      // Synchronous mount throw — route through the same single-fire failure path.
       error('Hydration error:', err);
-      onHydrationError?.(err);
+      reportHydrationFailure(err);
     }
   };
 

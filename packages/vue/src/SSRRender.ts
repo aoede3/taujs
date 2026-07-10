@@ -1,5 +1,5 @@
-import { createSSRApp, h, type Component, type VNode } from 'vue';
-import { renderToString, pipeToNodeWritable, type SSRContext } from '@vue/server-renderer';
+import { createSSRApp, h, type App, type Component, type VNode } from 'vue';
+import { renderToSimpleStream, renderToString, type SimpleReadable, type SSRContext } from '@vue/server-renderer';
 
 import { createSSRStore, SSRStoreProvider, type SSRStore } from './SSRDataStore';
 import { createUILogger } from './utils/Logger';
@@ -10,18 +10,27 @@ import type { LoggerLike } from './utils/Logger';
 import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming';
 
 export type RenderCallbacks<T> = {
-  onHead?: (head: string) => boolean | void;
+  /**
+   * Receives the head string. The server owns the HTML template and writes the head into
+   * `<head>`; the renderer must never write head bytes into the stream. Return value is
+   * ignored (parity with `@taujs/server`'s `RenderCallbacks.onHead` and `@taujs/react`).
+   */
+  onHead?: (head: string) => void;
   onShellReady?: () => void;
   onAllReady?: (data: T) => void;
-  onFinish?: (data: T) => void; // legacy alias of onAllReady
+  /** @deprecated Legacy alias of `onAllReady`, kept for `@taujs/react` parity. Use `onAllReady`. */
+  onFinish?: (data: T) => void;
   onError?: (err: unknown) => void;
 };
 
 export type StreamOptions = {
-  /** Timeout in ms for shell to be ready (default: 10000) */
+  /**
+   * Time-to-first-content watchdog, in ms (default: 10000). Started before rendering and
+   * cleared on the first streamed chunk. If no content is produced before it expires the
+   * stream is aborted with a fatal error. Vue streaming is in-order and blocks at async
+   * boundaries — there is no React-style shell phase, so this guards first-byte latency.
+   */
   shellTimeoutMs?: number;
-  /** Whether to use cork/uncork for batched writes (default: true) */
-  useCork?: boolean;
 };
 
 export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>, R = unknown> = {
@@ -30,7 +39,18 @@ export type HeadContext<T extends Record<string, unknown> = Record<string, unkno
   routeContext?: R;
 };
 
-type SSRResult = { headContent: string; appHtml: string; aborted: boolean };
+type SSRResult = {
+  headContent: string;
+  appHtml: string;
+  aborted: boolean;
+  /**
+   * `<Teleport>` buffers collected during `renderSSR`, keyed by target selector (e.g.
+   * `'#modal'`). Populated only by `renderSSR` (the ssr strategy); the server currently
+   * reads only `headContent`/`appHtml`, so standalone consumers are the audience.
+   * Streaming does **not** produce teleports — see `createRenderer`'s JSDoc.
+   */
+  teleports?: Record<string, string>;
+};
 
 type StreamCallOptions<R> = StreamOptions & {
   logger?: LoggerLike;
@@ -38,10 +58,6 @@ type StreamCallOptions<R> = StreamOptions & {
 };
 
 const NOOP = () => {};
-
-function isPromiseLike(x: unknown): x is Promise<unknown> {
-  return !!x && (typeof x === 'object' || typeof x === 'function') && typeof (x as any).then === 'function';
-}
 
 function normalizeRootComponent(root: Component | ((props: any) => VNode), props: any): Component {
   // Treat as render function if it doesn't look like a Vue component
@@ -63,12 +79,24 @@ function createAppWithStore<T>(store: SSRStore<T>, root: Component | ((props: an
   });
 }
 
+/**
+ * Create the τjs Vue renderer: `{ renderSSR, renderStream }`.
+ *
+ * **Teleports.** `renderSSR` collects `<Teleport>` content into its `teleports` result
+ * (keyed by target selector). `renderStream` does **not** — teleported content cannot be
+ * injected into an in-order stream after the fact, and τjs does not fake it. Applications
+ * that render `<Teleport>` targets outside the app root must use the `ssr` strategy for
+ * those routes, or render the teleported content client-side after hydration. Note τjs's
+ * server consumes only `headContent`/`appHtml` today, so splicing `teleports` into a page
+ * is a standalone-consumer concern.
+ */
 export function createRenderer<T extends Record<string, unknown> = Record<string, unknown>, R = unknown>({
   appComponent,
   headContent,
   streamOptions = {},
   logger,
   enableDebug = false,
+  setupApp,
 }: {
   /**
    * Vue root. You can supply a Vue component, or a function returning VNode.
@@ -79,8 +107,21 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   enableDebug?: boolean;
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
+  /**
+   * Configure the `App` instance τjs creates per request (`app.use`, directives, global
+   * components, provides) — this is how Vue-ecosystem integrations (Pinia, vue-i18n) attach
+   * under τjs SSR. Invoked after app creation, before render, on `renderSSR` and
+   * `renderStream`; the identical function is also passed to `hydrateApp` on the client.
+   *
+   * Constraints (must hold for the same function to run verbatim on server and client):
+   * synchronous only (no promise form), no `window`/DOM access, and idempotent per app
+   * instance (a fresh `App` is created per request and per mount). A throwing `setupApp` is
+   * treated as an application error and routed to the path's error channel (`onError` +
+   * fatal abort here; `onHydrationError` client-side) — never swallowed.
+   */
+  setupApp?: (app: App) => void;
 }) {
-  const { shellTimeoutMs = 10_000, useCork = true } = streamOptions;
+  const { shellTimeoutMs = 10_000 } = streamOptions;
 
   const renderSSR = async (
     initialData: T,
@@ -120,7 +161,13 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         location,
         routeContext,
       });
-      const html = await renderToString(app);
+      // App-instance customization before render (a throw propagates as this promise's
+      // rejection — renderSSR's error channel).
+      setupApp?.(app);
+      // Pass a real SSRContext so <Teleport> content is collected into ctx.teleports
+      // (additive: the server reads only headContent/appHtml).
+      const ctx: SSRContext = {};
+      const html = await renderToString(app, ctx);
 
       if (aborted) {
         warn('SSR completed after client abort', { location });
@@ -129,7 +176,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
       log('Completed SSR:', location);
 
-      return { headContent: dynamicHead, appHtml: html, aborted: false };
+      return { headContent: dynamicHead, appHtml: html, aborted: false, teleports: ctx.teleports };
     } finally {
       try {
         signal?.removeEventListener('abort', onAbort);
@@ -142,9 +189,9 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     callbacks: RenderCallbacks<T>,
     initialData: T | Promise<T> | (() => Promise<T>),
     location: string,
-    _bootstrapModules?: string, // Vue SSR doesn't use React bootstrapModules; kept for signature parity.
+    bootstrapModules?: string,
     meta: Record<string, unknown> = {},
-    _cspNonce?: string, // Vue SSR renderer doesn't accept nonce here; keep parity for TauJS.
+    cspNonce?: string,
     signal?: AbortSignal,
     opts?: StreamCallOptions<R>,
   ) => {
@@ -163,11 +210,19 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     });
 
     const routeContext = opts?.routeContext;
-
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
-    const effectiveUseCork = opts?.useCork ?? useCork;
 
     const controller = createStreamController(writable, { log, warn, error });
+
+    // Single, idempotent fatal path. Vue swallows a component error once an
+    // app.config.errorHandler is installed (see @vue/server-renderer handleError), so the
+    // handler must abort itself rather than relying on the render promise to reject; the
+    // isAborted guard makes this safe to call from both errorHandler and sink.destroy.
+    const fail = (err: unknown) => {
+      if (controller.isAborted) return;
+      cb.onError(err);
+      controller.fatalAbort(err);
+    };
 
     // AbortSignal (benign cancel)
     if (signal) {
@@ -189,134 +244,137 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     // Writable guards BEFORE any writes/piping
     const { cleanup: guardsCleanup } = wireWritableGuards(writable, {
       benignAbort: (why) => controller.benignAbort(why),
-      fatalAbort: (err) => {
-        // Vue Suspense can throw Promises; don't treat that as fatal.
-        if (isPromiseLike(err)) return;
-        cb.onError(err);
-        controller.fatalAbort(err);
-      },
-      onError: (err) => {
-        // Vue Suspense can throw Promises; don't treat that as an error.
-        if (isPromiseLike(err)) return;
-        cb.onError(err);
-      },
+      fatalAbort: (err) => fail(err),
       onFinish: () => controller.complete('Stream finished (normal completion)'),
     });
     controller.setGuardsCleanup(guardsCleanup);
 
-    // Shell timeout guard (Vue doesn't give a real "shell ready" hook; we stop this once head is written and piping begins)
+    // Time-to-first-content watchdog: fires only if no chunk is produced before it expires.
     const stopShellTimer = startShellTimer(effectiveShellTimeout, () => {
       if (controller.isAborted) return;
 
-      const timeoutErr = new Error(`Shell not ready after ${effectiveShellTimeout}ms`);
-      cb.onError(timeoutErr);
-      controller.fatalAbort(timeoutErr);
+      fail(new Error(`Stream produced no content within ${effectiveShellTimeout}ms`));
     });
     controller.setStopShellTimer(stopShellTimer);
 
     log('Starting stream:', location);
 
-    let started = false;
+    let firstChunkSeen = false;
+    // Assigned inside the try below, before renderToSimpleStream drives the sink; the sink's
+    // completion handler reads it (R1).
+    let store: SSRStore<T> | undefined;
 
-    const writeHeadAndMaybeWait = (head: string) => {
-      // Enable only when both requested and supported
-      const canCork = effectiveUseCork && typeof (writable as any).cork === 'function' && typeof (writable as any).uncork === 'function';
-
-      if (canCork)
+    // Finalize the response: emit the client bootstrap (so a streamed route hydrates — the
+    // server injects none in streaming strategy, delegating it here), then end the writable.
+    // The server's `finish` handler appends the __INITIAL_DATA__ script and template tail;
+    // hydrateApp defers to DOMContentLoaded, by which time that data script has executed, so
+    // ordering (bootstrap before data script) is safe.
+    const finishStream = () => {
+      if (controller.isAborted) return;
+      if (bootstrapModules) {
+        const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
         try {
-          (writable as any).cork();
+          writable.write(`<script type="module" src="${bootstrapModules}" async${nonceAttr}></script>`);
         } catch {}
-
-      let wroteOk = true;
-      try {
-        const res = typeof (writable as any).write === 'function' ? (writable as any).write(head) : true;
-        wroteOk = res !== false;
-      } finally {
-        if (canCork)
-          try {
-            (writable as any).uncork();
-          } catch {}
       }
-
-      let forceWait = false;
       try {
-        forceWait = cb.onHead(head) === false;
+        writable.end();
+      } catch {}
+    };
+
+    const sink: SimpleReadable = {
+      push: (chunk: string | null) => {
+        if (controller.isAborted) return;
+
+        if (chunk === null) {
+          // R1: gate end-of-stream on the store settling, so the server always serializes
+          // resolved data into __INITIAL_DATA__ even when no component awaited it. The
+          // non-blocking useSSRData idiom would otherwise end the stream before the data
+          // thunk resolves → empty payload. onAllReady (subscribed below, hence before this)
+          // fires first and sets the server's finalData; on rejection that chain's .catch →
+          // fail() owns teardown, so we do nothing here. Trade-off: a never-settling thunk
+          // now holds the stream open — react's semantics for a suspending render, an app
+          // bug not a τjs one.
+          const ready = store?.ready;
+          if (ready) ready.then(finishStream, () => {});
+          else finishStream();
+          return;
+        }
+
+        if (!firstChunkSeen) {
+          firstChunkSeen = true;
+          // Honest shell semantics: first streamed content byte.
+          try {
+            stopShellTimer();
+          } catch {}
+          log('Shell ready:', location);
+          try {
+            cb.onShellReady();
+          } catch (cbErr) {
+            warn('onShellReady callback threw:', cbErr);
+          }
+        }
+
+        try {
+          writable.write(chunk);
+        } catch {}
+      },
+      destroy: (err: unknown) => {
+        if (controller.isAborted) return;
+        if (isBenignStreamErr(err)) {
+          controller.benignAbort('Client disconnected during stream');
+          return;
+        }
+        fail(err);
+      },
+    };
+
+    try {
+      // `store` (the outer let) is what the sink's completion handler reads; `s` is a
+      // non-nullable alias for use within this synchronous+async block.
+      const s = createSSRStore(initialData);
+      store = s;
+      const app = createAppWithStore(s, appComponent, { location, routeContext });
+
+      // App-instance customization before render (a throw is caught by this try and routed
+      // through fail → onError + fatal abort).
+      setupApp?.(app);
+
+      // Head is built once from the current snapshot and delivered ONLY via onHead. In
+      // streaming strategy the snapshot is usually still pending, so heads must be
+      // derivable from meta/routeContext.
+      const head = headContent({
+        data: (s.getSnapshot() ?? {}) as T,
+        meta,
+        routeContext,
+      });
+      try {
+        cb.onHead(head);
       } catch (cbErr) {
         warn('onHead callback threw:', cbErr);
       }
 
-      return { wroteOk, forceWait };
-    };
-
-    try {
-      const store = createSSRStore(initialData);
-      const app = createAppWithStore(store, appComponent, { location, routeContext });
-
-      // Prefer current snapshot if available (sync path).
-      let headData: T | undefined;
-      try {
-        headData = store.getSnapshot();
-      } catch {
-        // Ignore any errors; data will be undefined
-      }
-
-      const head = headContent({
-        data: headData ?? ({} as T),
-        meta,
-        routeContext,
-      });
-      const { wroteOk, forceWait } = writeHeadAndMaybeWait(head);
-
-      const startPipe = () => {
-        if (controller.isAborted || started) return;
-        started = true;
-
-        // "shell ready": head is written and we’re about to start piping HTML
+      // Route Vue render-time errors into the fatal path (see `fail` above). R3: chain after
+      // any handler a user installed in setupApp (Sentry etc.) so τjs's routing always runs
+      // and the user's still observes.
+      const userErrorHandler = app.config.errorHandler;
+      app.config.errorHandler = (err, instance, info) => {
         try {
-          stopShellTimer();
+          userErrorHandler?.(err, instance, info);
         } catch {}
-        log('Shell ready:', location);
-
-        // Ensure Vue SSR errors flow into TauJS abort path, but ignore Suspense Promises.
-        app.config.errorHandler = (err) => {
-          if (controller.isAborted) return;
-          if (isPromiseLike(err)) return;
-          cb.onError(err);
-          controller.fatalAbort(err);
-        };
-
-        const ssrCtx: SSRContext = {};
-        try {
-          pipeToNodeWritable(app, ssrCtx, writable);
-        } catch (err) {
-          if (controller.isAborted) return;
-          if (isPromiseLike(err)) return; // Suspense control flow
-          cb.onError(err);
-          controller.fatalAbort(err);
-        }
+        fail(err);
       };
 
-      if (forceWait || !wroteOk) {
-        if (typeof (writable as any).once === 'function') {
-          (writable as any).once('drain', startPipe);
-        } else {
-          startPipe();
-        }
-      } else {
-        startPipe();
-      }
+      const ssrCtx: SSRContext = {};
+      renderToSimpleStream(app, ssrCtx, sink);
 
-      try {
-        cb.onShellReady();
-      } catch (cbErr) {
-        warn('onShellReady callback threw:', cbErr);
-      }
-
-      // Deliver final data when ready.
-      store.ready
+      // Deliver final data when the store settles. Subscribed here — before the sink's
+      // push(null) subscribes finishStream (R1) — so onAllReady sets the server's finalData
+      // before the stream ends.
+      s.ready
         .then(() => {
           if (controller.isAborted) return;
-          const data = store.getSnapshot();
+          const data = s.getSnapshot();
           if (data !== undefined) {
             cb.onAllReady(data);
             cb.onFinish(data);
@@ -324,25 +382,19 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         })
         .catch((e) => {
           if (controller.isAborted) return;
-          // Promise rejection is real failure (not "suspense")
           error('Data promise rejected:', e);
-          cb.onError(e);
-          controller.fatalAbort(e);
+          fail(e);
         });
 
       controller.setStreamAbort(() => {
-        // With pipeToNodeWritable we don’t hold a Readable. Writable guards + AbortSignal
-        // should handle the disconnect path; optionally destroy the writable:
+        // No Readable is held; writable guards + AbortSignal handle disconnects. Destroy
+        // the writable defensively on manual/fatal abort.
         try {
-          (writable as any)?.destroy?.();
+          (writable as { destroy?: () => void }).destroy?.();
         } catch {}
       });
     } catch (err) {
-      if (!isPromiseLike(err)) {
-        cb.onError(err);
-        controller.fatalAbort(err);
-      }
-      // If it's a Promise, it's Suspense control flow; do not abort the stream.
+      fail(err);
     }
 
     return {

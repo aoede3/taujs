@@ -1,4 +1,4 @@
-import { computed, defineComponent, inject, provide, readonly, shallowRef, type ComputedRef, type InjectionKey, type PropType, type Ref } from 'vue';
+import { computed, defineComponent, inject, provide, shallowReadonly, shallowRef, type ComputedRef, type InjectionKey, type PropType, type Ref } from 'vue';
 
 export type SSRStoreStatus = 'pending' | 'success' | 'error';
 
@@ -13,9 +13,6 @@ export type SSRStore<T> = {
 
   /** Vue-safe: returns data or undefined (never throws) */
   getSnapshot: () => T | undefined;
-
-  /** Test/imperative API: throws if pending or errored (React parity) */
-  getSnapshotOrThrow: () => T;
 
   setData: (newData: T) => void;
 
@@ -97,20 +94,16 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     return data.value;
   };
 
-  const getSnapshotOrThrow = (): T => {
-    if (status.value === 'pending') throw ready;
-    if (status.value === 'error') throw new Error(`SSR data fetch failed: ${lastError.value?.message || 'Unknown error'}`);
-    if (data.value === undefined) throw new Error('SSR data is undefined - store initialisation problem');
-    return data.value;
-  };
-
+  // shallowReadonly (not readonly): the refs stay read-only at the top level but `.value`
+  // yields the raw payload, so snapshots keep object identity with what was passed to
+  // createSSRStore (F7). Deep readonly() proxied `.value`, breaking identity for
+  // useSSRData() consumers; getSnapshot() was unaffected as it closes over the raw ref.
   return {
-    data: readonly(data) as Ref<T | undefined>,
-    status: readonly(status) as Ref<SSRStoreStatus>,
-    lastError: readonly(lastError) as Ref<Error | undefined>,
+    data: shallowReadonly(data) as Ref<T | undefined>,
+    status: shallowReadonly(status) as Ref<SSRStoreStatus>,
+    lastError: shallowReadonly(lastError) as Ref<Error | undefined>,
     ready,
     getSnapshot,
-    getSnapshotOrThrow,
     setData,
     subscribe,
   };
@@ -141,8 +134,27 @@ export const SSRStoreProvider = defineComponent({
 });
 
 /**
- * Returns the full store (recommended for Vue).
- * Components can `await store.ready` in async setup, or watch store.status/data.
+ * Returns the full store. **Deliberate divergence from `@taujs/react`**, whose
+ * `useSSRStore` returns the resolved *value* via `useSyncExternalStore`. Vue has no
+ * equivalent value-hook idiom; returning the store lets components pick the right access
+ * pattern (reactive refs, `await store.ready`, `store.getSnapshot()`), so it is intentional
+ * — do not "harmonize" it with react.
+ *
+ * Two consumption idioms, in order of preference:
+ *
+ * 1. **Suspense (recommended)** — `await` the data in an async `setup` under `<Suspense>`:
+ *    ```vue
+ *    <script setup lang="ts">
+ *    const data = await useSSRDataAsync<MyData>();
+ *    </script>
+ *    ```
+ * 2. **Fallback rendering** — read a non-throwing computed and guard with `v-if`:
+ *    ```vue
+ *    <script setup lang="ts">
+ *    const data = useSSRData<MyData>();
+ *    </script>
+ *    <template><div v-if="data">{{ data.message }}</div></template>
+ *    ```
  */
 export function useSSRStore<T>(): SSRStore<T> {
   const store = inject(SSR_STORE_KEY) as SSRStore<T> | undefined;
@@ -174,8 +186,8 @@ export function useSSRData<T>(): ComputedRef<T | undefined> {
  * </script>
  * ```
  */
-export function useSSRReady<T = any>(): Promise<void> {
-  const store = useSSRStore<T>();
+export function useSSRReady(): Promise<void> {
+  const store = useSSRStore();
   return store.ready;
 }
 
@@ -213,18 +225,4 @@ export async function useSSRDataAsync<T>(): Promise<T> {
     throw new Error('SSR data is undefined after ready resolved');
   }
   return data;
-}
-
-/**
- * CLIENT-SIDE ONLY: Returns data or throws promise (for client Suspense).
- *
- * ⚠️ WARNING: This does NOT work reliably with Vue SSR Suspense.
- * Vue's SSR Suspense requires async setup with await, not thrown promises.
- * Use `useSSRDataAsync()` or `await useSSRReady()` for SSR-compatible Suspense.
- *
- * This is kept for React parity and client-side only Suspense use cases.
- */
-export function useSSRDataOrSuspend<T>(): T {
-  const store = useSSRStore<T>();
-  return store.getSnapshotOrThrow(); // throws promise => client Suspense only
 }
