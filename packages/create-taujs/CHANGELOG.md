@@ -1,5 +1,11 @@
 # @taujs/cli
 
+## 0.2.0
+
+### Minor Changes
+
+- [#6](https://github.com/aoede3/taujs/pull/6) [`a6d3c6c`](https://github.com/aoede3/taujs/commit/a6d3c6c9608d17c98481a76e6334ac93d5adfba2) Thanks [@aoede3](https://github.com/aoede3)! - P1-04: scaffolded projects wire the τjs MCP adapter — `.mcp.json` in the pinned package-manager-specific local-bin form (`pnpm exec taujs-mcp` / `npx --no-install taujs-mcp` / `yarn exec taujs-mcp`, never registry-latest), `@taujs/mcp` as a devDependency, and a short `CLAUDE.md` pointer telling agents to prefer the MCP tools over reading config by hand — the substance lives in the package so it improves with upgrades.
+
 ## 0.1.10
 
 ### Patch Changes

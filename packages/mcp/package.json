@@ -1,7 +1,7 @@
 {
   "name": "@taujs/mcp",
-  "version": "0.0.0",
-  "description": "\u03c4js [ taujs ] MCP adapter \u2014 a thin file reader over the introspection substrate",
+  "version": "0.1.0",
+  "description": "τjs [ taujs ] MCP adapter — a thin file reader over the introspection substrate",
   "author": "John Smith | Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
   "license": "MIT",
   "homepage": "https://taujs.dev/",
