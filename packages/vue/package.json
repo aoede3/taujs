@@ -48,6 +48,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.4",
     "@babel/preset-typescript": "^7.24.7",
+    "@taujs/server": "workspace:*",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/vue": "^8.1.0",
     "@types/node": "^22.10.0",

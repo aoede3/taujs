@@ -1,3 +1,5 @@
+import type { Writable } from 'node:stream';
+
 import type { FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 
 import type { CoreTaujsConfig, Route, PathToRegExpParams } from './core/config/types';
@@ -48,25 +50,44 @@ export type ManifestEntry = {
 
 export type Manifest = { [key: string]: ManifestEntry };
 
+/**
+ * Minimal structural logger the server passes to a renderer's optional `opts.logger`. The
+ * server's rich `Logs` satisfies it (asserted below), and it is in turn assignable to a
+ * framework package's looser logger type — so a renderer's `createRenderer(...)` output is
+ * assignable to `RenderModule` cast-free (V1-05; see docs/vue/04-gate-v1-review §4).
+ * `debug`/`isDebugEnabled` accept `any` category to absorb `Logs`'s `DebugCategory`-typed
+ * overloads; framework packages keep their own richer logger types internally.
+ */
+export type RendererLogger = {
+  info?: (meta?: unknown, message?: string) => void;
+  warn?: (meta?: unknown, message?: string) => void;
+  error?: (meta?: unknown, message?: string) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  debug?: (category: any, meta?: unknown, message?: string) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  isDebugEnabled?: (category: any) => boolean;
+};
+
+// Compile-time proof that the server's Logs is a valid RendererLogger (V1-05). If Logs ever
+// stops conforming, `_LogsConformsToRendererLogger` fails to satisfy the constraint here.
+type _AssertExtends<T extends RendererLogger> = T;
+type _LogsConformsToRendererLogger = _AssertExtends<Logs>;
+
 export type RenderSSR = (
   initialDataResolved: Record<string, unknown>,
   location: string,
   meta?: Record<string, unknown>,
   signal?: AbortSignal,
-  opts?: { logger?: Logs; routeContext?: unknown },
+  opts?: { logger?: RendererLogger; routeContext?: unknown },
 ) => Promise<{
   headContent: string;
   appHtml: string;
 }>;
 
-export type StreamSink = {
-  write(chunk: string | Uint8Array): void;
-  end(): void;
-  on?(event: 'close' | 'drain' | 'error', cb: (...a: any[]) => void): void;
-};
-
 export type RenderStream = (
-  sink: StreamSink,
+  // The server always passes a node Writable (a PassThrough); both framework renderers have
+  // always consumed node-Writable APIs. The contract states that truth (V1-05).
+  sink: Writable,
   callbacks: RenderCallbacks,
   initialData: Record<string, unknown> | Promise<Record<string, unknown>> | (() => Promise<Record<string, unknown>>),
   location: string,
@@ -74,7 +95,7 @@ export type RenderStream = (
   meta?: Record<string, unknown>,
   cspNonce?: string,
   signal?: AbortSignal,
-  opts?: { logger?: Logs; routeContext?: unknown },
+  opts?: { logger?: RendererLogger; routeContext?: unknown },
 ) => { abort(): void };
 
 export type RenderModule = {
