@@ -88,7 +88,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "test:ui": "vitest --ui --coverage.enabled=true",
     "coverage": "vitest run --coverage",
     "format": "prettier --write .",
