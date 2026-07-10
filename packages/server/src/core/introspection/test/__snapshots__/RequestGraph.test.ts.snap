@@ -52,7 +52,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (a) mini
   "services": null,
   "source": "boot",
   "taujs": {
-    "server": "0.7.1",
+    "server": "<version>",
   },
   "warnings": [
     {
@@ -289,7 +289,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) mult
   ],
   "source": "boot",
   "taujs": {
-    "server": "0.7.1",
+    "server": "<version>",
   },
   "warnings": [],
 }
@@ -462,7 +462,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) with
   "services": null,
   "source": "build",
   "taujs": {
-    "server": "0.7.1",
+    "server": "<version>",
   },
   "warnings": [],
 }
@@ -545,7 +545,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (c) app-
   "services": null,
   "source": "boot",
   "taujs": {
-    "server": "0.7.1",
+    "server": "<version>",
   },
   "warnings": [
     {
@@ -716,7 +716,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (d) ever
   "services": null,
   "source": "boot",
   "taujs": {
-    "server": "0.7.1",
+    "server": "<version>",
   },
   "warnings": [
     {
@@ -964,7 +964,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
   ],
   "source": "boot",
   "taujs": {
-    "server": "0.7.1",
+    "server": "<version>",
   },
   "warnings": [
     {

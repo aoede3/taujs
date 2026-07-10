@@ -114,7 +114,7 @@ describe('registerBootGraphEmission', () => {
       expect(graph.source).toBe('boot');
 
       // Committed shape check, modulo the only timestamp in the document.
-      expect({ ...graph, emittedAt: '<emittedAt>' }).toMatchSnapshot();
+      expect({ ...graph, emittedAt: '<emittedAt>', taujs: { server: '<version>' } }).toMatchSnapshot();
     } finally {
       cwdSpy.mockRestore();
     }
