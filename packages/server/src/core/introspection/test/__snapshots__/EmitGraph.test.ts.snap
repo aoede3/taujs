@@ -52,7 +52,7 @@ exports[`registerBootGraphEmission > registers an onListen hook that writes node
   "services": null,
   "source": "boot",
   "taujs": {
-    "server": "0.7.1",
+    "server": "<version>",
   },
   "warnings": [
     {

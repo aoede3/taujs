@@ -11,6 +11,11 @@ import type { CoreTaujsConfig } from '../../config/types';
 // Fixed emission options: createRequestGraph owns no clock, so snapshots pin exact bytes.
 const OPTS = { source: 'boot', emittedAt: '2026-07-09T10:12:03.412Z' } as const;
 
+// taujs.server is release-variant by design (the emitting package's version) — snapshots
+// must not break on version bumps, so it is normalised. Found by the first Version
+// Packages PR: the 0.7.1 → 0.8.0 bump failed all seven graph snapshots.
+const versionAgnostic = (graph: ReturnType<typeof createRequestGraph>) => ({ ...graph, taujs: { server: '<version>' } });
+
 // --- fixture (b) registry: one parse-style schema, one bare-function validator ---
 
 const catalogService = defineService({
@@ -154,19 +159,19 @@ const fixturePlayground: CoreTaujsConfig = {
 
 describe('createRequestGraph — fixture snapshots (spec 02 schema v1)', () => {
   it('(a) minimal single app', () => {
-    expect(createRequestGraph(fixtureMinimal, OPTS)).toMatchSnapshot();
+    expect(versionAgnostic(createRequestGraph(fixtureMinimal, OPTS))).toMatchSnapshot();
   });
 
   it('(b) multi-app with registry: kinds, usedBy, csp variants', () => {
-    expect(createRequestGraph(fixtureMultiApp, { ...OPTS, serviceRegistry: registry })).toMatchSnapshot();
+    expect(versionAgnostic(createRequestGraph(fixtureMultiApp, { ...OPTS, serviceRegistry: registry }))).toMatchSnapshot();
   });
 
   it('(b) without a registry: services is null, never []', () => {
-    expect(createRequestGraph(fixtureMultiApp, { ...OPTS, source: 'build' })).toMatchSnapshot();
+    expect(versionAgnostic(createRequestGraph(fixtureMultiApp, { ...OPTS, source: 'build' }))).toMatchSnapshot();
   });
 
   it('(c) app-shell wildcard: fallthrough unreachable', () => {
-    expect(createRequestGraph(fixtureAppShell, OPTS)).toMatchSnapshot();
+    expect(versionAgnostic(createRequestGraph(fixtureAppShell, OPTS))).toMatchSnapshot();
   });
 
   it('(e) playground fixture: the P0B-05 app shape, registry-enriched', () => {
@@ -174,7 +179,7 @@ describe('createRequestGraph — fixture snapshots (spec 02 schema v1)', () => {
 
     expect(graph.fallthrough.reachable).toBe(true);
     expect(graph.routes.map((r) => r.data.kind)).toEqual(expect.arrayContaining(['service', 'dynamic', 'none']));
-    expect(graph).toMatchSnapshot();
+    expect(versionAgnostic(graph)).toMatchSnapshot();
   });
 
   it('(d) every warning code fires at least once', () => {
@@ -183,7 +188,7 @@ describe('createRequestGraph — fixture snapshots (spec 02 schema v1)', () => {
     expect(new Set(graph.warnings.map((w) => w.code))).toEqual(
       new Set(['routes.duplicate_path', 'streaming.missing_meta', 'render.defaulted', 'csp.dev_directives', 'fallthrough.unreachable']),
     );
-    expect(graph).toMatchSnapshot();
+    expect(versionAgnostic(graph)).toMatchSnapshot();
   });
 });
 
