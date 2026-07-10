@@ -1,6 +1,6 @@
 {
   "name": "@taujs/vue",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Framework-agnostic Vue SSR primitives - transport layer for server-side rendering and hydration",
   "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
   "license": "MIT",
