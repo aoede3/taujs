@@ -1,0 +1,5 @@
+# Isolation boundary: makes website/ its own pnpm workspace root so it is NOT
+# absorbed by the repo-root workspace. Root `pnpm -r` / `changeset publish`
+# never see this project, so it can never be published to npm.
+# (Build-script approvals live in package.json's "pnpm.onlyBuiltDependencies".)
+packages: []

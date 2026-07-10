@@ -4,3 +4,6 @@ pnpm-workspace.yaml
 **/coverage
 node_modules
 **/CHANGELOG.md
+
+# Astro docs site — self-contained, manages its own formatting
+website/
