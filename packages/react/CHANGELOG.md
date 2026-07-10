@@ -1,5 +1,11 @@
 # @taujs/react
 
+## 0.2.0
+
+### Minor Changes
+
+- [#6](https://github.com/aoede3/taujs/pull/6) [`bc98103`](https://github.com/aoede3/taujs/commit/bc981030836f811028518b0d2c471e3d04c1c5b9) Thanks [@aoede3](https://github.com/aoede3)! - P0B-04: `hydrateApp` emits internal dev-only lifecycle events (`hydration:start` / `hydration:success` / `hydration:error`) through `window.__TAUJS_DEVTOOLS_HOOK__` when the server-injected dev script has set it. User callbacks are unchanged and always run (internal emission first, user callback second); a missing or throwing hook can never affect hydration. CSR-fallback mounts deliberately emit nothing — mounting fresh is not a hydration, and the trace's `client` field stays an honest null.
+
 v0.1.9 - 20/05/2026
 
 feat: Fix `createSSRStore()` exposing stale `status` and `lastError` values.
