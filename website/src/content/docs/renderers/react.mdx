@@ -1,0 +1,2230 @@
+---
+title: React
+description: taujs/react reference
+---
+
+import { LinkButton } from "@astrojs/starlight/components";
+
+# @taujs/react
+
+**React SSR (Server-Side Rendering) with Streaming Support**
+
+A lightweight, React SSR library with streaming capabilities, built for modern TypeScript applications. Designed as part of the taujs (τjs) ecosystem but fully standalone and runtime-agnostic.
+
+<LinkButton
+  href="https://github.com/aoede3/taujs-react"
+  icon="external"
+  iconPlacement="start"
+  target="\_blank"
+>
+  τjs @taujs/react
+</LinkButton>
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Installation](#installation)
+- [Core Concepts](#core-concepts)
+- [API Reference](#api-reference)
+  - [Server-Side Rendering](#server-side-rendering)
+  - [Client-Side Hydration](#client-side-hydration)
+  - [Data Store](#data-store)
+  - [Vite Plugin](#vite-plugin)
+- [Usage in taujs Ecosystem](#usage-in-taujs-ecosystem)
+- [Standalone Usage](#standalone-usage)
+- [Advanced Examples](#advanced-examples)
+- [TypeScript Support](#typescript-support)
+- [Best Practices](#best-practices)
+
+---
+
+## Overview
+
+`@taujs/react` provides:
+
+- **Streaming SSR** with React 18+ `renderToPipeableStream`
+- **Static SSR** with `renderToString` for simpler use cases
+- **Automatic hydration** with built-in data synchronisation
+- **Type-safe data stores** using React hooks
+- **Robust error handling** for production environments
+- **Flexible logging** for debugging and monitoring
+- **Runtime agnostic** - works with Node.js, Fastify, Express, or any HTTP server
+
+---
+
+## Installation
+
+```bash
+npm install @taujs/react react react-dom
+```
+
+---
+
+## Core Concepts
+
+### 1. SSR Data Store
+
+The `SSRStore` is a type-safe data container that synchronises data between server and client:
+
+```typescript
+type SSRStore<T> = {
+  getSnapshot: () => T;
+  getServerSnapshot: () => T;
+  setData: (newData: T) => void;
+  subscribe: (callback: () => void) => () => void;
+  readonly status: "pending" | "success" | "error";
+  readonly lastError?: Error;
+};
+```
+
+### 2. Renderer Pattern
+
+The `createRenderer` function creates a reusable renderer with your app component and configuration:
+
+```typescript
+const { renderSSR, renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data, meta }) => `<title>${data.title}</title>`,
+  streamOptions: { shellTimeoutMs: 10000 },
+});
+```
+
+### 3. Hydration Strategy
+
+Client-side hydration automatically:
+
+- Detects SSR data from `window.__INITIAL_DATA__`
+- Creates a synchronised store
+- Hydrates the React tree
+- Falls back to CSR if no SSR data exists
+
+---
+
+## API Reference
+
+### Server-Side Rendering
+
+#### `createRenderer<T, R = unknown>(options)`
+
+Creates a renderer instance with streaming and static SSR capabilities.
+
+**Type Signature:**
+
+```typescript
+function createRenderer<
+  T extends Record<string, unknown>,
+  R = unknown
+>(options: {
+  appComponent: (props: { location: string; routeContext?: R }) => React.ReactElement;
+  headContent: (ctx: {
+    data: T;
+    meta: Record<string, unknown>;
+    routeContext?: R;
+  }) => string;
+  ...
+}): {
+  renderSSR: (
+    initialData: T,
+    location: string,
+    meta?: Record<string, unknown>,
+    signal?: AbortSignal,
+    opts?: { logger?: LoggerLike; routeContext?: R }
+  ) => Promise<SSRResult>;
+  renderStream: (
+    writable: Writable,
+    callbacks: RenderCallbacks<T>,
+    initialData: T | Promise<T> | (() => Promise<T>),
+    location: string,
+    bootstrapModules?: string,
+    meta?: Record<string, unknown>,
+    cspNonce?: string,
+    signal?: AbortSignal,
+    opts?: StreamOptions & { logger?: LoggerLike; routeContext?: R }
+  ) => { abort: () => void; done: Promise<void> };
+}
+```
+
+> `bootstrapModules`: URL to your client entry module. `@taujs/react` forwards it to React as a single-item `bootstrapModules` array.
+
+`routeContext` is optional / advanced. See Advanced Patterns
+
+**Parameters:**
+
+- `appComponent`: Function that returns your root React component, receives `{ location: string; routeContext?: R }`
+- `headContent`: Function that generates HTML head content, receives `{ data: T, meta: Record<string, unknown>, routeContext?: R }`. **Note:** In streaming mode, `data` may not be resolved when shell is ready - guard optional fields or rely on `meta`.
+- `enableDebug`: Enable detailed logging (default: `false`)
+- `logger`: Custom logger implementation
+- `streamOptions`: Streaming configuration
+  - `shellTimeoutMs`: Timeout for initial shell render (default: `10000`)
+
+**Returns:**
+
+Object with two rendering methods:
+
+- `renderSSR`: Static rendering (returns complete HTML)
+- `renderStream`: Streaming rendering (pipes to writable stream)
+
+**Per-call options (`opts`)**
+
+Both methods accept a final `opts` argument:
+
+- `logger`: Optional per-call logger (overrides the one passed to `createRenderer`)
+- `routeContext`: Per-request route context value forwarded into `appComponent` and `headContent`.
+
+---
+
+#### Route-aware rendering with `routeContext`
+
+`@taujs/react` doesn’t know anything about your router, but it _can_ carry whatever route information you have from the server into both:
+
+- your React tree (`appComponent`), and
+- your head generator (`headContent`).
+
+This happens through a generic `R` type and a `routeContext` value:
+
+- On the server you pass `routeContext` into `renderSSR` / `renderStream`.
+- Inside the renderer, `routeContext` is forwarded to `appComponent` and `headContent`.
+
+**Example: route-aware renderer (standalone)**
+
+```typescript
+type RouteContext = {
+  name: "home" | "article";
+  path: string;
+  params: Record<string, string>;
+};
+
+type PageData = {
+  title: string;
+  description?: string;
+};
+
+const { renderSSR, renderStream } = createRenderer<PageData, RouteContext>({
+  appComponent: ({ location, routeContext }) => (
+    <App location={location} routeContext={routeContext} />
+  ),
+  headContent: ({ data, meta, routeContext }) => {
+    const baseTitle =
+      data.title ?? (meta.title as string | undefined) ?? "My App";
+
+    const suffix =
+      routeContext?.name === "article"
+        ? " · Article"
+        : routeContext?.name === "home"
+        ? " · Home"
+        : "";
+
+    return `<title>${baseTitle}${suffix}</title>`;
+  },
+});
+```
+
+On the server, you pass a RouteContext per request:
+
+```typescript
+const routeContext: RouteContext = {
+  name: "article",
+  path: "/articles/hello-world",
+  params: { slug: "hello-world" },
+};
+
+const { headContent, appHtml } = await renderSSR(
+  data,
+  req.url!,
+  { requestId }, // meta
+  abortSignal, // signal
+  { routeContext } // opts
+);
+```
+
+In streaming mode it’s the same:
+
+```typescript
+renderStream(
+  res,
+  callbacks,
+  data,
+  req.url!,
+  "/assets/client.js",
+  { requestId }, // meta
+  cspNonce, // cspNonce
+  abortSignal, // signal
+  { routeContext } // opts
+);
+```
+
+---
+
+#### `renderSSR()`
+
+See Per-call options for opts.
+
+Renders the complete application to a string (static SSR).
+
+**Example:**
+
+```typescript
+const { renderSSR } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.pageTitle}</title>`,
+});
+
+const result = await renderSSR(
+  { pageTitle: "Home", content: "Welcome!" },
+  "/home",
+  { requestId: "123" }
+);
+
+// result: { headContent: string, appHtml: string, aborted: boolean }
+```
+
+> For route-aware rendering, pass `opts.routeContext` and set the `R` generic on `createRenderer`
+
+---
+
+#### `renderStream()`
+
+See Per-call options for opts.
+
+Streams the application with React 18+ streaming SSR.
+
+**Callbacks:**
+
+```typescript
+type RenderCallbacks<T> = {
+  onHead?: (head: string) => void;
+  onShellReady?: () => void;
+  onAllReady?: (data: T) => void;
+  onFinish?: (data: T) => void;
+  onError?: (err: unknown) => void;
+};
+```
+
+**Output ownership & backpressure**
+
+`@taujs/react` does not assemble a full HTML document and does not manage socket-level backpressure for your response. In streaming mode it:
+
+- calls `onHead(head)` when the shell is ready, and
+- pipes the React HTML stream to the `writable` you provide.
+
+If you are writing an HTML template prefix/suffix (common for Express/Fastify), handle backpressure on the final destination stream (`res` / `reply.raw`) and delay piping until the prefix write is accepted or the destination drains.
+
+**Example:**
+
+```typescript
+const { renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.pageTitle}</title>`,
+});
+
+const { done, abort } = renderStream(
+  res, // Node.js Writable stream (e.g., http.ServerResponse)
+  {
+    onHead: (head) => {
+      console.log("Shell ready, head HTML:", head);
+    },
+    onShellReady: () => {
+      console.log("Initial HTML ready");
+    },
+    onAllReady: (data) => {
+      console.log("All content ready:", data);
+    },
+    onError: (err) => {
+      console.error("Stream error:", err);
+    },
+  },
+  { pageTitle: "Home", content: "Welcome!" },
+  "/home",
+  "/assets/client.js", // bootstrap module
+  { requestId: "123" }, // meta
+  "nonce-abc123", // CSP nonce
+  abortSignal // AbortSignal for cancellation
+);
+
+// Wait for completion
+await done;
+```
+
+> For route-aware rendering, pass `opts.routeContext` and set the `R` generic on `createRenderer`
+
+---
+
+### Client-Side Hydration
+
+#### `hydrateApp<T>(options)`
+
+Hydrates a server-rendered React application on the client.
+
+**Type Signature:**
+
+```typescript
+function hydrateApp<T>(options: {
+  appComponent: React.ReactElement;
+  rootElementId?: string;
+  enableDebug?: boolean;
+  logger?: LoggerLike;
+  dataKey?: string;
+  onHydrationError?: (err: unknown) => void;
+  onStart?: () => void;
+  onSuccess?: () => void;
+}): void;
+```
+
+**Parameters:**
+
+- `appComponent`: Your root React component (already instantiated)
+- `rootElementId`: DOM element ID to hydrate into (default: `'root'`)
+- `enableDebug`: Enable debug logging (default: `false`)
+- `logger`: Custom logger implementation
+- `dataKey`: Key for initial data on window object (default: `'__INITIAL_DATA__'`)
+- `onHydrationError`: Callback for hydration errors
+- `onStart`: Callback when hydration starts
+- `onSuccess`: Callback when hydration completes
+
+**Example:**
+
+```typescript
+// entry-client.tsx (with @taujs/server)
+import { hydrateApp } from "@taujs/react";
+import { App } from "./App";
+
+hydrateApp({
+  appComponent: <App />,
+  rootElementId: "root",
+  enableDebug: import.meta.env.DEV,
+  onHydrationError: (err) => {
+    console.error("Hydration failed:", err);
+  },
+  onSuccess: () => {
+    console.log("App hydrated successfully!");
+  },
+});
+```
+
+**Complete Client Setup (Standalone):**
+
+```typescript
+// entry-client.tsx
+import React from "react";
+import { hydrateApp, useSSRStore } from "@taujs/react";
+
+// Your app component that consumes SSR data
+function App() {
+  const data = useSSRStore<{ pageTitle: string; content: string }>();
+
+  return (
+    <div>
+      <h1>{data.pageTitle}</h1>
+      <p>{data.content}</p>
+    </div>
+  );
+}
+
+// Hydrate the app
+hydrateApp({
+  appComponent: <App />,
+  rootElementId: "root",
+  dataKey: "__INITIAL_DATA__",
+  enableDebug: process.env.NODE_ENV === "development",
+  onHydrationError: (err) => {
+    console.error("Hydration failed, falling back to CSR:", err);
+    // Optionally report to error tracking service
+  },
+  onStart: () => {
+    console.log("Starting hydration...");
+  },
+  onSuccess: () => {
+    console.log("Hydration complete!");
+    // Initialise client-side only features
+    initialiseAnalytics();
+  },
+});
+```
+
+**Behavior:**
+
+- If `window[dataKey]` exists: Performs SSR hydration with the provided data
+- If `window[dataKey]` is missing: Falls back to client-side rendering (CSR)
+- Automatically handles `DOMContentLoaded` timing
+- Wraps your app in `React.StrictMode` and `SSRStoreProvider`
+
+**HTML Template Requirements:**
+
+Your server-rendered HTML must include:
+
+1. The root element:
+
+```html
+<div id="root"><!-- SSR content here --></div>
+```
+
+2. Initial data script (injected by server):
+
+```html
+<script>
+  window.__INITIAL_DATA__ = { pageTitle: "Home", content: "Welcome" };
+</script>
+```
+
+3. Client bundle:
+
+```html
+<script type="module" src="/assets/entry-client.js"></script>
+```
+
+---
+
+### Data Store
+
+#### `createSSRStore<T>(initialDataOrPromise)`
+
+Creates a store for managing SSR data synchronisation.
+
+**Type Signature:**
+
+```typescript
+function createSSRStore<T>(
+  initialDataOrPromise: T | Promise<T> | (() => Promise<T>)
+): SSRStore<T>;
+```
+
+**Parameters:**
+
+- `initialDataOrPromise`: Can be:
+  - Synchronous data: `T`
+  - Promise: `Promise<T>`
+  - Lazy promise factory: `() => Promise<T>`
+
+**Returns:** `SSRStore<T>` with methods:
+
+- `getSnapshot()` / `getServerSnapshot()`: Read the current data. Both throw the underlying promise while status is 'pending', so they integrate with React Suspense; both throw an Error if status is 'error'.
+- `setData(newData)`: Replace the stored value and notify subscribers. Transitions status to 'success'.
+- `subscribe(callback)`: Register a change listener; returns the unsubscribe function.
+- `status (readonly)`: Live lifecycle of the store - 'pending' until the initial promise settles, then 'success' or 'error'. Always reflects the current state, including transitions after the store was created.
+- `lastError (readonly)`: undefined unless status is 'error', in which case it holds the Error that caused the failure.
+
+**Example:**
+
+```typescript
+import { createSSRStore } from "@taujs/react";
+
+// Synchronous data
+const store1 = createSSRStore({ user: "Alice", posts: [] });
+
+// Promise
+const store2 = createSSRStore(fetch("/api/data").then((r) => r.json()));
+
+// Lazy promise
+const store3 = createSSRStore(async () => {
+  const data = await fetch("/api/data");
+  return data.json();
+});
+```
+
+**Notes:**
+
+- Inside components, prefer `useSSRStore` - it consumes the store via React Suspense, so `getSnapshot()` throws the pending promise and the component suspends until data is ready.
+- Outside of rendering - for logging, conditional setup, or non-Suspense code paths - read `status` and `lastError` directly. They are live, so they update as the store transitions:
+
+  ```typescript
+  const store = createSSRStore(loadData);
+
+  store.subscribe(() => {
+    if (store.status === "error") {
+      reportFailure(store.lastError);
+    }
+  });
+  ```
+
+  see [useSSRStore](#usessrstoret)
+
+
+---
+
+#### `useSSRStore<T>()`
+
+React hook to consume data from an SSR store.
+
+**Type Signature:**
+
+```typescript
+function useSSRStore<T>(): T;
+```
+
+**Usage:**
+
+```typescript
+import { useSSRStore, SSRStoreProvider } from "@taujs/react";
+
+function MyComponent() {
+  const data = useSSRStore<{ user: string; posts: string[] }>();
+
+  return (
+    <div>
+      <h1>Welcome, {data.user}</h1>
+      <ul>
+        {data.posts.map((post) => (
+          <li key={post}>{post}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// In your app component
+function App() {
+  return (
+    <SSRStoreProvider store={store}>
+      <MyComponent />
+    </SSRStoreProvider>
+  );
+}
+```
+
+**Notes:**
+
+- Must be used within `SSRStoreProvider` - throws otherwise.
+- Subscribes via `useSyncExternalStore` so the component re-renders on setData or once the initial promise resolves; the value is then passed through `useDeferredValue` to keep updates concurrent-friendly under load.
+- Suspends automatically while data is loading. The store's `getSnapshot` throws the underlying promise when status is 'pending', which the nearest `<Suspense fallback={...}>` ancestor catches until the promise settles. If the promise rejects, `getSnapshot` throws an Error instead - surface it with an error boundary.
+- For code that runs outside React (logging, conditional bootstrap, side-effect setup), read `store.status` and `store.lastError` directly - see [Data Store](#data-store).
+
+---
+
+#### `SSRStoreProvider`
+
+Context provider for SSR store access.
+
+**Type Signature:**
+
+```typescript
+function SSRStoreProvider<T>(props: {
+  store: SSRStore<T>;
+  children: React.ReactNode;
+}): JSX.Element;
+```
+
+---
+
+### Vite Plugin
+
+#### `pluginReact(options?)`
+
+Wrapper around `@vitejs/plugin-react` for use in taujs ecosystem.
+
+**Type Signature:**
+
+```typescript
+function pluginReact(opts?: Parameters<typeof react>[0]): PluginOption;
+```
+
+**Usage:**
+
+```typescript
+// vite.config.ts
+import { defineConfig } from "vite";
+import { pluginReact } from "@taujs/react/plugin";
+
+export default defineConfig({
+  plugins: [pluginReact()],
+});
+```
+
+---
+
+## Usage in taujs Ecosystem
+
+### With `@taujs/server` (Complete Integration)
+
+The `@taujs/react` package is designed to integrate seamlessly with `@taujs/server`, which handles all the SSR rendering, routing, and data fetching automatically. When used together, you don't need to call the rendering functions directly - `@taujs/server` handles everything through declarative configuration.
+
+#### Declarative Configuration (taujs.config.ts)
+
+```typescript
+// taujs.config.ts
+import { pluginReact } from "@taujs/react/plugin";
+import { defineConfig } from "@taujs/server/config";
+
+export default defineConfig({
+  apps: [
+    {
+      appId: "root",
+      entryPoint: "", // Root app
+      plugins: [pluginReact()],
+      routes: [
+        {
+          path: "/:id",
+          attr: {
+            // Data fetching for this route
+            data: async (params, ctx) => {
+              const res = await fetch(
+                `http://localhost:5173/api/initial/${params.id}`,
+                {
+                  headers: ctx.headers,
+                }
+              );
+              return await res.json();
+            },
+            // Per-route CSP configuration
+            middleware: {
+              csp: {
+                directives: ({ params }) => {
+                  const userId = params.id as string;
+                  return {
+                    "script-src": [
+                      "'self'",
+                      `https://user-${userId}.example.com`,
+                    ],
+                  };
+                },
+              },
+            },
+            render: "ssr", // Static SSR
+          },
+        },
+        {
+          path: "/:id/:another",
+          attr: {
+            // Service registry pattern (alternative to HTTP fetch)
+            data: async (params) => ({
+              serviceName: "ServiceExample",
+              serviceMethod: "exampleMethod",
+              args: params,
+            }),
+            meta: {
+              title: "τjs [taujs] - streaming",
+              description: "Streaming page description from route meta",
+            },
+            render: "streaming", // Streaming SSR
+          },
+        },
+      ],
+    },
+    {
+      appId: "mfe",
+      entryPoint: "@admin", // Microfrontend
+      plugins: [pluginReact()],
+      routes: [
+        {
+          path: "/mfe/:id",
+          attr: {
+            data: async (params, ctx) => {
+              const res = await fetch(
+                `http://localhost:5173/api/initial/${params.id}`,
+                {
+                  headers: ctx.headers,
+                }
+              );
+              return await res.json();
+            },
+            render: "ssr",
+          },
+        },
+      ],
+    },
+  ],
+});
+```
+
+#### Server Setup (Two Patterns)
+
+**Pattern 1: Full Delegation (Recommended)**
+
+```typescript
+// server.ts
+import path from "node:path";
+import Fastify from "fastify";
+import { createServer } from "@taujs/server";
+import { serviceRegistry } from "./services";
+import config from "./taujs.config";
+
+const clientRoot = path.resolve(__dirname, "../client");
+const fastify = Fastify({ logger: false });
+
+// taujs/server handles all SSR, routing, and rendering
+await createServer({
+  fastify,
+  config,
+  serviceRegistry,
+  clientRoot,
+  alias: { "@client": clientRoot },
+});
+
+// Add your API routes
+fastify.get("/api/initial/:id?", (request, reply) => {
+  const { id } = request.params;
+
+  if (id) {
+    setTimeout(() => {
+      reply.send({
+        title: `τjs [taujs] - ${id}`,
+        description: `HTTP API call response with - ${id}`,
+      });
+    }, 1000);
+  } else {
+    reply.send({ data: "HTTP API call response" });
+  }
+});
+
+await fastify.listen({ port: 5173, host: "0.0.0.0" });
+```
+
+**Pattern 2: Explicit Registration**
+
+```typescript
+// server.ts
+import path from "node:path";
+import Fastify from "fastify";
+import fastifyStatic from "@fastify/static";
+import { createServer } from "@taujs/server";
+import { serviceRegistry } from "./services";
+import config from "./taujs.config";
+
+const clientRoot = path.resolve(__dirname, "../client");
+
+const startServer = async () => {
+  try {
+    const fastify = Fastify({ logger: false });
+
+    // Optional: Add compression
+    await fastify.register(import("@fastify/compress"), { global: true });
+
+    // Register taujs/server with explicit static assets (see Static assets guide)
+    const { net } = await createServer({
+      fastify,
+      clientRoot,
+      config,
+      serviceRegistry,
+      staticAssets: {
+        plugin: fastifyStatic,
+      },
+      debug: { all: false, ssr: true },
+    });
+
+    // Add API routes
+    fastify.get("/api/initial/:id?", (request, reply) => {
+      const { id } = request.params;
+
+      if (id) {
+        setTimeout(() => {
+          reply.send({
+            title: `τjs [taujs] - ${id}`,
+            description: `HTTP API call response with - ${id}`,
+          });
+        }, 1000);
+      } else {
+        reply.send({ data: "HTTP API call response with route meta" });
+      }
+    });
+
+    await fastify.listen(
+      {
+        port: net.port,
+        host: net.host,
+      },
+      (err, address) => {
+        if (err) {
+          fastify.log.error(err);
+          process.exit(1);
+        }
+      }
+    );
+  } catch (error) {
+    console.error("Error starting server:", error);
+    process.exit(1);
+  }
+};
+
+startServer();
+```
+
+#### Service Registry Pattern
+
+Instead of making HTTP calls in your data loaders, use the service registry pattern:
+
+```typescript
+// services/index.ts
+import { defineServiceRegistry, defineService } from "@taujs/server";
+
+const ServiceExample = defineService({
+  exampleMethod: async (params: { id: string; another: string }, ctx) => {
+    // Business logic here
+    return {
+      title: `Service Response`,
+      data: params,
+      userId: ctx.user?.id,
+    };
+  },
+});
+
+export const serviceRegistry = defineServiceRegistry({
+  ServiceExample,
+});
+```
+
+```typescript
+// taujs.config.ts - Use service instead of HTTP
+{
+  path: '/:id/:another',
+  attr: {
+    data: async (params) => ({
+      serviceName: 'ServiceExample',
+      serviceMethod: 'exampleMethod',
+      args: params,
+    }),
+    render: 'streaming',
+  },
+}
+```
+
+### Typed route context from `taujs.config.ts`
+
+When you use `@taujs/server`, you can derive a typed route context from your config and feed it into `createRenderer`:
+
+```typescript
+import { createRenderer } from "@taujs/react";
+
+import config from "../taujs.config";
+import { AppBootstrap } from "./AppBootstrap";
+
+import type { RouteContext } from "@taujs/server";
+
+export const { renderSSR, renderStream } = createRenderer<
+  Record<string, unknown>,
+  RouteContext<typeof config>
+>({
+  appComponent: ({ location, routeContext }) => (
+    <AppBootstrap location={location} routeContext={routeContext} />
+  ),
+  headContent: ({ data, meta, routeContext }) => {
+    const baseTitle =
+      (data as Record<string, unknown>)?.title ??
+      (meta.title as string | undefined) ??
+      "My App";
+
+    return `<title>${baseTitle}</title>`;
+  },
+});
+```
+
+`@taujs/server` builds a matching routeContext object from the matched route (appId, path, params, attr, data) and passes it into renderSSR / renderStream for you.
+
+### Key Integration Features
+
+1. **Automatic Rendering**: `@taujs/server` uses `@taujs/react` internally - you don't call `createRenderer` directly
+2. **Declarative Routes**: Define routes with data loading and rendering strategy in config
+3. **CSP Integration**: Per-route CSP policies with dynamic directives
+4. **Service Registry**: Type-safe service calls instead of HTTP
+5. **Microfrontend Support**: Multiple apps with separate entry points
+6. **Development Mode**: Automatic HMR and Vite integration
+7. **Static Assets**: Automatic handling of static files and manifests
+
+---
+
+## Standalone Usage
+
+### With Express
+
+```typescript
+// server.ts
+import express from "express";
+import { createRenderer } from "@taujs/react";
+import { App } from "./App";
+
+const app = express();
+
+const { renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.pageTitle}</title>`,
+});
+
+app.get("*", async (req, res) => {
+  const data = await fetchPageData(req.path);
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+
+  let piped = false;
+  const startPipe = () => {
+    if (piped) return;
+    piped = true;
+    // renderer will pipe into `res` once shell is ready (or immediately after onHead),
+    // depending on your implementation
+  };
+
+  const { done } = renderStream(
+    res,
+    {
+      onHead: (head) => {
+        const prefix = `<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    ${head}
+    <script>window.__INITIAL_DATA__=${JSON.stringify(data).replace(
+      /</g,
+      "\\u003c"
+    )};</script>
+  </head>
+  <body><div id="root">`;
+
+        const ok = res.write(prefix);
+        if (!ok) res.once("drain", startPipe);
+        else startPipe();
+      },
+
+      onAllReady: () => {
+        res.write(
+          `</div><script type="module" src="/assets/client.js"></script></body></html>`
+        );
+        res.end();
+      },
+
+      onError: (err) => {
+        console.error("Stream error:", err);
+        if (!res.writableEnded) res.destroy();
+      },
+    },
+    data,
+    req.path,
+    "/assets/client.js"
+  );
+
+  await done.catch(() => {});
+});
+
+app.listen(3000, () => {
+  console.log("Server listening on port 3000");
+});
+```
+
+### With Native Node.js HTTP
+
+```typescript
+// server.ts
+import http from "node:http";
+import { createRenderer } from "@taujs/react";
+import { App } from "./App";
+
+const { renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.pageTitle}</title>`,
+});
+
+const server = http.createServer(async (req, res) => {
+  const data = { pageTitle: "Home", content: "Hello World" };
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+
+  res.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <script>window.__INITIAL_DATA__=${JSON.stringify(data)};</script>
+      </head>
+      <body><div id="root">
+  `);
+
+  const { done } = renderStream(
+    res,
+    {
+      onAllReady: () => {
+        res.write(`</div></body></html>`);
+        res.end();
+      },
+      onError: (err) => {
+        console.error(err);
+        res.destroy();
+      },
+    },
+    data,
+    req.url || "/",
+    "/assets/client.js"
+  );
+
+  await done.catch(() => {}); // Error already handled in callback
+});
+
+server.listen(3000);
+```
+
+### With Hono
+
+```typescript
+// server.ts
+import { Hono } from "hono";
+import { createRenderer } from "@taujs/react";
+import { streamSSR } from "hono/streaming";
+import { App } from "./App";
+
+const app = new Hono();
+
+const { renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.pageTitle}</title>`,
+});
+
+app.get("*", async (c) => {
+  const data = { pageTitle: "Home", content: "Hello from Hono" };
+
+  return streamSSR(c, async (stream) => {
+    await stream.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <script>window.__INITIAL_DATA__=${JSON.stringify(data)};</script>
+        </head>
+        <body><div id="root">
+    `);
+
+    const { done } = renderStream(
+      stream,
+      {
+        onAllReady: async () => {
+          await stream.write(`</div></body></html>`);
+        },
+        onError: (err) => {
+          console.error(err);
+        },
+      },
+      data,
+      c.req.path,
+      "/assets/client.js"
+    );
+
+    await done;
+  });
+});
+
+export default app;
+```
+
+### Static SSR (No Streaming)
+
+For simpler use cases or edge runtimes that don't support streaming:
+
+```typescript
+// server.ts
+import { createRenderer } from "@taujs/react";
+import { App } from "./App";
+
+const { renderSSR } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.pageTitle}</title>`,
+});
+
+export default {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const data = { pageTitle: "Home", content: "Hello World" };
+
+    const { headContent, appHtml } = await renderSSR(data, url.pathname);
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          ${headContent}
+          <script>window.__INITIAL_DATA__=${JSON.stringify(data)};</script>
+        </head>
+        <body>
+          <div id="root">${appHtml}</div>
+          <script type="module" src="/assets/client.js"></script>
+        </body>
+      </html>
+    `;
+
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  },
+};
+```
+
+---
+
+## Complete Project Examples
+
+### Full Project Structure (with `@taujs/serve`)
+
+```
+my-app/
+├── client/
+│   ├── entry-client.tsx        # Client hydration entry
+│   ├── entry-server.tsx        # Server render entry
+│   ├── index.html              # HTML template
+│   ├── App.tsx                 # Root component
+│   └── components/
+│       └── HomePage.tsx
+├── server/
+│   ├── index.ts                # Server bootstrap
+│   ├── services/
+│   │   └── index.ts            # Service registry
+│   └── utils/
+│       └── index.ts
+├── taujs.config.ts             # taujs configuration
+├── tsconfig.json
+├── package.json
+└── vite.config.ts
+```
+
+**client/entry-client.tsx:**
+
+```typescript
+import { hydrateApp } from "@taujs/react";
+import { App } from "./App";
+
+hydrateApp({
+  appComponent: <App />,
+  enableDebug: import.meta.env.DEV,
+});
+```
+
+**client/entry-server.tsx:**
+
+```typescript
+import { createRenderer } from "@taujs/react";
+import { App } from "./App";
+
+export const { renderSSR, renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data, meta }) => `
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${data?.title ?? meta.title ?? "My App"}</title>
+    ${
+      data?.description
+        ? `<meta name="description" content="${data.description}">`
+        : ""
+    }
+  `,
+  enableDebug: process.env.NODE_ENV === "development",
+});
+```
+
+**client/index.html:**
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!--ssr-head-->
+    <script type="module" src="/@vite/client"></script>
+  </head>
+  <body>
+    <div id="root"><!--ssr-html--></div>
+    <script type="module" src="/entry-client.tsx"></script>
+  </body>
+</html>
+```
+
+**client/App.tsx:**
+
+```typescript
+import { useSSRStore } from "@taujs/react";
+import { HomePage } from "./components/HomePage";
+
+export function App({ location }: { location?: string }) {
+  const data = useSSRStore<{
+    title: string;
+    description: string;
+    userId?: string;
+  }>();
+
+  return (
+    <div>
+      <h1>{data.title}</h1>
+      <p>{data.description}</p>
+      {data.userId && <HomePage userId={data.userId} />}
+    </div>
+  );
+}
+```
+
+**server/index.ts:**
+
+```typescript
+import path from "node:path";
+import Fastify from "fastify";
+import { createServer } from "@taujs/server";
+import { serviceRegistry } from "./services";
+import config from "../taujs.config";
+
+const clientRoot = path.resolve(__dirname, "../client");
+const fastify = Fastify({ logger: false });
+
+await createServer({
+  fastify,
+  config,
+  serviceRegistry,
+  clientRoot,
+  debug: { ssr: true },
+});
+
+// API routes
+fastify.get("/api/users/:id", async (request, reply) => {
+  const user = await db.users.findById(request.params.id);
+  return { user };
+});
+
+await fastify.listen({ port: 5173, host: "0.0.0.0" });
+```
+
+**server/services/index.ts:**
+
+```typescript
+import { defineServiceRegistry, defineService } from "@taujs/server";
+
+const UserService = defineService({
+  getUser: async (params: { id: string }, ctx) => {
+    const user = await db.users.findById(params.id);
+    return {
+      user,
+      title: `User: ${user.name}`,
+      description: user.bio,
+    };
+  },
+});
+
+export const serviceRegistry = defineServiceRegistry({
+  UserService,
+});
+```
+
+**taujs.config.ts:**
+
+```typescript
+import { pluginReact } from "@taujs/react/plugin";
+import { defineConfig } from "@taujs/server/config";
+
+export default defineConfig({
+  apps: [
+    {
+      appId: "root",
+      entryPoint: "",
+      plugins: [pluginReact()],
+      routes: [
+        {
+          path: "/",
+          attr: {
+            data: async () => ({
+              title: "Home",
+              description: "Welcome to my app",
+            }),
+            render: "ssr",
+          },
+        },
+        {
+          path: "/users/:id",
+          attr: {
+            data: async (params) => ({
+              serviceName: "UserService",
+              serviceMethod: "getUser",
+              args: params,
+            }),
+            render: "streaming",
+          },
+        },
+      ],
+    },
+  ],
+});
+```
+
+**package.json:**
+
+```json
+{
+  "name": "my-taujs-app",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server/index.ts",
+    "build": "taujs build",
+    "start": "NODE_ENV=production tsx server/index.ts"
+  },
+  "dependencies": {
+    "@taujs/react": "^0.1.1",
+    "@taujs/server": "latest",
+    "fastify": "^5.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.7",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.6.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.4",
+    "vite": "^7.1.9"
+  }
+}
+```
+
+---
+
+### Standalone Project Structure (No `@taujs/server`)
+
+```
+my-app/
+├── src/
+│   ├── client/
+│   │   ├── index.tsx           # Client entry
+│   │   └── App.tsx
+│   ├── server/
+│   │   ├── index.ts            # Express/Node server
+│   │   └── render.tsx          # SSR renderer
+│   └── shared/
+│       └── types.ts
+├── public/
+├── dist/                       # Build output
+├── tsconfig.json
+├── package.json
+└── vite.config.ts
+```
+
+**src/client/index.tsx:**
+
+```typescript
+import { hydrateApp } from "@taujs/react";
+import { App } from "./App";
+
+hydrateApp({
+  appComponent: <App />,
+});
+```
+
+**src/server/render.tsx:**
+
+```typescript
+import { createRenderer } from "@taujs/react";
+import { App } from "../client/App";
+
+export const { renderSSR, renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `
+    <meta charset="UTF-8">
+    <title>${data.pageTitle}</title>
+  `,
+});
+```
+
+**src/server/index.ts:**
+
+```typescript
+import express from "express";
+import { renderStream } from "./render";
+
+const app = express();
+
+app.use(express.static("dist/client"));
+
+app.get("*", async (req, res) => {
+  const data = { pageTitle: "Home", content: "Hello" };
+
+  res.setHeader("Content-Type", "text/html");
+  res.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <script>window.__INITIAL_DATA__=${JSON.stringify(data)};</script>
+      </head>
+      <body><div id="root">
+  `);
+
+  const { done } = renderStream(
+    res,
+    {
+      onAllReady: () => {
+        res.write(`</div>
+          <script type="module" src="/assets/index.js"></script>
+        </body></html>`);
+        res.end();
+      },
+    },
+    data,
+    req.url
+  );
+
+  await done;
+});
+
+app.listen(3000);
+```
+
+**vite.config.ts:**
+
+```typescript
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    outDir: "dist/client",
+    manifest: true,
+    rollupOptions: {
+      input: {
+        main: "src/client/index.tsx",
+      },
+    },
+  },
+});
+```
+
+---
+
+## How `@taujs/server` Uses `@taujs/react`
+
+When you use `@taujs/server`, it handles all the rendering automatically. Here's what happens behind the scenes:
+
+### Request Flow
+
+1. **Client requests** `GET /users/123`
+
+2. **@taujs/server matches route** from your config:
+
+   ```typescript
+   {
+     path: '/users/:id',
+     attr: {
+       data: async (params) => ({ ... }),
+       render: 'streaming',
+     },
+   }
+   ```
+
+3. **Data loading** - Calls your `data` function with route params:
+
+   ```typescript
+   const initialData = await attr.data({ id: "123" }, context);
+   ```
+
+4. **@taujs/react rendering** - Server internally uses:
+
+   ```typescript
+   // For render: 'ssr'
+   const { headContent, appHtml } = await renderSSR(initialData, location);
+
+   // For render: 'streaming'
+   renderStream(res, callbacks, initialData, location, ...);
+   ```
+
+5. **HTML assembly** - Combines:
+
+   - Your HTML template from `index.html`
+   - Generated head content
+   - SSR-rendered app HTML
+   - Initial data injection: `window.__INITIAL_DATA__`
+   - Client bootstrap script
+
+6. **Response** - Sends complete HTML to browser
+
+7. **Client hydration** - Your `entry-client.tsx` runs:
+   ```typescript
+   hydrateApp({ appComponent: <App /> });
+   ```
+
+### What You Define
+
+**entry-server.tsx** (per app):
+
+```typescript
+// This is what `@taujs/server` calls internally
+export const { renderSSR, renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data, meta }) =>
+    `<title>${data?.title ?? meta.title ?? "App"}</title>`,
+});
+```
+
+**entry-client.tsx** (per app):
+
+```typescript
+// This runs in the browser after SSR
+hydrateApp({
+  appComponent: <App />,
+});
+```
+
+### What `@taujs/server` Handles
+
+- Declarative testable configuration
+- Route matching and parameter extraction
+- Data loading (HTTP or service registry)
+- Calling your renderer with the right data
+- HTML template processing
+- Initial data injection
+- Static asset management
+- Development mode with HMR
+- Production manifests and preloading
+- CSP headers and nonce generation
+- Error handling and fallbacks
+- Standardised logging / telemetry
+
+### Key Insight
+
+With `@taujs/server`, you:
+
+- Define rendering logic once in `entry-server.tsx`
+- Define hydration once in `entry-client.tsx`
+- Configure routes and data in `taujs.config.ts`
+
+**Remember to**:
+
+- Never call `renderSSR` or `renderStream` directly
+- Never manually inject `__INITIAL_DATA__`
+- Never manually manage HTML templates
+
+The server orchestrates everything based on your declarative configuration.
+
+---
+
+## Advanced Patterns
+
+### Async Data Loading (Lazy Promise)
+
+```typescript
+const { renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.pageTitle}</title>`,
+});
+
+app.get("/products/:id", async (req, res) => {
+  res.setHeader("Content-Type", "text/html");
+
+  // Lazy data loading - promise created only when needed
+  const dataLoader = async () => {
+    const product = await db.products.findById(req.params.id);
+    const reviews = await db.reviews.findByProduct(req.params.id);
+    return { product, reviews, pageTitle: product.name };
+  };
+
+  res.write("<!DOCTYPE html><html><head>");
+
+  const { done } = renderStream(
+    res,
+    {
+      onHead: (head) => {
+        // Shell ready but data may still be loading
+        res.write(head);
+        res.write('</head><body><div id="root">');
+      },
+      onAllReady: (data) => {
+        // All Suspense boundaries resolved
+        res.write(`</div>
+          <script>window.__INITIAL_DATA__=${JSON.stringify(data)};</script>
+          <script type="module" src="/assets/client.js"></script>
+        </body></html>`);
+        res.end();
+      },
+      onError: (err) => {
+        console.error(err);
+        res.end("</body></html>");
+      },
+    },
+    dataLoader, // Pass the function, not the result
+    req.url,
+    "/assets/client.js"
+  );
+
+  await done;
+});
+```
+
+### Custom Logger Integration
+
+```typescript
+import winston from "winston";
+import { createRenderer } from "@taujs/react";
+
+const logger = winston.createLogger({
+  level: "info",
+  format: winston.format.json(),
+  transports: [new winston.transports.Console()],
+});
+
+const customLogger = {
+  info: (message: string, meta?: unknown) => {
+    logger.info(message, meta);
+  },
+  warn: (message: string, meta?: unknown) => {
+    logger.warn(message, meta);
+  },
+  error: (message: string, meta?: unknown) => {
+    logger.error(message, meta);
+  },
+  debug: (category: string, message: string, meta?: unknown) => {
+    logger.debug(`[${category}] ${message}`, meta);
+  },
+  child: (ctx: Record<string, unknown>) => {
+    return logger.child(ctx);
+  },
+  isDebugEnabled: (category: string) => {
+    return logger.level === "debug";
+  },
+};
+
+const { renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.pageTitle}</title>`,
+  logger: customLogger,
+  enableDebug: true,
+});
+```
+
+### Request Cancellation with AbortSignal
+
+```typescript
+app.get("*", async (req, res) => {
+  const controller = new AbortController();
+
+  // Cancel render if client disconnects
+  res.on("close", () => {
+    controller.abort();
+  });
+
+  // Timeout after 30 seconds
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, 30000);
+
+  const { done } = renderStream(
+    res,
+    {
+      onAllReady: () => {
+        clearTimeout(timeout);
+        res.end();
+      },
+      onError: (err) => {
+        clearTimeout(timeout);
+        console.error(err);
+      },
+    },
+    data,
+    req.url,
+    "/assets/client.js",
+    {},
+    undefined,
+    controller.signal // Pass AbortSignal
+  );
+
+  try {
+    await done;
+  } catch (err) {
+    // Handle cancellation
+    if (controller.signal.aborted) {
+      console.log("Render cancelled");
+    }
+  }
+});
+```
+
+### CSP Nonce Support
+
+```typescript
+import crypto from "node:crypto";
+
+app.get("*", (req, res) => {
+  const nonce = crypto.randomBytes(16).toString("base64");
+
+  res.setHeader(
+    "Content-Security-Policy",
+    `script-src 'nonce-${nonce}' 'strict-dynamic'; object-src 'none'; base-uri 'none';`
+  );
+
+  const { done } = renderStream(
+    res,
+    callbacks,
+    data,
+    req.url,
+    "/assets/client.js",
+    {},
+    nonce // CSP nonce applied to React's renderToPipeableStream
+  );
+
+  return done;
+});
+```
+
+**Important:** The nonce is automatically applied to:
+
+- React's internal `renderToPipeableStream` (via the `nonce` option)
+- All inline scripts you write in `onHead`, `onAllReady`, etc. must also include the nonce:
+  ```typescript
+  {
+    onAllReady: (data) => {
+      res.write(`<script nonce="${nonce}">
+        window.__INITIAL_DATA__ = ${JSON.stringify(data)};
+      </script>`);
+    },
+  }
+  ```
+
+### Error Boundaries and Recovery
+
+```typescript
+// App.tsx
+import { Component, ReactNode } from "react";
+
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: any) {
+    console.error("React Error Boundary caught:", error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <div>Something went wrong. Please refresh.</div>;
+    }
+    return this.props.children;
+  }
+}
+
+export function App() {
+  return (
+    <ErrorBoundary>
+      <YourAppContent />
+    </ErrorBoundary>
+  );
+}
+```
+
+### Multi-Page with Route-Based Data Loading
+
+```typescript
+import { matchPath } from "path-to-regexp";
+
+const routes = [
+  {
+    path: "/",
+    loader: async () => ({ pageTitle: "Home", posts: await db.posts.recent() }),
+  },
+  {
+    path: "/users/:id",
+    loader: async (params: any) => ({
+      pageTitle: "User Profile",
+      user: await db.users.findById(params.id),
+    }),
+  },
+  {
+    path: "/products/:id",
+    loader: async (params: any) => ({
+      pageTitle: "Product",
+      product: await db.products.findById(params.id),
+    }),
+  },
+];
+
+app.get("*", async (req, res) => {
+  let data = { pageTitle: "404 Not Found" };
+
+  for (const route of routes) {
+    const match = matchPath(route.path, req.path);
+    if (match) {
+      data = await route.loader(match.params);
+      break;
+    }
+  }
+
+  const { done } = renderStream(res, callbacks, data, req.url);
+  await done;
+});
+```
+
+---
+
+## TypeScript Support
+
+The package is written in TypeScript with full type definitions included.
+
+### Typed Data Stores
+
+```typescript
+interface PageData {
+  pageTitle: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  posts: Array<{
+    id: string;
+    title: string;
+    content: string;
+  }>;
+}
+
+const { renderSSR, renderStream } = createRenderer<PageData>({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data, meta }) => {
+    // data is typed as PageData
+    return `<title>${data.pageTitle}</title>`;
+  },
+});
+
+// In your component
+function MyComponent() {
+  const data = useSSRStore<PageData>();
+  // data is fully typed
+  return <h1>{data.user.name}</h1>;
+}
+```
+
+### Custom Logger Types
+
+```typescript
+import type { ServerLogs } from "@taujs/react";
+
+const myLogger: ServerLogs = {
+  info: (message, meta) => {
+    console.log(message, meta);
+  },
+  warn: (message, meta) => {
+    console.warn(message, meta);
+  },
+  error: (message, meta) => {
+    console.error(message, meta);
+  },
+  debug: (category, message, meta) => {
+    console.debug(`[${category}]`, message, meta);
+  },
+};
+```
+
+---
+
+## Production Streaming Checklist
+
+When using `renderStream` in production, ensure you have the following in place:
+
+### Essential Configuration
+
+- **Set shell timeout**: Configure `shellTimeoutMs` appropriately (default: 10s)
+
+  ```typescript
+  createRenderer({
+    streamOptions: { shellTimeoutMs: 5000 },
+  });
+  ```
+
+  > Note: The host may optionally use cork/uncork on the response stream to coalesce writes.
+
+### Request Lifecycle Management
+
+- **Handle AbortSignal**: Pass request cancellation signals
+
+  ```typescript
+  const controller = new AbortController();
+  req.on("close", () => controller.abort());
+
+  renderStream(
+    res,
+    callbacks,
+    data,
+    location,
+    undefined,
+    {},
+    undefined,
+    controller.signal
+  );
+  ```
+
+- **Set request timeouts**: Prevent indefinite hangs
+  ```typescript
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  await done.finally(() => clearTimeout(timeout));
+  ```
+
+### Error Handling
+
+- **Client disconnects are benign**: The renderer automatically treats these as non-fatal:
+
+- `ECONNRESET`, `EPIPE` - network errors
+- `socket hang up` - client closed connection
+- `aborted` - request cancelled
+- `premature close` - stream ended early
+
+- **Implement onError callback**: Always handle errors gracefully
+
+```typescript
+{
+  onError: (err) => {
+    logger.error('Stream error', err);
+    if (!res.writableEnded) {
+      res.end('<html><body>Error loading page</body></html>');
+    }
+  },
+}
+```
+
+### Backpressure
+
+- **Respect backpressure**: Return `false` from `onHead` to wait for drain
+
+```typescript
+{
+  onHead: (head) => {
+    const writeOk = res.write(head);
+    return writeOk; // false means wait for drain
+  },
+}
+```
+
+---
+
+## Best Practices
+
+### 1. Use Streaming for Better TTFB
+
+Streaming SSR provides better Time To First Byte (TTFB) by sending the shell immediately:
+
+```typescript
+// Streaming
+renderStream(res, callbacks, data, location);
+
+// Blocking: Static rendering waits for everything
+const { appHtml } = await renderSSR(data, location);
+```
+
+### 2. Handle Data Loading Errors
+
+Always provide error handlers:
+
+```typescript
+const { done } = renderStream(
+  res,
+  {
+    onError: (err) => {
+      logger.error("SSR error", err);
+      // Send fallback HTML or error page
+      res.statusCode = 500;
+      res.end("<html><body>Error loading page</body></html>");
+    },
+  },
+  dataLoader,
+  location
+);
+```
+
+### 3. Implement Request Timeouts
+
+Prevent hanging requests:
+
+```typescript
+const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), 10000);
+
+const { done } = renderStream(
+  res,
+  callbacks,
+  data,
+  location,
+  undefined,
+  {},
+  undefined,
+  controller.signal
+);
+
+await done.finally(() => clearTimeout(timeout));
+```
+
+### 4. Use Lazy Data Loading for Better Performance
+
+Defer data fetching until needed:
+
+```typescript
+// Lazy loading
+renderStream(
+  res,
+  callbacks,
+  async () => {
+    return await fetchData();
+  },
+  location
+);
+
+// Blocks before streaming starts
+const data = await fetchData();
+renderStream(res, callbacks, data, location);
+```
+
+### 5. Separate Head Content Generation
+
+Keep head content generation pure and fast:
+
+```typescript
+const { renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data, meta }) => {
+    return `
+      <title>${data.pageTitle}</title>
+      <meta name="description" content="${data.description}">
+      ${meta.extraMeta || ""}
+    `;
+  },
+});
+```
+
+### 6. Enable Debug Mode in Development
+
+Use detailed logging during development:
+
+```typescript
+const { renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.pageTitle}</title>`,
+  enableDebug: process.env.NODE_ENV === "development",
+});
+```
+
+### 7. Implement Proper CSR Fallback
+
+Always handle the case where SSR data isn't available:
+
+```typescript
+// client.ts
+hydrateApp({
+  appComponent: <App />,
+  onHydrationError: (err) => {
+    // Log error but don't crash
+    console.error("Hydration failed, falling back to CSR", err);
+  },
+});
+```
+
+### 8. Use Type-Safe Data Contracts
+
+Define clear interfaces between server and client:
+
+```typescript
+// types.ts
+export interface AppData {
+  pageTitle: string;
+  user: User | null;
+  posts: Post[];
+}
+
+// server.ts
+const { renderStream } = createRenderer<AppData>({...});
+
+// client.ts
+const data = useSSRStore<AppData>();
+```
+
+---
+
+## When to Use Direct API vs `@taujs/server`
+
+### Use `@taujs/server` (High-Level, Recommended for taujs Ecosystem)
+
+**When:**
+
+- Building a complete application with routing and data loading
+- Want declarative configuration via `taujs.config.ts`
+- Need microfrontend architecture support
+- Want automatic CSP, authentication, and middleware handling
+- Building within the taujs ecosystem
+
+**What you get:**
+
+- Automatic SSR/streaming setup
+- Route-based data loading
+- Built-in security (CSP per route)
+- Service registry pattern
+- Development mode with HMR
+- Static asset management
+
+**Code example:**
+
+```typescript
+// taujs.config.ts - Declarative
+export default defineConfig({
+  apps: [{
+    appId: 'root',
+    routes: [{
+      path: '/:id',
+      attr: {
+        data: async (params) => ({ ... }),
+        render: 'streaming',
+      },
+    }],
+  }],
+});
+
+// server.ts - Simple
+await createServer({ fastify, config, serviceRegistry, clientRoot });
+```
+
+### Use @taujs/react Directly (Low-Level, Framework-Agnostic)
+
+**When:**
+
+- Integrating with existing Express/Hono/etc. applications
+- Need fine-grained control over rendering
+- Building a custom SSR solution
+- Don't need routing or data loading abstractions
+- Want minimal dependencies
+
+**What you get:**
+
+- Direct control over rendering process
+- Framework/runtime agnostic
+- Minimal abstraction
+- Explicit SSR and hydration APIs
+
+**Code example:**
+
+```typescript
+// Full control over rendering
+import { createRenderer } from "@taujs/react";
+
+const { renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${data.title}</title>`,
+});
+
+app.get("*", (req, res) => {
+  const { done } = renderStream(
+    res,
+    {
+      onHead: (head) => {
+        /* custom logic */
+      },
+      onAllReady: (data) => {
+        /* custom logic */
+      },
+    },
+    data,
+    req.url
+  );
+});
+```
+
+---
+
+## Related Packages
+
+- `@taujs/server` - Full-featured Fastify-based server with SSR orchestration
+
+---
+
+## License
+
+MIT
+
+---
+
+## Contributing
+
+Issues and pull requests welcome at [https://github.com/aoede3/taujs-react](https://github.com/aoede3/taujs-react)

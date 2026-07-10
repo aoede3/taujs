@@ -1,0 +1,47 @@
+---
+title: Getting Started with τjs
+description: τjs - start your journey today
+---
+
+import { LinkButton } from "@astrojs/starlight/components";
+
+> **NOTE**  
+> **τjs is in active development. Expect breaking changes on the path to v1. Some features may be evolving or are temporarily missing.**
+
+τjs is a _developer-first orchestration layer_ with declarative configuration for building modern web apps with _per-route control_ over CSR, SSR, and Streaming SSR.
+
+## Scaffolding a new project
+
+```bash
+npx @taujs/create-taujs my-app
+```
+
+> or check out a <a href="https://stackblitz.com/edit/taujs-starter?file=README.md" target="_blank" rel="noopener noreferrer">StackBlitz example project</a> created from `@taujs/create-taujs`
+
+## Core Workflow
+
+1. Define frontend apps and routes in `taujs.config.ts`
+2. Choose rendering mode per route (SSR, Streaming SSR, or CSR)
+3. Optionally attach data loaders
+4. Configure security (CSP, authentication)
+
+τjs handles routing, rendering, and orchestration.
+
+## Under the Hood
+
+- **Fastify** - Runtime server
+- **Vite** - Frontend builds and HMR in development
+- **React** - UI framework
+
+### Development vs Production
+
+**Development:**
+
+- Vite HMR for instant feedback
+- `tsx watch` runs server TypeScript directly
+
+**Production:**
+
+- Static assets built by Vite, served by Fastify
+- Fastify runs esbuild/rollup output
+- Zero runtime dependencies beyond your stack

@@ -1,0 +1,117 @@
+---
+title: Composing Systems, Not Just Apps
+description: A developer-first orchestration layer with explicit, declarative per-route rendering control
+template: splash
+hero:
+  title: Composing Systems, <span>Not Just Apps</span>
+  tagline: Fullstack. Full Control.
+
+  image:
+    file: ../../assets/taujs.svg
+  actions:
+    - text: Get started
+      link: /guides/getting-started/
+      icon: right-arrow
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+import fastifyLogo from "../../assets/fastify.svg";
+import viteLogo from "../../assets/vite.svg";
+import reactLogo from "../../assets/react.svg";
+
+<div className="container__logos">
+  <a
+    href="https://fastify.dev"
+    target="_blank"
+    title="Fastify: Fast and low overhead web framework, for Node.js"
+    rel="noreferrer"
+  >
+    <img src={fastifyLogo.src} className="logo" alt="Fastify logo" />
+  </a>
+  <a
+    href="https://vitejs.dev"
+    target="_blank"
+    title="Vite: Next Generation Frontend Tooling"
+    rel="noreferrer"
+  >
+    <img src={viteLogo.src} className="logo" alt="Vite logo" />
+  </a>
+  <a
+    href="https://reactjs.org"
+    target="_blank"
+    title="React: The library for web and native user interfaces"
+    rel="noreferrer"
+  >
+    <img src={reactLogo.src} className="logo react" alt="React logo" />
+  </a>
+</div>
+
+τjs is an orchestration layer built on Fastify, Vite, and React. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
+
+
+## Request boundary not component tree
+
+τjs defines a clear boundary: **everything required for the initial render is orchestrated and resolved at the request level**.
+
+- Data dependencies are declared before rendering begins
+- Service access is mediated and observable
+- Rendering strategy is chosen before rendering begins, not during render
+- Components do not discover data imperatively during SSR
+
+## Supported application structures
+
+With orchestration and rendering resolved at the request boundary, τjs can support multiple application structures within the same system:
+
+- Single-Page Applications (SPA)
+- Multi-Page Applications (MPA)
+- Build-time Micro-Frontends (MFE)
+- Hybrid per-route composition, where a route can be:
+  - a standalone app,
+  - part of an MPA,
+  - “static" pages via CDN caching of SSR output,
+  - or a build-time MFE inside a larger system
+
+## Declarative rendering per route
+
+Any route can explicitly define how it renders, independently of how its data is orchestrated:
+
+- Client-Side Rendering (CSR)
+- Server-Side Rendering (SSR)
+- Streaming SSR
+- Hydration toggle (enable or disable hydration where needed)
+
+## Start simple. Add orchestration only where you need it.
+
+Each route defines, at the request boundary, whether τjs performs orchestration.
+
+- Initial render data is declared at the route boundary
+- Service access can be mediated through a registry rather than direct imports
+- The request defines which data and services participate in the initial render
+- Rendering remains downstream of orchestration (CSR / SSR / Streaming)
+- Client-side fetching and traditional API patterns remain fully supported alongside request contracts
+
+## Modular without the runtime complexity
+
+τjs gives you room to grow without adding runtime complexity:
+
+- Compose multiple independently built apps at build time
+- Keep strict boundaries between domains without runtime federation
+- Maintain monolithic-level performance with modular structure
+- Deterministic behavior - consistent across environments and render modes
+- Minimal, overridable defaults - entry points, directory layout, rendering modes
+
+- Coherent backend + frontend DX built on `Fastify` and `Vite`
+- Build-time orchestration via `taujs.config.ts`
+- Clear, granular control over routing, data loading, rendering, and hydration
+- Server runtime powered by `Fastify` serving `Vite` builds and handling SSR/streaming
+
+## Next steps
+
+<CardGrid>
+  <Card title="Get started" icon="open-book">
+    [Learn more and get started with τjs](/guides/getting-started/)
+  </Card>
+  <Card title="τjs' MFE: Micro FrontEnds" icon="add-document">
+    [Build time and server orchestration](/guides/micro-frontend)
+  </Card>
+</CardGrid>

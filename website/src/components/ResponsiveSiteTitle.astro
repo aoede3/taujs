@@ -1,0 +1,30 @@
+<style>
+  .brand-long {
+    display: none;
+  }
+
+  @media (min-width: 600px) {
+    .brand-short {
+      display: none;
+    }
+    .brand-long {
+      display: inline;
+    }
+  }
+
+      .site-title {
+        align-items: center;
+        gap: var(--sl-nav-gap);
+        font-size: var(--sl-text-h4);
+        font-weight: 600;
+        color: var(--sl-color-text-accent);
+        text-decoration: none;
+        white-space: nowrap;
+        min-width: 0
+    }
+</style>
+
+
+
+<a href="/" class="site-title sl-flex"><span class="brand-short">τjs - Composing systems</span></a>
+<a href="/" class="site-title sl-flex"><span class="brand-long">τjs - Composing systems, not just apps</span></a>
