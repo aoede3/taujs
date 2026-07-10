@@ -1,5 +1,5 @@
 ---
-"@taujs/vue": minor
+'@taujs/vue': minor
 ---
 
 First release of `@taujs/vue` (V2-01): framework-agnostic Vue SSR primitives — the

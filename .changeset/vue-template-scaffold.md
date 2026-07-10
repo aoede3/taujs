@@ -1,5 +1,5 @@
 ---
-"@taujs/create-taujs": minor
+'@taujs/create-taujs': minor
 ---
 
 Add a Vue framework option to the scaffolder (V2-02). `create-taujs` now prompts

@@ -1,5 +1,5 @@
 ---
-"@taujs/react": patch
+'@taujs/react': patch
 ---
 
 Mark the `onFinish` render callback as `@deprecated` in its JSDoc (it is a legacy alias of

@@ -17,7 +17,9 @@ const playgroundName = inject(PLAYGROUND_KEY, 'no-setup-app');
 
 <template>
   <main class="app">
-    <h1>τjs Vue playground <small>(setupApp: {{ playgroundName }})</small></h1>
+    <h1>
+      τjs Vue playground <small>(setupApp: {{ playgroundName }})</small>
+    </h1>
     <nav><a href="/">/ (ssr)</a> · <a href="/streaming">/streaming</a></nav>
 
     <Suspense v-if="isStreaming">

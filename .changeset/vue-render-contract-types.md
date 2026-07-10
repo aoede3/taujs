@@ -1,5 +1,5 @@
 ---
-"@taujs/server": minor
+'@taujs/server': minor
 ---
 
 Export the render-contract types for framework renderer packages (V1-05):
