@@ -36,8 +36,15 @@ response, and so render errors are classified honestly.
   re-entrant benign-cancel win the one-shot controller and RESOLVE `done`, silently downgrading a
   fatal — contradicting the `RenderStreamHandle` contract.
 
+- **Data deadline teardown is controller-owned, not `'close'`-dependent.** The route-data deadline is
+  disarmed by controller cleanup on any termination (its idempotent `disarm` is composed into the
+  cleanup), with the writable's `'close'` as a secondary signal — a writable created with
+  `emitClose: false` is destroyed without emitting `'close'`, so relying on that event would retain the
+  timer/listener until `dataTimeoutMs`.
+
 New public surface: `onRenderError` callback, `RenderErrorInfo` type, and the `dataTimeoutMs` stream
 option. `Writable` is kept a type-only import so this server-only renderer never pulls `node:stream`
-into a client bundle (mirrors `@taujs/vue`). Verified against real `react-dom/server` by a 17-test
+into a client bundle (mirrors `@taujs/vue`). Verified against real `react-dom/server` by an 18-test
 integration suite (post/pre-shell error timing, bounded gate, store-error, onHead, backpressure,
-abort-during-data-wait, undefined-data, suspend-forever liveness, re-entrant-abort, Suspense intact).
+abort-during-data-wait, undefined-data, suspend-forever liveness, re-entrant-abort, emitClose:false
+deadline teardown, Suspense intact).

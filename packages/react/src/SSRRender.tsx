@@ -211,13 +211,26 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       });
     }
 
+    // Set by armDataDeadline (below) to its idempotent disarm. Composed into the controller's cleanup
+    // so ANY termination path tears the data deadline down PROMPTLY — the recheck showed relying on the
+    // writable's 'close' event is unsound (a writable created with `emitClose: false` is destroyed
+    // without emitting 'close', leaving the timer/closure/listener live until dataTimeoutMs).
+    let stopDataDeadline: (() => void) | undefined;
+
     // Writable guards (handles error/close/finish)
     const { cleanup: guardsCleanup } = wireWritableGuards(writable, {
       benignAbort: (why) => controller.benignAbort(why),
       fatalAbort: (err) => failFatal(err),
       onFinish: () => controller.complete('Stream finished (normal completion)'),
     });
-    controller.setGuardsCleanup(guardsCleanup);
+    controller.setGuardsCleanup(() => {
+      try {
+        guardsCleanup();
+      } catch {}
+      try {
+        stopDataDeadline?.();
+      } catch {}
+    });
 
     // Shell timeout guard
     const stopShellTimer = startShellTimer(effectiveShellTimeout, () => {
@@ -274,33 +287,46 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       // loader React NEVER ends — and if the deadline lived only in the end path (below) nothing would
       // ever fire. Arm it explicitly once the shell is committed (a post-shell data budget matching
       // `dataTimeoutMs`), independent of end(). On expiry it enters the single fatal path (which aborts
-      // React + tears the response down); it is disarmed when route data settles OR the controller
-      // terminates (abort destroys the writable → 'close').
+      // React + tears the response down).
+      //
+      // Teardown (recheck finding): it is disarmed when route data settles, on controller termination
+      // (via `stopDataDeadline`, composed into the controller cleanup above — the AUTHORITATIVE path,
+      // since a writable with `emitClose: false` never emits 'close'), and defensively on 'close'.
+      // `teardown` ALWAYS clears the timer and removes the listener idempotently, including after the
+      // timer itself has won — so nothing (timer, closure, listener, readiness continuation) is
+      // retained past the terminal event.
       let dataDeadlineArmed = false;
       const armDataDeadline = () => {
         if (dataDeadlineArmed) return;
         dataDeadlineArmed = true;
         if (store.status !== 'pending') return; // already settled — nothing to bound
 
-        let fired = false;
         let timer: ReturnType<typeof setTimeout>;
-        const disarm = () => {
-          if (fired) return;
-          fired = true;
+        const teardown = () => {
           clearTimeout(timer);
           try {
             writable.removeListener('close', disarm);
           } catch {}
         };
+        let settled = false;
+        const disarm = () => {
+          if (settled) return;
+          settled = true;
+          teardown();
+        };
         timer = setTimeout(() => {
-          if (fired || controller.isAborted) return;
-          fired = true;
+          if (settled) return;
+          settled = true;
+          teardown(); // clear our own listener even when the timer wins
+          if (controller.isAborted) return; // another path already owns settlement
           failFatal(new Error(`Route data not ready after ${effectiveDataTimeout}ms`));
         }, effectiveDataTimeout);
 
-        // Data settled (resolve OR swallowed error) → disarm. Controller torn down → 'close' → disarm.
+        // Data settled (resolve OR swallowed error) → disarm. Controller termination → stopDataDeadline
+        // (authoritative). 'close' is a secondary signal for the emitClose:true case.
         readiness.then(disarm, disarm);
         writable.once('close', disarm);
+        stopDataDeadline = disarm;
       };
 
       // Deferred end (design 2/3): React pipes final output into the delegating sink; we defer the

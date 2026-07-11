@@ -481,6 +481,54 @@ describe('R1-01 integration (real react-dom/server)', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
+  // Recheck finding (MEDIUM): the data deadline must be torn down by CONTROLLER cleanup, not by the
+  // writable's 'close' event — a writable created with `emitClose: false` is destroyed WITHOUT emitting
+  // 'close'. On abort with pending data, the deadline's timer + 'close' listener must be released
+  // promptly (without waiting out dataTimeoutMs), not retained. (React keeps its OWN 'close' listener
+  // on the piped destination, so we isolate the DEADLINE's listener via an once() spy rather than a
+  // raw count.)
+  it("emitClose:false writable: controller cleanup disarms the data deadline (its 'close' listener is removed without a 'close' event)", async () => {
+    const writable = new PassThrough({ emitClose: false }); // destroy() will NOT emit 'close'
+    const onError = vi.fn();
+    const onAllReady = vi.fn();
+
+    // Both the writable guards and the deadline register `once('close', …)`; the deadline's is LAST
+    // (armed at shell commit, after guards). Capture the last close-once handler = the deadline disarm.
+    let deadlineClose: ((...a: unknown[]) => void) | undefined;
+    const realOnce = writable.once.bind(writable);
+    vi.spyOn(writable, 'once').mockImplementation(((event: string, handler: (...a: unknown[]) => void) => {
+      if (event === 'close') deadlineClose = handler;
+      return realOnce(event as never, handler);
+    }) as never);
+
+    const AppNoConsumer = () => <div>no consumer</div>;
+    const { done, abort } = createRenderer<Data>({ appComponent: () => <AppNoConsumer />, headContent: () => '<title>x</title>' }).renderStream(
+      writable,
+      { onHead: () => {}, onError, onAllReady },
+      () => new Promise<Data>(() => {}), // never settles → deadline armed at shell commit
+      '/emit-close-false',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { dataTimeoutMs: 5_000 }, // long — the point is PROMPT disarm on abort, not waiting it out
+    );
+
+    await settle(40); // shell commits → deadline armed; deadlineClose captured
+    expect(deadlineClose).toBeDefined();
+    expect(writable.listeners('close')).toContain(deadlineClose); // armed
+
+    abort(); // manual benign abort → controller cleanup → stopDataDeadline (authoritative, no 'close')
+    await expect(done).resolves.toBeUndefined();
+    await settle(20); // brief — nowhere near the 5s deadline; no 'close' event fires (emitClose:false)
+
+    // The deadline's specific 'close' listener was removed by CONTROLLER cleanup, not by a 'close'
+    // event. (Before the fix it relied on 'close' and would linger here until dataTimeoutMs.)
+    expect(writable.listeners('close')).not.toContain(deadlineClose);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onAllReady).not.toHaveBeenCalled();
+  });
+
   // Review finding (HIGH + #10): abort DURING the deferred-end data wait must not leak the
   // dataTimeout timer, must not fire a spurious/late fatal onError, and must not deliver data or
   // end() a torn-down writable.
