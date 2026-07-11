@@ -20,6 +20,7 @@ import {
   stripDevClientAndStyles,
   applyViteTransform,
 } from './Templates';
+import { serializeInlineData } from './InlineData';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -276,7 +277,13 @@ export const handleRender = async (
 
       const shouldHydrate = attr?.hydrate !== false;
       const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
-      const initialDataScript = `<script${nonceAttr}>window.__INITIAL_DATA__ = ${JSON.stringify(initialDataResolved).replace(/</g, '\\u003c')};</script>`;
+      // R0-04: single serialization boundary. On the SSR path a failure is inside the request
+      // try/catch, so throw into the existing 500 machinery (valid-data output is unchanged).
+      const serialized = serializeInlineData(initialDataResolved);
+      if (!serialized.ok) {
+        throw AppError.internal('Failed to serialize initial data for inline injection', serialized.error, { clientRoot, url: req.url });
+      }
+      const initialDataScript = `<script${nonceAttr}>window.__INITIAL_DATA__ = ${serialized.js};</script>`;
 
       const bootstrapScriptTag = shouldHydrate && bootstrapModule ? `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script>` : '';
 
@@ -470,19 +477,55 @@ export const handleRender = async (
       void done.catch(() => {});
 
       writable.on('finish', () => {
-        if (abortedState.aborted || reply.raw.writableEnded) return;
+        // R0-04: this listener runs on a stream tick, OUTSIDE the request try/catch, so an
+        // uncaught throw here becomes an `uncaughtException` → process exit. `serializeInlineData`
+        // never throws; the outer try/catch is a belt so nothing else in the listener can either.
+        try {
+          if (abortedState.aborted || reply.raw.writableEnded) return;
 
-        const data = finalData ?? {};
-        const initialDataScript = `<script${cspNonce ? ` nonce="${cspNonce}"` : ''}>window.__INITIAL_DATA__ = ${JSON.stringify(data).replace(
-          /</g,
-          '\\u003c',
-        )}; window.dispatchEvent(new Event('taujs:data-ready'));</script>`;
+          const data = finalData ?? {};
+          const serialized = serializeInlineData(data);
 
-        commitHead();
-        reply.raw.write(initialDataScript);
-        reply.raw.write(templateParts.afterBody);
-        reply.raw.end();
-        recorder?.sent({ traceId, status: 200, mode: 'streaming' });
+          if (!serialized.ok) {
+            abortedState.aborted = true;
+            logger.error({ error: normaliseError(serialized.error), clientRoot, url: req.url }, 'Failed to serialize streaming initial data');
+            recorder?.failed({ traceId, error: { kind: 'serialize', message: String(serialized.error.message) } });
+
+            // Deterministic termination — mirror the onError teardown idioms above.
+            if (!reply.raw.headersSent) {
+              try {
+                reply.raw.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+                reply.raw.end('Internal Server Error');
+              } catch (e) {
+                logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: error response failed');
+              }
+            } else {
+              // Shell already committed: end without the data script and destroy.
+              try {
+                if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
+              } catch (e) {
+                logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: destroy() failed');
+              }
+            }
+            return;
+          }
+
+          const initialDataScript = `<script${
+            cspNonce ? ` nonce="${cspNonce}"` : ''
+          }>window.__INITIAL_DATA__ = ${serialized.js}; window.dispatchEvent(new Event('taujs:data-ready'));</script>`;
+
+          commitHead();
+          reply.raw.write(initialDataScript);
+          reply.raw.write(templateParts.afterBody);
+          reply.raw.end();
+          recorder?.sent({ traceId, status: 200, mode: 'streaming' });
+        } catch (e) {
+          // Belt: never let this listener throw — an uncaughtException here would exit the process.
+          logger.error({ error: normaliseError(e), clientRoot, url: req.url }, 'Streaming finish listener failed');
+          try {
+            if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
+          } catch {}
+        }
       });
     }
   } catch (err) {

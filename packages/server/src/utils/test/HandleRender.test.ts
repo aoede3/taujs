@@ -1429,6 +1429,70 @@ describe('handleRender', () => {
       expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
     });
 
+    it('R0-04: streaming route with non-serializable (circular) final data terminates deterministically — no data script, no crash', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      const circular: Record<string, unknown> = { name: 'x' };
+      circular.self = circular;
+
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        callbacks.onHead?.('<title>Stream</title>');
+        callbacks.onShellReady?.();
+        callbacks.onAllReady?.(circular); // finalData is non-serializable
+        writable.on = vi.fn((event: string, handler: any) => {
+          if (event === 'finish') handler();
+        });
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      // The finish listener must handle the serialization failure LOCALLY and never throw. (An
+      // uncaught throw from the real async listener would be an uncaughtException — the crash
+      // class itself is proven in InlineData.crash.test.ts; here we verify the handleRender wiring.)
+      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Failed to serialize streaming initial data');
+      expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
+    });
+
+    it('R0-04: SSR route with non-serializable (circular) data → 500 via the request try/catch', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
+
+      const circular: Record<string, unknown> = { name: 'x' };
+      circular.self = circular;
+
+      mockMaps.renderModules.set('/test/client', {
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '<div/>' }),
+      });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue(circular as any);
+
+      // On the SSR path the serialization failure throws an AppError.internal into the request
+      // try/catch → 500 machinery (the app HTML is never sent).
+      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
+        'Failed to serialize initial data',
+      );
+      expect(mockReply.send).not.toHaveBeenCalled();
+    });
+
     it('should handle finish event when already aborted', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
