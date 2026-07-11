@@ -1,26 +1,63 @@
 import React from 'react';
 import { renderToPipeableStream, renderToString } from 'react-dom/server';
 
+import type { Writable } from 'node:stream';
+
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
+import { getStoreReadiness } from './internal';
 import { createUILogger } from './utils/Logger';
 
-import type { Writable } from 'node:stream';
 import type { LoggerLike } from './utils/Logger';
 
-import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming';
+import { createStreamController, startShellTimer, wireWritableGuards } from './utils/Streaming';
+
+/**
+ * R1-01: structured, NON-FATAL render-error observation.
+ *
+ * `phase` is the OBSERVED timing — had the shell committed when React's `onError` fired? It is
+ * descriptive only and NEVER a fatality signal (a `pre-shell` `onError` can be followed by a
+ * successful shell commit, verified against real react-dom/server). `recoverable` is `true` only
+ * for `post-shell` errors (boundary-scoped — React recovers them client-side) and `'unknown'` for
+ * `pre-shell` (its outcome is resolved by the separate fatal channels: a subsequent `onShellError`
+ * fails the render, a subsequent shell commit means it recovered).
+ */
+export type RenderErrorInfo = {
+  error: unknown;
+  phase: 'pre-shell' | 'post-shell';
+  recoverable: boolean | 'unknown';
+};
 
 export type RenderCallbacks<T> = {
+  /**
+   * REQUIRED (operationally): commits the response head + connects the sink. A throwing `onHead`
+   * enters the fatal path — the response cannot proceed without it.
+   */
   onHead?: (head: string) => void;
+  /** Advisory (observes; isolated — a throw is logged, not fatal). */
   onShellReady?: () => void;
+  /** Advisory. Fires exactly once with the resolved route data. */
   onAllReady?: (data: T) => void;
   /** @deprecated Legacy alias of `onAllReady`, fires when final data is available. Use `onAllReady`. */
   onFinish?: (data: T) => void;
+  /** FATAL error channel: a fatal stream error (shell error / timeout / guard / non-recoverable). */
   onError?: (err: unknown) => void;
+  /**
+   * Advisory, NON-FATAL structured render-error channel (R1-01). Fires for React render errors that
+   * do NOT themselves fail the response — notably post-shell boundary errors React recovers
+   * client-side. Never a fatality signal; fatality stays with `onError`/`onShellError`/timers/guards.
+   */
+  onRenderError?: (info: RenderErrorInfo) => void;
 };
 
 export type StreamOptions = {
   /** Timeout in ms for shell to be ready (default: 10000) */
   shellTimeoutMs?: number;
+  /**
+   * R1-01: timeout in ms for route data to settle AFTER React has finished rendering, before the
+   * response is failed (default: 30000). Bounds the end-gate so a never-settling loader cannot hold
+   * the response (and its listeners/streams) open indefinitely.
+   */
+  dataTimeoutMs?: number;
 };
 
 export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>, R = unknown> = {
@@ -51,7 +88,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
 }) {
-  const { shellTimeoutMs = 10_000 } = streamOptions;
+  const { shellTimeoutMs = 10_000, dataTimeoutMs = 30_000 } = streamOptions;
 
   const renderSSR = async (
     initialData: T,
@@ -118,6 +155,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       onAllReady: callbacks.onAllReady ?? NOOP,
       onFinish: callbacks.onFinish ?? NOOP,
       onError: callbacks.onError ?? NOOP,
+      onRenderError: callbacks.onRenderError ?? (NOOP as (info: RenderErrorInfo) => void),
     };
     const { log, warn, error } = createUILogger(opts?.logger ?? logger, {
       debugCategory: 'ssr',
@@ -128,6 +166,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
     // Merge renderer defaults with per-call overrides
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
+    const effectiveDataTimeout = opts?.dataTimeoutMs ?? dataTimeoutMs;
 
     // Stream controller centralises cleanup & settlement
     const controller = createStreamController(writable, { log, warn, error });
@@ -184,9 +223,130 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     log('Starting stream:', location);
 
     let piped = false;
+    let shellCommitted = false;
+    let delivered = false;
 
     try {
+      // Store is created here so the renderer can read its INTERNAL readiness (design 1) for the
+      // bounded end-gate; the public SSRStore type is unchanged.
       const store = createSSRStore(initialData);
+      const readiness = getStoreReadiness(store) ?? Promise.resolve();
+
+      // Single-fire delivery (design 2): fires onAllReady/onFinish exactly once, from the end-gate
+      // after data has settled — replacing the thrown-thenable retry dance. Reading the snapshot can
+      // still throw (e.g. a loader that resolves to `undefined` settles status:'success' with no
+      // data): route that through failFatal so it becomes a clean fatal, never a hung response.
+      const deliverFinalData = () => {
+        if (delivered) return;
+
+        let data: T;
+        try {
+          data = store.getSnapshot();
+        } catch (snapErr) {
+          failFatal(snapErr instanceof Error ? snapErr : new Error('SSR data unavailable at delivery'));
+          return;
+        }
+
+        delivered = true;
+        try {
+          cb.onAllReady(data);
+        } catch (cbErr) {
+          error('onAllReady callback threw:', cbErr);
+        }
+        try {
+          cb.onFinish(data);
+        } catch (cbErr) {
+          error('onFinish callback threw:', cbErr);
+        }
+      };
+
+      // Bounded end-gate (design 3): React pipes into this delegating SINK. Every write/destroy/
+      // event is forwarded to the REAL writable — React drives backpressure itself against it (via
+      // write()'s boolean return + a 'drain' listener it attaches through `on`), exactly as the
+      // pre-rework renderer did when it piped straight into the writable. The ONLY interception is
+      // end(): it is DEFERRED until route data has settled, RACED against dataTimeoutMs, so a
+      // never-settling loader cannot hold the response (and its listeners/streams) open.
+      //
+      // It is a plain delegating object rather than `new Writable(...)` on purpose: this server-only
+      // module must never pull a `node:stream` VALUE import into the client bundle (the barrel
+      // re-exports it). @taujs/vue keeps `Writable` type-only for the same reason; this mirrors it.
+      let endStarted = false;
+      const deferredEnd = () => {
+        if (controller.isAborted || endStarted) return;
+        endStarted = true;
+
+        let gateSettled = false;
+        let timer: ReturnType<typeof setTimeout>;
+
+        // If the response is torn down through ANY other path while we wait on data — client
+        // disconnect / AbortSignal, manual abort(), or a fatal writable error — the controller
+        // destroys the writable, which emits 'close'. Clear the armed data-timer promptly on that
+        // so it neither leaks its closure nor fires a spurious/duplicate fatal after settlement.
+        // (`once` self-removes; the readiness continuations also remove it on the normal path.)
+        const onWritableClose = () => {
+          if (gateSettled) return;
+          gateSettled = true;
+          clearTimeout(timer);
+        };
+        writable.once('close', onWritableClose);
+
+        timer = setTimeout(() => {
+          if (gateSettled) return;
+          gateSettled = true;
+          writable.removeListener('close', onWritableClose);
+          // Mirror the shell-timer idiom: if the controller already aborted through another path,
+          // it owns settlement — this net must not fire a second/late fatal.
+          if (controller.isAborted) return;
+          failFatal(new Error(`Route data not ready after ${effectiveDataTimeout}ms`));
+        }, effectiveDataTimeout);
+
+        readiness
+          .then(() => {
+            if (gateSettled) return;
+            gateSettled = true;
+            clearTimeout(timer);
+            writable.removeListener('close', onWritableClose);
+            // Aborted during the data wait: the writable is already destroyed — do not deliver to a
+            // gone response nor end() a torn-down stream.
+            if (controller.isAborted) return;
+            if (store.status === 'error') {
+              failFatal(store.lastError ?? new Error('SSR data fetch failed'));
+              return;
+            }
+            deliverFinalData();
+            // deliverFinalData may itself fatal-abort (e.g. undefined snapshot); don't end() then.
+            if (controller.isAborted) return;
+            writable.end();
+          })
+          .catch((e) => {
+            if (gateSettled) return;
+            gateSettled = true;
+            clearTimeout(timer);
+            writable.removeListener('close', onWritableClose);
+            if (controller.isAborted) return;
+            failFatal(e);
+          });
+      };
+
+      // React only ever calls write(view) [single chunk arg], end(), destroy(err), on/once/
+      // removeListener(event, handler), and (guarded) flush(). We omit flush() so React skips it,
+      // and forward the rest to the real writable so its own listeners/backpressure are authoritative.
+      const endGate = {
+        write: (chunk: unknown): boolean => (controller.isAborted ? true : writable.write(chunk as Uint8Array)),
+        end: () => deferredEnd(),
+        destroy: (err?: unknown) => writable.destroy(err as Error | undefined),
+        on: (event: string, handler: (...args: unknown[]) => void) => (writable.on(event, handler), endGate),
+        once: (event: string, handler: (...args: unknown[]) => void) => (writable.once(event, handler), endGate),
+        removeListener: (event: string, handler: (...args: unknown[]) => void) => (writable.removeListener(event, handler), endGate),
+        emit: (event: string, ...args: unknown[]) => writable.emit(event, ...args),
+        get destroyed() {
+          return writable.destroyed;
+        },
+        get writable() {
+          return writable.writable;
+        },
+      };
+
       const appElement = <SSRStoreProvider store={store}>{appComponent({ location, routeContext })}</SSRStoreProvider>;
 
       const stream = renderToPipeableStream(appElement, {
@@ -219,50 +379,37 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
             const head = headContent({ data: headData ?? ({} as T), meta, routeContext });
 
+            // onHead is REQUIRED (design 6): it commits the response head and connects the sink. A
+            // throwing onHead is fatal — do NOT pipe into an unconsumed sink (hung response).
             try {
               cb.onHead(head);
             } catch (cbErr) {
-              warn('onHead callback threw:', cbErr);
+              failFatal(cbErr);
+              return;
             }
 
             if (!piped) {
               piped = true;
-              stream.pipe(writable);
+              shellCommitted = true;
+              // The delegating sink duck-types the Node Writable surface React's pipe uses.
+              stream.pipe(endGate as unknown as Writable);
             }
 
+            // Advisory (design 6): a throw is logged, not fatal.
             try {
               cb.onShellReady();
             } catch (cbErr) {
-              warn('onShellReady callback threw:', cbErr);
+              error('onShellReady callback threw:', cbErr);
             }
           } catch (err) {
             failFatal(err);
           }
         },
         onAllReady() {
+          // Delivery is owned by the bounded end-gate (deferred until data readiness). This is
+          // advisory — React signalling all content is ready.
           if (controller.isAborted) return;
           log('All content ready:', location);
-
-          const deliver = () => {
-            try {
-              const data = store.getSnapshot();
-              cb.onAllReady(data);
-              cb.onFinish(data);
-            } catch (thrown) {
-              // Suspense rethrow - retry after resolution
-              if (thrown && typeof (thrown as any).then === 'function') {
-                (thrown as Promise<unknown>).then(deliver).catch((e) => {
-                  error('Data promise rejected:', e);
-                  failFatal(e);
-                });
-              } else {
-                error('Unexpected throw from getSnapshot:', thrown);
-                failFatal(thrown);
-              }
-            }
-          };
-
-          deliver();
         },
 
         onShellError(err) {
@@ -277,22 +424,27 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
         onError(err) {
           if (controller.isAborted) return;
-          // R0-02: this error is render-origin (React's server render surfaced it), so it is
-          // never benign by shape — a disconnect-shaped message/code thrown from app code must
-          // not be swallowed. Real client disconnects arrive via wireWritableGuards ('socket').
-          // Recheck-2: pass the RAW error to the non-throwing UI logger — do NOT coerce
-          // `err.message` here. A hostile error (throwing `message` getter / `Symbol.toPrimitive`)
-          // would throw at this line BEFORE `failFatal`, skipping settlement/cleanup and escaping
-          // React's async renderer callback as an uncaughtException.
-          warn('React stream error:', err);
 
-          if (isBenignStreamErr(err, 'render')) {
-            controller.benignAbort('Client disconnected before stream finished');
+          // R3 + recoverability ruling (decisions 2026-07-11): React's onError fires for EVERY
+          // render error, INCLUDING post-shell boundary errors it recovers client-side. `phase` is
+          // the OBSERVED timing (had the shell committed when onError fired) — descriptive only,
+          // NEVER a fatality signal. `recoverable` is true only post-shell (boundary-scoped by
+          // React's semantics), 'unknown' pre-shell (its outcome is resolved by the separate fatal
+          // channels: a subsequent onShellError fails it; a subsequent shell commit means it
+          // recovered). This channel is NON-FATAL — fatality stays with onShellError / timers /
+          // guards / outer catch.
+          const phase: RenderErrorInfo['phase'] = shellCommitted ? 'post-shell' : 'pre-shell';
+          const recoverable: RenderErrorInfo['recoverable'] = phase === 'post-shell' ? true : 'unknown';
 
-            return;
+          // Recheck-2: pass the RAW error to the non-throwing UI logger (no eager coercion).
+          error('React render error:', err);
+
+          // Advisory (design 6): isolate a throwing onRenderError.
+          try {
+            cb.onRenderError({ error: err, phase, recoverable });
+          } catch (cbErr) {
+            error('onRenderError callback threw:', cbErr);
           }
-
-          failFatal(err);
         },
       });
 

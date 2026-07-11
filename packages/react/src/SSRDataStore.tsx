@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useSyncExternalStore, useDeferredValue, useMemo } from 'react';
 
+import { STORE_READINESS } from './internal';
+
 export type SSRStore<T> = {
   getSnapshot: () => T;
   getServerSnapshot: () => T;
@@ -82,7 +84,7 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     return currentData;
   };
 
-  return {
+  const store: SSRStore<T> = {
     getSnapshot,
     getServerSnapshot,
     setData,
@@ -94,6 +96,12 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
       return lastError;
     },
   };
+
+  // R1-01: attach package-internal readiness for the streaming end-gate WITHOUT adding it to the
+  // public SSRStore<T> type (design 1 / decisions item 10).
+  (store as Record<symbol, unknown>)[STORE_READINESS] = serverDataPromise;
+
+  return store;
 }
 
 const SSRStoreContext = createContext<SSRStore<any> | null>(null);
