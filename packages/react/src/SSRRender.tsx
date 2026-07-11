@@ -171,18 +171,26 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     // Stream controller centralises cleanup & settlement
     const controller = createStreamController(writable, { log, warn, error });
 
-    // Recheck: EVERY fatal path routes through here so the host `onError` callback can NEVER veto
-    // controller cleanup/settlement. A throwing `onError` is logged and SWALLOWED — it must not
-    // veto `fatalAbort` (below, always runs) NOR escape, since this may be called from a timer or a
-    // writable EventEmitter listener where a throw would be an uncaughtException. The ORIGINAL error
-    // is the rejection reason. Also the single site that fires `cb.onError` for a fatal (no double-fire).
+    // EVERY fatal path routes through here (single site that fires `cb.onError` for a fatal —
+    // no double-fire). The ORIGINAL error is the rejection reason.
+    //
+    // Ordering (gate-review finding 2): claim the terminal fatal state via `controller.fatalAbort`
+    // FIRST, THEN run the isolated host `cb.onError`. The host callback may SYNCHRONOUSLY abort the
+    // very AbortSignal we wired to `controller.benignAbort` (the server's `onError` calls
+    // `ac.abort()`, and `ac.signal` is this renderer's `signal`). If that re-entrant benign abort
+    // ran BEFORE we claimed fatal, it would win the one-shot controller and RESOLVE `done` — silently
+    // downgrading a fatal to a benign completion and violating the `RenderStreamHandle` contract
+    // (fatal ⇒ `done` rejects). fatalAbort-first makes the re-entrant `benignAbort` a no-op.
+    //
+    // `cb.onError` is still SWALLOWED on throw (and cannot veto settlement, already claimed) — it may
+    // run from a timer or a writable EventEmitter listener where a throw would be an uncaughtException.
     const failFatal = (err: unknown) => {
+      controller.fatalAbort(err);
       try {
         cb.onError(err);
       } catch (cbErr) {
         warn('onError callback threw:', cbErr);
       }
-      controller.fatalAbort(err);
     };
 
     // Wire AbortSignal (benign cancel)
@@ -260,54 +268,54 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         }
       };
 
-      // Bounded end-gate (design 3): React pipes into this delegating SINK. Every write/destroy/
-      // event is forwarded to the REAL writable — React drives backpressure itself against it (via
-      // write()'s boolean return + a 'drain' listener it attaches through `on`), exactly as the
-      // pre-rework renderer did when it piped straight into the writable. The ONLY interception is
-      // end(): it is DEFERRED until route data has settled, RACED against dataTimeoutMs, so a
-      // never-settling loader cannot hold the response (and its listeners/streams) open.
-      //
-      // It is a plain delegating object rather than `new Writable(...)` on purpose: this server-only
-      // module must never pull a `node:stream` VALUE import into the client bundle (the barrel
-      // re-exports it). @taujs/vue keeps `Writable` type-only for the same reason; this mirrors it.
+      // Route-data liveness deadline (design 3, gate-review finding 1). The bound on route-data
+      // settlement must NOT depend on React calling the sink's end(): a <Suspense> consumer of the
+      // store keeps React's stream open until the thrown data promise settles, so for a never-settling
+      // loader React NEVER ends — and if the deadline lived only in the end path (below) nothing would
+      // ever fire. Arm it explicitly once the shell is committed (a post-shell data budget matching
+      // `dataTimeoutMs`), independent of end(). On expiry it enters the single fatal path (which aborts
+      // React + tears the response down); it is disarmed when route data settles OR the controller
+      // terminates (abort destroys the writable → 'close').
+      let dataDeadlineArmed = false;
+      const armDataDeadline = () => {
+        if (dataDeadlineArmed) return;
+        dataDeadlineArmed = true;
+        if (store.status !== 'pending') return; // already settled — nothing to bound
+
+        let fired = false;
+        let timer: ReturnType<typeof setTimeout>;
+        const disarm = () => {
+          if (fired) return;
+          fired = true;
+          clearTimeout(timer);
+          try {
+            writable.removeListener('close', disarm);
+          } catch {}
+        };
+        timer = setTimeout(() => {
+          if (fired || controller.isAborted) return;
+          fired = true;
+          failFatal(new Error(`Route data not ready after ${effectiveDataTimeout}ms`));
+        }, effectiveDataTimeout);
+
+        // Data settled (resolve OR swallowed error) → disarm. Controller torn down → 'close' → disarm.
+        readiness.then(disarm, disarm);
+        writable.once('close', disarm);
+      };
+
+      // Deferred end (design 2/3): React pipes final output into the delegating sink; we defer the
+      // real writable's end() until route data has settled so LATE data (no-consumer path) is
+      // serialized before finish. Liveness is owned by armDataDeadline above, NOT here — so a Suspense
+      // consumer whose data never settles (React never reaches this end()) is still bounded.
       let endStarted = false;
       const deferredEnd = () => {
         if (controller.isAborted || endStarted) return;
         endStarted = true;
 
-        let gateSettled = false;
-        let timer: ReturnType<typeof setTimeout>;
-
-        // If the response is torn down through ANY other path while we wait on data — client
-        // disconnect / AbortSignal, manual abort(), or a fatal writable error — the controller
-        // destroys the writable, which emits 'close'. Clear the armed data-timer promptly on that
-        // so it neither leaks its closure nor fires a spurious/duplicate fatal after settlement.
-        // (`once` self-removes; the readiness continuations also remove it on the normal path.)
-        const onWritableClose = () => {
-          if (gateSettled) return;
-          gateSettled = true;
-          clearTimeout(timer);
-        };
-        writable.once('close', onWritableClose);
-
-        timer = setTimeout(() => {
-          if (gateSettled) return;
-          gateSettled = true;
-          writable.removeListener('close', onWritableClose);
-          // Mirror the shell-timer idiom: if the controller already aborted through another path,
-          // it owns settlement — this net must not fire a second/late fatal.
-          if (controller.isAborted) return;
-          failFatal(new Error(`Route data not ready after ${effectiveDataTimeout}ms`));
-        }, effectiveDataTimeout);
-
         readiness
           .then(() => {
-            if (gateSettled) return;
-            gateSettled = true;
-            clearTimeout(timer);
-            writable.removeListener('close', onWritableClose);
-            // Aborted during the data wait: the writable is already destroyed — do not deliver to a
-            // gone response nor end() a torn-down stream.
+            // Aborted during the data wait (incl. the data deadline firing): the writable is already
+            // torn down — do not deliver to a gone response nor end() a destroyed stream.
             if (controller.isAborted) return;
             if (store.status === 'error') {
               failFatal(store.lastError ?? new Error('SSR data fetch failed'));
@@ -319,10 +327,6 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
             writable.end();
           })
           .catch((e) => {
-            if (gateSettled) return;
-            gateSettled = true;
-            clearTimeout(timer);
-            writable.removeListener('close', onWritableClose);
             if (controller.isAborted) return;
             failFatal(e);
           });
@@ -394,6 +398,11 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
               // The delegating sink duck-types the Node Writable surface React's pipe uses.
               stream.pipe(endGate as unknown as Writable);
             }
+
+            // Shell is committed: bound the remaining route-data wait independent of React's end()
+            // (finding 1) — a Suspense consumer whose data never settles keeps React streaming, so
+            // React may never call end(); this deadline fires regardless.
+            armDataDeadline();
 
             // Advisory (design 6): a throw is logged, not fatal.
             try {

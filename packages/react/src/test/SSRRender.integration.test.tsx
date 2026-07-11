@@ -409,6 +409,78 @@ describe('R1-01 integration (real react-dom/server)', () => {
     expect(chunks.join('')).not.toContain('app-body');
   });
 
+  // Gate-review finding 1 (HIGH): a <Suspense> store consumer whose data NEVER settles keeps React's
+  // stream open, so React never calls the sink's end(). The route-data deadline must fire ANYWAY —
+  // it is armed at shell commit, independent of end(). (Before the fix, the timer lived only in the
+  // end path, so this leaked the request/render/writable/loader indefinitely.)
+  it('bounded liveness: a suspending store consumer whose data NEVER settles → fallback shell ships, done REJECTS with the data-timeout error, writable torn down', async () => {
+    const { writable, chunks, state } = driveServerSide();
+    const onAllReady = vi.fn();
+
+    const Consumer = () => {
+      const data = useSSRStore<Data>();
+      return <div>value:{String(data.value)}</div>;
+    };
+    const App = () => (
+      <div>
+        <p>shell</p>
+        <Suspense fallback={<span>loading-fallback</span>}>
+          <Consumer />
+        </Suspense>
+      </div>
+    );
+
+    const { done } = createRenderer<Data>({ appComponent: () => <App />, headContent: () => '<title>x</title>' }).renderStream(
+      writable,
+      { onHead: () => {}, onAllReady },
+      () => new Promise<Data>(() => {}), // NEVER settles; the consumer suspends on it forever
+      '/never-settles-consumer',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { dataTimeoutMs: 80 },
+    );
+
+    await expect(done).rejects.toThrow(/Route data not ready/); // bounded despite React never ending
+    // The fallback shell WAS streamed before the deadline fired (React committed the shell).
+    expect(chunks.join('')).toContain('loading-fallback');
+    expect(onAllReady).not.toHaveBeenCalled();
+    await settle(40);
+    expect(writable.destroyed).toBe(true); // React + writable torn down, not leaked
+    expect(state.finished).toBe(false);
+  });
+
+  // Gate-review finding 2 (HIGH): the host onError may synchronously abort the SAME AbortSignal wired
+  // to the renderer's benign-cancel path (the server calls ac.abort() inside onError). A fatal must
+  // still REJECT done — the re-entrant benign abort must not win the one-shot controller and downgrade
+  // it to a benign resolve. (Before the fix, failFatal called onError before claiming fatal, so the
+  // re-entrant benignAbort resolved done and the contract-mandated rejection was lost.)
+  it('re-entrant abort: a fatal whose onError aborts the passed signal still REJECTS done (no benign downgrade), onError once', async () => {
+    const { writable } = driveServerSide();
+    const ac = new AbortController();
+    const original = new Error('reentrant-fatal-original');
+    const onError = vi.fn(() => ac.abort()); // aborts the very signal wired to controller.benignAbort
+
+    const FatalNoBoundary = () => {
+      throw original; // synchronous throw OUTSIDE any boundary → onShellError → failFatal(original)
+    };
+
+    const { done } = createRenderer<Data>({ appComponent: () => <FatalNoBoundary />, headContent: () => '<title>x</title>' }).renderStream(
+      writable,
+      { onHead: () => {}, onError },
+      { value: 1 },
+      '/reentrant-abort',
+      undefined,
+      undefined,
+      undefined,
+      ac.signal, // the signal onError will abort re-entrantly
+    );
+
+    await expect(done).rejects.toThrow('reentrant-fatal-original'); // rejected, NOT benign-resolved
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   // Review finding (HIGH + #10): abort DURING the deferred-end data wait must not leak the
   // dataTimeout timer, must not fire a spurious/late fatal onError, and must not deliver data or
   // end() a torn-down writable.

@@ -26,9 +26,18 @@ response, and so render errors are classified honestly.
   the armed data-timer promptly, suppresses delivery, and never `end()`s a torn-down writable — so it
   cannot leak the timer/closure or fire a spurious/duplicate fatal `onError` after settlement. A
   loader that resolves to `undefined` becomes a clean fatal instead of a hung response.
+- **Liveness is bounded even when a `<Suspense>` consumer suspends forever.** The route-data deadline
+  is now armed at shell commit, INDEPENDENT of React calling the sink's `end()`. A `useSSRStore()`
+  consumer suspending on never-settling data keeps React's stream open (so React never ends), but the
+  response is still bounded by `dataTimeoutMs` and torn down deterministically.
+- **A fatal always rejects `done`, even if the host `onError` re-entrantly aborts.** `failFatal` now
+  claims the terminal fatal state before invoking the (isolated) host callback. Previously, a host
+  `onError` that synchronously aborted the passed `AbortSignal` (as the server does) let the
+  re-entrant benign-cancel win the one-shot controller and RESOLVE `done`, silently downgrading a
+  fatal — contradicting the `RenderStreamHandle` contract.
 
 New public surface: `onRenderError` callback, `RenderErrorInfo` type, and the `dataTimeoutMs` stream
 option. `Writable` is kept a type-only import so this server-only renderer never pulls `node:stream`
-into a client bundle (mirrors `@taujs/vue`). Verified against real `react-dom/server` by a 15-test
+into a client bundle (mirrors `@taujs/vue`). Verified against real `react-dom/server` by a 17-test
 integration suite (post/pre-shell error timing, bounded gate, store-error, onHead, backpressure,
-abort-during-data-wait, undefined-data, Suspense intact).
+abort-during-data-wait, undefined-data, suspend-forever liveness, re-entrant-abort, Suspense intact).
