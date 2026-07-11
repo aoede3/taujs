@@ -1,14 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import {
-  DEFAULT_BENIGN_ERRORS,
-  isBenignStreamErr,
-  createSettler,
-  startShellTimer,
-  wireWritableGuards,
-  createStreamController,
-  type StreamLogger,
-} from '../Streaming';
+import { isBenignStreamErr, createSettler, startShellTimer, wireWritableGuards, createStreamController, type StreamLogger } from '../Streaming';
 
 function makeWritableMock() {
   const events = new Map<string, Set<Function>>();
@@ -92,19 +84,46 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('isBenignStreamErr / DEFAULT_BENIGN_ERRORS', () => {
-  it('matches known benign patterns', () => {
-    const msgs = ['ECONNRESET', 'EPIPE', 'socket hang up', 'aborted', 'premature close'];
-    for (const m of msgs) {
-      expect(DEFAULT_BENIGN_ERRORS.test(m)).toBe(true);
-      expect(isBenignStreamErr(new Error(m))).toBe(true);
+describe('isBenignStreamErr (origin-aware, R0-02)', () => {
+  it('render-origin errors are NEVER benign, whatever their shape', () => {
+    expect(isBenignStreamErr(new Error('Payment aborted unexpectedly'), 'render')).toBe(false);
+    expect(isBenignStreamErr(Object.assign(new Error('x'), { code: 'EPIPE' }), 'render')).toBe(false);
+    expect(isBenignStreamErr(Object.assign(new Error('x'), { name: 'AbortError' }), 'render')).toBe(false);
+    expect(isBenignStreamErr(new Error('aborted'), 'render')).toBe(false);
+  });
+
+  it('socket-origin: benign by exact (case-insensitive, trimmed) message', () => {
+    for (const m of ['aborted', 'socket hang up', 'premature close', 'request aborted', '  ABORTED  ']) {
+      expect(isBenignStreamErr(new Error(m), 'socket')).toBe(true);
     }
   });
 
-  it('non-matching errors are not benign', () => {
-    expect(isBenignStreamErr(new Error('boom'))).toBe(false);
-    expect(isBenignStreamErr({ message: 'other' })).toBe(false);
-    expect(isBenignStreamErr({})).toBe(false);
+  it('socket-origin: a message that merely CONTAINS a benign word is not benign', () => {
+    expect(isBenignStreamErr(new Error('Payment aborted unexpectedly'), 'socket')).toBe(false);
+    expect(isBenignStreamErr(new Error('stream premature something'), 'socket')).toBe(false);
+    // legacy substrings that used to match the retired regex now do not
+    expect(isBenignStreamErr(new Error('ECONNRESET'), 'socket')).toBe(false);
+    expect(isBenignStreamErr(new Error('EPIPE'), 'socket')).toBe(false);
+  });
+
+  it('socket-origin: benign by disconnect code', () => {
+    for (const code of ['ECONNRESET', 'EPIPE', 'ERR_STREAM_PREMATURE_CLOSE', 'ERR_STREAM_DESTROYED']) {
+      expect(isBenignStreamErr(Object.assign(new Error('whatever'), { code }), 'socket')).toBe(true);
+    }
+    expect(isBenignStreamErr(Object.assign(new Error('x'), { code: 'ENOENT' }), 'socket')).toBe(false);
+  });
+
+  it('socket-origin: benign by AbortError name', () => {
+    expect(isBenignStreamErr(Object.assign(new Error('x'), { name: 'AbortError' }), 'socket')).toBe(true);
+    expect(isBenignStreamErr(new DOMException('', 'AbortError'), 'socket')).toBe(true);
+  });
+
+  it('non-Error values are not benign and do not throw', () => {
+    expect(isBenignStreamErr(undefined, 'socket')).toBe(false);
+    expect(isBenignStreamErr(null, 'socket')).toBe(false);
+    expect(isBenignStreamErr({}, 'socket')).toBe(false);
+    expect(isBenignStreamErr('aborted', 'socket')).toBe(false); // raw string has no `.message`
+    expect(isBenignStreamErr(undefined, 'render')).toBe(false);
   });
 });
 

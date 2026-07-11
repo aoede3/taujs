@@ -84,7 +84,6 @@ vi.mock('../utils/Streaming', () => {
   const isBenignStreamErr = vi.fn(() => false);
 
   return {
-    DEFAULT_BENIGN_ERRORS: /x/i,
     createStreamController,
     startShellTimer,
     wireWritableGuards,

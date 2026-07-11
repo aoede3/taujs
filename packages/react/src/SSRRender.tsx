@@ -272,12 +272,13 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
         onError(err) {
           if (controller.isAborted) return;
-          // wireWritableGuards handles most stream errors via 'error'/'close',
-          // but React may surface errors here too; treat client disconnects as benign
+          // R0-02: this error is render-origin (React's server render surfaced it), so it is
+          // never benign by shape — a disconnect-shaped message/code thrown from app code must
+          // not be swallowed. Real client disconnects arrive via wireWritableGuards ('socket').
           const msg = String((err as any)?.message ?? '');
           warn('React stream error:', msg);
 
-          if (isBenignStreamErr(err)) {
+          if (isBenignStreamErr(err, 'render')) {
             controller.benignAbort('Client disconnected before stream finished');
 
             return;

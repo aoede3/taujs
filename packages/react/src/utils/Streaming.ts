@@ -6,12 +6,32 @@ export type StreamLogger = {
   error: (msg: string, extra?: unknown) => void;
 };
 
-export const DEFAULT_BENIGN_ERRORS = /ECONNRESET|EPIPE|socket hang up|aborted|premature/i;
+// R0-02: benignity is a property of an error's ORIGIN, never of its message/name/user-set
+// properties when it came from render/data code. Classify by origin AND shape.
+export type StreamErrSource = 'socket' | 'render';
 
-export function isBenignStreamErr(err: unknown): boolean {
-  const msg = String((err as any)?.message ?? '');
+// Disconnect signals worth trusting on a socket/writable-origin error.
+const BENIGN_SOCKET_CODES = new Set(['ECONNRESET', 'EPIPE', 'ERR_STREAM_PREMATURE_CLOSE', 'ERR_STREAM_DESTROYED']);
+// Exact (case-insensitive, trimmed) node/undici socket messages — NOT loose substrings, so an
+// app error whose message merely contains "aborted" is not mistaken for a disconnect.
+const BENIGN_SOCKET_MESSAGES = new Set(['aborted', 'socket hang up', 'premature close', 'request aborted']);
 
-  return DEFAULT_BENIGN_ERRORS.test(msg);
+export function isBenignStreamErr(err: unknown, source: StreamErrSource): boolean {
+  // Render/data-origin errors are never benign by shape: a component can throw
+  // `new Error('Payment aborted unexpectedly')` or `Object.assign(new Error(), { code: 'EPIPE' })`.
+  // The only benign render outcome is one the controller already knows about (callers check
+  // `controller.isAborted` before classifying).
+  if (source !== 'socket') return false;
+
+  const e = err as { code?: unknown; name?: unknown; message?: unknown } | null | undefined;
+  if (typeof e?.code === 'string' && BENIGN_SOCKET_CODES.has(e.code)) return true;
+  if (e?.name === 'AbortError') return true;
+
+  return BENIGN_SOCKET_MESSAGES.has(
+    String(e?.message ?? '')
+      .trim()
+      .toLowerCase(),
+  );
 }
 
 export type Settler = {
@@ -58,13 +78,11 @@ export function wireWritableGuards(
     fatalAbort,
     onError,
     onFinish,
-    benignErrorPattern = DEFAULT_BENIGN_ERRORS,
   }: {
     benignAbort: (why: string) => void;
     fatalAbort: (err: unknown) => void;
     onError?: (e: unknown) => void;
     onFinish?: () => void;
-    benignErrorPattern?: RegExp;
   },
 ): WritableGuards {
   const handlers: Array<() => void> = [];
@@ -74,8 +92,9 @@ export function wireWritableGuards(
   };
 
   add('error', (err) => {
-    const msg = String((err as any)?.message ?? '');
-    if (benignErrorPattern.test(msg)) {
+    // These are writable/socket-origin errors (the destination emitted 'error'): classify as
+    // 'socket' (R0-02).
+    if (isBenignStreamErr(err, 'socket')) {
       benignAbort('Client disconnected during stream');
     } else {
       onError?.(err);
