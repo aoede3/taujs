@@ -448,10 +448,54 @@ describe('createRenderer.renderStream', () => {
     const opts = (RDS as any).__getLastOpts();
     opts.onError(original); // React surfaces a fatal render error
 
-    // failFatal runs controller.fatalAbort in `finally`, so `done` still rejects with the ORIGINAL
-    // error even though cb.onError threw (old code skipped fatalAbort → done never settled).
+    // failFatal runs controller.fatalAbort even though cb.onError threw (old code skipped it →
+    // done never settled). The original error is the reject reason.
     await expect(r.done).rejects.toBe(original);
     expect(onError).toHaveBeenCalledTimes(1); // single fire (no double-fire, no skip)
+  });
+
+  it("recheck-2: a hostile FRAMEWORK error (throwing message getter / Symbol.toPrimitive) doesn't throw before failFatal", async () => {
+    const hostiles: ReadonlyArray<() => unknown> = [
+      () => {
+        const o: Record<string, unknown> = {};
+        Object.defineProperty(o, 'message', {
+          get() {
+            throw new Error('getter boom');
+          },
+        });
+        return o;
+      },
+      () => ({
+        message: {
+          [Symbol.toPrimitive]() {
+            throw new Error('coercion boom');
+          },
+        },
+      }),
+    ];
+
+    for (const make of hostiles) {
+      const { writable } = makeWritable();
+      const onError = vi.fn();
+      const hostile = make();
+
+      const { renderStream } = createRenderer<any>({
+        appComponent: () => <div />,
+        headContent: () => '<head/>',
+      });
+
+      const r = renderStream(writable as any, { onError }, {}, '/hostile-framework-error');
+      const opts = (RDS as any).__getLastOpts();
+
+      // React surfaces a hostile error to onError — the handler must NOT coerce it before failFatal,
+      // so the call does not throw, and settlement/single-fire still happen with the ORIGINAL value.
+      expect(() => opts.onError(hostile)).not.toThrow();
+
+      await expect(r.done).rejects.toBe(hostile);
+      expect(onError).toHaveBeenCalledTimes(1);
+      // reference check (toHaveBeenCalledWith would deep-equal the arg and trip the throwing getter)
+      expect(onError.mock.calls[0]?.[0]).toBe(hostile);
+    }
   });
 
   it('AbortSignal already aborted: benign abort & no stream render; manual abort works', async () => {

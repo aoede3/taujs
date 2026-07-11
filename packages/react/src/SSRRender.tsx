@@ -280,8 +280,11 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
           // R0-02: this error is render-origin (React's server render surfaced it), so it is
           // never benign by shape — a disconnect-shaped message/code thrown from app code must
           // not be swallowed. Real client disconnects arrive via wireWritableGuards ('socket').
-          const msg = String((err as any)?.message ?? '');
-          warn('React stream error:', msg);
+          // Recheck-2: pass the RAW error to the non-throwing UI logger — do NOT coerce
+          // `err.message` here. A hostile error (throwing `message` getter / `Symbol.toPrimitive`)
+          // would throw at this line BEFORE `failFatal`, skipping settlement/cleanup and escaping
+          // React's async renderer callback as an uncaughtException.
+          warn('React stream error:', err);
 
           if (isBenignStreamErr(err, 'render')) {
             controller.benignAbort('Client disconnected before stream finished');
