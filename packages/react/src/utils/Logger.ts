@@ -38,14 +38,9 @@ const splitMsgAndMeta = (args: unknown[]) => {
 export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
   const { debugCategory = 'ssr', context, preferDebug = false, enableDebug = false } = opts;
 
-  if (!enableDebug) {
-    return {
-      log: () => {},
-      warn: () => {},
-      error: () => {},
-    };
-  }
-
+  // R0-03: `enableDebug` gates VERBOSITY (the `log` channel), not error visibility. `warn` and
+  // `error` always route — to the provided logger if any, else `console`. Only `log` is gated,
+  // so production consumers still see renderer warnings/errors (RFC S2).
   const looksServer = !!logger && ('info' in logger || 'debug' in logger || 'child' in logger || 'isDebugEnabled' in logger);
 
   if (looksServer) {
@@ -76,20 +71,22 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
     const isDebugEnabled = s.isDebugEnabled ? (category: string) => s.isDebugEnabled!(category) : undefined;
 
     return {
-      log: (...args: unknown[]) => {
-        const { msg, meta } = splitMsgAndMeta(args);
+      log: enableDebug
+        ? (...args: unknown[]) => {
+            const { msg, meta } = splitMsgAndMeta(args);
 
-        if (debug) {
-          const enabled = (isDebugEnabled ? isDebugEnabled(debugCategory) : false) || preferDebug;
+            if (debug) {
+              const enabled = (isDebugEnabled ? isDebugEnabled(debugCategory) : false) || preferDebug;
 
-          if (enabled) {
-            debug(debugCategory, msg, meta);
-            return;
+              if (enabled) {
+                debug(debugCategory, msg, meta);
+                return;
+              }
+            }
+
+            info(msg, meta);
           }
-        }
-
-        info(msg, meta);
-      },
+        : () => {},
       warn: (...args: unknown[]) => {
         const { msg, meta } = splitMsgAndMeta(args);
         warn(msg, meta);
@@ -103,7 +100,7 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
 
   const ui = (logger as Partial<UILogger>) || {};
   return {
-    log: (...a) => (ui.log ?? console.log)(...a),
+    log: enableDebug ? (...a) => (ui.log ?? console.log)(...a) : () => {},
     warn: (...a) => (ui.warn ?? console.warn)(...a),
     error: (...a) => (ui.error ?? console.error)(...a),
   };

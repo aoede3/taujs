@@ -21,36 +21,36 @@ afterEach(() => {
 });
 
 describe('createUILogger - enableDebug gate', () => {
-  it('returns no-op functions when enableDebug is false (default)', () => {
+  it('R0-03: with enableDebug false (default), only `log` is silent — warn/error route to console', () => {
     const { logSpy, warnSpy, errSpy } = mkSpies();
     const ui = createUILogger(undefined); // enableDebug defaults to false
 
-    ui.log('should not appear');
-    ui.warn('should not appear');
-    ui.error('should not appear');
+    ui.log('debug only');
+    ui.warn('a warning');
+    ui.error('an error');
 
-    expect(logSpy).not.toHaveBeenCalled();
-    expect(warnSpy).not.toHaveBeenCalled();
-    expect(errSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled(); // verbosity gated
+    expect(warnSpy).toHaveBeenCalled(); // error visibility is NOT gated (RFC S2)
+    expect(errSpy).toHaveBeenCalled();
   });
 
-  it('returns no-op functions when enableDebug is explicitly false', () => {
+  it('R0-03: with enableDebug false, `log` is gated but warn/error still route (console fallback)', () => {
     const { logSpy, warnSpy, errSpy } = mkSpies();
     const customLog = vi.fn();
 
     const ui = createUILogger({ log: customLog }, { enableDebug: false });
 
-    ui.log('nope');
-    ui.warn('nope');
-    ui.error('nope');
+    ui.log('debug only');
+    ui.warn('a warning');
+    ui.error('an error');
 
     expect(customLog).not.toHaveBeenCalled();
     expect(logSpy).not.toHaveBeenCalled();
-    expect(warnSpy).not.toHaveBeenCalled();
-    expect(errSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled(); // ui logger has no warn -> console.warn
+    expect(errSpy).toHaveBeenCalled(); // ui logger has no error -> console.error
   });
 
-  it('returns no-op functions even when server logger is provided and enableDebug is false', () => {
+  it('R0-03: with a server logger and enableDebug false, warn/error reach the server logger; log stays silent', () => {
     const info = vi.fn();
     const warn = vi.fn();
     const error = vi.fn();
@@ -58,13 +58,13 @@ describe('createUILogger - enableDebug gate', () => {
     const server: ServerLogs = { info, warn, error };
     const ui = createUILogger(server, { enableDebug: false });
 
-    ui.log('hidden');
-    ui.warn('hidden');
-    ui.error('hidden');
+    ui.log('debug only');
+    ui.warn('a warning');
+    ui.error('an error');
 
-    expect(info).not.toHaveBeenCalled();
-    expect(warn).not.toHaveBeenCalled();
-    expect(error).not.toHaveBeenCalled();
+    expect(info).not.toHaveBeenCalled(); // `log` channel gated
+    expect(warn).toHaveBeenCalled(); // warn routes to the provided logger
+    expect(error).toHaveBeenCalled(); // error routes to the provided logger
   });
 
   it('enables logging when enableDebug is true', () => {
