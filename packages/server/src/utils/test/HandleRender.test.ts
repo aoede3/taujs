@@ -1400,7 +1400,10 @@ describe('handleRender', () => {
       expect(mockLogger.error).toHaveBeenCalledWith(expect.any(Object), 'PassThrough error:');
     });
 
-    it('should handle onError with client disconnect', async () => {
+    // Gate finding 1: `onError` is the renderer's FATAL channel — the server must NOT reclassify
+    // it as a benign disconnect by the shape of an app-controlled error. The only benign condition
+    // is ACTUAL request-abort state.
+    const setupStreamingRoute = () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
@@ -1410,22 +1413,57 @@ describe('handleRender', () => {
         beforeBody: '<body>',
         afterBody: '</body></html>',
       });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+    };
+
+    const disconnectShapedErrors: ReadonlyArray<readonly [string, unknown]> = [
+      ['code EPIPE', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })],
+      ['name AbortError', Object.assign(new Error('aborted by app'), { name: 'AbortError' })],
+      ['exact "aborted" message', new Error('aborted')],
+    ];
+
+    for (const [name, err] of disconnectShapedErrors) {
+      it(`gate finding 1: onError(${name}) while the request is LIVE enters the failure path, not benign`, async () => {
+        setupStreamingRoute();
+
+        const mockRenderStream = vi.fn((writable, callbacks) => {
+          writable.on = vi.fn();
+          callbacks.onError?.(err); // request still live: abortedState is false
+          return { abort: vi.fn(), done: Promise.resolve() };
+        });
+        mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+        await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+        expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
+        expect(mockLogger.warn).not.toHaveBeenCalledWith({}, 'Client disconnected before stream finished');
+        expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
+      });
+    }
+
+    it('gate finding 1: onError after an ACTUAL client disconnect (abortedState set) is benign', async () => {
+      setupStreamingRoute();
+
+      // Capture the real disconnect channel (reply.raw 'close') so we can trigger a genuine abort.
+      let closeHandler: (() => void) | undefined;
+      mockReply.raw.on = vi.fn((event: string, cb: any) => {
+        if (event === 'close') closeHandler = cb;
+        return mockReply.raw;
+      });
+      mockReply.raw.writableEnded = false;
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
         writable.on = vi.fn();
-        // real socket-origin disconnect (benign by code — R0-02)
-        callbacks.onError?.(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+        closeHandler?.(); // genuine client disconnect → abortedState.aborted = true
+        callbacks.onError?.(new Error('any subsequent render error'));
         return { abort: vi.fn(), done: Promise.resolve() };
       });
-
-      const mockRenderModule = { renderStream: mockRenderStream };
-      mockMaps.renderModules.set('/test/client', mockRenderModule);
-
-      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.warn).toHaveBeenCalledWith({}, 'Client disconnected before stream finished');
+      expect(mockLogger.error).not.toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
       expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
     });
 
@@ -1443,12 +1481,16 @@ describe('handleRender', () => {
       const circular: Record<string, unknown> = { name: 'x' };
       circular.self = circular;
 
+      // Capture the 'finish' listener instead of invoking it synchronously, so we can fire it on a
+      // LATER tick — matching the real EventEmitter timing (finish fires after handleRender returns,
+      // outside the request try/catch). (The crash class itself is proven in InlineData.crash.test.ts.)
+      let finishHandler: (() => void) | undefined;
       const mockRenderStream = vi.fn((writable, callbacks) => {
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onShellReady?.();
         callbacks.onAllReady?.(circular); // finalData is non-serializable
         writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') handler();
+          if (event === 'finish') finishHandler = handler;
         });
         return { abort: vi.fn(), done: Promise.resolve() };
       });
@@ -1456,10 +1498,13 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      // The finish listener must handle the serialization failure LOCALLY and never throw. (An
-      // uncaught throw from the real async listener would be an uncaughtException — the crash
-      // class itself is proven in InlineData.crash.test.ts; here we verify the handleRender wiring.)
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      expect(finishHandler).toBeTypeOf('function');
+
+      // Fire 'finish' on a later tick (post-return): the listener must handle the serialization
+      // failure LOCALLY and NEVER throw — an uncaught throw here would be an uncaughtException.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(() => finishHandler!()).not.toThrow();
 
       expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Failed to serialize streaming initial data');
       expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
@@ -1657,15 +1702,22 @@ describe('handleRender', () => {
       });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
+      // The benign onError path is now reached only via ACTUAL request-abort state (gate finding 1),
+      // so trigger a genuine disconnect through the reply.raw 'close' channel first.
+      let closeHandler: (() => void) | undefined;
+      mockReply.raw.on = vi.fn((event: string, cb: any) => {
+        if (event === 'close') closeHandler = cb;
+        return mockReply.raw;
+      });
+      mockReply.raw.writableEnded = false;
       mockReply.raw.destroy = vi.fn(() => {
         throw new Error('destroy fail (benign)');
       });
 
-      const benign = Object.assign(new Error('aborted'), { code: 'ECONNRESET' });
-
       const mockRenderStream = vi.fn((writable, callbacks) => {
         writable.on = vi.fn();
-        callbacks.onError?.(benign);
+        closeHandler?.(); // genuine client disconnect → abortedState.aborted = true
+        callbacks.onError?.(new Error('subsequent render error'));
         writable.emit?.('finish');
         return { abort: vi.fn(), done: Promise.resolve() };
       });

@@ -15,12 +15,19 @@ const toError = (err: unknown): Error => {
 /**
  * Serialize route data for inline injection into `window.__INITIAL_DATA__`, SAFELY (R0-04).
  *
- * The single server-owned serialization boundary for BOTH render modes. Route data is the JSON
- * contract (`Record<string, unknown>`), but the service layer only validates that the result
- * ROOT is a plain object — never recursively — so circular references, `BigInt`, a throwing
- * `toJSON`, functions, or an `undefined` result all reach here. Any of these fails
- * DETERMINISTICALLY (returns `{ ok: false }`) and this function NEVER throws, so the caller can
- * terminate the response instead of crashing the process.
+ * The single server-owned serialization boundary for BOTH render modes. Route data is nominally
+ * the JSON contract (`Record<string, unknown>`), but the service layer only validates that the
+ * result ROOT is a plain object — never recursively. This function's guarantee is CRASH-SAFETY,
+ * not full contract enforcement:
+ *   - Values that make `JSON.stringify` THROW — circular references, `BigInt`, a throwing
+ *     `toJSON`/`valueOf` — ANYWHERE in the tree fail deterministically (`{ ok: false }`).
+ *   - A value whose top-level `JSON.stringify` result is `undefined` (the value itself is
+ *     `undefined`, a function, or a symbol) fails deterministically.
+ *   - NESTED `undefined`/functions/symbols follow STANDARD JSON semantics — omitted from objects,
+ *     `null` in arrays — and are NOT rejected (this matches `JSON.stringify`). Enforcing the full
+ *     JSON contract for nested values (recursive validation with a path) is deferred to a future
+ *     data-contract task (R3-03 / RFC-0004); R0-04 only removes the process-crash class.
+ * This function NEVER throws, so the caller can terminate the response instead of crashing.
  *
  * Why "never throws" matters: the streaming `finish` listener runs on a stream tick, OUTSIDE the
  * request `try/catch`, so an uncaught throw there becomes an `uncaughtException` → process exit
@@ -32,9 +39,14 @@ const toError = (err: unknown): Error => {
  * pages must not observe a diff). U+2028/U+2029 are legal in ES2019+ string literals and pass
  * through unescaped.
  *
- * `__proto__` fidelity (RFC SEC4): an object-literal `"__proto__"` key serializes as an ordinary
- * JSON string key and, on the client, re-parses as an OWN property of the initial-data object
- * (not a prototype mutation); it cannot pollute `Object.prototype`. Behaviour is unchanged.
+ * `__proto__` note (RFC SEC4): the inline script is emitted as a JS OBJECT LITERAL
+ * (`window.__INITIAL_DATA__ = { ... }`), and a quoted `"__proto__":` key in an object literal
+ * SETS THE CREATED OBJECT'S PROTOTYPE (ES Annex B.3.1), it does not add an own property. So a
+ * `__proto__` DATA key lands on the initial-data object's prototype (reachable via the prototype
+ * chain, with no own `__proto__` property) — it does NOT pollute the global `Object.prototype`,
+ * but its shape differs between server (own key) and client (prototype). Removing that drift
+ * (recursively rejecting `__proto__`, or emitting via `JSON.parse("…")`) is a data-contract
+ * change, deferred with the nested-value handling above. Behaviour is unchanged from before R0-04.
  */
 export const serializeInlineData = (value: unknown): SerializedInlineData => {
   try {

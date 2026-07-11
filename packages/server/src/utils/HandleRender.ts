@@ -407,7 +407,12 @@ export const handleRender = async (
             recorder?.streamPhase({ traceId, phase: 'allReady' });
           },
           onError: (err: unknown) => {
-            if (abortedState.aborted || isBenignSocketError(err)) {
+            // Gate finding 1: `onError` is the renderer's FATAL channel — the renderer already
+            // established origin (benign socket disconnects are handled by the writable guards via
+            // `benignAbort`, never routed here). Trust it: the only benign condition is ACTUAL
+            // request-abort state, never the shape of an app-controlled error (re-classifying by
+            // `code`/`name`/message would re-introduce the R0-02 spoofing at the cross-package join).
+            if (abortedState.aborted) {
               logger.warn({}, 'Client disconnected before stream finished');
               recorder?.aborted({ traceId, phase: 'stream' });
               try {

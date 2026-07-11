@@ -52,18 +52,41 @@ describe('serializeInlineData (R0-04)', () => {
     }
   });
 
-  it('preserves a "__proto__" key as an ordinary JSON key (SEC4 — no prototype pollution on re-parse)', () => {
+  it('a "__proto__" key sets the emitted object literal\'s prototype (SEC4 — no GLOBAL pollution; documented fidelity drift)', () => {
     const payload = { ['__proto__']: { polluted: true }, ok: 1 };
     const r = serializeInlineData(payload);
 
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.js).toContain('__proto__');
-      const parsed = JSON.parse(r.js);
-      // re-parses as an OWN property, not a prototype mutation
-      expect(Object.prototype.hasOwnProperty.call(parsed, '__proto__')).toBe(true);
+      // The page emits `window.__INITIAL_DATA__ = <js>` as a JS OBJECT LITERAL — evaluate THAT
+      // form, not JSON.parse. A quoted "__proto__": key sets the prototype (Annex B.3.1).
+      const evaluated = new Function(`return (${r.js});`)() as Record<string, unknown>;
+
+      expect(Object.prototype.hasOwnProperty.call(evaluated, '__proto__')).toBe(false); // NOT an own property
+      expect((evaluated as { polluted?: unknown }).polluted).toBe(true); // reachable via the prototype
+      expect(Object.getPrototypeOf(evaluated)).toMatchObject({ polluted: true });
+      // the GLOBAL prototype is never polluted
       expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
     }
+  });
+
+  it('nested undefined/function/symbol follow standard JSON semantics (omitted / null), not rejection (crash-safety, not contract enforcement)', () => {
+    const obj = serializeInlineData({ a: 1, skip: undefined, fn() {}, sym: Symbol('s') });
+    expect(obj.ok).toBe(true);
+    if (obj.ok) expect(obj.js).toBe('{"a":1}'); // nested undefined/function/symbol omitted
+
+    const arr = serializeInlineData([1, undefined, () => {}, Symbol('s')]);
+    expect(arr.ok).toBe(true);
+    if (arr.ok) expect(arr.js).toBe('[1,null,null,null]'); // nulled in arrays
+  });
+
+  it('nested BigInt / circular still fail deterministically (JSON.stringify throws anywhere in the tree)', () => {
+    expect(serializeInlineData({ nested: { deep: 1n } }).ok).toBe(false);
+
+    const circular: Record<string, unknown> = {};
+    circular.child = { back: circular };
+    expect(serializeInlineData(circular).ok).toBe(false);
   });
 
   describe('non-serializable inputs — fail deterministically and NEVER throw', () => {
