@@ -123,6 +123,12 @@ export function createStreamController(writable: Writable, logger: StreamLogger)
 
   let aborted = false;
   const settle = createSettler();
+  // R0-01: pre-attach a no-op rejection handler to `settle.done`. This marks the SAME promise
+  // as handled, so an unobserved `done` can never raise `unhandledRejection` (Node's default
+  // mode turns that into a process-terminating `uncaughtException`) — while consumers who await
+  // `done` still receive the fatal rejection on their own handler. Safe-by-default: the renderer
+  // must not hand out a footgun promise (see server call site + `RenderStreamHandle`).
+  settle.done.catch(() => {});
 
   let stopShellTimer: (() => void) | undefined;
   let removeAbortListener: (() => void) | undefined;
