@@ -220,7 +220,15 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     // isAborted guard makes this safe to call from both errorHandler and sink.destroy.
     const fail = (err: unknown) => {
       if (controller.isAborted) return;
-      cb.onError(err);
+      // Recheck: the host `onError` callback can NEVER veto controller cleanup/settlement. A
+      // throwing `onError` is logged and SWALLOWED — it must not veto `fatalAbort` (below, always
+      // runs) NOR escape (this may run inside an errorHandler / sink teardown where a throw would
+      // be uncaught). The ORIGINAL error stays the rejection reason.
+      try {
+        cb.onError(err);
+      } catch (cbErr) {
+        warn('onError callback threw:', cbErr);
+      }
       controller.fatalAbort(err);
     };
 

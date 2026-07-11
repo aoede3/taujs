@@ -369,6 +369,24 @@ describe('createRenderer.renderStream — error & abort paths', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
+  it('recheck: a throwing onError does not veto fatal settlement — done rejects with the ORIGINAL error, writable destroyed', async () => {
+    const writable = new Collector();
+    const original = new Error('render boom');
+    const onError = vi.fn(() => {
+      throw new Error('onError boom');
+    });
+
+    const { done } = makeRenderer().renderStream(writable as any, { onError }, {} as any, '/fatal-throwing-cb');
+
+    getSink().destroy(original);
+
+    // fail() runs controller.fatalAbort in `finally`, so settlement + cleanup happen even though
+    // cb.onError threw: `done` rejects with the ORIGINAL error and the writable is destroyed.
+    await expect(done).rejects.toBe(original);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(writable.destroyed).toBe(true);
+  });
+
   it('R0-02: sink.destroy with a disconnect-shaped error is still fatal (destroy is render-origin)', async () => {
     const writable = new Collector();
     const onError = vi.fn();
