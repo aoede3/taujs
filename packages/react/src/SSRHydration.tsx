@@ -20,6 +20,37 @@ const emitDevHook = (event: 'hydration:start' | 'hydration:success' | 'hydration
   }
 };
 
+// Re-surface an uncaught error on the GLOBAL error channel (window.onerror /
+// addEventListener('error')) that overriding React's `onUncaughtError` otherwise suppresses. Mirrors
+// React's own `reportGlobalError`: prefer `globalThis.reportError`, else dispatch a cancelable window
+// `ErrorEvent` — so `window.onerror`-based monitoring (Sentry/Bugsnag globalHandlers) still fires on
+// runtimes/older browsers that do NOT expose `reportError` (a plain `reportError?.()` is a silent
+// no-op there). The caller already logs via the taujs logger, so there is no console fallback here.
+// Node `uncaughtException` re-emission is intentionally omitted: this module is browser-only. Never
+// throws into hydration.
+const surfaceGlobalUncaughtError = (err: unknown): void => {
+  try {
+    const g = globalThis as { reportError?: (e: unknown) => void };
+    if (typeof g.reportError === 'function') {
+      g.reportError(err);
+
+      return;
+    }
+
+    if (typeof window !== 'undefined' && typeof ErrorEvent === 'function' && typeof window.dispatchEvent === 'function') {
+      let message = 'Uncaught render error';
+      try {
+        if (err instanceof Error && typeof err.message === 'string') message = err.message;
+      } catch {
+        // hostile message getter — keep the generic message
+      }
+      window.dispatchEvent(new ErrorEvent('error', { error: err, message, cancelable: true }));
+    }
+  } catch {
+    // global surfacing must never affect hydration
+  }
+};
+
 // React 19 root error-info shapes (narrowed from @types/react-dom). Descriptive only.
 type RootErrorInfo = { componentStack?: string };
 
@@ -133,16 +164,11 @@ export function hydrateApp<T>({
       // error channel.
       error('Uncaught render error:', err, info);
       // Overriding onUncaughtError REPLACES React's default for the root's ENTIRE lifetime — and its
-      // default re-surfaces uncaught errors globally (reportError → a window 'error' event). Without
-      // restoring that, post-hydration uncaught render/commit/effect errors (no boundary) would be
-      // hidden from window.onerror-based monitoring (Sentry/Bugsnag globalHandlers) — a net
-      // observability REGRESSION. Re-surface it (React's own guidance for overriding onUncaughtError)
-      // so global observability is preserved ON TOP OF taujs's bootstrap routing below.
-      try {
-        (globalThis as { reportError?: (e: unknown) => void }).reportError?.(err);
-      } catch {
-        // global surfacing must never affect hydration
-      }
+      // default re-surfaces uncaught errors globally. Without restoring that, post-hydration uncaught
+      // render/commit/effect errors (no boundary) would be hidden from window.onerror-based monitoring
+      // (Sentry/Bugsnag globalHandlers) — a net observability REGRESSION. Re-surface it (mirroring
+      // React's reportGlobalError, incl. the ErrorEvent fallback) on top of taujs's routing below.
+      surfaceGlobalUncaughtError(err);
       reportFailure(err);
     },
     onCaughtError: (err: unknown, info: RootErrorInfo) => {

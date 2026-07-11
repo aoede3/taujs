@@ -41,10 +41,15 @@ beforeEach(() => {
   document.body.innerHTML = '';
   delete (window as unknown as Record<string, unknown>).__INITIAL_DATA__;
   delete (window as unknown as Record<string, unknown>).__TAUJS_DEVTOOLS_HOOK__;
+  // Real browsers expose globalThis.reportError; jsdom does NOT. Stub it present by default so the
+  // renderer's global-surfacing takes the reportError branch (no unhandled window 'error' event that
+  // would fail the run). The two dedicated global-surfacing tests override this locally.
+  (globalThis as { reportError?: unknown }).reportError = vi.fn();
 });
 
 afterEach(() => {
   document.body.innerHTML = '';
+  delete (globalThis as { reportError?: unknown }).reportError;
 });
 
 describe('R2-01 hydration observability (real react-dom/client)', () => {
@@ -250,6 +255,37 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
     expect(beacons.filter((b) => b === 'hydration:success')).toHaveLength(1);
     expect(document.getElementById('root')?.innerHTML ?? '').toContain('app'); // root NOT torn down
     expect(errorLog).toHaveBeenCalled(); // the throw was logged
+  });
+
+  // Recheck MEDIUM: global surfacing must work even when globalThis.reportError is ABSENT (older
+  // browsers / runtimes) — React's default falls back to dispatching a window 'error' event, so a
+  // plain reportError?.() would silently lose window.onerror monitoring. Complements POST-SETTLEMENT
+  // (which stubs reportError present) so BOTH branches are covered.
+  it('GLOBAL SURFACING FALLBACK: with no globalThis.reportError, an uncaught error still reaches window.onerror via ErrorEvent', async () => {
+    setRoot('root', '<div>app</div>');
+    (window as unknown as Record<string, unknown>).__INITIAL_DATA__ = { a: 1 };
+    const prevReportError = (globalThis as { reportError?: unknown }).reportError;
+    (globalThis as { reportError?: unknown }).reportError = undefined; // runtime without reportError
+
+    const globalErrors: unknown[] = [];
+    const handler = (e: Event) => {
+      e.preventDefault(); // suppress jsdom's default noisy logging
+      globalErrors.push((e as ErrorEvent).error);
+    };
+    window.addEventListener('error', handler);
+
+    try {
+      hydrateApp({ appComponent: <Boom />, logger: { error: vi.fn() }, onHydrationError: vi.fn() });
+
+      await flush();
+
+      expect(globalErrors.length).toBeGreaterThanOrEqual(1);
+      expect(globalErrors[0]).toBeInstanceOf(Error);
+      expect((globalErrors[0] as Error).message).toBe('render-boom');
+    } finally {
+      window.removeEventListener('error', handler);
+      (globalThis as { reportError?: unknown }).reportError = prevReportError;
+    }
   });
 
   // Gate-review HIGH (companion): onHydrationError runs inside our onUncaughtError handler. A throw

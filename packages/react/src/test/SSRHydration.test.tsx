@@ -55,9 +55,15 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     vi.clearAllMocks();
     resetDom();
     setReadyState('complete');
+    // jsdom lacks globalThis.reportError; stub it present so the renderer's global-surfacing takes the
+    // reportError branch instead of dispatching an unhandled window 'error' event (which fails the run).
+    (globalThis as { reportError?: unknown }).reportError = vi.fn();
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (globalThis as { reportError?: unknown }).reportError;
+  });
 
   it('hydrates: onStart fires, root-error adapter wired to hydrateRoot; success is DEFERRED to first commit (not sync)', () => {
     const root = addRoot('root');

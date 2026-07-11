@@ -22,10 +22,11 @@ R2-01: make client-side render failures observable and the success signal honest
 - **Missing root** now routes to `onHydrationError` + a `hydration:error` beacon (error-without-start,
   vue precedent) instead of logging and returning silently.
 - **Global error surfacing preserved.** Overriding `onUncaughtError` replaces React's default, which
-  re-surfaces uncaught errors globally (`reportError` → a `window` `'error'` event). `onUncaughtError`
-  now calls `reportError` so `window.onerror`-based monitoring (Sentry/Bugsnag globalHandlers) keeps
-  seeing uncaught render errors — including after hydration has settled — on top of the taujs bootstrap
-  routing.
+  re-surfaces uncaught errors globally. `onUncaughtError` now mirrors React's `reportGlobalError`:
+  prefer `globalThis.reportError`, else dispatch a cancelable `window` `ErrorEvent` — so
+  `window.onerror`-based monitoring (Sentry/Bugsnag globalHandlers) keeps seeing uncaught render
+  errors — including after hydration has settled, and on runtimes/older browsers without
+  `reportError` — on top of the taujs bootstrap routing.
 - **Lifecycle callbacks are isolated observers.** `onStart` / `onSuccess` / `onHydrationError` throws
   are logged and swallowed. This is load-bearing: `onSuccess` runs inside the reporter's React effect
   and `onHydrationError` inside the root `onUncaughtError` handler, so an un-isolated throw would enter
