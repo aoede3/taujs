@@ -30,11 +30,33 @@ export interface InitialRouteParams extends Record<string, unknown> {
   serviceMethod?: string;
 }
 
+/**
+ * Structured, NON-FATAL render-error observation (R1-01). `phase` is the OBSERVED timing (had the
+ * shell committed when the renderer surfaced the error) — descriptive only, never a fatality
+ * signal. `recoverable` is `true` only for `post-shell` errors (React recovers them client-side)
+ * and `'unknown'` for `pre-shell` (outcome resolved by the fatal channels).
+ */
+export type RenderErrorInfo = {
+  error: unknown;
+  phase: 'pre-shell' | 'post-shell';
+  recoverable: boolean | 'unknown';
+};
+
 export type RenderCallbacks<T = unknown> = {
+  /** REQUIRED (operationally): commits the head + connects the sink. A throwing `onHead` is fatal. */
   onHead?: (headContent: string) => void;
+  /** Advisory (isolated — a throw is logged, not fatal). */
   onShellReady?: () => void;
+  /** Advisory. Fires once with the resolved route data. */
   onAllReady?: (initialData: T) => void;
+  /** FATAL error channel (shell error / timeout / guard / non-recoverable). */
   onError?: (error: unknown) => void;
+  /**
+   * Advisory, NON-FATAL structured render-error channel (R1-01) — fires for render errors that do
+   * not fail the response (notably post-shell boundary errors React recovers client-side). The
+   * server wires this to the request logger. Never a fatality signal.
+   */
+  onRenderError?: (info: RenderErrorInfo) => void;
 };
 
 export type SSRManifest = { [key: string]: string[] };

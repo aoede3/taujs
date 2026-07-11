@@ -230,7 +230,9 @@ export const handleRender = async (
     // exists solely on dev boots, so production HTML never carries it.
     const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
     const devStamp = devtools ? buildTaujsDevStamp(traceId, devtools.token, cspNonce) : '';
-    const ctx = { traceId, logger: reqLogger, headers, recorder };
+    // R1-01 (design 4): each branch sets `ctx.signal` from its request AbortController BEFORE the
+    // data is fetched, so loaders that honour `ctx.signal` stop on client disconnect / deadline.
+    const ctx = { traceId, logger: reqLogger, headers, recorder, signal: undefined as AbortSignal | undefined };
     const initialDataInput = async () => {
       const dataT0 = now();
       try {
@@ -265,6 +267,8 @@ export const handleRender = async (
         if (!reply.raw.writableEnded) ac.abort('socket_closed');
       });
       reply.raw.on('finish', () => req.raw.off('aborted', onAborted));
+
+      ctx.signal = ac.signal; // R1-01: propagate into the data context before fetching
 
       if (ac.signal.aborted) {
         logger.warn({ url: req.url }, 'SSR skipped; already aborted');
@@ -406,6 +410,8 @@ export const handleRender = async (
         req.raw.off('aborted', onAborted);
       });
 
+      ctx.signal = ac.signal; // R1-01: propagate into the data context before renderStream fetches it
+
       const shouldHydrate = attr?.hydrate !== false;
 
       const writable = new PassThrough();
@@ -450,6 +456,24 @@ export const handleRender = async (
           onAllReady: (data: unknown) => {
             if (!abortedState.aborted) finalData = data;
             recorder?.streamPhase({ traceId, phase: 'allReady' });
+          },
+          onRenderError: (info) => {
+            // R1-01 (design 7): NON-FATAL structured render-error channel — wired to the request
+            // logger with structured fields. No new recorder methods (TraceRecorder integration is
+            // introspection-owned, conventions #3). Never fails the response.
+            //
+            // Log at `warn`, not `error`: this channel is advisory by contract. Only `post-shell`
+            // errors are provably recoverable (React retries the boundary client-side); a
+            // `pre-shell` error's fatality is resolved by the SEPARATE fatal channel
+            // (`onError`/`onShellError`), which logs the real failure at `error` if it fails the
+            // response. Keying the message on `recoverable` avoids claiming "Recoverable" for a
+            // pre-shell error that then turns fatal (which previously double-logged at `error` with
+            // contradictory framing).
+            const message =
+              info.recoverable === true
+                ? 'Recoverable render error (React retries the affected boundary client-side)'
+                : 'Render error observed (pre-shell); response outcome resolved by the fatal channel';
+            reqLogger.warn({ error: safeNormaliseError(info.error), phase: info.phase, recoverable: info.recoverable, clientRoot, url: req.url }, message);
           },
           onError: (err: unknown) => {
             // Gate finding 1: `onError` is the renderer's FATAL channel — the renderer already

@@ -1247,6 +1247,43 @@ describe('handleRender', () => {
       expect(mockReply.raw.write).toHaveBeenCalled();
     });
 
+    it('R1-01: streaming threads the request AbortSignal into the data context', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      // Drive the initialData loader the way createSSRStore would, so fetchInitialData actually runs
+      // and we can assert the context it received. `ctx.signal = ac.signal` (streaming branch) runs
+      // BEFORE renderStream is called, so the shared ctx already carries the signal here. Regression
+      // guard: dropping that assignment must fail this.
+      const mockRenderStream = vi.fn((writable, callbacks, initialData) => {
+        writable.on = vi.fn((event: string, handler: any) => {
+          if (event === 'finish') handler();
+        });
+        void (initialData as () => Promise<unknown>)();
+        callbacks.onHead?.('<title>Stream</title>');
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({ ok: true });
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(DataRoutes.fetchInitialData).toHaveBeenCalledWith(
+        mockRoute.route.attr,
+        expect.anything(),
+        mockServiceRegistry,
+        expect.objectContaining({ signal: expect.anything() }),
+      );
+    });
+
     it('should handle streaming without hydration', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', hydrate: false, meta: {} });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -2526,6 +2563,12 @@ describe('handleRender', () => {
         expect.objectContaining({
           traceId: expect.any(String),
           headers: expect.objectContaining({ host: 'localhost' }),
+          // R1-01: the request AbortSignal is threaded into the data context BEFORE the fetch, so
+          // loaders can honour client disconnect / deadline. Regression guard for the SSR branch —
+          // dropping `ctx.signal = ac.signal` (HandleRender.ts) leaves `signal: undefined`, which
+          // `expect.anything()` rejects. (This suite mocks AbortController, so the signal is a mock
+          // object, not an `AbortSignal` instance — assert presence, not type.)
+          signal: expect.anything(),
           logger: expect.objectContaining({
             info: expect.any(Function),
             warn: expect.any(Function),
