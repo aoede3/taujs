@@ -1467,6 +1467,77 @@ describe('handleRender', () => {
       expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
     });
 
+    // Recheck: the fatal onError callback must never throw on a HOSTILE unknown (a component can
+    // legally throw an object whose `message` getter / `Symbol.toPrimitive` throws), otherwise the
+    // response teardown is skipped and the request hangs.
+    const hostileErrors: ReadonlyArray<readonly [string, () => unknown]> = [
+      [
+        'throwing message getter',
+        () => {
+          const o: Record<string, unknown> = {};
+          Object.defineProperty(o, 'message', {
+            get() {
+              throw new Error('getter boom');
+            },
+          });
+          return o;
+        },
+      ],
+      [
+        'throwing Symbol.toPrimitive',
+        () => ({
+          message: {
+            [Symbol.toPrimitive]() {
+              throw new Error('coercion boom');
+            },
+          },
+        }),
+      ],
+    ];
+
+    for (const [name, make] of hostileErrors) {
+      it(`recheck: onError with a hostile error (${name}) never throws and still terminates the response`, async () => {
+        setupStreamingRoute();
+
+        const mockRenderStream = vi.fn((writable, callbacks) => {
+          writable.on = vi.fn();
+          callbacks.onError?.(make()); // live request → fatal branch, with a hostile error
+          return { abort: vi.fn(), done: Promise.resolve() };
+        });
+        mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+        // No uncaught escapes, and the response is torn down deterministically (headers not sent → 500).
+        await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+
+        expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
+        expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.any(Object));
+      });
+    }
+
+    it('recheck: onError with a hostile error AFTER headers are sent → socket destroy teardown, no throw', async () => {
+      setupStreamingRoute();
+
+      const hostile: Record<string, unknown> = {};
+      Object.defineProperty(hostile, 'message', {
+        get() {
+          throw new Error('getter boom');
+        },
+      });
+
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        writable.on = vi.fn();
+        callbacks.onHead?.('<title>S</title>'); // commits headers (headersSent = true)
+        callbacks.onError?.(hostile); // headers already sent → destroy(safeToReason(err)) branch
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+
+      expect(mockReply.raw.destroy).toHaveBeenCalled();
+      expect(mockReply.raw.writeHead).not.toHaveBeenCalledWith(500, expect.any(Object));
+    });
+
     it('R0-04: streaming route with non-serializable (circular) final data terminates deterministically — no data script, no crash', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);

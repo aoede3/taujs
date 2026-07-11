@@ -51,6 +51,51 @@ const isBenignSocketError = (err: unknown): boolean => {
   );
 };
 
+// Recheck: the streaming render `onError` callback runs on a stream tick with a possibly-HOSTILE
+// `unknown` — a component may throw an object with a throwing `message` getter / `Symbol.toPrimitive`,
+// or a proxy with a throwing brand getter. These helpers extract telemetry WITHOUT ever throwing so
+// that formatting a fatal error can never veto the response teardown (500 / socket destroy).
+const safeStringify = (value: unknown): string => {
+  try {
+    return String(value);
+  } catch {
+    return '[unstringifiable]';
+  }
+};
+
+const safeErrorMessage = (err: unknown): string => {
+  try {
+    const message = (err as { message?: unknown } | null | undefined)?.message;
+    return safeStringify(message ?? err ?? '');
+  } catch {
+    return '[unstringifiable]';
+  }
+};
+
+const safeErrorKind = (err: unknown): string => {
+  try {
+    return AppError.isAppError(err) ? safeStringify((err as { kind?: unknown }).kind) : 'stream';
+  } catch {
+    return 'stream';
+  }
+};
+
+const safeNormaliseError = (err: unknown): ReturnType<typeof normaliseError> => {
+  try {
+    return normaliseError(err);
+  } catch {
+    return { name: 'Error', message: '[unstringifiable]' };
+  }
+};
+
+const safeToReason = (err: unknown): Error => {
+  try {
+    return toReason(err);
+  } catch {
+    return new Error('[unstringifiable render error]');
+  }
+};
+
 export const handleRender = async (
   req: FastifyRequest,
   reply: FastifyReply,
@@ -263,7 +308,7 @@ export const handleRender = async (
         logger.error(
           {
             url: req.url,
-            error: normaliseError(err),
+            error: safeNormaliseError(err),
           },
           'SSR render failed',
         );
@@ -302,7 +347,7 @@ export const handleRender = async (
         const benign = isBenignSocketError(err);
 
         if (!benign) {
-          logger.error({ url: req.url, error: normaliseError(err) }, 'SSR send failed');
+          logger.error({ url: req.url, error: safeNormaliseError(err) }, 'SSR send failed');
           recorder?.failed({ traceId, error: { kind: 'send', message: msg } });
         } else {
           logger.warn({ url: req.url, reason: msg }, 'SSR send aborted (benign)');
@@ -418,30 +463,27 @@ export const handleRender = async (
               try {
                 if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
               } catch (e) {
-                logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: destroy() failed');
+                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: destroy() failed');
               }
               return;
             }
 
             abortedState.aborted = true;
-            recorder?.failed({
-              traceId,
-              error: { kind: AppError.isAppError(err) ? (err as any).kind : 'stream', message: String((err as any)?.message ?? err ?? '') },
-            });
 
-            logger.error(
-              {
-                error: normaliseError(err),
-                clientRoot,
-                url: req.url,
-              },
-              'Critical rendering error during stream',
-            );
+            // Recheck: this callback must NEVER throw — a throw here (e.g. formatting a hostile
+            // error for telemetry) would skip the response teardown below and hang the request.
+            // Format defensively and belt the telemetry so teardown always runs.
+            try {
+              recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
+              logger.error({ error: safeNormaliseError(err), clientRoot, url: req.url }, 'Critical rendering error during stream');
+            } catch {
+              // telemetry formatting must not veto teardown
+            }
 
             try {
               ac?.abort?.();
             } catch (e) {
-              logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: abort() failed');
+              logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: abort() failed');
             }
 
             if (!reply.raw.headersSent) {
@@ -451,17 +493,17 @@ export const handleRender = async (
                 reply.raw.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
                 reply.raw.end('Internal Server Error');
               } catch (e) {
-                logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: error response failed');
+                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: error response failed');
               }
               return;
             }
 
-            const reason = toReason(err);
+            const reason = safeToReason(err);
 
             try {
               if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy(reason);
             } catch (e) {
-              logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: destroy() failed');
+              logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: destroy() failed');
             }
           },
         },
@@ -493,7 +535,7 @@ export const handleRender = async (
 
           if (!serialized.ok) {
             abortedState.aborted = true;
-            logger.error({ error: normaliseError(serialized.error), clientRoot, url: req.url }, 'Failed to serialize streaming initial data');
+            logger.error({ error: safeNormaliseError(serialized.error), clientRoot, url: req.url }, 'Failed to serialize streaming initial data');
             recorder?.failed({ traceId, error: { kind: 'serialize', message: String(serialized.error.message) } });
 
             // Deterministic termination — mirror the onError teardown idioms above.
@@ -502,14 +544,14 @@ export const handleRender = async (
                 reply.raw.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
                 reply.raw.end('Internal Server Error');
               } catch (e) {
-                logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: error response failed');
+                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: error response failed');
               }
             } else {
               // Shell already committed: end without the data script and destroy.
               try {
                 if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
               } catch (e) {
-                logger.debug?.('ssr', { error: normaliseError(e) }, 'stream teardown: destroy() failed');
+                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: destroy() failed');
               }
             }
             return;
@@ -526,7 +568,7 @@ export const handleRender = async (
           recorder?.sent({ traceId, status: 200, mode: 'streaming' });
         } catch (e) {
           // Belt: never let this listener throw — an uncaughtException here would exit the process.
-          logger.error({ error: normaliseError(e), clientRoot, url: req.url }, 'Streaming finish listener failed');
+          logger.error({ error: safeNormaliseError(e), clientRoot, url: req.url }, 'Streaming finish listener failed');
           try {
             if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
           } catch {}
