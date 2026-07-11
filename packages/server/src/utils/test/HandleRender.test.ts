@@ -1247,7 +1247,26 @@ describe('handleRender', () => {
       expect(mockReply.raw.write).toHaveBeenCalled();
     });
 
-    it('R1-01: streaming threads the request AbortSignal into the data context', async () => {
+    it('R1-01: streaming threads the request AbortSignal into the data ctx, and a client disconnect CANCELS it', async () => {
+      // Faithful AbortController: the suite's default mock has a no-op abort(); here abort() must flip
+      // signal.aborted so we can prove the loader's signal actually cancels on disconnect (gate-review
+      // "Additional Observations": presence alone is not enough).
+      (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
+        const signal: any = { aborted: false, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+        return {
+          abort: vi.fn(() => {
+            signal.aborted = true;
+          }),
+          signal,
+        };
+      });
+
+      // Capture the req 'aborted' disconnect handler so we can fire it.
+      let abortHandler: (() => void) | undefined;
+      mockReq.raw.on = vi.fn((event: string, cb: any) => {
+        if (event === 'aborted') abortHandler = cb;
+      });
+
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
@@ -1258,30 +1277,31 @@ describe('handleRender', () => {
         afterBody: '</body></html>',
       });
 
-      // Drive the initialData loader the way createSSRStore would, so fetchInitialData actually runs
-      // and we can assert the context it received. `ctx.signal = ac.signal` (streaming branch) runs
-      // BEFORE renderStream is called, so the shared ctx already carries the signal here. Regression
-      // guard: dropping that assignment must fail this.
+      // Capture the exact context the loader receives.
+      let loaderCtx: any;
+      vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+        loaderCtx = ctx;
+        return { ok: true };
+      });
+
+      // Drive the initialData loader the way createSSRStore would (so fetchInitialData runs), but do
+      // NOT fire 'finish' — that would unregister the 'aborted' handler before we can trigger it.
       const mockRenderStream = vi.fn((writable, callbacks, initialData) => {
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') handler();
-        });
+        writable.on = vi.fn();
         void (initialData as () => Promise<unknown>)();
         callbacks.onHead?.('<title>Stream</title>');
         return { abort: vi.fn(), done: Promise.resolve() };
       });
-
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
-      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({ ok: true });
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
-      expect(DataRoutes.fetchInitialData).toHaveBeenCalledWith(
-        mockRoute.route.attr,
-        expect.anything(),
-        mockServiceRegistry,
-        expect.objectContaining({ signal: expect.anything() }),
-      );
+      // The loader received the signal (regression guard: dropping `ctx.signal = ac.signal` leaves it
+      // undefined) and it is the SAME signal the disconnect path aborts.
+      expect(loaderCtx?.signal).toBeDefined();
+      expect(loaderCtx.signal.aborted).toBe(false);
+      abortHandler?.(); // simulate the client disconnecting mid-stream
+      expect(loaderCtx.signal.aborted).toBe(true);
     });
 
     it('should handle streaming without hydration', async () => {

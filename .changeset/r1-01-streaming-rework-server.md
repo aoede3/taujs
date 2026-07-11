@@ -14,7 +14,9 @@ R1-01: add the additive `onRenderError` render-error contract and propagate the 
   JSDoc documents which callbacks are fatal vs advisory.
 - **AbortSignal into data context.** The request `AbortController.signal` is now threaded into the
   data-resolution context for both the SSR and streaming branches, so loaders can observe client
-  disconnects. Non-throwing error formatting on the logging path is preserved.
+  disconnects — proven end-to-end by a test that fires the streaming disconnect handler and asserts
+  the loader's `ctx.signal.aborted` flips. Non-throwing error formatting on the logging path is
+  preserved.
 
 `onRenderError` is OPTIONAL and non-breaking in either direction (unlike R0-01's `RenderStream`
 return-type change), so existing `RenderCallbacks` users are unaffected — `patch` per the R1-01
