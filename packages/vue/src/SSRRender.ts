@@ -321,7 +321,10 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       },
       destroy: (err: unknown) => {
         if (controller.isAborted) return;
-        if (isBenignStreamErr(err)) {
+        // R0-02: `destroy` is fed by the render pipeline — render-origin, never benign by shape.
+        // Real client disconnects arrive via the writable guards ('socket') and the AbortSignal,
+        // which remain benign-capable.
+        if (isBenignStreamErr(err, 'render')) {
           controller.benignAbort('Client disconnected during stream');
           return;
         }

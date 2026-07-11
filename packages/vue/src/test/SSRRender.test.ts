@@ -369,25 +369,27 @@ describe('createRenderer.renderStream — error & abort paths', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it('sink.destroy with a benign disconnect → done resolves, no onError', async () => {
+  it('R0-02: sink.destroy with a disconnect-shaped error is still fatal (destroy is render-origin)', async () => {
     const writable = new Collector();
     const onError = vi.fn();
 
     const { done } = makeRenderer().renderStream(writable as any, { onError }, {} as any, '/disconnect');
 
+    // `destroy` is fed by the render pipeline — a disconnect-shaped message must not be swallowed.
     getSink().destroy(new Error('ECONNRESET'));
 
-    await expect(done).resolves.toBeUndefined();
-    expect(onError).not.toHaveBeenCalled();
+    await expect(done).rejects.toThrow('ECONNRESET');
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it('a benign writable error resolves done (client disconnect)', async () => {
+  it('a benign writable error (socket disconnect by code) resolves done', async () => {
     const writable = new Collector();
     const onError = vi.fn();
 
     const { done } = makeRenderer().renderStream(writable as any, { onError }, {} as any, '/writable-benign');
 
-    writable.emit('error', new Error('EPIPE'));
+    // real client disconnect surfaced on the writable ('socket'-origin), benign by code (R0-02)
+    writable.emit('error', Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
 
     await expect(done).resolves.toBeUndefined();
     expect(onError).not.toHaveBeenCalled();
