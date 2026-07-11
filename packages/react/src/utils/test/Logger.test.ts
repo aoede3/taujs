@@ -77,6 +77,69 @@ describe('createUILogger - enableDebug gate', () => {
   });
 });
 
+describe('createUILogger — non-throwing on hostile values (gate finding 2)', () => {
+  const circular: Record<string, unknown> = {};
+  circular.self = circular;
+
+  const hostileToJSON = {
+    toJSON() {
+      throw new Error('toJSON boom');
+    },
+  };
+  const hostileCoercion = {
+    [Symbol.toPrimitive]() {
+      throw new Error('coercion boom');
+    },
+    toString() {
+      throw new Error('coercion boom');
+    },
+  };
+
+  const values: ReadonlyArray<readonly [string, unknown]> = [
+    ['BigInt', 1n],
+    ['circular', circular],
+    ['symbol', Symbol('s')],
+    ['throwing toJSON', hostileToJSON],
+    ['throwing Symbol.toPrimitive', hostileCoercion],
+  ];
+
+  for (const [name, v] of values) {
+    it(`server-shaped logger: error(${name}) does not throw (formatting is isolated)`, () => {
+      const server: ServerLogs = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const ui = createUILogger(server, { enableDebug: false });
+
+      expect(() => ui.error('boom', v)).not.toThrow();
+      expect(() => ui.warn('boom', v)).not.toThrow();
+    });
+  }
+
+  it('isolates a server logger method that itself throws', () => {
+    const server: ServerLogs = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(() => {
+        throw new Error('logger.error boom');
+      }),
+    };
+    const ui = createUILogger(server, { enableDebug: false });
+
+    expect(() => ui.error('anything')).not.toThrow();
+  });
+
+  it('isolates a UI-shaped logger method that itself throws', () => {
+    const ui = createUILogger(
+      {
+        error: () => {
+          throw new Error('ui.error boom');
+        },
+      },
+      { enableDebug: false },
+    );
+
+    expect(() => ui.error('anything')).not.toThrow();
+  });
+});
+
 describe('createUILogger - UI-logger-shaped input', () => {
   it('uses provided UI methods and falls back to console for missing ones; forwards raw args', () => {
     const { warnSpy, errSpy } = mkSpies();

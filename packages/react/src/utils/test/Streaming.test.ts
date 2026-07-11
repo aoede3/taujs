@@ -496,4 +496,36 @@ describe('createStreamController', () => {
     expect(warn).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
   });
+
+  it('gate finding 2: fatalAbort still cleans up and rejects done when the logger throws', async () => {
+    const w = makeWritableMock();
+    const throwingLogger: StreamLogger = {
+      warn: vi.fn(),
+      error: () => {
+        throw new Error('logger boom');
+      },
+    };
+    const c = createStreamController(w, throwingLogger);
+
+    c.fatalAbort(new Error('fatal'));
+
+    await expect(c.done).rejects.toThrow('fatal');
+    expect(w.destroyed).toBe(true); // cleanup ran despite the logger throwing
+  });
+
+  it('gate finding 2: benignAbort still cleans up and resolves done when the logger throws', async () => {
+    const w = makeWritableMock();
+    const throwingLogger: StreamLogger = {
+      warn: () => {
+        throw new Error('logger boom');
+      },
+      error: vi.fn(),
+    };
+    const c = createStreamController(w, throwingLogger);
+
+    c.benignAbort('client gone');
+
+    await expect(c.done).resolves.toBeUndefined();
+    expect(w.destroyed).toBe(true);
+  });
 });

@@ -202,21 +202,30 @@ export function createStreamController(writable: Writable, logger: StreamLogger)
     complete(message?: string) {
       if (aborted) return;
 
-      if (message) (log ?? warn)(message);
+      // Gate: a throwing logger must never prevent cleanup/settlement — the diagnostic must not
+      // break the control-flow path it observes. (createUILogger is already non-throwing; this is
+      // defence in depth for any StreamLogger, including a `fatalAbort(<BigInt>)`.)
+      try {
+        if (message) (log ?? warn)(message);
+      } catch {}
       cleanup(true);
     },
 
     benignAbort(why) {
       if (aborted) return;
 
-      warn(why);
+      try {
+        warn(why);
+      } catch {}
       cleanup(true);
     },
 
     fatalAbort(err) {
       if (aborted) return;
 
-      error('Stream aborted with error:', err);
+      try {
+        error('Stream aborted with error:', err);
+      } catch {}
       cleanup(false, err);
     },
 
