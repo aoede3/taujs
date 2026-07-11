@@ -365,7 +365,10 @@ export const handleRender = async (
             if (manifest && cssLink) aggregateHeadContent += cssLink;
 
             commitHead();
-            reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${templateParts.afterHead}${templateParts.beforeBody}${devStamp}`);
+            // devStamp lives in <head>, never inside #root: a leading <script> before the
+            // streamed app HTML is a Vue hydration node mismatch (the whole app re-renders
+            // as a duplicate sibling). React skips unexpected scripts, Vue does not.
+            reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${devStamp}${templateParts.afterHead}${templateParts.beforeBody}`);
             recorder?.streamPhase({ traceId, phase: 'head' });
 
             if (!pipedToReply) {

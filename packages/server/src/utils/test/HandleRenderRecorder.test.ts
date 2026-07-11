@@ -237,6 +237,13 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
     });
 
     expect(writes[0]).toContain(`window.__TAUJS_TRACE_ID__="${T}"`);
+
+    // Regression: the stamp must sit in <head>, never inside the app container. A <script>
+    // preceding the streamed app HTML inside #root is a Vue hydration node mismatch — Vue
+    // re-renders the whole app as a duplicate sibling (React skips unexpected scripts).
+    const firstWrite = writes[0]!;
+    expect(firstWrite.indexOf('__TAUJS_TRACE_ID__')).toBeLessThan(firstWrite.indexOf('</head>'));
+    expect(firstWrite.endsWith('<main>')).toBe(true);
   });
 
   it('the fallthrough shell gets its own stamp', async () => {
