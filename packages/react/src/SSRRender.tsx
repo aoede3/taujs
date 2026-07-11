@@ -60,6 +60,12 @@ export type StreamOptions = {
   dataTimeoutMs?: number;
 };
 
+/**
+ * Context passed to `headContent`: `data` is the resolved route data, `meta`/`routeContext` the
+ * route's static metadata and per-request context. NB `headContent` returns RAW `<head>` HTML — any
+ * value interpolated from `data` (or other services/user input) must be escaped with `escapeHtml`
+ * (see the `headContent` option's docs).
+ */
 export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>, R = unknown> = {
   data: T;
   meta: Record<string, unknown>;
@@ -83,6 +89,14 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   enableDebug = false,
 }: {
   appComponent: (props: { location: string; routeContext?: R }) => React.ReactElement;
+  /**
+   * Returns the per-route `<head>` inner HTML. The return value is written into `<head>` VERBATIM as
+   * RAW HTML — it is deliberately NOT auto-escaped, so you can emit `<meta>`/`<link>`/`<script>` tags.
+   * Therefore any value interpolated from `data` (services or user input) MUST be escaped first with
+   * `escapeHtml` (exported from `@taujs/react`), e.g.
+   * `` `<meta property="og:image" content="${escapeHtml(data.ogImage)}">` ``. See the head-management
+   * guide, "Best Practices — Escape User Content".
+   */
   headContent: (ctx: HeadContext<T, R>) => string;
   enableDebug?: boolean;
   logger?: LoggerLike;
