@@ -679,7 +679,7 @@ describe('handleRender', () => {
       expect(mockRenderModule.renderSSR).not.toHaveBeenCalled();
     });
 
-    it('warns and returns on benign SSR render error', async () => {
+    it('R0-02: SSR render error with a disconnect-shaped message but signal NOT aborted → 500, not a silent hang', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
@@ -690,16 +690,19 @@ describe('handleRender', () => {
         afterBody: '</body></html>',
       });
 
-      const renderSSR = vi.fn().mockRejectedValue(new Error('socket hang up')); // <- benign by regex
+      // render-origin error whose message merely LOOKS like a disconnect — must not be swallowed
+      // (previously returned benign+silent, hanging the request).
+      const renderSSR = vi.fn().mockRejectedValue(new Error('Payment aborted unexpectedly'));
       mockMaps.renderModules.set('/test/client', { renderSSR });
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
+        'handleRender failed',
+      );
 
-      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'socket hang up' }), 'SSR aborted mid-render (benign)');
-      expect(mockLogger.error).not.toHaveBeenCalledWith(expect.any(Object), 'SSR render failed');
-      expect(mockReply.send).not.toHaveBeenCalled();
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'SSR render failed');
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(expect.any(Object), 'SSR aborted mid-render (client disconnected)');
     });
 
     it('logs error and rethrows on non-benign SSR render error', async () => {
@@ -756,14 +759,14 @@ describe('handleRender', () => {
       });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      // throw benign error from send
+      // throw a real socket-origin error from send (benign by code — R0-02)
       mockReply.send = vi.fn(() => {
-        throw new Error('EPIPE');
+        throw Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
       });
 
       await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
 
-      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'EPIPE' }), 'SSR send aborted (benign)');
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'write EPIPE' }), 'SSR send aborted (benign)');
       expect(mockLogger.error).not.toHaveBeenCalledWith(expect.any(Object), 'SSR send failed');
     });
 
@@ -798,8 +801,14 @@ describe('handleRender', () => {
       expect(mockLogger.warn).not.toHaveBeenCalledWith(expect.any(Object), 'SSR send aborted (benign)');
     });
 
-    it('SSR render catch: benign via string err (uses ?? err)', async () => {
+    it('R0-02: SSR render throws after the client disconnected (signal aborted) → benign, silent (?? err coverage)', async () => {
       vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+
+      // Client disconnects DURING render: signal is false at the pre-render check, true at the catch.
+      const signal = { aborted: false };
+      (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
+        return { abort: vi.fn(), signal };
+      });
 
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -812,7 +821,10 @@ describe('handleRender', () => {
         afterBody: '</body></html>',
       });
 
-      const renderSSR = vi.fn().mockRejectedValue('aborted'); // no .message -> hits "?? err"
+      const renderSSR = vi.fn().mockImplementation(async () => {
+        signal.aborted = true; // client vanished mid-render
+        throw 'aborted'; // string, no .message -> exercises the "?? err" reason extraction
+      });
       const viteDevServer = {
         ssrLoadModule: vi.fn().mockResolvedValue({ renderSSR }),
         transformIndexHtml: vi.fn().mockResolvedValue('<html><head></head><body></body></html>'),
@@ -825,7 +837,10 @@ describe('handleRender', () => {
         viteDevServer,
       });
 
-      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'aborted' }), 'SSR aborted mid-render (benign)');
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ url: mockReq.url, reason: 'aborted' }),
+        'SSR aborted mid-render (client disconnected)',
+      );
     });
 
     it('SSR render catch: non-benign via undefined err (uses ?? "")', async () => {
@@ -858,7 +873,7 @@ describe('handleRender', () => {
       expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, error: expect.any(Object) }), 'SSR render failed');
     });
 
-    it('SSR send catch: benign via string err (uses ?? err)', async () => {
+    it('R0-02: SSR send catch: a thrown string has no socket shape → NOT benign → send-failed logged (?? err coverage)', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
 
@@ -876,12 +891,13 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
       mockReply.send = vi.fn(() => {
-        throw 'premature'; // plain string -> uses ?? err
+        throw 'premature'; // plain string -> no .code/.message, so NOT benign (R0-02); '?? err' extracts the message
       }) as any;
 
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
-      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'premature' }), 'SSR send aborted (benign)');
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'SSR send failed');
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(expect.any(Object), 'SSR send aborted (benign)');
     });
 
     it('SSR send catch: non-benign via undefined err (uses ?? "")', async () => {
@@ -1397,7 +1413,8 @@ describe('handleRender', () => {
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
         writable.on = vi.fn();
-        callbacks.onError?.(new Error('EPIPE'));
+        // real socket-origin disconnect (benign by code — R0-02)
+        callbacks.onError?.(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 

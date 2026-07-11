@@ -6,7 +6,6 @@ import { AppError, normaliseError, toReason } from '../core/errors/AppError';
 import { fetchInitialData, matchRoute } from '../core/routes/DataRoutes';
 import { now } from '../core/telemetry/Telemetry';
 import { resolveEntryFile } from '../Build';
-import { REGEX } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
 import { createRequestContext, getRequestContext } from './Telemetry';
@@ -30,6 +29,26 @@ import type { RouteMatcher } from '../core/routes/DataRoutes';
 import type { ServiceRegistry } from '../core/services/DataServices';
 import type { Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../types';
 import { handleNotFound } from './HandleNotFound';
+
+// R0-02: origin-aware benign classification, textually parallel to `isBenignStreamErr` in
+// packages/react/src/utils/Streaming.ts (the server does not import renderer utils). A
+// socket/writable-origin error is a benign client disconnect iff its code/name/exact message
+// says so; render/data-origin errors are never benign by shape — an app error whose message
+// merely contains "aborted" must not be swallowed as a disconnect.
+const BENIGN_SOCKET_CODES = new Set(['ECONNRESET', 'EPIPE', 'ECONNABORTED', 'ERR_STREAM_PREMATURE_CLOSE', 'ERR_STREAM_DESTROYED']);
+const BENIGN_SOCKET_MESSAGES = new Set(['aborted', 'socket hang up', 'premature close', 'request aborted']);
+
+const isBenignSocketError = (err: unknown): boolean => {
+  const e = err as { code?: unknown; name?: unknown; message?: unknown } | null | undefined;
+  if (typeof e?.code === 'string' && BENIGN_SOCKET_CODES.has(e.code)) return true;
+  if (e?.name === 'AbortError') return true;
+
+  return BENIGN_SOCKET_MESSAGES.has(
+    String(e?.message ?? '')
+      .trim()
+      .toLowerCase(),
+  );
+};
 
 export const handleRender = async (
   req: FastifyRequest,
@@ -224,16 +243,17 @@ export const handleRender = async (
           return;
         }
       } catch (err) {
-        const msg = String((err as any)?.message ?? err ?? '');
-        const benign = REGEX.BENIGN_NET_ERR.test(msg);
-
-        if (ac.signal.aborted || benign) {
+        // R0-02: a renderSSR failure is render/data-origin — never benign by shape. Only an
+        // actual client disconnect (signal aborted) is benign; anything else is an application
+        // error that must produce a real 500. Previously a disconnect-shaped message returned
+        // here WITHOUT sending a response, hanging the request.
+        if (ac.signal.aborted) {
           logger.warn(
             {
               url: req.url,
-              reason: msg,
+              reason: String((err as any)?.message ?? err ?? ''),
             },
-            'SSR aborted mid-render (benign)',
+            'SSR aborted mid-render (client disconnected)',
           );
           recorder?.aborted({ traceId, phase: 'render' });
           return;
@@ -271,7 +291,8 @@ export const handleRender = async (
         return sendResult;
       } catch (err) {
         const msg = String((err as any)?.message ?? err ?? '');
-        const benign = REGEX.BENIGN_NET_ERR.test(msg);
+        // R0-02: a send failure is socket/writable-origin — classify by socket taxonomy.
+        const benign = isBenignSocketError(err);
 
         if (!benign) {
           logger.error({ url: req.url, error: normaliseError(err) }, 'SSR send failed');
@@ -335,18 +356,13 @@ export const handleRender = async (
 
       const shouldHydrate = attr?.hydrate !== false;
 
-      const isBenignSocketAbort = (e: unknown) => {
-        const msg = String((e as any)?.message ?? e ?? '');
-        return REGEX.BENIGN_NET_ERR.test(msg);
-      };
-
       const writable = new PassThrough();
       writable.on('error', (err) => {
-        if (!isBenignSocketAbort(err)) logger.error({ error: err }, 'PassThrough error:');
+        if (!isBenignSocketError(err)) logger.error({ error: err }, 'PassThrough error:');
       });
 
       reply.raw.on('error', (err) => {
-        if (!isBenignSocketAbort(err)) logger.error({ error: err }, 'HTTP socket error:');
+        if (!isBenignSocketError(err)) logger.error({ error: err }, 'HTTP socket error:');
       });
 
       let finalData: unknown = undefined;
@@ -384,7 +400,7 @@ export const handleRender = async (
             recorder?.streamPhase({ traceId, phase: 'allReady' });
           },
           onError: (err: unknown) => {
-            if (abortedState.aborted || isBenignSocketAbort(err)) {
+            if (abortedState.aborted || isBenignSocketError(err)) {
               logger.warn({}, 'Client disconnected before stream finished');
               recorder?.aborted({ traceId, phase: 'stream' });
               try {
