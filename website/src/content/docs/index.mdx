@@ -18,6 +18,7 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
 import fastifyLogo from "../../assets/fastify.svg";
 import viteLogo from "../../assets/vite.svg";
 import reactLogo from "../../assets/react.svg";
+import vueLogo from "../../assets/vue.svg";
 
 <div className="container__logos">
   <a
@@ -44,9 +45,17 @@ import reactLogo from "../../assets/react.svg";
   >
     <img src={reactLogo.src} className="logo react" alt="React logo" />
   </a>
+  <a
+    href="https://vuejs.org/"
+    target="_blank"
+    title="Vue: The Progressive JavaScript Framework"
+    rel="noreferrer"
+  >
+    <img src={vueLogo.src} className="logo" alt="Vue logo" />
+  </a>
 </div>
 
-τjs is an orchestration layer built on Fastify, Vite, and React. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
+τjs is an orchestration layer built on Fastify, Vite, and React / Vue. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
 
 
 ## Request boundary not component tree

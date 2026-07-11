@@ -1,6 +1,6 @@
 # τjs &nbsp;[ taujs ]
 
-> τjs is an orchestration layer built on Fastify, Vite, and React. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
+> τjs is an orchestration layer built on Fastify, Vite, and React / Vue. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
 
 [![@taujs/server](https://img.shields.io/npm/v/@taujs/server?label=%40taujs%2Fserver)](https://www.npmjs.com/package/@taujs/server)
 [![@taujs/react](https://img.shields.io/npm/v/@taujs/react?label=%40taujs%2Freact)](https://www.npmjs.com/package/@taujs/react)
