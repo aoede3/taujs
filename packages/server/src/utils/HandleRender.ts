@@ -352,7 +352,7 @@ export const handleRender = async (
       let finalData: unknown = undefined;
       let pipedToReply = false;
 
-      renderStream(
+      const { done } = renderStream(
         writable,
         {
           onHead: (headContent: string) => {
@@ -445,6 +445,13 @@ export const handleRender = async (
         ac.signal,
         { logger: reqLogger, routeContext },
       );
+
+      // R0-01: observe the stream handle's `done`. Fatal stream errors are already fully handled
+      // via the `onError` callback above, so this catch is acknowledgement (it marks the
+      // rejection handled) and defence in depth if a renderer omits its own pre-attached handler
+      // — an unobserved rejected `done` would otherwise crash the process under Node's default
+      // unhandled-rejection mode.
+      void done.catch(() => {});
 
       writable.on('finish', () => {
         if (abortedState.aborted || reply.raw.writableEnded) return;

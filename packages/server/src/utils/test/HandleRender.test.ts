@@ -970,7 +970,7 @@ describe('handleRender', () => {
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onShellReady?.();
         callbacks.onAllReady?.({ streamed: 'data' });
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1046,7 +1046,7 @@ describe('handleRender', () => {
           writable.emit('finish');
         }, 0);
 
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1217,7 +1217,7 @@ describe('handleRender', () => {
         callbacks.onShellReady?.();
         callbacks.onAllReady?.({ streamed: 'data' });
 
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1248,7 +1248,7 @@ describe('handleRender', () => {
         writable.on = vi.fn();
         callbacks.onHead?.('<title>Stream</title>');
 
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1279,7 +1279,7 @@ describe('handleRender', () => {
 
       const mockRenderStream = vi.fn((writable) => {
         writable.on = vi.fn();
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1311,7 +1311,7 @@ describe('handleRender', () => {
 
       const mockRenderStream = vi.fn((writable) => {
         writable.on = vi.fn();
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1345,7 +1345,7 @@ describe('handleRender', () => {
           }
         });
 
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1371,7 +1371,7 @@ describe('handleRender', () => {
 
       const mockRenderStream = vi.fn((writable) => {
         writable.emit('error', new Error('Unknown error'));
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1398,7 +1398,7 @@ describe('handleRender', () => {
       const mockRenderStream = vi.fn((writable, callbacks) => {
         writable.on = vi.fn();
         callbacks.onError?.(new Error('EPIPE'));
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1426,7 +1426,7 @@ describe('handleRender', () => {
       const mockRenderStream = vi.fn((writable, callbacks) => {
         callbacks.onError?.(new Error('EPIPE'));
         writable.emit('finish');
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1461,7 +1461,7 @@ describe('handleRender', () => {
           }
         });
 
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1517,7 +1517,7 @@ describe('handleRender', () => {
           }
         });
 
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1551,7 +1551,7 @@ describe('handleRender', () => {
           }
         });
 
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };
@@ -1586,7 +1586,7 @@ describe('handleRender', () => {
         writable.on = vi.fn();
         callbacks.onError?.(benign);
         writable.emit?.('finish');
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
@@ -1629,7 +1629,7 @@ describe('handleRender', () => {
         writable.on = vi.fn();
         callbacks.onError?.(new Error('boom'));
         writable.emit?.('finish');
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
@@ -1672,7 +1672,7 @@ describe('handleRender', () => {
         writable.on = vi.fn();
         callbacks.onError?.(new Error('boom'));
         writable.emit?.('finish');
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
@@ -1705,7 +1705,7 @@ describe('handleRender', () => {
       const mockRenderStream = vi.fn((writable, callbacks) => {
         writable.on = vi.fn();
         callbacks.onError?.(new Error('boom'));
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
@@ -1735,7 +1735,7 @@ describe('handleRender', () => {
       const mockRenderStream = vi.fn((writable, callbacks) => {
         writable.on = vi.fn();
         capturedCallbacks = callbacks;
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
@@ -1769,7 +1769,7 @@ describe('handleRender', () => {
         });
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onAllReady?.({ hello: 'world' });
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
@@ -1800,7 +1800,7 @@ describe('handleRender', () => {
         });
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onAllReady?.({ ok: true });
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
@@ -1834,7 +1834,7 @@ describe('handleRender', () => {
         renderStream: vi.fn((writable: any, callbacks: any) => {
           callbacks.onHead?.('<title>X</title>');
           writable.emit('finish');
-          return {};
+          return { abort: vi.fn(), done: Promise.resolve() };
         }),
       });
 
@@ -1872,7 +1872,7 @@ describe('handleRender', () => {
         renderStream: vi.fn((writable: any, callbacks: any) => {
           callbacks.onHead?.('<title>X</title>');
           writable.emit('finish');
-          return {};
+          return { abort: vi.fn(), done: Promise.resolve() };
         }),
       });
 
@@ -1914,7 +1914,7 @@ describe('handleRender', () => {
         closeHandler?.(); // sets abortedState.aborted=true in your implementation
         callbacks.onAllReady?.({ shouldNotBeUsed: true });
         writable.emit('finish');
-        return {};
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
@@ -1945,7 +1945,7 @@ describe('handleRender', () => {
         renderStream: vi.fn((writable: any, callbacks: any) => {
           callbacks.onHead?.('<title>X</title>');
           writable.emit('finish');
-          return {};
+          return { abort: vi.fn(), done: Promise.resolve() };
         }),
       });
 
@@ -2220,7 +2220,7 @@ describe('handleRender', () => {
       const mockRenderStream = vi.fn((writable, callbacks) => {
         callbacks.onHead?.('<title>Dev Streaming</title>');
         writable.emit('finish');
-        return {};
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockViteDevServer.ssrLoadModule.mockResolvedValue({
@@ -2479,7 +2479,7 @@ describe('handleRender', () => {
           if (!writable.on) writable.on = vi.fn();
           callbacks.onError?.(errValue);
           writable.emit?.('finish');
-          return { abort: vi.fn() };
+          return { abort: vi.fn(), done: Promise.resolve() };
         });
 
         mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
@@ -2590,7 +2590,7 @@ describe('handleRender', () => {
 
       const mockRenderStream = vi.fn((writable) => {
         setTimeout(() => writable.emit('finish'), 0);
-        return { abort: vi.fn() };
+        return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       const mockRenderModule = { renderStream: mockRenderStream };

@@ -84,6 +84,25 @@ export type RenderSSR = (
   appHtml: string;
 }>;
 
+/**
+ * The lifecycle handle a renderer's `renderStream` returns (R0-01).
+ *
+ * - `abort()` requests a benign cancel of an in-flight stream.
+ * - `done` resolves on normal completion or benign cancel, and REJECTS on a fatal stream error.
+ *
+ * The rejection is pre-observed inside the renderer: a no-op handler is attached to the same
+ * promise at creation (see each framework's `createStreamController`), so an unobserved `done`
+ * can never raise `unhandledRejection` — which Node's default mode turns into a
+ * process-terminating `uncaughtException`. Consumers who `await done` still receive the fatal
+ * error on their own handler; consumers who ignore `done` are safe. The server observes `done`
+ * as acknowledgement (fatal errors are already handled via the `onError` callback) and as
+ * defence in depth against a third-party renderer that omits the pre-attached handler.
+ */
+export type RenderStreamHandle = {
+  abort(): void;
+  done: Promise<void>;
+};
+
 export type RenderStream = (
   // The server always passes a node Writable (a PassThrough); both framework renderers have
   // always consumed node-Writable APIs. The contract states that truth (V1-05).
@@ -96,7 +115,7 @@ export type RenderStream = (
   cspNonce?: string,
   signal?: AbortSignal,
   opts?: { logger?: RendererLogger; routeContext?: unknown },
-) => { abort(): void };
+) => RenderStreamHandle;
 
 export type RenderModule = {
   renderSSR: RenderSSR;
