@@ -432,6 +432,28 @@ describe('createRenderer.renderStream', () => {
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
+  it('recheck: a throwing cb.onError does not veto fatal settlement — done rejects with the ORIGINAL error, single fire', async () => {
+    const { writable } = makeWritable();
+    const original = new Error('render boom');
+    const onError = vi.fn(() => {
+      throw new Error('onError boom');
+    });
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const r = renderStream(writable as any, { onError }, {}, '/fatal-throwing-cb');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onError(original); // React surfaces a fatal render error
+
+    // failFatal runs controller.fatalAbort in `finally`, so `done` still rejects with the ORIGINAL
+    // error even though cb.onError threw (old code skipped fatalAbort → done never settled).
+    await expect(r.done).rejects.toBe(original);
+    expect(onError).toHaveBeenCalledTimes(1); // single fire (no double-fire, no skip)
+  });
+
   it('AbortSignal already aborted: benign abort & no stream render; manual abort works', async () => {
     const { writable } = makeWritable();
     const ac = new AbortController();

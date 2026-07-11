@@ -132,6 +132,20 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     // Stream controller centralises cleanup & settlement
     const controller = createStreamController(writable, { log, warn, error });
 
+    // Recheck: EVERY fatal path routes through here so the host `onError` callback can NEVER veto
+    // controller cleanup/settlement. A throwing `onError` is logged and SWALLOWED — it must not
+    // veto `fatalAbort` (below, always runs) NOR escape, since this may be called from a timer or a
+    // writable EventEmitter listener where a throw would be an uncaughtException. The ORIGINAL error
+    // is the rejection reason. Also the single site that fires `cb.onError` for a fatal (no double-fire).
+    const failFatal = (err: unknown) => {
+      try {
+        cb.onError(err);
+      } catch (cbErr) {
+        warn('onError callback threw:', cbErr);
+      }
+      controller.fatalAbort(err);
+    };
+
     // Wire AbortSignal (benign cancel)
     if (signal) {
       const handleAbortSignal = () => controller.benignAbort(`AbortSignal triggered; aborting stream for location: ${location}`);
@@ -153,11 +167,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     // Writable guards (handles error/close/finish)
     const { cleanup: guardsCleanup } = wireWritableGuards(writable, {
       benignAbort: (why) => controller.benignAbort(why),
-      fatalAbort: (err) => {
-        cb.onError(err);
-        controller.fatalAbort(err);
-      },
-      onError: cb.onError,
+      fatalAbort: (err) => failFatal(err),
       onFinish: () => controller.complete('Stream finished (normal completion)'),
     });
     controller.setGuardsCleanup(guardsCleanup);
@@ -167,8 +177,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       if (controller.isAborted) return;
 
       const timeoutErr = new Error(`Shell not ready after ${effectiveShellTimeout}ms`);
-      cb.onError(timeoutErr);
-      controller.fatalAbort(timeoutErr);
+      failFatal(timeoutErr);
     });
     controller.setStopShellTimer(stopShellTimer);
 
@@ -227,8 +236,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
               warn('onShellReady callback threw:', cbErr);
             }
           } catch (err) {
-            cb.onError(err);
-            controller.fatalAbort(err);
+            failFatal(err);
           }
         },
         onAllReady() {
@@ -245,13 +253,11 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
               if (thrown && typeof (thrown as any).then === 'function') {
                 (thrown as Promise<unknown>).then(deliver).catch((e) => {
                   error('Data promise rejected:', e);
-                  cb.onError(e);
-                  controller.fatalAbort(e);
+                  failFatal(e);
                 });
               } else {
                 error('Unexpected throw from getSnapshot:', thrown);
-                cb.onError(thrown);
-                controller.fatalAbort(thrown);
+                failFatal(thrown);
               }
             }
           };
@@ -266,8 +272,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
             stopShellTimer();
           } catch {}
 
-          cb.onError(err);
-          controller.fatalAbort(err);
+          failFatal(err);
         },
 
         onError(err) {
@@ -284,15 +289,13 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
             return;
           }
 
-          cb.onError(err);
-          controller.fatalAbort(err);
+          failFatal(err);
         },
       });
 
       controller.setStreamAbort(() => stream.abort());
     } catch (err) {
-      cb.onError(err);
-      controller.fatalAbort(err);
+      failFatal(err);
     }
 
     return {
