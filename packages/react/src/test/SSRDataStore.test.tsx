@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { act, render } from '@testing-library/react';
 import { screen } from '@testing-library/dom';
@@ -103,7 +103,7 @@ describe('createSSRStore', () => {
     console.error = consoleError;
   });
 
-  it('should allow setting data before initialDataPromise resolves', async () => {
+  it('should allow setting data before initialDataPromise resolves (setData supersedes the loader - R3-08)', async () => {
     let resolvePromise: (value: Record<string, unknown>) => void;
     const initialDataPromise = new Promise<any>((resolve) => {
       resolvePromise = resolve;
@@ -122,7 +122,10 @@ describe('createSSRStore', () => {
       await initialDataPromise;
     });
 
-    expect(store.getSnapshot()).toEqual({ foo: 'bar' });
+    // R3-08: the previous assertion here ({ foo: 'bar' }) had FROZEN the defect - the loader's
+    // late settlement silently overwrote the explicit setData. Signed ruling S2: setData
+    // supersedes the in-flight initial promise.
+    expect(store.getSnapshot()).toEqual({ foo: 'early' });
   });
 
   it('should remove subscriber after unsubscribe', async () => {
@@ -252,6 +255,8 @@ describe('SSRStoreProvider and useSSRStore', () => {
     console.error = consoleError;
   });
 
+  // R3-02 (C2): a thrown STRING keeps its message unquoted. This test previously froze the old
+  // behaviour, where `new Error(String(JSON.stringify(error)))` quoted it as '"not an error object"'.
   it('should handle non-Error thrown values', async () => {
     const errorPromise = Promise.reject('not an error object');
     const store = createSSRStore(errorPromise);
@@ -265,7 +270,7 @@ describe('SSRStoreProvider and useSSRStore', () => {
 
     await new Promise((r) => setImmediate(r));
 
-    expect(() => store.getSnapshot()).toThrow('SSR data fetch failed: "not an error object"');
+    expect(() => store.getSnapshot()).toThrow('SSR data fetch failed: not an error object');
 
     console.error = consoleError;
   });
@@ -427,5 +432,72 @@ describe('SSRStoreProvider and useSSRStore', () => {
     await p;
 
     expect(() => store.getServerSnapshot()).toThrow('Server data not available - check SSR configuration');
+  });
+});
+
+describe('R3-02 C2: error normalisation (pattern parity with @taujs/vue)', () => {
+  const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => errSpy.mockRestore());
+
+  it('a thrown STRING keeps its message unquoted (was \'"boom"\')', async () => {
+    const store = createSSRStore<any>(() => Promise.reject('boom'));
+    await settle();
+    expect(store.status).toBe('error');
+    expect(store.lastError).toBeInstanceOf(Error);
+    expect(store.lastError!.message).toBe('boom');
+  });
+
+  it('a thrown OBJECT is JSON-stringified', async () => {
+    const store = createSSRStore<any>(() => Promise.reject({ code: 500, msg: 'nope' }));
+    await settle();
+    expect(store.lastError!.message).toBe('{"code":500,"msg":"nope"}');
+  });
+
+  it('a thrown ERROR is preserved as the same instance', async () => {
+    const original = new Error('original');
+    const store = createSSRStore<any>(() => Promise.reject(original));
+    await settle();
+    expect(store.lastError).toBe(original);
+  });
+
+  it('a CIRCULAR object falls back to String(error) and does NOT throw (previously an unhandled rejection)', async () => {
+    const circular: any = { a: 1 };
+    circular.self = circular; // JSON.stringify throws on this
+    const store = createSSRStore<any>(() => Promise.reject(circular));
+    await settle();
+    expect(store.status).toBe('error');
+    expect(store.lastError).toBeInstanceOf(Error);
+    expect(store.lastError!.message).toBe('[object Object]');
+  });
+});
+
+describe('R3-02 C3: useSSRStore reads the store directly (no deferred value, no identity memo)', () => {
+  it('setData is observed by the consumer without an extra deferred render pass', async () => {
+    const store = createSSRStore<{ n: number }>({ n: 1 });
+    const seen: number[] = [];
+    const Consumer = () => {
+      const d = useSSRStore<{ n: number }>();
+      seen.push(d.n);
+      return <span data-testid="v">{d.n}</span>;
+    };
+
+    render(
+      <SSRStoreProvider store={store}>
+        <Consumer />
+      </SSRStoreProvider>,
+    );
+    expect(screen.getByTestId('v').textContent).toBe('1');
+
+    await act(async () => {
+      store.setData({ n: 2 });
+    });
+
+    expect(screen.getByTestId('v').textContent).toBe('2');
+    // Previously useDeferredValue produced [1, 1, 2] - an extra render serving one-render-stale data.
+    expect(seen).toEqual([1, 2]);
   });
 });

@@ -22,7 +22,25 @@ type Opts = {
   enableDebug?: boolean;
 };
 
-const toJSONString = (v: unknown) => (typeof v === 'string' ? v : v instanceof Error ? (v.stack ?? v.message) : JSON.stringify(v));
+// R0-03/gate: NON-THROWING value formatting. Renderer errors are `unknown`, and this runs on
+// error paths that log BEFORE cleanup (see `createStreamController.fatalAbort`), so it must never
+// throw — `JSON.stringify` alone would on a `BigInt`, a circular object, or a throwing
+// `toJSON`/`Symbol.toPrimitive`. Falls back to a best-effort string that also cannot throw.
+const toJSONString = (v: unknown): string => {
+  if (typeof v === 'string') return v;
+  if (v instanceof Error) return v.stack ?? v.message;
+  try {
+    const json = JSON.stringify(v);
+    if (json !== undefined) return json;
+  } catch {
+    // fall through to String() best-effort
+  }
+  try {
+    return String(v);
+  } catch {
+    return '[unserializable]';
+  }
+};
 
 const splitMsgAndMeta = (args: unknown[]) => {
   const [first, ...rest] = args;
@@ -35,17 +53,24 @@ const splitMsgAndMeta = (args: unknown[]) => {
   return { msg, meta };
 };
 
+// R0-03/gate: a diagnostic logger must never break the code path it observes (`fatalAbort` logs
+// BEFORE cleanup). `safe` isolates BOTH value formatting and the user-provided logger method — a
+// swallowed failure loses a log line, never settlement/cleanup. Documented policy: the UI logger
+// is best-effort and non-throwing.
+const safe = (fn: () => void): void => {
+  try {
+    fn();
+  } catch {
+    // best-effort: diagnostics must not throw
+  }
+};
+
 export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
   const { debugCategory = 'ssr', context, preferDebug = false, enableDebug = false } = opts;
 
-  if (!enableDebug) {
-    return {
-      log: () => {},
-      warn: () => {},
-      error: () => {},
-    };
-  }
-
+  // R0-03: `enableDebug` gates VERBOSITY (the `log` channel), not error visibility. `warn` and
+  // `error` always route — to the provided logger if any, else `console`. Only `log` is gated,
+  // so production consumers still see renderer warnings/errors (RFC S2).
   const looksServer = !!logger && ('info' in logger || 'debug' in logger || 'child' in logger || 'isDebugEnabled' in logger);
 
   if (looksServer) {
@@ -76,35 +101,40 @@ export function createUILogger(logger?: LoggerLike, opts: Opts = {}): UILogger {
     const isDebugEnabled = s.isDebugEnabled ? (category: string) => s.isDebugEnabled!(category) : undefined;
 
     return {
-      log: (...args: unknown[]) => {
-        const { msg, meta } = splitMsgAndMeta(args);
+      log: enableDebug
+        ? (...args: unknown[]) =>
+            safe(() => {
+              const { msg, meta } = splitMsgAndMeta(args);
 
-        if (debug) {
-          const enabled = (isDebugEnabled ? isDebugEnabled(debugCategory) : false) || preferDebug;
+              if (debug) {
+                const enabled = (isDebugEnabled ? isDebugEnabled(debugCategory) : false) || preferDebug;
 
-          if (enabled) {
-            debug(debugCategory, msg, meta);
-            return;
-          }
-        }
+                if (enabled) {
+                  debug(debugCategory, msg, meta);
+                  return;
+                }
+              }
 
-        info(msg, meta);
-      },
-      warn: (...args: unknown[]) => {
-        const { msg, meta } = splitMsgAndMeta(args);
-        warn(msg, meta);
-      },
-      error: (...args: unknown[]) => {
-        const { msg, meta } = splitMsgAndMeta(args);
-        error(msg, meta);
-      },
+              info(msg, meta);
+            })
+        : () => {},
+      warn: (...args: unknown[]) =>
+        safe(() => {
+          const { msg, meta } = splitMsgAndMeta(args);
+          warn(msg, meta);
+        }),
+      error: (...args: unknown[]) =>
+        safe(() => {
+          const { msg, meta } = splitMsgAndMeta(args);
+          error(msg, meta);
+        }),
     };
   }
 
   const ui = (logger as Partial<UILogger>) || {};
   return {
-    log: (...a) => (ui.log ?? console.log)(...a),
-    warn: (...a) => (ui.warn ?? console.warn)(...a),
-    error: (...a) => (ui.error ?? console.error)(...a),
+    log: enableDebug ? (...a) => safe(() => (ui.log ?? console.log)(...a)) : () => {},
+    warn: (...a) => safe(() => (ui.warn ?? console.warn)(...a)),
+    error: (...a) => safe(() => (ui.error ?? console.error)(...a)),
   };
 }

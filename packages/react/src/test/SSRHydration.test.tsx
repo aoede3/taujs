@@ -3,21 +3,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 
 vi.mock('react-dom/client', () => {
-  let capturedRecoverable: ((err: any, info: any) => void) | undefined;
+  let hydrateOpts: any;
+  let createOpts: any;
 
-  const hydrateRoot = vi.fn((el: any, node: any, opts?: { onRecoverableError?: (e: any, info?: any) => void }) => {
-    capturedRecoverable = opts?.onRecoverableError;
+  const hydrateRoot = vi.fn((el: any, node: any, opts?: any) => {
+    hydrateOpts = opts;
     return {}; // ReactRoot-ish
   });
 
-  const createRoot = vi.fn((el: any) => {
+  const createRoot = vi.fn((el: any, opts?: any) => {
+    createOpts = opts;
     return { render: vi.fn() };
   });
 
   return {
     hydrateRoot,
     createRoot,
-    __getCapturedRecoverable: () => capturedRecoverable,
+    __getHydrateOpts: () => hydrateOpts,
+    __getCreateOpts: () => createOpts,
   };
 });
 
@@ -52,11 +55,17 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     vi.clearAllMocks();
     resetDom();
     setReadyState('complete');
+    // jsdom lacks globalThis.reportError; stub it present so the renderer's global-surfacing takes the
+    // reportError branch instead of dispatching an unhandled window 'error' event (which fails the run).
+    (globalThis as { reportError?: unknown }).reportError = vi.fn();
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (globalThis as { reportError?: unknown }).reportError;
+  });
 
-  it('hydrates successfully; calls onStart/onSuccess and wires recoverable handler', () => {
+  it('hydrates: onStart fires, root-error adapter wired to hydrateRoot; success is DEFERRED to first commit (not sync)', () => {
     const root = addRoot('root');
     (window as any).__INITIAL_DATA__ = { hello: 'world' };
 
@@ -80,21 +89,75 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     expect(RDC.hydrateRoot).toHaveBeenCalledTimes(1);
     expect((RDC.hydrateRoot as any).mock.calls[0]![0]).toBe(root);
 
-    // recoverable error path
-    const getRec = (RDC as any).__getCapturedRecoverable as () => ((e: any, info: any) => void) | undefined;
-    const rec = getRec();
-    expect(typeof rec).toBe('function');
-    rec?.(new Error('rec'), { digest: 'x' });
+    // R2-01: the single root-error adapter is wired — all three handlers present.
+    const opts = (RDC as any).__getHydrateOpts();
+    expect(typeof opts.onUncaughtError).toBe('function');
+    expect(typeof opts.onCaughtError).toBe('function');
+    expect(typeof opts.onRecoverableError).toBe('function');
+    // recoverable → warn (log-only, never a failure)
+    opts.onRecoverableError(new Error('rec'), { digest: 'x' });
     expect(warn).toHaveBeenCalledWith('Recoverable hydration error:', expect.any(Error), expect.objectContaining({ digest: 'x' }));
 
-    // finished
-    expect(log).toHaveBeenCalledWith('Hydration completed');
     expect(onStart).toHaveBeenCalledTimes(1);
-    expect(onSuccess).toHaveBeenCalledTimes(1);
+    // Success is now a first-COMMIT signal (reporter effect). The no-op mock never commits, so
+    // onSuccess has NOT fired synchronously — the real commit path is covered in the integration suite.
+    expect(onSuccess).not.toHaveBeenCalled();
 
     // no CSR here
     expect(RDC.createRoot).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it('a throwing onStart is isolated — hydration still proceeds to hydrateRoot (single-settlement intact)', () => {
+    addRoot('root');
+    (window as any).__INITIAL_DATA__ = { a: 1 };
+    const onStart = () => {
+      throw new Error('onStart-boom');
+    };
+
+    expect(() => hydrateApp({ appComponent: <div>App</div>, logger: { error: vi.fn() }, onStart })).not.toThrow();
+    expect(RDC.hydrateRoot).toHaveBeenCalledTimes(1); // reached despite the throw
+  });
+
+  it('failure-then-late-failure: a second uncaught error is telemetry only (one onHydrationError, one beacon)', () => {
+    addRoot('root');
+    (window as any).__INITIAL_DATA__ = { a: 1 };
+    const emit = vi.fn();
+    (window as any).__TAUJS_DEVTOOLS_HOOK__ = { emit };
+    const onHydrationError = vi.fn();
+
+    hydrateApp({ appComponent: <div>App</div>, logger: { error: vi.fn() }, onHydrationError });
+
+    // Drive the captured root adapter twice — React can surface more than one root error.
+    const opts = (RDC as any).__getHydrateOpts();
+    opts.onUncaughtError(new Error('first'), {});
+    opts.onUncaughtError(new Error('second'), {});
+
+    expect(onHydrationError).toHaveBeenCalledTimes(1); // settled once
+    expect((onHydrationError.mock.calls[0]![0] as Error).message).toBe('first');
+    expect(emit.mock.calls.filter((c: any[]) => c[0] === 'hydration:error')).toHaveLength(1);
+
+    delete (window as any).__TAUJS_DEVTOOLS_HOOK__;
+  });
+
+  it('R2-04: identifierPrefix reaches BOTH roots - hydrateRoot (data present) and createRoot (CSR fallback)', () => {
+    // hydrate path
+    addRoot('root');
+    (window as any).__INITIAL_DATA__ = { a: 1 };
+    hydrateApp({ appComponent: <div>App</div>, identifierPrefix: 'hyd-' });
+    expect((RDC as any).__getHydrateOpts()).toEqual(expect.objectContaining({ identifierPrefix: 'hyd-' }));
+    expect(RDC.createRoot).not.toHaveBeenCalled();
+
+    // CSR fallback path (no SSR data) - the option must reach createRoot too, else two CSR roots on
+    // one page collide on useId. Removing it from only this call would otherwise leave tests green.
+    vi.clearAllMocks();
+    resetDom();
+    addRoot('root');
+    (window as any).__INITIAL_DATA__ = undefined;
+    hydrateApp({ appComponent: <div>App</div>, identifierPrefix: 'csr-' });
+    expect(RDC.hydrateRoot).not.toHaveBeenCalled();
+    expect((RDC as any).__getCreateOpts()).toEqual(expect.objectContaining({ identifierPrefix: 'csr-' }));
+    expect(RDC.createRoot).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ identifierPrefix: 'csr-' }));
   });
 
   it('logs error and aborts when root element is missing', () => {
@@ -151,9 +214,9 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     expect(warn).toHaveBeenCalledWith('No initial SSR data at window["__INITIAL_DATA__"]. Mounting CSR.');
     expect(RDC.hydrateRoot).not.toHaveBeenCalled();
 
-    // CSR render path
+    // CSR render path — createRoot receives the root-error adapter (R2-01)
     expect(root.innerHTML).toBe('');
-    expect(RDC.createRoot).toHaveBeenCalledWith(root);
+    expect(RDC.createRoot).toHaveBeenCalledWith(root, expect.objectContaining({ onUncaughtError: expect.any(Function) }));
     const rootInstance = (RDC.createRoot as any).mock.results[0]!.value;
     expect(rootInstance.render).toHaveBeenCalledTimes(1);
 
@@ -206,12 +269,14 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it('does NOT call onStart/onSuccess in CSR mode (no SSR data)', () => {
+  it('CSR mode: onStart never fires; onSuccess is deferred to first commit (not synchronous)', () => {
     addRoot();
     const onStart = vi.fn(),
       onSuccess = vi.fn();
     hydrateApp({ appComponent: <div>App</div>, onStart, onSuccess });
 
+    // onStart is a hydration-only signal (CSR is not a hydration). onSuccess IS emitted on the CSR
+    // path — but on first commit, so the no-op mock never fires it (real commit tested in integration).
     expect(onStart).not.toHaveBeenCalled();
     expect(onSuccess).not.toHaveBeenCalled();
     expect(RDC.createRoot).toHaveBeenCalledTimes(1);
@@ -231,6 +296,6 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     expect(Store.createSSRStore).toHaveBeenCalledWith({}); // the {} as T path
 
     expect(RDC.hydrateRoot).not.toHaveBeenCalled();
-    expect(RDC.createRoot).toHaveBeenCalledWith(root);
+    expect(RDC.createRoot).toHaveBeenCalledWith(root, expect.objectContaining({ onUncaughtError: expect.any(Function) }));
   });
 });

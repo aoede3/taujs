@@ -37,7 +37,3 @@ export const DEBUG = {
   trx: { label: 'trx', colour: pc.magenta },
   vite: { label: 'vite', colour: pc.yellow },
 } as const;
-
-export const REGEX = {
-  BENIGN_NET_ERR: /\b(?:ECONNRESET|EPIPE|ECONNABORTED)\b|socket hang up|aborted|premature(?: close)?/i,
-} as const satisfies Readonly<Record<string, RegExp>>;

@@ -149,6 +149,7 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
           cb.onAllReady(data);
           writable.end();
         });
+        return { abort: vi.fn(), done: Promise.resolve() };
       }),
     };
 
@@ -220,6 +221,7 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
           cb.onAllReady(data);
           writable.end();
         });
+        return { abort: vi.fn(), done: Promise.resolve() };
       }),
     };
     const req = mkReq('/live', undefined, devServer);

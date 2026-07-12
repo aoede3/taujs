@@ -163,7 +163,7 @@ importers:
   packages/react:
     dependencies:
       '@vitejs/plugin-react':
-        specifier: ^5.1.2
+        specifier: ^4.6.0 || ^5.0.0
         version: 5.2.0(vite@7.3.6(@types/node@24.13.3)(tsx@4.23.0))
     devDependencies:
       '@arethetypeswrong/cli':
@@ -172,6 +172,9 @@ importers:
       '@babel/preset-typescript':
         specifier: ^7.24.7
         version: 7.29.7(@babel/core@7.29.7)
+      '@taujs/server':
+        specifier: workspace:*
+        version: link:../server
       '@testing-library/dom':
         specifier: ^10.4.0
         version: 10.4.1

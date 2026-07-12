@@ -13,6 +13,8 @@ import {
   rebuildTemplate,
   addNonceToInlineScripts,
   injectCssLink,
+  injectBootstrapModule,
+  escapeHtmlAttribute,
   extractHeadInner,
 } from '../Templates';
 import { SSRTAG } from '../../constants';
@@ -448,5 +450,43 @@ describe('injectCssLink', () => {
     const tpl = '<html><head></head><body></body></html>';
     const cssLink = '<link rel="stylesheet" href="/app.css">';
     expect(injectCssLink(tpl, cssLink)).toBe('<html><head><link rel="stylesheet" href="/app.css"></head><body></body></html>');
+  });
+});
+
+describe('escapeHtmlAttribute (SEC2, R2-02)', () => {
+  it('escapes the five HTML-sensitive characters (attribute-safe, both quote styles)', () => {
+    expect(escapeHtmlAttribute('&')).toBe('&amp;');
+    expect(escapeHtmlAttribute('<')).toBe('&lt;');
+    expect(escapeHtmlAttribute('>')).toBe('&gt;');
+    expect(escapeHtmlAttribute('"')).toBe('&quot;');
+    expect(escapeHtmlAttribute("'")).toBe('&#39;');
+  });
+
+  it('escapes & first and coerces non-strings', () => {
+    expect(escapeHtmlAttribute('a&b')).toBe('a&amp;b');
+    expect(escapeHtmlAttribute(42 as unknown as string)).toBe('42');
+  });
+
+  it('leaves a clean module URL unchanged', () => {
+    expect(escapeHtmlAttribute('/assets/entry-client.js')).toBe('/assets/entry-client.js');
+  });
+});
+
+describe('injectBootstrapModule attribute escaping (SEC2, R2-02)', () => {
+  it('leaves a clean module URL unchanged (no behaviour change for normal config)', () => {
+    const tpl = '<html><body></body></html>';
+    expect(injectBootstrapModule(tpl, '/assets/entry.js')).toBe('<html><body><script type="module" src="/assets/entry.js" defer></script></body></html>');
+  });
+
+  it('escapes an attribute-breakout module value (defence-in-depth)', () => {
+    const tpl = '<html><body></body></html>';
+    const out = injectBootstrapModule(tpl, '/x.js" onerror="alert(1)');
+    expect(out).toContain('src="/x.js&quot; onerror=&quot;alert(1)"');
+    expect(out).not.toContain('onerror="alert(1)"');
+  });
+
+  it('returns the template unchanged when no bootstrapModule is given', () => {
+    const tpl = '<html><body></body></html>';
+    expect(injectBootstrapModule(tpl, undefined)).toBe(tpl);
   });
 });

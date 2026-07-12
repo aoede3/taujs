@@ -1,13 +1,14 @@
 import { createSSRApp, h, type App, type Component, type VNode } from 'vue';
 import { renderToSimpleStream, renderToString, type SimpleReadable, type SSRContext } from '@vue/server-renderer';
 
-import { createSSRStore, SSRStoreProvider, type SSRStore } from './SSRDataStore';
-import { createUILogger } from './utils/Logger';
+import { createSSRStore, SSRStoreProvider, type SSRStore } from './SSRDataStore.js';
+import { escapeHtml } from './utils/Html.js';
+import { createUILogger } from './utils/Logger.js';
 
 import type { Writable } from 'node:stream';
-import type { LoggerLike } from './utils/Logger';
+import type { LoggerLike } from './utils/Logger.js';
 
-import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming';
+import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming.js';
 
 export type RenderCallbacks<T> = {
   /**
@@ -33,6 +34,12 @@ export type StreamOptions = {
   shellTimeoutMs?: number;
 };
 
+/**
+ * Context passed to `headContent`: `data` is the resolved route data, `meta`/`routeContext` the
+ * route's static metadata and per-request context. NB `headContent` returns RAW `<head>` HTML — any
+ * value interpolated from `data` (or other services/user input) must be escaped with `escapeHtml`
+ * (see the `headContent` option's docs).
+ */
 export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>, R = unknown> = {
   data: T;
   meta: Record<string, unknown>;
@@ -103,6 +110,14 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
    * It will be invoked/rendered with props: { location, routeContext? }
    */
   appComponent: Component | ((props: { location: string; routeContext?: R }) => VNode);
+  /**
+   * Returns the per-route `<head>` inner HTML. The return value is written into `<head>` VERBATIM as
+   * RAW HTML — it is deliberately NOT auto-escaped, so you can emit `<meta>`/`<link>`/`<script>` tags.
+   * Therefore any value interpolated from `data` (services or user input) MUST be escaped first with
+   * `escapeHtml` (exported from `@taujs/vue`), e.g.
+   * `` `<meta property="og:image" content="${escapeHtml(data.ogImage)}">` ``. See the head-management
+   * guide, "Best Practices — Escape User Content".
+   */
   headContent: (ctx: HeadContext<T, R>) => string;
   enableDebug?: boolean;
   logger?: LoggerLike;
@@ -214,14 +229,37 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
     const controller = createStreamController(writable, { log, warn, error });
 
+    // Advisory observers are ISOLATED (hardening-lessons §1): a throw is logged and swallowed - it
+    // must never enter the fatal path, escape the framework boundary (these run inside Vue's
+    // errorHandler, a promise chain, or sink teardown, where a throw would be uncaught), or suppress
+    // a sibling callback.
+    const runObserver = (label: string, run: () => void) => {
+      try {
+        run();
+      } catch (cbErr) {
+        error(`${label} callback threw (ignored):`, cbErr);
+      }
+    };
+
     // Single, idempotent fatal path. Vue swallows a component error once an
     // app.config.errorHandler is installed (see @vue/server-renderer handleError), so the
     // handler must abort itself rather than relying on the render promise to reject; the
     // isAborted guard makes this safe to call from both errorHandler and sink.destroy.
     const fail = (err: unknown) => {
       if (controller.isAborted) return;
-      cb.onError(err);
+      // Ordering (hardening-lessons §2): claim the terminal fatal state BEFORE invoking re-entrant
+      // host code. The server's `onError` synchronously calls `ac.abort()`, and that SAME AbortSignal
+      // is wired below to `controller.benignAbort` - if the callback ran first, the re-entrant benign
+      // abort would win the one-shot controller and RESOLVE `done`, silently downgrading a fatal to a
+      // benign completion and breaking the published `RenderStreamHandle` contract. fatalAbort-first
+      // makes that re-entrant benignAbort a no-op. A throwing `onError` is still swallowed (and can no
+      // longer veto settlement, already claimed); the ORIGINAL error stays the rejection reason.
       controller.fatalAbort(err);
+      try {
+        cb.onError(err);
+      } catch (cbErr) {
+        warn('onError callback threw:', cbErr);
+      }
     };
 
     // AbortSignal (benign cancel)
@@ -272,9 +310,12 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     const finishStream = () => {
       if (controller.isAborted) return;
       if (bootstrapModules) {
-        const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
+        // R2-03 (V2/SEC2): escape the manually-written bootstrap attributes. `escapeHtml` is a no-op
+        // on clean module URLs and base64 CSP nonces (attribute-safe for both quote styles), so it is
+        // defence-in-depth with no tag-shape change on valid input.
+        const nonceAttr = cspNonce ? ` nonce="${escapeHtml(cspNonce)}"` : '';
         try {
-          writable.write(`<script type="module" src="${bootstrapModules}" async${nonceAttr}></script>`);
+          writable.write(`<script type="module" src="${escapeHtml(bootstrapModules)}" async${nonceAttr}></script>`);
         } catch {}
       }
       try {
@@ -321,7 +362,10 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       },
       destroy: (err: unknown) => {
         if (controller.isAborted) return;
-        if (isBenignStreamErr(err)) {
+        // R0-02: `destroy` is fed by the render pipeline — render-origin, never benign by shape.
+        // Real client disconnects arrive via the writable guards ('socket') and the AbortSignal,
+        // which remain benign-capable.
+        if (isBenignStreamErr(err, 'render')) {
           controller.benignAbort('Client disconnected during stream');
           return;
         }
@@ -351,7 +395,16 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       try {
         cb.onHead(head);
       } catch (cbErr) {
-        warn('onHead callback threw:', cbErr);
+        // onHead is REQUIRED, not advisory (parity with react's R1-01 contract, and the server
+        // assumes it across BOTH renderer packages): it commits the response prefix and connects the
+        // renderer's PassThrough to the HTTP response. If it throws, the response was never set up -
+        // continuing would write application bytes into an unconnected sink and can yield a malformed
+        // "successful" response with no head/prefix/body. Stop here: rethrow so the enclosing catch
+        // routes it through the single `fail` path (fatal abort + onError, `done` rejects with this
+        // error) and we never reach renderToSimpleStream.
+        error('onHead callback threw (fatal):', cbErr);
+
+        throw cbErr;
       }
 
       // Route Vue render-time errors into the fatal path (see `fail` above). R3: chain after
@@ -376,8 +429,12 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
           if (controller.isAborted) return;
           const data = s.getSnapshot();
           if (data !== undefined) {
-            cb.onAllReady(data);
-            cb.onFinish(data);
+            // Isolated INDEPENDENTLY (hardening-lessons §1): an advisory observer must not be able to
+            // turn a successfully resolved data load + completed render into a fatal stream failure
+            // (its throw would otherwise reach the `.catch` below and call `fail`), nor suppress its
+            // sibling (a throwing onAllReady previously prevented the legacy onFinish alias firing).
+            runObserver('onAllReady', () => cb.onAllReady(data));
+            runObserver('onFinish', () => cb.onFinish(data));
           }
         })
         .catch((e) => {

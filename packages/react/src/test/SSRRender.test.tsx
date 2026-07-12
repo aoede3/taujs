@@ -2,9 +2,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 
+// R3-06: renderSSR renders via prerenderToNodeStream (conditional react-dom/static — Node build
+// at runtime). The mock resolves with a one-chunk prelude, mirroring a completed prerender.
+vi.mock('react-dom/static', async () => {
+  const { Readable } = await import('node:stream');
+  const prerenderToNodeStream = vi.fn(async (_el: any, _opts: any) => ({
+    prelude: Readable.from(['<div>html</div>']),
+    postponed: null,
+  }));
+  return { prerenderToNodeStream };
+});
+
 vi.mock('react-dom/server', () => {
   let lastOpts: any;
-  const renderToString = vi.fn(() => '<div>html</div>');
   const renderToPipeableStream = vi.fn((_el: any, opts: any) => {
     lastOpts = opts;
 
@@ -15,7 +25,6 @@ vi.mock('react-dom/server', () => {
     };
   });
   return {
-    renderToString,
     renderToPipeableStream,
     __getLastOpts: () => lastOpts,
   };
@@ -80,21 +89,19 @@ vi.mock('../utils/Streaming', () => {
   // wireWritableGuards: return no-op cleanup (we verify it’s set, not effects)
   const wireWritableGuards = vi.fn((_w: any, _cfg: any) => ({ cleanup: vi.fn() }));
 
-  // benign predicate configurable per test
-  const isBenignStreamErr = vi.fn(() => false);
-
   return {
-    DEFAULT_BENIGN_ERRORS: /x/i,
     createStreamController,
     startShellTimer,
     wireWritableGuards,
-    isBenignStreamErr,
     __getLastTimeoutHandler: () => lastTimeoutHandler,
   };
 });
 
+import { Readable } from 'node:stream';
+
 import { createRenderer } from '../SSRRender';
 import * as RDS from 'react-dom/server';
+import * as RDStatic from 'react-dom/static';
 import * as Store from '../SSRDataStore';
 import * as Streaming from '../utils/Streaming';
 
@@ -140,7 +147,7 @@ describe('createRenderer.renderSSR', () => {
     const out = await renderer.renderSSR({ title: 'T' } as any, '/home', { x: 1 });
 
     expect(Store.createSSRStore).toHaveBeenCalledWith({ title: 'T' });
-    expect(RDS.renderToString).toHaveBeenCalledTimes(1);
+    expect(RDStatic.prerenderToNodeStream).toHaveBeenCalledTimes(1);
     expect(out.headContent).toBe('<head>T-1</head>');
     expect(out.appHtml).toBe('<div>html</div>');
 
@@ -167,7 +174,7 @@ describe('createRenderer.renderSSR', () => {
 
     // No render attempts
     expect(Store.createSSRStore).not.toHaveBeenCalled();
-    expect(RDS.renderToString).not.toHaveBeenCalled();
+    expect(RDStatic.prerenderToNodeStream).not.toHaveBeenCalled();
 
     // Warn with prefix + message + context
     expect(warn).toHaveBeenCalledTimes(1);
@@ -188,20 +195,19 @@ describe('createRenderer.renderSSR', () => {
       logger: { warn },
     });
 
-    // We’ll abort *after* render kicks off but before completion
-    // Mock renderToString to let us flip the signal in-between
-    // const orig = RDS.renderToString as unknown as jest.Mock | vi.Mock;
-    (RDS.renderToString as any).mockImplementationOnce(() => {
-      // abort right before returning html to flip `aborted = true`
+    // We’ll abort *after* render kicks off but before completion:
+    // mock prerenderToNodeStream to flip the signal before resolving.
+    (RDStatic.prerenderToNodeStream as any).mockImplementationOnce(async () => {
+      // abort right before resolving to flip `aborted = true`
       ac.abort();
-      return '<div>html</div>';
+      return { prelude: Readable.from(['<div>html</div>']), postponed: null };
     });
 
     const out = await renderer.renderSSR({ title: 'Y' } as any, '/mid', {}, ac.signal);
 
     // Should have rendered, but then detected abort and returned aborted=true
     expect(Store.createSSRStore).toHaveBeenCalledTimes(1);
-    expect(RDS.renderToString).toHaveBeenCalledTimes(1);
+    expect(RDStatic.prerenderToNodeStream).toHaveBeenCalledTimes(1);
 
     expect(warn).toHaveBeenCalledTimes(1);
     const [msg, meta] = (warn as any).mock.calls[0]!;
@@ -336,59 +342,10 @@ describe('createRenderer.renderStream', () => {
     expect(ctrl.fatalAbort).toHaveBeenCalled();
   });
 
-  it('onAllReady: getSnapshot throws a thenable first → resolves then re-delivers; non-thenable throws → fatal', async () => {
-    const { writable } = makeWritable();
-    let delivered = 0;
-    (Store as any).__setSnapshotImpl(() => {
-      if (delivered === 0) {
-        delivered++;
-        let resume!: () => void;
-        const p = new Promise<void>((r) => (resume = r));
-        Promise.resolve().then(() => resume());
-
-        throw p;
-      }
-      return { ok: true };
-    });
-
-    const onAllReady = vi.fn(),
-      onFinish = vi.fn(),
-      onError = vi.fn();
-    const { renderStream } = createRenderer<any>({
-      appComponent: () => <div />,
-      headContent: () => '<head/>',
-      enableDebug: true,
-    });
-
-    const { done } = renderStream(writable as any, { onAllReady, onFinish, onError }, {}, '/thenable');
-    const opts = (RDS as any).__getLastOpts();
-    opts.onShellReady();
-    opts.onAllReady();
-
-    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl.benignAbort('test-complete');
-    await expect(done).resolves.toBeUndefined();
-
-    await expect(done).resolves.toBeUndefined();
-    expect(onAllReady).toHaveBeenCalledWith({ ok: true });
-    expect(onFinish).toHaveBeenCalledWith({ ok: true });
-    expect(onError).not.toHaveBeenCalled();
-
-    (Store as any).__setSnapshotImpl(() => {
-      throw new Error('bad');
-    });
-    const { done: done2 } = renderStream(writable as any, { onError }, {}, '/bad');
-    const opts2 = (RDS as any).__getLastOpts();
-    opts2.onShellReady();
-    opts2.onAllReady();
-
-    const ctrl1 = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl1.benignAbort('test-complete');
-    await expect(done).resolves.toBeUndefined();
-
-    await expect(done2).rejects.toBeInstanceOf(Error);
-    expect(onError).toHaveBeenCalledWith(expect.any(Error));
-  });
+  // NOTE: the old thrown-thenable deliver-retry dance in `onAllReady` was removed in R1-01 — final
+  // data delivery is now owned by the bounded end-gate (deferred until store readiness settles).
+  // That path is covered end-to-end against real react-dom/server in SSRRender.integration.test.tsx
+  // (R2 data-loss + store-error → gate-fatal), which the mock (no-op pipe) cannot drive.
 
   it('onShellError → fatalAbort + done rejects', async () => {
     const { writable } = makeWritable();
@@ -407,30 +364,100 @@ describe('createRenderer.renderStream', () => {
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
-  it('onError benign → benignAbort resolves; onError fatal → fatalAbort rejects', async () => {
+  it("React's onError is NON-FATAL (R1-01): routes to onRenderError, does not settle done, never calls the fatal onError", async () => {
     const { writable } = makeWritable();
     const onError = vi.fn();
-
-    (Streaming.isBenignStreamErr as any).mockReturnValueOnce(true);
+    const onRenderError = vi.fn();
 
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
       headContent: () => '<head/>',
     });
 
-    const r1 = renderStream(writable as any, { onError }, {}, '/benign');
-    let opts = (RDS as any).__getLastOpts();
-    opts.onError(new Error('ECONNRESET'));
+    // No onShellReady() yet → shell not committed → phase is 'pre-shell', recoverable 'unknown'.
+    const r = renderStream(writable as any, { onError, onRenderError }, {}, '/render-error');
+    const opts = (RDS as any).__getLastOpts();
+    const err = new Error('boundary boom');
+    expect(() => opts.onError(err)).not.toThrow();
 
-    await expect(r1.done).resolves.toBeUndefined();
+    // Structured, non-fatal observation — NOT the fatal channel, NOT a settlement.
+    expect(onRenderError).toHaveBeenCalledTimes(1);
+    expect(onRenderError).toHaveBeenCalledWith({ error: err, phase: 'pre-shell', recoverable: 'unknown' });
+    expect(onError).not.toHaveBeenCalled();
 
-    // fatal case
-    const r2 = renderStream(writable as any, { onError }, {}, '/fatal');
-    opts = (RDS as any).__getLastOpts();
-    opts.onError(new Error('boom'));
+    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    expect(ctrl.fatalAbort).not.toHaveBeenCalled();
 
-    await expect(r2.done).rejects.toBeInstanceOf(Error);
-    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    // done is settled by a separate channel, never by onError.
+    ctrl.benignAbort('test-complete');
+    await expect(r.done).resolves.toBeUndefined();
+  });
+
+  it('recheck: a throwing cb.onError does not veto fatal settlement — done rejects with the ORIGINAL error, single fire', async () => {
+    const { writable } = makeWritable();
+    const original = new Error('shell boom');
+    const onError = vi.fn(() => {
+      throw new Error('onError boom');
+    });
+
+    const { renderStream } = createRenderer<any>({
+      appComponent: () => <div />,
+      headContent: () => '<head/>',
+    });
+
+    const r = renderStream(writable as any, { onError }, {}, '/fatal-throwing-cb');
+    const opts = (RDS as any).__getLastOpts();
+    opts.onShellError(original); // React surfaces a fatal shell error → the failFatal path
+
+    // failFatal runs controller.fatalAbort even though cb.onError threw (old code skipped it →
+    // done never settled). The original error is the reject reason.
+    await expect(r.done).rejects.toBe(original);
+    expect(onError).toHaveBeenCalledTimes(1); // single fire (no double-fire, no skip)
+  });
+
+  it("recheck-2: a hostile FRAMEWORK error (throwing message getter / Symbol.toPrimitive) doesn't throw before failFatal", async () => {
+    const hostiles: ReadonlyArray<() => unknown> = [
+      () => {
+        const o: Record<string, unknown> = {};
+        Object.defineProperty(o, 'message', {
+          get() {
+            throw new Error('getter boom');
+          },
+        });
+        return o;
+      },
+      () => ({
+        message: {
+          [Symbol.toPrimitive]() {
+            throw new Error('coercion boom');
+          },
+        },
+      }),
+    ];
+
+    for (const make of hostiles) {
+      const { writable } = makeWritable();
+      const onError = vi.fn();
+      const hostile = make();
+
+      const { renderStream } = createRenderer<any>({
+        appComponent: () => <div />,
+        headContent: () => '<head/>',
+      });
+
+      const r = renderStream(writable as any, { onError }, {}, '/hostile-framework-error');
+      const opts = (RDS as any).__getLastOpts();
+
+      // React surfaces a hostile error on a fatal channel — failFatal must NOT coerce it before
+      // aborting, so the call does not throw, and settlement/single-fire still happen with the
+      // ORIGINAL value.
+      expect(() => opts.onShellError(hostile)).not.toThrow();
+
+      await expect(r.done).rejects.toBe(hostile);
+      expect(onError).toHaveBeenCalledTimes(1);
+      // reference check (toHaveBeenCalledWith would deep-equal the arg and trip the throwing getter)
+      expect(onError.mock.calls[0]?.[0]).toBe(hostile);
+    }
   });
 
   it('AbortSignal already aborted: benign abort & no stream render; manual abort works', async () => {
@@ -642,15 +669,15 @@ describe('createRenderer.renderStream', () => {
     expect(ctrl.complete).toHaveBeenCalledWith('Stream finished (normal completion)');
   });
 
-  it('onShellReady callback throws → warns but does not fatal', async () => {
+  it('onShellReady callback throws → logs (advisory) but does not fatal', async () => {
     const { writable } = makeWritable();
-    const warn = vi.fn();
+    const errorLog = vi.fn();
 
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
       headContent: () => '<head/>',
       enableDebug: true,
-      logger: { warn },
+      logger: { error: errorLog },
     });
 
     const onShellReady = vi.fn(() => {
@@ -664,58 +691,27 @@ describe('createRenderer.renderStream', () => {
     );
 
     const opts = (RDS as any).__getLastOpts();
-    opts.onShellReady(); // triggers the throwing callback (wrapped)
+    opts.onShellReady(); // triggers the throwing callback (isolated)
 
-    // warned, and NOT fatal-aborted
-    expect(warn).toHaveBeenCalledTimes(1);
-    const [label, err] = (warn as any).mock.calls[0]!;
+    // logged (advisory), and NOT fatal-aborted
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    const [label, err] = (errorLog as any).mock.calls[0]!;
     expect(label).toContain('onShellReady callback threw:');
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toBe('cb boom');
 
-    // finish the stream explicitly so `done` resolves
     const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
+    expect(ctrl.fatalAbort).not.toHaveBeenCalled();
+
+    // finish the stream explicitly so `done` resolves
     ctrl.benignAbort('test-complete');
     await expect(done).resolves.toBeUndefined();
   });
 
-  it('onAllReady → getSnapshot throws rejecting thenable → logs error, onError, fatalAbort (rejects)', async () => {
-    const { writable } = makeWritable();
-
-    // Throw a Promise that REJECTS later
-    (Store as any).__setSnapshotImpl(() => {
-      let reject!: (e: any) => void;
-      const p = new Promise((_res, rej) => {
-        reject = rej;
-      });
-      // reject in microtask
-      Promise.resolve().then(() => reject(new Error('nope')));
-      throw p; // Suspense-style thenable
-    });
-
-    const errorLog = vi.fn();
-    const onError = vi.fn();
-
-    const { renderStream } = createRenderer<any>({
-      appComponent: () => <div />,
-      headContent: () => '<head/>',
-      enableDebug: true,
-      logger: { error: errorLog },
-    });
-
-    const { done } = renderStream(writable as any, { onError }, {}, '/rejecting-thenable');
-    const opts = (RDS as any).__getLastOpts();
-    opts.onShellReady();
-    opts.onAllReady(); // deliver() runs; thenable rejects → catch path
-
-    await expect(done).rejects.toBeInstanceOf(Error);
-    expect(errorLog).toHaveBeenCalledTimes(1);
-    const [label, err] = (errorLog as any).mock.calls[0]!;
-    expect(label).toContain('Data promise rejected:');
-    expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toBe('nope');
-    expect(onError).toHaveBeenCalledWith(expect.any(Error));
-  });
+  // NOTE: the store data-fetch-error path (store settles to status:'error') is now handled by the
+  // bounded end-gate, not by a deliver-retry inside onAllReady. It fatal-aborts the response after
+  // the gate observes readiness — covered against real react-dom/server in the integration suite
+  // ('store data error → gate fatal'), which the no-op-pipe mock cannot drive.
 
   it('renderToPipeableStream throws synchronously → onError + fatalAbort (rejects)', async () => {
     const { writable } = makeWritable();
@@ -795,28 +791,6 @@ describe('createRenderer.renderStream', () => {
     await expect(done).resolves.toBeUndefined();
   });
 
-  it("onError with object lacking message (err?.message ?? '') and non-benign → fatalAbort", async () => {
-    const { writable } = makeWritable();
-    const onErrorCb = vi.fn();
-
-    (Streaming.isBenignStreamErr as any).mockReturnValue(false);
-
-    const { renderStream } = createRenderer<any>({
-      appComponent: () => <div />,
-      headContent: () => '<head/>',
-    });
-
-    const { done } = renderStream(writable as any, { onError: onErrorCb }, {}, '/no-message');
-    const opts = (RDS as any).__getLastOpts();
-
-    // Pass exactly once: an object with no .message to hit (err?.message ?? '')
-    const errObj: any = {}; // no .message
-    opts.onError(errObj);
-
-    await expect(done).rejects.toBe(errObj); // rejects with the same object
-    expect(onErrorCb).toHaveBeenCalledWith(errObj);
-  });
-
   it('onShellError triggers stopShellTimer catch and fatalAbort', async () => {
     const { writable } = makeWritable();
     const onError = vi.fn();
@@ -870,87 +844,39 @@ describe('createRenderer.renderStream', () => {
     await expect(done).resolves.toBeUndefined();
   });
 
-  it('onShellReady: writable has no write() → fallback true path pipes immediately', async () => {
-    // writable without write() to hit the "?: true" branch
-    const w: any = {
-      once: vi.fn(),
-      // no write
-    };
-    const { renderStream } = createRenderer<any>({
-      appComponent: () => <div />,
-      headContent: () => '<head/>',
-    });
+  // NOTE: the old backpressure/onHead-return-value piping logic in onShellReady (write()-fallback,
+  // drain-waiting, onHead-returns-false) was removed in R1-01. React now always pipes into the
+  // delegating end-gate, and React ITSELF drives backpressure against the real writable (write()'s
+  // boolean return + a 'drain' listener it attaches through the sink). That real drain path — and
+  // the deferred end() / abort-mid-wait races — are covered against real react-dom/server in the
+  // integration suite ('backpressure: a paused tiny-highWaterMark sink …', 'abort during the
+  // deferred-end wait …'); the no-op-pipe mock here cannot exercise byte flow.
 
-    const { done } = renderStream(w as any, {}, {}, '/no-write');
-    const opts = (RDS as any).__getLastOpts();
-    opts.onShellReady(); // should not throw
-
-    // pipe was called immediately since wroteOk===true and onHead!==false
-    const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
-    expect(streamInstance.pipe).toHaveBeenCalledWith(w);
-    expect(w.once).not.toHaveBeenCalled(); // no drain waiting
-
-    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl.benignAbort('done');
-    await expect(done).resolves.toBeUndefined();
-  });
-  it('onShellReady: onHead callback throws → warns and continues streaming', async () => {
+  it('onShellReady: a throwing onHead is FATAL (required callback) — onError + fatalAbort, nothing piped', async () => {
     const { writable } = makeWritable();
-    const warn = vi.fn();
+    const onError = vi.fn();
 
     const { renderStream } = createRenderer<any>({
       appComponent: () => <div />,
       headContent: () => '<head/>',
-      enableDebug: true,
-      logger: { warn },
     });
 
     const onHead = vi.fn(() => {
       throw new Error('head-cb boom');
     });
-    const { done } = renderStream(writable as any, { onHead }, {}, '/onhead-throws');
+    const { done } = renderStream(writable as any, { onHead, onError }, {}, '/onhead-throws');
 
     const opts = (RDS as any).__getLastOpts();
+    // onHead commits the response head + connects the sink; a throw enters the fatal path and must
+    // NOT leave the response half-committed — the renderer returns BEFORE piping.
     expect(() => opts.onShellReady()).not.toThrow();
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    const [msg, errObj] = (warn as any).mock.calls[0]!;
-    expect(msg).toContain('onHead callback threw:');
-    expect(errObj).toBeInstanceOf(Error);
-    expect((errObj as Error).message).toBe('head-cb boom');
-
     const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
-    expect(streamInstance.pipe).toHaveBeenCalledWith(writable);
+    expect(streamInstance.pipe).not.toHaveBeenCalled();
 
     const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl.benignAbort('ok');
-    await expect(done).resolves.toBeUndefined();
-  });
-
-  // Also test the case where onHead returns false (forces wait) but no once() available
-  it('onShellReady: onHead returns false (force wait) + no once() → pipes immediately (best effort)', async () => {
-    const w: any = {
-      write: vi.fn(() => true), // no backpressure from write
-      // NO once() method
-    };
-
-    const { renderStream } = createRenderer<any>({
-      appComponent: () => <div />,
-      headContent: () => '<head/>',
-    });
-
-    const onHead = vi.fn(() => false); // explicitly request wait for drain
-    const { done } = renderStream(w as any, { onHead }, {}, '/onhead-force-no-once');
-    const opts = (RDS as any).__getLastOpts();
-    opts.onShellReady();
-
-    // onHead returned false (wants to wait) but there's no once() to attach a listener,
-    // so it falls through to best-effort startPipe()
-    const streamInstance = (RDS.renderToPipeableStream as any).mock.results.at(-1)!.value;
-    expect(streamInstance.pipe).toHaveBeenCalledWith(w);
-
-    const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
-    ctrl.benignAbort('done');
-    await expect(done).resolves.toBeUndefined();
+    expect(ctrl.fatalAbort).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    await expect(done).rejects.toThrow('head-cb boom');
   });
 });
