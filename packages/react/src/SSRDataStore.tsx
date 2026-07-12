@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useSyncExternalStore, useDeferredValue, useMemo } from 'react';
+import React, { createContext, useContext, useSyncExternalStore } from 'react';
 
 import { STORE_READINESS } from './internal';
 
@@ -11,6 +11,21 @@ export type SSRStore<T> = {
   readonly lastError?: Error;
 };
 
+/**
+ * Normalise a thrown value into an Error (pattern parity with @taujs/vue's store; these files are not
+ * drift-guarded, so the PATTERN matches rather than the bytes). The previous
+ * `new Error(String(JSON.stringify(error)))` quoted a thrown string ("boom" -> '"boom"') and THREW on a
+ * circular object, turning a data-load failure into an unhandled rejection.
+ */
+function normaliseError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  try {
+    return new Error(typeof error === 'string' ? error : JSON.stringify(error));
+  } catch {
+    return new Error(String(error));
+  }
+}
+
 export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => Promise<T>)): SSRStore<T> {
   let currentData: T | undefined;
   let status: 'pending' | 'success' | 'error';
@@ -22,9 +37,10 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
   const notify = () => subscribers.forEach((cb) => cb());
 
   const handleError = (error: unknown) => {
-    const normalised = error instanceof Error ? error : new Error(String(JSON.stringify(error)));
-    console.error('Failed to load initial data:', normalised);
-    lastError = normalised;
+    const e = normaliseError(error);
+    // NOTE: keep this console.error: it's useful in environments without logger wiring.
+    console.error('Failed to load initial data:', e);
+    lastError = e;
     status = 'error';
     notify();
   };
@@ -115,8 +131,10 @@ export const useSSRStore = <T,>(): T => {
 
   if (!store) throw new Error('useSSRStore must be used within a SSRStoreProvider');
 
-  const syncVal = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
-  const deferred = useDeferredValue(syncVal);
-
-  return useMemo(() => deferred, [deferred]);
+  // R3-02 (C3): read the store directly. The previous `useMemo(() => deferred, [deferred])` was an
+  // identity memo (a no-op by definition), and `useDeferredValue` was introduced with no stated
+  // rationale, is depended on by no test, has no @taujs/vue equivalent, and MEASURABLY cost an extra
+  // render pass per update while serving one-render-stale data from a store whose consumers want the
+  // current value. Both removed; see decisions.md.
+  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
 };
