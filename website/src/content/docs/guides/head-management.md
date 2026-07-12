@@ -192,15 +192,23 @@ headContent: ({ data, meta }) => {
 ### 1. Prioritise Meta Over Data in Streaming
 
 ```typescript
+import { escapeHtml } from "@taujs/react"; // or "@taujs/vue"
+
 // reliable in streaming
 headContent: ({ data, meta }) => `
   <title>${meta?.title || "Default Title"}</title>
   <meta name="description" content="${
     meta?.description || "Default description"
   }">
-  ${data?.ogImage ? `<meta property="og:image" content="${data.ogImage}">` : ""}
+  ${
+    data?.ogImage
+      ? `<meta property="og:image" content="${escapeHtml(data.ogImage)}">`
+      : ""
+  }
 `;
 ```
+
+> `headContent` returns **raw** HTML — escape any interpolated `data` (see [Escape User Content](#3-escape-user-content) below).
 
 ### 2. Provide Fallbacks
 
@@ -210,13 +218,28 @@ const title = data.title || meta.title || "Default Title";
 
 ### 3. Escape User Content
 
+`headContent` returns **raw HTML** written verbatim into `<head>`, so any value drawn from services
+or user input must be escaped before you interpolate it. Both renderers export an `escapeHtml` helper
+— text- and attribute-safe, including single quotes:
+
+```typescript
+import { escapeHtml } from "@taujs/react"; // or "@taujs/vue"
+
+headContent: ({ data }) => `
+  <meta property="og:image" content="${escapeHtml(data.ogImage)}">
+`;
+```
+
+Or roll your own — but escape `'` too, or single-quoted attributes stay vulnerable:
+
 ```typescript
 function escapeHtml(str: string): string {
-  return str
+  return String(str)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 ```
 
