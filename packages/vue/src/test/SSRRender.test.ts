@@ -444,6 +444,7 @@ describe('createRenderer.renderStream — completion & data delivery', () => {
 
     await expect(done).rejects.toThrow('vue-fatal-original');
     expect(onError).toHaveBeenCalledTimes(1);
+    expect(writable.destroyed).toBe(true); // fatal teardown still ran despite the re-entry
   });
 
   it('a rejected data thunk becomes a fatal error (onError + done rejects)', async () => {

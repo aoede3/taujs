@@ -340,3 +340,169 @@ describe('renderStream — server integration (byte order)', () => {
     expect((onError[0] as Error).message).toContain('component exploded');
   });
 });
+
+describe('renderStream — server-join regressions (gate review R2-03/R2-04)', () => {
+  // Faithful reproduction of the server's streaming failure-path wiring (HandleRender.ts:419-602),
+  // which driveLikeServer (happy-path byte order) deliberately omits: the head commit that connects
+  // the renderer's stream to the response, the PRODUCTION onError teardown whose ac.abort()
+  // re-enters the renderer through the very signal wired to benign-cancel, and the writable
+  // 'finish' listener that appends the data script + tail and records the response as sent. The
+  // gate-review HIGHs live in exactly this join, so the regressions must drive the real callback
+  // sequence, not a simplified observer.
+  const driveServerJoin = <T extends Record<string, unknown>>(
+    renderStream: ReturnType<typeof createRenderer<T>>['renderStream'],
+    initialData: T,
+    { commitHead }: { commitHead?: () => void } = {},
+  ) => {
+    // reply.raw stand-in: enough state for the join's branching (headersSent gates 500-vs-destroy).
+    const reply = {
+      headersSent: false,
+      statusCode: null as number | null,
+      writableEnded: false,
+      destroyed: false,
+      body: [] as string[],
+      sent200: false,
+      writeHead(status: number) {
+        this.statusCode = status;
+        this.headersSent = true;
+      },
+      write(chunk: unknown) {
+        this.headersSent = true;
+        this.body.push(String(chunk));
+      },
+      end(chunk?: unknown) {
+        if (chunk != null) this.write(chunk);
+        this.writableEnded = true;
+      },
+      destroy() {
+        this.destroyed = true;
+      },
+      output() {
+        return this.body.join('');
+      },
+    };
+
+    const writable = new Collector();
+    const ac = new AbortController();
+    let abortedState = false;
+    let finalData: unknown = undefined;
+    let pipedToReply = false;
+
+    // writable.pipe(reply.raw, { end: false }) — the renderer's bytes reach the response only
+    // once onHead has connected them (HandleRender.ts:450-453).
+    const rendererWrite = writable.write.bind(writable);
+    writable.write = (chunk: unknown): boolean => {
+      const ok = rendererWrite(chunk);
+      if (pipedToReply) reply.write(chunk);
+      return ok;
+    };
+
+    // The production FATAL channel teardown (HandleRender.ts:480-534, minus telemetry). The
+    // ac.abort() here is the re-entrancy under test: the same signal is wired to renderStream below.
+    const onError = vi.fn((err: unknown) => {
+      void err;
+      if (abortedState) return;
+      abortedState = true;
+      try {
+        ac.abort();
+      } catch {}
+      if (!reply.headersSent) {
+        reply.writeHead(500);
+        reply.end('Internal Server Error');
+        return;
+      }
+      if (!reply.writableEnded && !reply.destroyed) reply.destroy();
+    });
+
+    const { done } = renderStream(
+      writable as any,
+      {
+        // The head commit connects the renderer's stream to the HTTP response
+        // (HandleRender.ts:434-454); commitHead is where the production write can throw.
+        onHead: (headContent: string) => {
+          commitHead?.();
+          reply.write(`${TEMPLATE.beforeHead}${headContent}${TEMPLATE.afterHead}${TEMPLATE.beforeBody}`);
+          pipedToReply = true;
+        },
+        onAllReady: (data: unknown) => {
+          if (!abortedState) finalData = data;
+        },
+        onError,
+      },
+      initialData,
+      '/server-join',
+      '/entry-client.js',
+      {},
+      undefined,
+      ac.signal, // HandleRender.ts:541 — the signal the production onError aborts re-entrantly
+    );
+
+    // On renderer finish, the server appends the data script + template tail and records the
+    // response as SENT with a 200 (HandleRender.ts:552-602). After a failed head commit this
+    // listener is what assembled the malformed "successful" response pre-fix.
+    writable.once('finish', () => {
+      if (abortedState || reply.writableEnded) return;
+      reply.write(`<script>window.__INITIAL_DATA__ = ${JSON.stringify(finalData ?? {})};</script>${TEMPLATE.afterBody}`);
+      reply.end();
+      reply.sent200 = true; // recorder?.sent({ status: 200, mode: 'streaming' })
+    });
+
+    return { done, writable, reply, ac, onError };
+  };
+
+  it('gate finding 3: a throwing head commit cannot continue to a partial 200 — the join sends a real 500 and never records sent', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { renderStream } = createRenderer<{ msg: string }>({
+      appComponent: () => h('div', { id: 'app' }, 'app-body'),
+      headContent: () => '<title>x</title>',
+    });
+
+    const { done, reply, onError } = driveServerJoin(
+      renderStream,
+      { msg: 'hello' },
+      {
+        commitHead: () => {
+          throw new Error('head commit failed');
+        },
+      },
+    );
+
+    await expect(done).rejects.toThrow('head commit failed');
+    expect(onError).toHaveBeenCalledTimes(1);
+    // Nothing was committed, so the join sent a REAL error response…
+    expect(reply.statusCode).toBe(500);
+    expect(reply.output()).toBe('Internal Server Error');
+    // …and the finish listener could not assemble the pre-fix malformed "success": app bytes into
+    // an unconnected sink, then data script + tail recorded as a 200 with no head/prefix/body.
+    expect(reply.sent200).toBe(false);
+    expect(reply.output()).not.toContain('app-body');
+    expect(reply.output()).not.toContain('__INITIAL_DATA__');
+  });
+
+  it('gate finding 2: a fatal whose onError re-enters via the production ac.abort() still rejects done; writable and reply torn down', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const Boom = defineComponent({
+      name: 'Boom',
+      setup() {
+        throw new Error('server-join-fatal');
+      },
+    });
+    const { renderStream } = createRenderer<{ x: number }>({
+      appComponent: () => h(Boom),
+      headContent: () => '<title>boom</title>',
+    });
+
+    const { done, writable, reply, ac, onError } = driveServerJoin(renderStream, { x: 1 });
+
+    await expect(done).rejects.toThrow('server-join-fatal'); // NOT benign-resolved by the re-entry
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(ac.signal.aborted).toBe(true); // the production re-entry really fired
+    expect(writable.destroyed).toBe(true); // renderer-side teardown still ran
+    // The head had already been committed, so the join destroys the response instead of 500ing —
+    // and the fatal can never be recorded as a sent 200.
+    expect(reply.headersSent).toBe(true);
+    expect(reply.destroyed).toBe(true);
+    expect(reply.sent200).toBe(false);
+  });
+});
