@@ -140,6 +140,26 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     delete (window as any).__TAUJS_DEVTOOLS_HOOK__;
   });
 
+  it('R2-04: identifierPrefix reaches BOTH roots - hydrateRoot (data present) and createRoot (CSR fallback)', () => {
+    // hydrate path
+    addRoot('root');
+    (window as any).__INITIAL_DATA__ = { a: 1 };
+    hydrateApp({ appComponent: <div>App</div>, identifierPrefix: 'hyd-' });
+    expect((RDC as any).__getHydrateOpts()).toEqual(expect.objectContaining({ identifierPrefix: 'hyd-' }));
+    expect(RDC.createRoot).not.toHaveBeenCalled();
+
+    // CSR fallback path (no SSR data) - the option must reach createRoot too, else two CSR roots on
+    // one page collide on useId. Removing it from only this call would otherwise leave tests green.
+    vi.clearAllMocks();
+    resetDom();
+    addRoot('root');
+    (window as any).__INITIAL_DATA__ = undefined;
+    hydrateApp({ appComponent: <div>App</div>, identifierPrefix: 'csr-' });
+    expect(RDC.hydrateRoot).not.toHaveBeenCalled();
+    expect((RDC as any).__getCreateOpts()).toEqual(expect.objectContaining({ identifierPrefix: 'csr-' }));
+    expect(RDC.createRoot).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ identifierPrefix: 'csr-' }));
+  });
+
   it('logs error and aborts when root element is missing', () => {
     (window as any).__INITIAL_DATA__ = { a: 1 };
     const error = vi.fn();
