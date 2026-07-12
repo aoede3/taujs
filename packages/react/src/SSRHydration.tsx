@@ -1,10 +1,10 @@
 import React from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 
-import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
-import { createUILogger } from './utils/Logger';
+import { createSSRStore, SSRStoreProvider } from './SSRDataStore.js';
+import { createUILogger } from './utils/Logger.js';
 
-import type { LoggerLike } from './utils/Logger';
+import type { LoggerLike } from './utils/Logger.js';
 
 // Dev-only introspection hook, set by the server-injected dev script (never by users).
 // Absent in production: emission costs one property check and can never throw into

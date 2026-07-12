@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useSyncExternalStore } from 'react';
 
-import { STORE_READINESS } from './internal';
+import { STORE_READINESS } from './internal.js';
 
 export type SSRStore<T> = {
   getSnapshot: () => T;
@@ -126,6 +126,17 @@ export const SSRStoreProvider = <T,>({ store, children }: React.PropsWithChildre
   <SSRStoreContext.Provider value={store}>{children}</SSRStoreContext.Provider>
 );
 
+/**
+ * Read the current store value. Suspends while the initial load is pending; throws on load error.
+ *
+ * Caveat (react.dev, `useSyncExternalStore`): a render triggered by a store MUTATION cannot be a
+ * non-blocking Transition. If the render caused by a `setData` suspends through app-level
+ * constructs derived from the store value (a `React.lazy` component selected by it, or a `use()`
+ * promise built from it), React replaces already-revealed content with the nearest Suspense
+ * fallback. After hydration, drive suspension-prone UI from component state inside
+ * `startTransition` rather than directly from store values.
+ * See https://react.dev/reference/react/useSyncExternalStore#caveats (R3-03 §0 ruling).
+ */
 export const useSSRStore = <T,>(): T => {
   const store = useContext(SSRStoreContext) as SSRStore<T> | null;
 

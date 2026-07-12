@@ -1,6 +1,6 @@
-export * from './SSRDataStore';
-export * from './SSRHydration';
-export * from './SSRRender';
+export * from './SSRDataStore.js';
+export * from './SSRHydration.js';
+export * from './SSRRender.js';
 
-export type { ServerLogs } from './utils/Logger';
-export { escapeHtml } from './utils/Html';
+export type { ServerLogs } from './utils/Logger.js';
+export { escapeHtml } from './utils/Html.js';

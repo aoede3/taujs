@@ -3,13 +3,13 @@ import { renderToPipeableStream, renderToString } from 'react-dom/server';
 
 import type { Writable } from 'node:stream';
 
-import { createSSRStore, SSRStoreProvider } from './SSRDataStore';
-import { getStoreReadiness } from './internal';
-import { createUILogger } from './utils/Logger';
+import { createSSRStore, SSRStoreProvider } from './SSRDataStore.js';
+import { getStoreReadiness } from './internal.js';
+import { createUILogger } from './utils/Logger.js';
 
-import type { LoggerLike } from './utils/Logger';
+import type { LoggerLike } from './utils/Logger.js';
 
-import { createStreamController, startShellTimer, wireWritableGuards } from './utils/Streaming';
+import { createStreamController, startShellTimer, wireWritableGuards } from './utils/Streaming.js';
 
 /**
  * R1-01: structured, NON-FATAL render-error observation.
