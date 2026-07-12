@@ -86,16 +86,22 @@ export type HydrateAppOptions<T> = {
   onSuccess?: () => void;
 };
 
-// Internal reporter (design 2): renders no DOM; its mount effect fires once after the first root
-// commit. Mounted INSIDE the provider wrapper, outside user control, so a committed root is provable
-// on both the hydrate and CSR paths. StrictMode double-invokes effects in dev — the single-settlement
+// Internal reporter (design 2): a pass-through WRAPPER around the app (renders `children`, adds no
+// DOM) whose mount effect fires once after the first root commit, so a committed root is provable on
+// both the hydrate and CSR paths. StrictMode double-invokes effects in dev — the single-settlement
 // flag in the parent makes the repeated `onCommit` a no-op after the first.
-const CommitReporter = ({ onCommit }: { onCommit: () => void }): null => {
+//
+// It MUST wrap the app, not sit beside it (R2-04). React's `useId` is tree-position sensitive: a
+// SIBLING of the app shifts every `useId` in the app (verified against react-dom 19.2), so the
+// original sibling reporter made the client tree's ids diverge from the SSR markup (which renders the
+// app without it) — a hydration mismatch for any app using `useId`. A pass-through wrapper adds tree
+// DEPTH only, which `useId` ignores, so the app's ids are identical to the server render.
+const CommitReporter = ({ onCommit, children }: React.PropsWithChildren<{ onCommit: () => void }>): React.ReactNode => {
   React.useEffect(() => {
     onCommit();
   }, [onCommit]);
 
-  return null;
+  return children;
 };
 
 export function hydrateApp<T>({
@@ -182,13 +188,12 @@ export function hydrateApp<T>({
     },
   };
 
-  // The tree React renders, with the internal commit reporter alongside the user's app (renders no
-  // DOM, so hydration structure is unaffected). Its effect calls the single `reportSuccess`.
+  // The tree React renders. The commit reporter WRAPS the app (adds tree depth only, no DOM and no
+  // `useId` shift — see CommitReporter); its effect calls the single `reportSuccess`.
   const buildTree = (store: ReturnType<typeof createSSRStore<T>>) => (
     <React.StrictMode>
       <SSRStoreProvider store={store}>
-        {appComponent}
-        <CommitReporter onCommit={reportSuccess} />
+        <CommitReporter onCommit={reportSuccess}>{appComponent}</CommitReporter>
       </SSRStoreProvider>
     </React.StrictMode>
   );

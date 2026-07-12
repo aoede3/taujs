@@ -3,6 +3,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { hydrateApp } from '../SSRHydration';
+import { createRenderer } from '../SSRRender';
 
 // R2-01 / T1b — REAL react-dom/client in jsdom. Mocked-React tests cannot catch the R2-01 class:
 // hydration render failures are ASYNC (they arrive via the root's onUncaughtError, verified against
@@ -195,6 +196,27 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
     } finally {
       (globalThis as { reportError?: unknown }).reportError = prevReportError;
     }
+  });
+
+  // R2-04 regression: the internal commit reporter WRAPS the app (adds depth only). If it ever regresses
+  // to a SIBLING, it shifts every useId in the app and the client tree's ids diverge from the SSR
+  // markup -> a hydration mismatch. Guard the mismatch-free hydration of a useId app end-to-end.
+  it('useId app: taujs SSR markup hydrates with NO mismatch (reporter wraps, does not shift useId)', async () => {
+    const IdApp = () => {
+      const id = React.useId();
+      return <span data-id={id}>{id}</span>;
+    };
+    const { appHtml } = await createRenderer({ appComponent: () => <IdApp />, headContent: () => '' }).renderSSR({}, '/id-app');
+    setRoot('root', appHtml);
+    (window as unknown as Record<string, unknown>).__INITIAL_DATA__ = { a: 1 };
+    const warn = vi.fn();
+
+    hydrateApp({ appComponent: <IdApp />, logger: { warn } });
+
+    await flush();
+
+    // No recoverable hydration mismatch: the app's useId is identical on server and client.
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('Recoverable'))).toHaveLength(0);
   });
 
   it('CSR SUCCESS + settled-guard: onSuccess fires once on commit (createRoot DOUBLE-invokes the reporter effect under StrictMode), NO beacon, NO onStart', async () => {
