@@ -1,14 +1,14 @@
 import { createSSRApp, h, type App, type Component, type VNode } from 'vue';
 import { renderToSimpleStream, renderToString, type SimpleReadable, type SSRContext } from '@vue/server-renderer';
 
-import { createSSRStore, SSRStoreProvider, type SSRStore } from './SSRDataStore';
-import { escapeHtml } from './utils/Html';
-import { createUILogger } from './utils/Logger';
+import { createSSRStore, SSRStoreProvider, type SSRStore } from './SSRDataStore.js';
+import { escapeHtml } from './utils/Html.js';
+import { createUILogger } from './utils/Logger.js';
 
 import type { Writable } from 'node:stream';
-import type { LoggerLike } from './utils/Logger';
+import type { LoggerLike } from './utils/Logger.js';
 
-import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming';
+import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming.js';
 
 export type RenderCallbacks<T> = {
   /**
