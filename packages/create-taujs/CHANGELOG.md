@@ -1,5 +1,11 @@
 # @taujs/cli
 
+## 0.3.1
+
+### Patch Changes
+
+- [#17](https://github.com/aoede3/taujs/pull/17) [`63446d7`](https://github.com/aoede3/taujs/commit/63446d75e6553c10a8b6751e0cc17decda0f3b64) Thanks [@aoede3](https://github.com/aoede3)! - Remove `@changesets/cli` from runtime dependencies. It was never imported, so every `npx @taujs/create-taujs` was downloading the entire changesets toolchain for nothing. Releases continue to use the copy provided by the workspace root.
+
 ## 0.3.0
 
 ### Minor Changes
