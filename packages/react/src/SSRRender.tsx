@@ -1,5 +1,10 @@
 import React from 'react';
-import { renderToPipeableStream, renderToString } from 'react-dom/server';
+import { renderToPipeableStream } from 'react-dom/server';
+// R3-06: the explicit `.node` subpath resolves to the Node build under EVERY condition set (its
+// exports map has only `react-server`/`default`), so neither a browser-conditioned test resolver
+// nor a bundler can pick a build without `prerenderToNodeStream`. Node-only by design — safe here
+// because R3-05's unbundled dist keeps this module out of the client entry's graph.
+import { prerenderToNodeStream } from 'react-dom/static.node';
 
 import type { Writable } from 'node:stream';
 
@@ -60,6 +65,21 @@ export type StreamOptions = {
   dataTimeoutMs?: number;
 };
 
+export type SSROptions = {
+  /**
+   * R3-06 (Q3, Policy A - signed 2026-07-12): deadline in ms for the `ssr` strategy's render
+   * (default: 10000; `0`/`Infinity` = wait forever). The `ssr` strategy now renders COMPLETE HTML -
+   * it waits for `React.lazy`/`use()` content that `renderToString` silently dropped. Nothing is
+   * served until the render finishes, so this deadline is a TTFB ceiling (hence the SHELL-class
+   * default, matching `shellTimeoutMs` - route data does not count against it; the server resolves
+   * data BEFORE the render starts). On expiry: if the shell completed, the fallback-state HTML is
+   * SERVED (React's documented abort degrade - the client completes the boundaries; an advisory
+   * warning is logged, since the `ssr` path has no `onRenderError` callback channel); if the shell
+   * never completed, the render THROWS into the host's error path instead of serving a blank page.
+   */
+  prerenderTimeoutMs?: number;
+};
+
 /**
  * Context passed to `headContent`: `data` is the resolved route data, `meta`/`routeContext` the
  * route's static metadata and per-request context. NB `headContent` returns RAW `<head>` HTML — any
@@ -85,6 +105,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   appComponent,
   headContent,
   streamOptions = {},
+  ssrOptions = {},
   logger,
   enableDebug = false,
   identifierPrefix,
@@ -102,8 +123,9 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   enableDebug?: boolean;
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
+  ssrOptions?: SSROptions;
   /**
-   * React's `identifierPrefix` for `useId` (passed to `renderToString` and `renderToPipeableStream`).
+   * React's `identifierPrefix` for `useId` (passed to `prerenderToNodeStream` and `renderToPipeableStream`).
    * It MUST be identical on the server and the client for a given root (pass the same value to
    * `hydrateApp`), or hydration mismatches. Set it when rendering MORE THAN ONE τjs root on a page
    * (the app-per-boundary / micro-frontend model) so each root's `useId` values are collision-free.
@@ -112,6 +134,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   identifierPrefix?: string;
 }) {
   const { shellTimeoutMs = 10_000, dataTimeoutMs = 30_000 } = streamOptions;
+  const { prerenderTimeoutMs = 10_000 } = ssrOptions;
 
   const renderSSR = async (
     initialData: T,
@@ -133,7 +156,15 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     }
 
     let aborted = false;
-    const onAbort = () => (aborted = true);
+    // One controller composes the caller's signal with the internal deadline (R3-06). Manual
+    // composition instead of `AbortSignal.any`: portable to every environment this renders in
+    // (jsdom's AbortSignal has no `.any`, and hosts may shim the global), and which source fired
+    // stays distinguishable via `aborted` (caller) vs `deadlineHit` (deadline).
+    const renderAbort = new AbortController();
+    const onAbort = () => {
+      aborted = true;
+      renderAbort.abort(signal?.reason ?? new Error('SSR aborted by caller'));
+    };
     signal?.addEventListener('abort', onAbort, { once: true });
 
     const routeContext = opts?.routeContext;
@@ -143,9 +174,47 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
       const dynamicHead = headContent({ data: initialData, meta, routeContext });
       const store = createSSRStore(initialData);
-      const html = renderToString(<SSRStoreProvider store={store}>{appComponent({ location, routeContext })}</SSRStoreProvider>, {
-        identifierPrefix,
-      });
+
+      // R3-06 (Q3, Policy A): `prerenderToNodeStream` replaces `renderToString`, which could not
+      // suspend - any `React.lazy`/`use()` subtree SILENTLY became its fallback plus a
+      // client-render marker, with zero diagnostics (route data is unaffected either way: the
+      // server resolves it before calling renderSSR, so the store never suspends on this path).
+      //
+      // Deadline semantics (probes 04/05, react-dom 19.2.7): an aborted prerender NEVER rejects.
+      // Abort with the shell complete resolves with fallback-state boundaries in the prelude
+      // (the client completes them on hydration - React's documented degrade); abort before the
+      // shell completes resolves with a 0-BYTE prelude, which must become an error, never a blank
+      // 200. Real render errors outside a boundary reject the promise into the host's error path,
+      // as renderToString's throw did.
+      let deadlineHit = false;
+      const deadlineTimer =
+        Number.isFinite(prerenderTimeoutMs) && prerenderTimeoutMs > 0
+          ? setTimeout(() => {
+              deadlineHit = true;
+              renderAbort.abort(new Error(`SSR prerender deadline (${prerenderTimeoutMs}ms) reached`));
+            }, prerenderTimeoutMs)
+          : undefined;
+
+      let appHtml = '';
+      try {
+        const { prelude } = await prerenderToNodeStream(<SSRStoreProvider store={store}>{appComponent({ location, routeContext })}</SSRStoreProvider>, {
+          identifierPrefix,
+          signal: renderAbort.signal,
+          onError(err) {
+            // Advisory: boundary errors, abort reasons, and pre-reject errors all surface here.
+            // Raw value to the non-throwing UI logger - never coerce error properties eagerly
+            // (recheck-2 lesson). Fatality is decided by the outcome policy below, never here.
+            warn('SSR prerender onError:', err);
+          },
+        });
+
+        // Concat as buffers - naive string += can split a multi-byte character across chunks.
+        const chunks: Buffer[] = [];
+        for await (const chunk of prelude) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+        appHtml = Buffer.concat(chunks).toString('utf8');
+      } finally {
+        if (deadlineTimer) clearTimeout(deadlineTimer);
+      }
 
       if (aborted) {
         warn('SSR completed after client abort', { location });
@@ -153,9 +222,23 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         return { headContent: '', appHtml: '', aborted: true };
       }
 
+      if (deadlineHit) {
+        if (appHtml.length === 0) {
+          // The shell never completed (suspension outside any boundary): never serve a blank 200.
+          throw new Error(`SSR render exceeded prerenderTimeoutMs (${prerenderTimeoutMs}ms) before the shell completed`);
+        }
+
+        // Policy A degrade: serve the fallback-state HTML; the client completes the boundaries.
+        // The `ssr` path has no `onRenderError` callback channel, so the logger IS the advisory.
+        warn('SSR render hit prerenderTimeoutMs; serving fallback-state HTML (client completes the pending boundaries)', {
+          location,
+          prerenderTimeoutMs,
+        });
+      }
+
       log('Completed SSR:', location);
 
-      return { headContent: dynamicHead, appHtml: html, aborted: false };
+      return { headContent: dynamicHead, appHtml, aborted: false };
     } finally {
       try {
         signal?.removeEventListener('abort', onAbort);

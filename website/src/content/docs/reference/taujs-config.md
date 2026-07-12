@@ -241,6 +241,15 @@ Complete HTML rendered before sending:
 - Complete HTML in single response
 - Guaranteed data in `headContent`
 
+**React renderer semantics (`@taujs/react`):** the `ssr` strategy renders complete HTML with
+React's `prerenderToNodeStream`, so `React.lazy` and `use()` content is included in the response.
+Earlier versions used `renderToString`, which silently replaced any suspending subtree with its
+Suspense fallback. The render is bounded by the renderer's `ssrOptions.prerenderTimeoutMs`
+(default 10000 ms). On expiry, a page whose shell completed is served with its unfinished
+Suspense boundaries in their fallback state - the client completes them after hydration - while a
+page whose shell never completed fails the request instead of serving a blank page. Set
+`prerenderTimeoutMs: 0` to wait indefinitely.
+
 ### Streaming SSR
 
 Progressive HTML delivery:

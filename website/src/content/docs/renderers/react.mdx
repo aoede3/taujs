@@ -44,7 +44,7 @@ A lightweight, React SSR library with streaming capabilities, built for modern T
 `@taujs/react` provides:
 
 - **Streaming SSR** with React 18+ `renderToPipeableStream`
-- **Static SSR** with `renderToString` for simpler use cases
+- **Static SSR** with `prerenderToNodeStream` - complete HTML including `React.lazy`/`use()` content, bounded by a configurable render deadline
 - **Automatic hydration** with built-in data synchronisation
 - **Type-safe data stores** using React hooks
 - **Robust error handling** for production environments

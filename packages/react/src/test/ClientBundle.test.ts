@@ -47,7 +47,9 @@ describe('R3-05 client bundle excludes the SSR renderer', () => {
       // Sanity: the graph really was built and includes the client renderer.
       expect(moduleIds.some((id) => id.includes('react-dom'))).toBe(true);
 
-      const serverModules = moduleIds.filter((id) => id.includes('react-dom-server') || id.includes('server.browser'));
+      // 'static.node' covers R3-06's prerenderToNodeStream entry (react-dom/static.node) — Node-only,
+      // must never join a browser graph.
+      const serverModules = moduleIds.filter((id) => id.includes('react-dom-server') || id.includes('server.browser') || id.includes('static.node'));
       expect(serverModules, `react-dom server renderer reached the client bundle:\n${serverModules.join('\n')}`).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });

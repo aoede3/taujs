@@ -2,9 +2,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 
+// R3-06: renderSSR renders via prerenderToNodeStream (react-dom/static.node). The mock resolves
+// with a one-chunk prelude, mirroring a completed prerender (postponed: null).
+vi.mock('react-dom/static.node', async () => {
+  const { Readable } = await import('node:stream');
+  const prerenderToNodeStream = vi.fn(async (_el: any, _opts: any) => ({
+    prelude: Readable.from(['<div>html</div>']),
+    postponed: null,
+  }));
+  return { prerenderToNodeStream };
+});
+
 vi.mock('react-dom/server', () => {
   let lastOpts: any;
-  const renderToString = vi.fn(() => '<div>html</div>');
   const renderToPipeableStream = vi.fn((_el: any, opts: any) => {
     lastOpts = opts;
 
@@ -15,7 +25,6 @@ vi.mock('react-dom/server', () => {
     };
   });
   return {
-    renderToString,
     renderToPipeableStream,
     __getLastOpts: () => lastOpts,
   };
@@ -88,8 +97,11 @@ vi.mock('../utils/Streaming', () => {
   };
 });
 
+import { Readable } from 'node:stream';
+
 import { createRenderer } from '../SSRRender';
 import * as RDS from 'react-dom/server';
+import * as RDStatic from 'react-dom/static.node';
 import * as Store from '../SSRDataStore';
 import * as Streaming from '../utils/Streaming';
 
@@ -135,7 +147,7 @@ describe('createRenderer.renderSSR', () => {
     const out = await renderer.renderSSR({ title: 'T' } as any, '/home', { x: 1 });
 
     expect(Store.createSSRStore).toHaveBeenCalledWith({ title: 'T' });
-    expect(RDS.renderToString).toHaveBeenCalledTimes(1);
+    expect(RDStatic.prerenderToNodeStream).toHaveBeenCalledTimes(1);
     expect(out.headContent).toBe('<head>T-1</head>');
     expect(out.appHtml).toBe('<div>html</div>');
 
@@ -162,7 +174,7 @@ describe('createRenderer.renderSSR', () => {
 
     // No render attempts
     expect(Store.createSSRStore).not.toHaveBeenCalled();
-    expect(RDS.renderToString).not.toHaveBeenCalled();
+    expect(RDStatic.prerenderToNodeStream).not.toHaveBeenCalled();
 
     // Warn with prefix + message + context
     expect(warn).toHaveBeenCalledTimes(1);
@@ -183,20 +195,19 @@ describe('createRenderer.renderSSR', () => {
       logger: { warn },
     });
 
-    // We’ll abort *after* render kicks off but before completion
-    // Mock renderToString to let us flip the signal in-between
-    // const orig = RDS.renderToString as unknown as jest.Mock | vi.Mock;
-    (RDS.renderToString as any).mockImplementationOnce(() => {
-      // abort right before returning html to flip `aborted = true`
+    // We’ll abort *after* render kicks off but before completion:
+    // mock prerenderToNodeStream to flip the signal before resolving.
+    (RDStatic.prerenderToNodeStream as any).mockImplementationOnce(async () => {
+      // abort right before resolving to flip `aborted = true`
       ac.abort();
-      return '<div>html</div>';
+      return { prelude: Readable.from(['<div>html</div>']), postponed: null };
     });
 
     const out = await renderer.renderSSR({ title: 'Y' } as any, '/mid', {}, ac.signal);
 
     // Should have rendered, but then detected abort and returned aborted=true
     expect(Store.createSSRStore).toHaveBeenCalledTimes(1);
-    expect(RDS.renderToString).toHaveBeenCalledTimes(1);
+    expect(RDStatic.prerenderToNodeStream).toHaveBeenCalledTimes(1);
 
     expect(warn).toHaveBeenCalledTimes(1);
     const [msg, meta] = (warn as any).mock.calls[0]!;
