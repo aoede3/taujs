@@ -164,19 +164,22 @@ describe('createRenderer.renderStream — head contract (F2)', () => {
     expect(onHead).toHaveBeenCalledWith('<title>H-3</title>');
   });
 
-  it('onHead callback throwing is caught (warns) and does not abort the stream', () => {
+  it('a throwing onHead is FATAL: done rejects, nothing is rendered into the unconnected sink', async () => {
+    // onHead is REQUIRED, not advisory: at the server boundary it commits the response prefix and
+    // connects the renderer's PassThrough to the HTTP response. If it throws and we carried on, app
+    // bytes would be written into an unconnected sink -> a malformed "successful" response.
     const writable = new Collector();
-    const warn = vi.fn();
+    const onError = vi.fn();
     const onHead = vi.fn(() => {
       throw new Error('head-cb boom');
     });
 
-    makeRenderer({ logger: { warn } } as any).renderStream(writable as any, { onHead }, {} as any, '/onhead-throws');
+    const { done } = makeRenderer({ logger: { error: vi.fn() } } as any).renderStream(writable as any, { onHead, onError }, {} as any, '/onhead-throws');
 
-    expect(SR.renderToSimpleStream).toHaveBeenCalledTimes(1);
-    const [msg, err] = warn.mock.calls.find(([m]) => String(m).includes('onHead callback threw'))!;
-    expect(msg).toContain('onHead callback threw:');
-    expect((err as Error).message).toBe('head-cb boom');
+    await expect(done).rejects.toThrow('head-cb boom');
+    expect(SR.renderToSimpleStream).not.toHaveBeenCalled(); // stopped before rendering
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect((onError.mock.calls[0]![0] as Error).message).toBe('head-cb boom');
   });
 });
 
@@ -358,6 +361,89 @@ describe('createRenderer.renderStream — completion & data delivery', () => {
 
     sink.push(null);
     await done;
+  });
+
+  it('a throwing onAllReady is ISOLATED: onFinish still fires, done follows the render outcome, no manufactured fatal', async () => {
+    // An advisory observer must not turn successfully resolved data + a completed render into a fatal
+    // stream failure (its throw previously reached the .catch and called fail), nor suppress onFinish.
+    const writable = new Collector();
+    const onAllReady = vi.fn(() => {
+      throw new Error('onAllReady boom');
+    });
+    const onFinish = vi.fn();
+    const onError = vi.fn();
+
+    const { done } = makeRenderer({ logger: { error: vi.fn() } } as any).renderStream(
+      writable as any,
+      { onAllReady, onFinish, onError },
+      () => Promise.resolve({ userId: 7 }) as any,
+      '/data',
+    );
+
+    const sink = getSink();
+    sink.push('<div/>');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(onAllReady).toHaveBeenCalledTimes(1);
+    expect(onFinish).toHaveBeenCalledWith({ userId: 7 }); // sibling not suppressed
+    expect(onError).not.toHaveBeenCalled(); // no manufactured fatal
+
+    sink.push(null);
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('a throwing onFinish is ISOLATED: done still resolves, single fire', async () => {
+    const writable = new Collector();
+    const onAllReady = vi.fn();
+    const onFinish = vi.fn(() => {
+      throw new Error('onFinish boom');
+    });
+    const onError = vi.fn();
+
+    const { done } = makeRenderer({ logger: { error: vi.fn() } } as any).renderStream(
+      writable as any,
+      { onAllReady, onFinish, onError },
+      () => Promise.resolve({ userId: 7 }) as any,
+      '/data',
+    );
+
+    const sink = getSink();
+    sink.push('<div/>');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(onAllReady).toHaveBeenCalledWith({ userId: 7 });
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+
+    sink.push(null);
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('re-entrant abort: a fatal whose onError aborts the passed signal still REJECTS done (no benign downgrade)', async () => {
+    // The server's onError synchronously calls ac.abort() on the SAME signal wired here to
+    // benign-cancel. If fail() ran the callback before claiming fatal, that re-entrant benignAbort
+    // would win the one-shot controller and RESOLVE done - a fatal reported as a benign completion.
+    const writable = new Collector();
+    const ac = new AbortController();
+    const original = new Error('vue-fatal-original');
+    const onError = vi.fn(() => ac.abort());
+
+    const { done } = makeRenderer({ logger: { error: vi.fn() } } as any).renderStream(
+      writable as any,
+      { onError },
+      {} as any,
+      '/reentrant',
+      undefined,
+      {},
+      undefined,
+      ac.signal,
+    );
+
+    const sink = getSink();
+    sink.destroy(original); // render-origin fatal
+
+    await expect(done).rejects.toThrow('vue-fatal-original');
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 
   it('a rejected data thunk becomes a fatal error (onError + done rejects)', async () => {

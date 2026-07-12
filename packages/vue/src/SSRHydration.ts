@@ -50,10 +50,12 @@ export type HydrateAppOptions<T> = {
  * - Otherwise, hydrate SSR markup, emitting `hydration:start|success|error` to the
  *   dev-only `window.__TAUJS_DEVTOOLS_HOOK__` around the user callbacks.
  *
- * Unlike React (which surfaces hydration failures as synchronous throws), Vue reports them
- * through `app.config.errorHandler` and recoverable warnings — so this installs an error
+ * Both frameworks surface client render failures ASYNCHRONOUSLY, not as throws from the
+ * mount/hydrate call (React via the root's `onUncaughtError`, established and tested in R2-01;
+ * Vue via `app.config.errorHandler` plus recoverable warnings) — so this installs an error
  * handler before mount and treats errors during the hydration phase as hydration failures.
- * `onStart`/`onSuccess` receive the `App` instance (react's take no args).
+ * `onStart`/`onSuccess` receive the `App` instance (react's take no args). All user callbacks are
+ * advisory and isolated: a throw is logged, never altering settlement or preventing mount.
  */
 export function hydrateApp<T>({
   appComponent,
@@ -71,6 +73,23 @@ export function hydrateApp<T>({
     context: { scope: 'vue-hydration' },
     enableDebug,
   });
+
+  // User lifecycle callbacks are ADVISORY observers - every one is isolated here (hardening-lessons
+  // §1). This is load-bearing, not defensive: `onStart`/`onSuccess` run inside the hydration
+  // try/catch, and `onHydrationError` runs from Vue's errorHandler / a catch block. Un-isolated, an
+  // observer throw would (a) be misread as a hydration failure - a throwing `onStart` would emit
+  // `hydration:error` and PREVENT `app.mount`, (b) manufacture an error AFTER success - a throwing
+  // `onSuccess` would emit `hydration:error` for an attempt that already emitted
+  // `hydration:success`, or (c) escape `hydrateApp` entirely from inside a catch block. An observer
+  // must never alter settlement, stop the app mounting, or escape the framework boundary; a throw is
+  // logged only, and is NEVER fed back into `reportHydrationFailure`.
+  const runObserver = (label: string, run: () => void) => {
+    try {
+      run();
+    } catch (cbErr) {
+      error(`${label} callback threw (ignored):`, cbErr);
+    }
+  };
 
   const normalizeRoot = (): Component => {
     // Allow passing either a component or a render function.
@@ -98,9 +117,10 @@ export function hydrateApp<T>({
     } catch (err) {
       // R2: a throwing setupApp/mount is an application error — route to onHydrationError
       // (the only client error channel). The CSR path emits NO beacon events: a CSR mount is
-      // not a hydration, and react's CSR path emits nothing either.
+      // not a hydration, and react's CSR path emits nothing either. Isolated: this runs inside a
+      // catch block, so an un-isolated observer throw would escape hydrateApp.
       error('CSR mount error:', err);
-      onHydrationError?.(err);
+      runObserver('onHydrationError', () => onHydrationError?.(err));
     }
   };
 
@@ -126,7 +146,9 @@ export function hydrateApp<T>({
       if (!inHydrationPhase || errored) return;
       errored = true;
       emitDevHook('hydration:error', err);
-      onHydrationError?.(err);
+      // Isolated: this runs from Vue's app.config.errorHandler and from the outer catch, where an
+      // un-isolated observer throw would escape hydrateApp.
+      runObserver('onHydrationError', () => onHydrationError?.(err));
     };
 
     try {
@@ -161,9 +183,11 @@ export function hydrateApp<T>({
         };
       }
 
-      // Beacon then user callback (internal-first), onStart receiving the configured App.
+      // Beacon then user callback (internal-first), onStart receiving the configured App. Isolated:
+      // an un-isolated throw would hit the outer catch, be misreported as a hydration failure, and
+      // PREVENT app.mount below - an advisory observer must never stop the app hydrating.
       emitDevHook('hydration:start');
-      onStart?.(app);
+      runObserver('onStart', () => onStart?.(app));
 
       // createSSRApp(...).mount() hydrates by default; no non-public second argument (F11).
       app.mount(rootEl);
@@ -171,7 +195,9 @@ export function hydrateApp<T>({
       if (!errored) {
         if (enableDebug) log('Hydration completed');
         emitDevHook('hydration:success');
-        onSuccess?.(app);
+        // Isolated: an un-isolated throw would hit the outer catch and emit hydration:error +
+        // onHydrationError for an attempt that has ALREADY emitted hydration:success.
+        runObserver('onSuccess', () => onSuccess?.(app));
       }
 
       // Close the hydration phase after the current tick.
@@ -197,11 +223,7 @@ export function hydrateApp<T>({
       error(`Root element with id "${rootElementId}" not found.`);
       const err = new Error(`Root element with id "${rootElementId}" not found.`);
       emitDevHook('hydration:error', err);
-      try {
-        onHydrationError?.(err);
-      } catch (cbErr) {
-        error('onHydrationError callback threw (ignored):', cbErr);
-      }
+      runObserver('onHydrationError', () => onHydrationError?.(err));
 
       return;
     }

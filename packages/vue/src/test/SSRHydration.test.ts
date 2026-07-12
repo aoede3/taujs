@@ -271,3 +271,97 @@ describe('hydrateApp — setupApp (V1-06)', () => {
     expect(apps[1]).toBe(apps[2]);
   });
 });
+
+describe('hydrateApp — observer isolation (gate review R2-03/R2-04, hardening-lessons §1)', () => {
+  it('a throwing onStart is isolated: the app still mounts and success is still emitted (no manufactured error)', () => {
+    setRoot('<div>app</div>');
+    setData({ a: 1 });
+    const events: string[] = [];
+    (window as any).__TAUJS_DEVTOOLS_HOOK__ = { emit: (ev: string) => events.push(ev) };
+    const onHydrationError = vi.fn();
+    const onSuccess = vi.fn();
+    const onStart = vi.fn(() => {
+      throw new Error('onStart boom');
+    });
+
+    expect(() => hydrateApp({ appComponent: CleanApp, logger: { error: vi.fn() }, onStart, onSuccess, onHydrationError })).not.toThrow();
+
+    // An advisory observer must never stop the app hydrating.
+    expect(document.getElementById('root')!.textContent).toBe('app');
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['hydration:start', 'hydration:success']);
+    expect(onHydrationError).not.toHaveBeenCalled();
+  });
+
+  it('a throwing onSuccess is isolated: one success, and NO hydration:error is manufactured after it', () => {
+    setRoot('<div>app</div>');
+    setData({ a: 1 });
+    const events: string[] = [];
+    (window as any).__TAUJS_DEVTOOLS_HOOK__ = { emit: (ev: string) => events.push(ev) };
+    const onHydrationError = vi.fn();
+    const onSuccess = vi.fn(() => {
+      throw new Error('onSuccess boom');
+    });
+
+    expect(() => hydrateApp({ appComponent: CleanApp, logger: { error: vi.fn() }, onSuccess, onHydrationError })).not.toThrow();
+
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['hydration:start', 'hydration:success']);
+    expect(events).not.toContain('hydration:error');
+    expect(onHydrationError).not.toHaveBeenCalled();
+  });
+
+  it('a throwing onHydrationError cannot escape a setupApp/mount failure', () => {
+    setRoot('<div>app</div>');
+    setData({ a: 1 });
+    const onHydrationError = vi.fn(() => {
+      throw new Error('onHydrationError boom');
+    });
+
+    expect(() =>
+      hydrateApp({
+        appComponent: CleanApp,
+        logger: { error: vi.fn() },
+        onHydrationError,
+        setupApp: () => {
+          throw new Error('setup exploded');
+        },
+      }),
+    ).not.toThrow();
+
+    expect(onHydrationError).toHaveBeenCalledTimes(1);
+  });
+
+  it('a throwing onHydrationError cannot escape the CSR mount failure path', () => {
+    setRoot('<div>stale</div>');
+    setData(undefined); // no SSR data -> CSR
+    const onHydrationError = vi.fn(() => {
+      throw new Error('onHydrationError boom');
+    });
+
+    expect(() =>
+      hydrateApp({
+        appComponent: CleanApp,
+        logger: { error: vi.fn() },
+        onHydrationError,
+        setupApp: () => {
+          throw new Error('csr setup exploded');
+        },
+      }),
+    ).not.toThrow();
+
+    expect(onHydrationError).toHaveBeenCalledTimes(1);
+  });
+
+  it('a throwing onHydrationError cannot escape the missing-root path', () => {
+    document.body.innerHTML = '<div id="somewhere-else"></div>';
+    setData({ a: 1 });
+    const onHydrationError = vi.fn(() => {
+      throw new Error('onHydrationError boom');
+    });
+
+    expect(() => hydrateApp({ appComponent: CleanApp, rootElementId: 'root', logger: { error: vi.fn() }, onHydrationError })).not.toThrow();
+
+    expect(onHydrationError).toHaveBeenCalledTimes(1);
+  });
+});

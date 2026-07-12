@@ -229,22 +229,37 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
     const controller = createStreamController(writable, { log, warn, error });
 
+    // Advisory observers are ISOLATED (hardening-lessons §1): a throw is logged and swallowed - it
+    // must never enter the fatal path, escape the framework boundary (these run inside Vue's
+    // errorHandler, a promise chain, or sink teardown, where a throw would be uncaught), or suppress
+    // a sibling callback.
+    const runObserver = (label: string, run: () => void) => {
+      try {
+        run();
+      } catch (cbErr) {
+        error(`${label} callback threw (ignored):`, cbErr);
+      }
+    };
+
     // Single, idempotent fatal path. Vue swallows a component error once an
     // app.config.errorHandler is installed (see @vue/server-renderer handleError), so the
     // handler must abort itself rather than relying on the render promise to reject; the
     // isAborted guard makes this safe to call from both errorHandler and sink.destroy.
     const fail = (err: unknown) => {
       if (controller.isAborted) return;
-      // Recheck: the host `onError` callback can NEVER veto controller cleanup/settlement. A
-      // throwing `onError` is logged and SWALLOWED — it must not veto `fatalAbort` (below, always
-      // runs) NOR escape (this may run inside an errorHandler / sink teardown where a throw would
-      // be uncaught). The ORIGINAL error stays the rejection reason.
+      // Ordering (hardening-lessons §2): claim the terminal fatal state BEFORE invoking re-entrant
+      // host code. The server's `onError` synchronously calls `ac.abort()`, and that SAME AbortSignal
+      // is wired below to `controller.benignAbort` - if the callback ran first, the re-entrant benign
+      // abort would win the one-shot controller and RESOLVE `done`, silently downgrading a fatal to a
+      // benign completion and breaking the published `RenderStreamHandle` contract. fatalAbort-first
+      // makes that re-entrant benignAbort a no-op. A throwing `onError` is still swallowed (and can no
+      // longer veto settlement, already claimed); the ORIGINAL error stays the rejection reason.
+      controller.fatalAbort(err);
       try {
         cb.onError(err);
       } catch (cbErr) {
         warn('onError callback threw:', cbErr);
       }
-      controller.fatalAbort(err);
     };
 
     // AbortSignal (benign cancel)
@@ -380,7 +395,16 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       try {
         cb.onHead(head);
       } catch (cbErr) {
-        warn('onHead callback threw:', cbErr);
+        // onHead is REQUIRED, not advisory (parity with react's R1-01 contract, and the server
+        // assumes it across BOTH renderer packages): it commits the response prefix and connects the
+        // renderer's PassThrough to the HTTP response. If it throws, the response was never set up -
+        // continuing would write application bytes into an unconnected sink and can yield a malformed
+        // "successful" response with no head/prefix/body. Stop here: rethrow so the enclosing catch
+        // routes it through the single `fail` path (fatal abort + onError, `done` rejects with this
+        // error) and we never reach renderToSimpleStream.
+        error('onHead callback threw (fatal):', cbErr);
+
+        throw cbErr;
       }
 
       // Route Vue render-time errors into the fatal path (see `fail` above). R3: chain after
@@ -405,8 +429,12 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
           if (controller.isAborted) return;
           const data = s.getSnapshot();
           if (data !== undefined) {
-            cb.onAllReady(data);
-            cb.onFinish(data);
+            // Isolated INDEPENDENTLY (hardening-lessons §1): an advisory observer must not be able to
+            // turn a successfully resolved data load + completed render into a fatal stream failure
+            // (its throw would otherwise reach the `.catch` below and call `fail`), nor suppress its
+            // sibling (a throwing onAllReady previously prevented the legacy onFinish alias firing).
+            runObserver('onAllReady', () => cb.onAllReady(data));
+            runObserver('onFinish', () => cb.onFinish(data));
           }
         })
         .catch((e) => {
