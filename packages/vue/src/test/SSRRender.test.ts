@@ -212,6 +212,22 @@ describe('createRenderer.renderStream — bootstrap & hydration (F3)', () => {
     expect(writable.output()).not.toContain('nonce=');
   });
 
+  it('escapes the bootstrap src and nonce attributes (SEC2, R2-03)', async () => {
+    const writable = new Collector();
+
+    makeRenderer().renderStream(writable as any, {}, {} as any, '/', '/x.js" onmouseover="alert(1)', {}, 'n"once');
+
+    const sink = getSink();
+    sink.push('<div id="app"></div>');
+    sink.push(null);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const boot = writable.writeCalls.filter((c) => c.includes('type="module"'))[0]!;
+    expect(boot).toContain('src="/x.js&quot; onmouseover=&quot;alert(1)"'); // src encoded
+    expect(boot).not.toContain('onmouseover="alert(1)"'); // no live attribute breakout
+    expect(boot).toContain('nonce="n&quot;once"'); // nonce encoded
+  });
+
   it('emits no bootstrap tag when bootstrapModules is undefined', async () => {
     const writable = new Collector();
 

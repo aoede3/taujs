@@ -188,7 +188,21 @@ export function hydrateApp<T>({
   const bootstrap = () => {
     const rootEl = document.getElementById(rootElementId);
     if (!rootEl) {
+      // R2-03 (R5): a missing root is a bootstrap failure — report it through the client error
+      // channel, mirroring react's R2-01. Emits `hydration:error` WITHOUT a preceding `start` (vue
+      // precedent: a setupApp failure emits the same way; hydration never began). This case precedes
+      // the phase/`errored` machinery, so it is reported directly rather than routed through it.
+      // `onHydrationError` is isolated (hardening-lessons §1): a throwing observer must not escape
+      // bootstrap() (which may run directly on a non-loading document).
       error(`Root element with id "${rootElementId}" not found.`);
+      const err = new Error(`Root element with id "${rootElementId}" not found.`);
+      emitDevHook('hydration:error', err);
+      try {
+        onHydrationError?.(err);
+      } catch (cbErr) {
+        error('onHydrationError callback threw (ignored):', cbErr);
+      }
+
       return;
     }
 

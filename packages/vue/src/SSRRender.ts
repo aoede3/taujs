@@ -2,6 +2,7 @@ import { createSSRApp, h, type App, type Component, type VNode } from 'vue';
 import { renderToSimpleStream, renderToString, type SimpleReadable, type SSRContext } from '@vue/server-renderer';
 
 import { createSSRStore, SSRStoreProvider, type SSRStore } from './SSRDataStore';
+import { escapeHtml } from './utils/Html';
 import { createUILogger } from './utils/Logger';
 
 import type { Writable } from 'node:stream';
@@ -294,9 +295,12 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     const finishStream = () => {
       if (controller.isAborted) return;
       if (bootstrapModules) {
-        const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
+        // R2-03 (V2/SEC2): escape the manually-written bootstrap attributes. `escapeHtml` is a no-op
+        // on clean module URLs and base64 CSP nonces (attribute-safe for both quote styles), so it is
+        // defence-in-depth with no tag-shape change on valid input.
+        const nonceAttr = cspNonce ? ` nonce="${escapeHtml(cspNonce)}"` : '';
         try {
-          writable.write(`<script type="module" src="${bootstrapModules}" async${nonceAttr}></script>`);
+          writable.write(`<script type="module" src="${escapeHtml(bootstrapModules)}" async${nonceAttr}></script>`);
         } catch {}
       }
       try {

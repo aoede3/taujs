@@ -66,6 +66,25 @@ describe('hydrateApp — mount paths', () => {
     expect(String(error.mock.calls[0]![0])).toContain('Root element with id "root" not found');
     expect(onStart).not.toHaveBeenCalled();
   });
+
+  it('missing root: reports via onHydrationError + hydration:error beacon; hydration never starts (R2-03)', () => {
+    document.body.innerHTML = '<div id="somewhere-else"></div>';
+    setData({ a: 1 });
+    const events: string[] = [];
+    (window as any).__TAUJS_DEVTOOLS_HOOK__ = { emit: (ev: string) => events.push(ev) };
+    const error = vi.fn();
+    const onHydrationError = vi.fn();
+    const onStart = vi.fn();
+
+    hydrateApp({ appComponent: CleanApp, rootElementId: 'root', logger: { error }, onHydrationError, onStart });
+
+    expect(onHydrationError).toHaveBeenCalledTimes(1);
+    expect((onHydrationError.mock.calls[0]![0] as Error).message).toContain('Root element with id "root" not found');
+    // error-without-start (vue precedent — a setupApp failure emits the same way); hydration never began
+    expect(events).toEqual(['hydration:error']);
+    expect(onStart).not.toHaveBeenCalled();
+    expect(String(error.mock.calls[0]![0])).toContain('not found');
+  });
 });
 
 describe('hydrateApp — error handler wiring (F11)', () => {
