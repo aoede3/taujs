@@ -1,5 +1,108 @@
 # @taujs/server
 
+## 0.10.0
+
+### Minor Changes
+
+- [#15](https://github.com/aoede3/taujs/pull/15) [`a1a627a`](https://github.com/aoede3/taujs/commit/a1a627a16fdc9aba8b8d33198be053e092c28053) Thanks [@aoede3](https://github.com/aoede3)! - R0-01: export `RenderStreamHandle` (`{ abort(): void; done: Promise<void> }`) as the return
+  type of `RenderStream`, and observe `done` at the streaming render call site.
+
+  Both framework renderers already returned `{ abort, done }` at runtime, but the published
+  `RenderStream` type promised only `{ abort(): void }`, so the server could not capture `done`.
+  A fatal stream error rejects `done`; left unobserved, that surfaced as an `unhandledRejection`
+  — which Node's default mode turns into a process-terminating `uncaughtException`. The server
+  now captures and acknowledges `done` (fatal errors remain fully handled via the `onError`
+  callback; the acknowledgement is also defence in depth if a renderer omits its own handler).
+
+  Type-level breaking change for third-party `RenderStream` implementers: they must now return a
+  `done` promise. Both first-party renderers already conform. Bumped `minor` as an additive
+  contract type (precedent: V1-05), keeping `@taujs/server` below 1.0.0.
+
+### Patch Changes
+
+- [#15](https://github.com/aoede3/taujs/pull/15) [`1b251fa`](https://github.com/aoede3/taujs/commit/1b251fa10adc055013c9692f8f5c093bcc02ddab) Thanks [@aoede3](https://github.com/aoede3)! - R0-02: origin-aware benign-error classification in `HandleRender`. Replaces the broad
+  `REGEX.BENIGN_NET_ERR` substring match (now removed) with a strict socket taxonomy — disconnect
+  `code`, `AbortError` name, or exact node/undici socket message.
+
+  Fixes a hung-request hole: a `renderSSR` failure is render-origin, so it is benign only when the
+  request was actually aborted. A disconnect-shaped render error on a live request previously
+  returned silently without sending a response (hanging the request); it now produces a real 500.
+  Socket-origin paths (send failure, PassThrough/HTTP socket errors, stream `onError`) use the same
+  strict socket check, so an application error whose message merely contains "aborted"/"premature"
+  is no longer mistaken for a client disconnect.
+
+- [#15](https://github.com/aoede3/taujs/pull/15) [`d629017`](https://github.com/aoede3/taujs/commit/d629017837553f2b0196aed330cd975edc581689) Thanks [@aoede3](https://github.com/aoede3)! - R0-04: eliminate the second process-crash class — a `JSON.stringify` failure thrown from the
+  streaming `finish` listener, which runs on a stream tick OUTSIDE the request `try/catch`, so an
+  uncaught throw becomes an `uncaughtException` → process exit.
+
+  A single server-owned `serializeInlineData` boundary now serializes the inline
+  `window.__INITIAL_DATA__` script for BOTH render modes. It escapes `<` (output is byte-identical
+  to the previous inline expression for every valid input, so cached pages are unaffected), treats
+  circular references, `BigInt`, a throwing `toJSON`, and `undefined` as deterministic failures, and
+  NEVER throws. The SSR path throws an `AppError.internal` into the existing 500 machinery on
+  failure; the streaming path logs, records (`recorder.failed`), and terminates the response
+  deterministically without a data script — with the entire listener wrapped in a `try/catch` belt.
+  The JSON data contract is unchanged (no new serializer dependency).
+
+- [#15](https://github.com/aoede3/taujs/pull/15) [`55ace30`](https://github.com/aoede3/taujs/commit/55ace30371dccde96cc8151c17ec838a11c3b700) Thanks [@aoede3](https://github.com/aoede3)! - R0 gate recheck fix — a throwing host `onError` callback can no longer veto stream
+  cleanup/settlement:
+
+  - **Renderers** (`@taujs/react`, `@taujs/vue`): every fatal path now routes through a single
+    helper that invokes the host `onError` under `try/catch` (the throw is logged and swallowed) and
+    ALWAYS runs `controller.fatalAbort`. So a throwing callback — or one called from a shell timer or
+    a writable EventEmitter listener — can neither skip cleanup / `done` settlement nor escape as an
+    `uncaughtException`; the ORIGINAL render error stays the rejection reason. React additionally no
+    longer double-fires `onError` for a fatal writable error.
+  - **Server** (`@taujs/server`): the streaming render `onError` callback is now non-throwing for an
+    arbitrary/hostile `unknown`. Telemetry (message / kind / normalise / reason) is extracted through
+    safe, never-throwing helpers and belted, so formatting a hostile error (a throwing `message`
+    getter or `Symbol.toPrimitive`) can no longer prevent the deterministic response teardown
+    (500 / socket destroy).
+
+- [#15](https://github.com/aoede3/taujs/pull/15) [`9bbc4b7`](https://github.com/aoede3/taujs/commit/9bbc4b70ee9ab069bd8688338018cace9b753a2d) Thanks [@aoede3](https://github.com/aoede3)! - R0 gate-review fixes:
+
+  - **Server:** the streaming render `onError` is the renderer's FATAL channel and is now trusted —
+    benign classification uses ACTUAL request-abort state, not the shape (`code`/`name`/exact
+    message) of an application-controlled error. This closes an origin-blind reclassification at the
+    renderer/server join: a render/data failure that happens to look like a disconnect (e.g.
+    `code: 'EPIPE'`, `name: 'AbortError'`, or the exact message `"aborted"`) now enters the failure
+    path and is recorded, instead of being silently treated as a client disconnect.
+  - **Renderers** (`@taujs/react` upstream, `@taujs/vue` byte-identical drift-copy): the shared UI
+    logger is now NON-THROWING — formatting arbitrary `unknown` values (`BigInt`, circular objects,
+    symbols, a throwing `toJSON`/`Symbol.toPrimitive`) and calls to a user-provided logger method are
+    isolated, so a diagnostic on an error path can never break control flow. The stream controller
+    additionally cleans up and settles `done` even if its logger throws. Together these make R0-03's
+    always-on `warn`/`error` safe for arbitrary thrown values.
+
+- [#15](https://github.com/aoede3/taujs/pull/15) [`caaa160`](https://github.com/aoede3/taujs/commit/caaa160636e807d7d495180e3284f80345d59323) Thanks [@aoede3](https://github.com/aoede3)! - R1-01: add the additive `onRenderError` render-error contract and propagate the request
+  `AbortSignal` into route data resolution.
+
+  - **`RenderErrorInfo` + `onRenderError`** are added to the exported `RenderCallbacks` contract. This
+    is the advisory, NON-FATAL structured render-error channel (notably for post-shell boundary errors
+    the renderer recovers client-side). The server wires it to the request logger at `warn` with a
+    message keyed on `recoverable` (`phase`/`recoverable`/`clientRoot`/`url` as structured fields), so a
+    recoverable render error is surfaced without being escalated to a fatal response and without
+    double-logging a pre-shell error at `error` level (the fatal channel owns that). Callback-policy
+    JSDoc documents which callbacks are fatal vs advisory.
+  - **AbortSignal into data context.** The request `AbortController.signal` is now threaded into the
+    data-resolution context for both the SSR and streaming branches, so loaders can observe client
+    disconnects — proven end-to-end by a test that fires the streaming disconnect handler and asserts
+    the loader's `ctx.signal.aborted` flips. Non-throwing error formatting on the logging path is
+    preserved.
+
+  `onRenderError` is OPTIONAL and non-breaking in either direction (unlike R0-01's `RenderStream`
+  return-type change), so existing `RenderCallbacks` users are unaffected — `patch` per the R1-01
+  changeset plan, keeping `@taujs/server` below 1.0.0.
+
+- [#15](https://github.com/aoede3/taujs/pull/15) [`952afd0`](https://github.com/aoede3/taujs/commit/952afd04feaf990c256d493ea17c1b7236b4a9a7) Thanks [@aoede3](https://github.com/aoede3)! - R2-02 (SEC2): attribute-escape the bootstrap-module `src` at both server emission sites.
+
+  A new server-local `escapeHtmlAttribute` (the server is renderer-agnostic and does not import the
+  renderers' `escapeHtml`) now escapes the config-controlled bootstrap-module URL where it is
+  interpolated into a `<script … src="…">` tag — the SSR-path tag in `HandleRender` AND
+  `injectBootstrapModule` in `Templates` (used by the not-found path). Defence-in-depth: the value is
+  config-controlled, so a normal module URL is unchanged; this closes the raw-attribute interpolation.
+  `patch` per the versioning cap (no server major/minor for this).
+
 ## 0.9.1
 
 ### Patch Changes
