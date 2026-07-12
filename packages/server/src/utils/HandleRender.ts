@@ -13,6 +13,7 @@ import {
   ensureNonNull,
   buildTaujsDevStamp,
   collectStyle,
+  escapeHtmlAttribute,
   processTemplate,
   rebuildTemplate,
   addNonceToInlineScripts,
@@ -334,7 +335,8 @@ export const handleRender = async (
       }
       const initialDataScript = `<script${nonceAttr}>window.__INITIAL_DATA__ = ${serialized.js};</script>`;
 
-      const bootstrapScriptTag = shouldHydrate && bootstrapModule ? `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script>` : '';
+      const bootstrapScriptTag =
+        shouldHydrate && bootstrapModule ? `<script${nonceAttr} type="module" src="${escapeHtmlAttribute(bootstrapModule)}" defer></script>` : '';
 
       const safeAppHtml = appHtml.trim();
       const fullHtml = rebuildTemplate(templateParts, aggregateHeadContent, `${safeAppHtml}${initialDataScript}${devStamp}${bootstrapScriptTag}`);

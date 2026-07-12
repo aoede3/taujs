@@ -182,11 +182,20 @@ export const applyViteTransform = async (template: string, url: string, viteDevS
   return viteDevServer.transformIndexHtml(url, template);
 };
 
+/**
+ * Attribute-escape a value for interpolation into a double-quoted HTML attribute (SEC2, R2-02).
+ * Defence-in-depth for the config-controlled bootstrap-module `src` — the server is renderer-agnostic
+ * and does NOT import the renderers' `escapeHtml`, so this is the server-local equivalent (same five
+ * characters). Escapes `&` first; not idempotent.
+ */
+export const escapeHtmlAttribute = (value: string): string =>
+  String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 export const injectBootstrapModule = (template: string, bootstrapModule?: string, nonce?: string) => {
   if (!bootstrapModule) return template;
 
   const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
-  return template.replace('</body>', `<script${nonceAttr} type="module" src="${bootstrapModule}" defer></script></body>`);
+  return template.replace('</body>', `<script${nonceAttr} type="module" src="${escapeHtmlAttribute(bootstrapModule)}" defer></script></body>`);
 };
 
 export const injectCssLink = (template: string, cssLink?: string) => {
