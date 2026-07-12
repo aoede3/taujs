@@ -5,3 +5,4 @@ export * from './SSRRender';
 export type { SSRStore, SSRStoreStatus } from './SSRDataStore';
 export type { ServerLogs, LoggerLike } from './utils/Logger';
 export { createVueErrorHandler } from './utils/Logger';
+export { escapeHtml } from './utils/Html';

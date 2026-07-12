@@ -13,10 +13,16 @@ const vueStreaming = read('../Streaming.ts');
 const reactStreaming = read('../../../../react/src/utils/Streaming.ts');
 const vueLogger = read('../Logger.ts');
 const reactLogger = read('../../../../react/src/utils/Logger.ts');
+const vueHtml = read('../Html.ts');
+const reactHtml = read('../../../../react/src/utils/Html.ts');
 
 describe('utils upstream-sync drift guard', () => {
   it('Streaming.ts is byte-identical to @taujs/react/src/utils/Streaming.ts', () => {
     expect(vueStreaming).toBe(reactStreaming);
+  });
+
+  it('Html.ts is byte-identical to @taujs/react/src/utils/Html.ts (R2-02)', () => {
+    expect(vueHtml).toBe(reactHtml);
   });
 
   it('Logger.ts equals react/src/utils/Logger.ts plus only the appended createVueErrorHandler block', () => {
