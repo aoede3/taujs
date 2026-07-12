@@ -32,6 +32,14 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
   let lastError: Error | undefined;
   let serverDataPromise: Promise<void>;
 
+  // R3-08 (S2): an explicit `setData` SUPERSEDES the in-flight initial promise. Without this, a
+  // late loader REJECTION flipped status to 'error' and tore down a committed tree (getSnapshot
+  // starts throwing), and a late loader RESOLUTION silently overwrote the explicitly-set data.
+  // Unreachable via taujs's own paths (hydrateApp builds from resolved data) — this hardens the
+  // public `createSSRStore`. The internal readiness promise still settles when the loader does
+  // (the guarded continuations resolve the chain), so the streaming end-gate is unaffected.
+  let superseded = false;
+
   const subscribers = new Set<() => void>();
 
   const notify = () => subscribers.forEach((cb) => cb());
@@ -45,26 +53,26 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     notify();
   };
 
+  const loaderResolved = (data: T) => {
+    if (superseded) return;
+    currentData = data;
+    status = 'success';
+    notify();
+  };
+
+  const loaderRejected = (error: unknown) => {
+    if (superseded) return;
+    handleError(error);
+  };
+
   if (typeof initialDataOrPromise === 'function') {
     // Lazy promise
     status = 'pending';
-    serverDataPromise = (initialDataOrPromise as () => Promise<T>)()
-      .then((data) => {
-        currentData = data;
-        status = 'success';
-        notify();
-      })
-      .catch(handleError);
+    serverDataPromise = (initialDataOrPromise as () => Promise<T>)().then(loaderResolved).catch(loaderRejected);
   } else if (initialDataOrPromise instanceof Promise) {
     // Immediate promise
     status = 'pending';
-    serverDataPromise = initialDataOrPromise
-      .then((data) => {
-        currentData = data;
-        status = 'success';
-        notify();
-      })
-      .catch(handleError);
+    serverDataPromise = initialDataOrPromise.then(loaderResolved).catch(loaderRejected);
   } else {
     // Raw data
     currentData = initialDataOrPromise;
@@ -72,7 +80,13 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     serverDataPromise = Promise.resolve();
   }
 
+  /**
+   * Explicitly set the store value. Supersedes the in-flight initial promise: a later settlement
+   * of that promise (success or failure) is ignored — it can neither overwrite this value nor
+   * flip the store into an error state (R3-08).
+   */
   const setData = (newData: T) => {
+    superseded = true;
     currentData = newData;
     status = 'success';
     notify();

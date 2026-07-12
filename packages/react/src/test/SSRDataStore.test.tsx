@@ -103,7 +103,7 @@ describe('createSSRStore', () => {
     console.error = consoleError;
   });
 
-  it('should allow setting data before initialDataPromise resolves', async () => {
+  it('should allow setting data before initialDataPromise resolves (setData supersedes the loader - R3-08)', async () => {
     let resolvePromise: (value: Record<string, unknown>) => void;
     const initialDataPromise = new Promise<any>((resolve) => {
       resolvePromise = resolve;
@@ -122,7 +122,10 @@ describe('createSSRStore', () => {
       await initialDataPromise;
     });
 
-    expect(store.getSnapshot()).toEqual({ foo: 'bar' });
+    // R3-08: the previous assertion here ({ foo: 'bar' }) had FROZEN the defect - the loader's
+    // late settlement silently overwrote the explicit setData. Signed ruling S2: setData
+    // supersedes the in-flight initial promise.
+    expect(store.getSnapshot()).toEqual({ foo: 'early' });
   });
 
   it('should remove subscriber after unsubscribe', async () => {
