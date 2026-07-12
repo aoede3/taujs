@@ -83,16 +83,40 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     readyReject(err);
   };
 
+  // R3-08 (S2, twin of the react fix): an explicit `setData` SUPERSEDES the in-flight initial
+  // promise. Without this, a late loader REJECTION flipped `status` to 'error' (contradicting the
+  // explicitly-set data in every reactive consumer) and a late RESOLUTION silently overwrote it.
+  // Guards only the ASYNC continuations — the synchronous raw-data branch below cannot race a
+  // `setData`. A superseded rejection also skips `readyReject` (a no-op after `setData`'s
+  // `readyResolve`, skipped for clarity) and the misleading "Failed to load initial data" log.
+  let superseded = false;
+
+  const loaderResolved = (value: T) => {
+    if (superseded) return;
+    settleSuccess(value);
+  };
+
+  const loaderRejected = (err: unknown) => {
+    if (superseded) return;
+    settleError(err);
+  };
+
   // Initialise
   if (typeof initialDataOrPromise === 'function') {
-    (initialDataOrPromise as () => Promise<T>)().then(settleSuccess).catch(settleError);
+    (initialDataOrPromise as () => Promise<T>)().then(loaderResolved).catch(loaderRejected);
   } else if (initialDataOrPromise instanceof Promise) {
-    initialDataOrPromise.then(settleSuccess).catch(settleError);
+    initialDataOrPromise.then(loaderResolved).catch(loaderRejected);
   } else {
     settleSuccess(initialDataOrPromise);
   }
 
+  /**
+   * Explicitly set the store value. Supersedes the in-flight initial promise: a later settlement
+   * of that promise (success or failure) is ignored — it can neither overwrite this value nor
+   * flip the store into an error state (R3-08).
+   */
   const setData = (newData: T) => {
+    superseded = true;
     handleSuccess(newData);
     // If initial load previously failed/pending, treat this as ready.
     readyResolve();
