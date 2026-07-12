@@ -8,7 +8,13 @@ export type SSRStore<T> = {
   status: Ref<SSRStoreStatus>;
   lastError: Ref<Error | undefined>;
 
-  /** Promise that resolves when initial data is available (or rejects on error). */
+  /**
+   * Promise that resolves when initial data is available, or REJECTS with the loader error on
+   * failure. Safe to leave unobserved: a no-op rejection handler is pre-attached at creation, so
+   * an unawaited store whose loader rejects cannot produce an `unhandledRejection`; consumers who
+   * `await` it still observe the rejection. NB once rejected it stays rejected — a later
+   * `setData` recovers the store's reactive state but does not re-settle `ready`.
+   */
   ready: Promise<void>;
 
   /** Vue-safe: returns data or undefined (never throws) */
@@ -59,6 +65,13 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
     readyResolve = resolve;
     readyReject = reject;
   });
+
+  // R3-07 (S1): `ready` is public API and may legitimately never be observed (a store that is
+  // built but never rendered or awaited). Without a pre-attached observer, a rejecting loader
+  // becomes an `unhandledRejection` — a process-terminating crash under Node's default mode (the
+  // R0-01 class). This no-op handler observes the rejection WITHOUT consuming it for real
+  // consumers: `await store.ready` still rejects with the loader error.
+  ready.catch(() => {});
 
   const settleSuccess = (value: T) => {
     handleSuccess(value);
