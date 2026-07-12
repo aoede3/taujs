@@ -9,7 +9,7 @@ import { LinkButton } from "@astrojs/starlight/components";
 
 **React SSR (Server-Side Rendering) with Streaming Support**
 
-A lightweight, React SSR library with streaming capabilities, built for modern TypeScript applications. Designed as part of the taujs (τjs) ecosystem but fully standalone and runtime-agnostic.
+A lightweight, React SSR library with streaming capabilities, built for modern TypeScript applications. Designed as part of the taujs (τjs) ecosystem but fully standalone and framework-agnostic: bring any Node HTTP server (the server render paths need Node; the client surface is browser-only).
 
 <LinkButton
   href="https://github.com/aoede3/taujs-react"
@@ -49,7 +49,7 @@ A lightweight, React SSR library with streaming capabilities, built for modern T
 - **Type-safe data stores** using React hooks
 - **Robust error handling** for production environments
 - **Flexible logging** for debugging and monitoring
-- **Runtime agnostic** - works with Node.js, Fastify, Express, or any HTTP server
+- **Framework agnostic** - works with Fastify, Express, native `node:http` or any Node HTTP server (both server render paths require Node capabilities)
 
 ---
 
@@ -433,7 +433,7 @@ hydrateApp({
     console.error("Hydration failed:", err);
   },
   onSuccess: () => {
-    console.log("App hydrated successfully!");
+    console.log("App root committed");
   },
 });
 ```
@@ -464,14 +464,15 @@ hydrateApp({
   dataKey: "__INITIAL_DATA__",
   enableDebug: process.env.NODE_ENV === "development",
   onHydrationError: (err) => {
-    console.error("Hydration failed, falling back to CSR:", err);
+    console.error("Client render failed:", err);
     // Optionally report to error tracking service
   },
   onStart: () => {
     console.log("Starting hydration...");
   },
   onSuccess: () => {
-    console.log("Hydration complete!");
+    // First root commit - fires on the hydrate AND CSR-fallback paths
+    console.log("App root committed");
     // Initialise client-side only features
     initialiseAnalytics();
   },
@@ -485,6 +486,10 @@ hydrateApp({
 - If the root element is missing: reports through `onHydrationError` (nothing is mounted)
 - Callbacks are isolated: a throwing `onStart`/`onSuccess`/`onHydrationError` is logged and can
   neither break hydration nor tear down the committed tree
+- Recoverable hydration mismatches (React repairs the DOM and continues) and errors caught by your
+  own error boundaries are logged as warnings only - they settle NEITHER callback. Settlement is
+  reserved for the first root commit (`onSuccess`) vs the first uncaught client render error
+  (`onHydrationError`), exactly one of which fires per `hydrateApp` call
 - Uncaught render errors still surface to global monitoring (`window` `error` /
   `reportError`) in addition to `onHydrationError`
 - Automatically handles `DOMContentLoaded` timing
@@ -1176,33 +1181,33 @@ const { renderSSR } = createRenderer({
   headContent: ({ data }) => `<title>${escapeHtml(data.pageTitle)}</title>`,
 });
 
-export default {
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const data = { pageTitle: "Home", content: "Hello World" };
+import http from "node:http";
 
-    const { headContent, appHtml } = await renderSSR(data, url.pathname);
+const server = http.createServer(async (req, res) => {
+  const data = { pageTitle: "Home", content: "Hello World" };
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          ${headContent}
-          <script>window.__INITIAL_DATA__=${JSON.stringify(data).replace(/</g, "\\u003c")};</script>
-        </head>
-        <body>
-          <div id="root">${appHtml}</div>
-          <script type="module" src="/assets/client.js"></script>
-        </body>
-      </html>
-    `;
+  const { headContent, appHtml } = await renderSSR(data, req.url || "/");
 
-    return new Response(html, {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
-  },
-};
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        ${headContent}
+        <script>window.__INITIAL_DATA__=${JSON.stringify(data).replace(/</g, "\\u003c")};</script>
+      </head>
+      <body>
+        <div id="root">${appHtml}</div>
+        <script type="module" src="/assets/client.js"></script>
+      </body>
+    </html>
+  `;
+
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(html);
+});
+
+server.listen(3000);
 ```
 
 ---
@@ -2155,17 +2160,18 @@ const { renderStream } = createRenderer({
 });
 ```
 
-### 7. Implement Proper CSR Fallback
+### 7. Observe Client Render Failures
 
-Always handle the case where SSR data isn't available:
+The CSR fallback (missing `window.__INITIAL_DATA__`) is automatic. `onHydrationError` OBSERVES
+client render failures - it does not trigger a fallback:
 
 ```typescript
 // client.ts
 hydrateApp({
   appComponent: <App />,
   onHydrationError: (err) => {
-    // Log error but don't crash
-    console.error("Hydration failed, falling back to CSR", err);
+    // Log/report the failure - nothing is remounted on your behalf
+    console.error("Client render failed", err);
   },
 });
 ```

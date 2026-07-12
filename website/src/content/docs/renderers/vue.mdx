@@ -34,7 +34,7 @@ A lightweight, Vue 3 SSR library with streaming capabilities, built for modern T
   - [Client-side hydration](#client-side-hydration)
   - [Data store](#data-store)
   - [Vite plugin](#vite-plugin)
-- [App customization with setupApp](#app-customization-with-setupapp)
+- [App customisation with setupApp](#app-customisation-with-setupapp)
 - [Lazy hydration](#lazy-hydration)
 - [Handling hydration mismatches](#handling-hydration-mismatches)
 - [Usage in the taujs ecosystem](#usage-in-the-taujs-ecosystem)
@@ -52,7 +52,7 @@ A lightweight, Vue 3 SSR library with streaming capabilities, built for modern T
 - **Static SSR** with `renderToString` for simpler use cases and `<Teleport>` support
 - **Automatic hydration** with built-in data synchronisation and CSR fallback
 - **Vue-native data store** using reactive refs, `provide`/`inject` and `<Suspense>`
-- **App-instance customization** via `setupApp` - the integration point for Pinia, vue-i18n, directives and global components
+- **App-instance customisation** via `setupApp` - the integration point for Pinia, vue-i18n, directives and global components
 - **Robust error handling** routed through `app.config.errorHandler`
 - **Runtime agnostic** - works with Node.js, Fastify, Express, or any HTTP server
 
@@ -246,7 +246,7 @@ function createRenderer<
 - `streamOptions.shellTimeoutMs`: Time-to-first-content watchdog in ms (default `10000`). See [Streaming semantics](#streaming-semantics).
 - `logger`: Custom logger implementation (`LoggerLike`).
 - `enableDebug`: Enable detailed logging (default `false`).
-- `setupApp`: Configure the per-request `App` instance (`app.use`, directives, provides). See [App customization](#app-customization-with-setupapp).
+- `setupApp`: Configure the per-request `App` instance (`app.use`, directives, provides). See [App customisation](#app-customisation-with-setupapp).
 
 **Returns** an object with two rendering methods: `renderSSR` (static, returns complete HTML plus teleports) and `renderStream` (streaming, pipes to a writable).
 
@@ -602,7 +602,7 @@ Within the taujs ecosystem you register it per app in `taujs.config.ts` instead 
 
 ---
 
-## App customization with `setupApp`
+## App customisation with `setupApp`
 
 Vue applications are configured through the `App` instance (`app.use`, `app.directive`, global components, `app.provide`). React composes the equivalent in JSX, so `@taujs/react` never needed a hook - but `@taujs/vue` creates its apps internally, so `setupApp` is the sanctioned integration point for Pinia, vue-i18n, custom directives and global components under τjs SSR.
 
