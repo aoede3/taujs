@@ -22,11 +22,11 @@ describe('escapeHtml', () => {
     expect(escapeHtml(raw)).toBe('&quot; onload=&#39;alert(1)&#39; &lt;img src=x&gt;');
   });
 
-  it('coerces non-string input via String()', () => {
-    expect(escapeHtml(42 as unknown as string)).toBe('42');
-    expect(escapeHtml(null as unknown as string)).toBe('null');
-    expect(escapeHtml(undefined as unknown as string)).toBe('undefined');
-    expect(escapeHtml({ toString: () => '<x>' } as unknown as string)).toBe('&lt;x&gt;');
+  it('coerces non-string input via String() (public signature accepts unknown)', () => {
+    expect(escapeHtml(42)).toBe('42');
+    expect(escapeHtml(null)).toBe('null');
+    expect(escapeHtml(undefined)).toBe('undefined');
+    expect(escapeHtml({ toString: () => '<x>' })).toBe('&lt;x&gt;');
   });
 
   it('leaves safe text unchanged', () => {
