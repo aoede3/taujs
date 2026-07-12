@@ -188,7 +188,7 @@ export const applyViteTransform = async (template: string, url: string, viteDevS
  * and does NOT import the renderers' `escapeHtml`, so this is the server-local equivalent (same five
  * characters). Escapes `&` first; not idempotent.
  */
-export const escapeHtmlAttribute = (value: string): string =>
+export const escapeHtmlAttribute = (value: unknown): string =>
   String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 export const injectBootstrapModule = (template: string, bootstrapModule?: string, nonce?: string) => {

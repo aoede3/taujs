@@ -249,6 +249,8 @@ describe('handleRender', () => {
     vi.mocked(Templates.addNonceToInlineScripts).mockImplementation(actualTemplates.addNonceToInlineScripts);
     vi.mocked(Templates.stripDevClientAndStyles).mockImplementation(actualTemplates.stripDevClientAndStyles);
     vi.mocked(Templates.applyViteTransform).mockImplementation(actualTemplates.applyViteTransform);
+    // Use the REAL attribute-escape so the SSR bootstrap-tag sink is exercised end-to-end (R2-02 SEC2).
+    vi.mocked(Templates.escapeHtmlAttribute).mockImplementation(actualTemplates.escapeHtmlAttribute);
   });
 
   afterEach(() => {
@@ -357,6 +359,33 @@ describe('handleRender', () => {
 
       const bodyContent = vi.mocked(Templates.rebuildTemplate).mock.calls[0]?.[2]!;
       expect(bodyContent).not.toContain('nonce=');
+    });
+
+    it('R2-02 SEC2: an attribute-breakout bootstrapModule is escaped in the SSR bootstrap tag (no live onerror)', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'ssr' }); // hydrate defaults to true
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
+
+      mockMaps.renderModules.set('/test/client', {
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '<title>t</title>', appHtml: '<div>a</div>' }),
+      });
+      // Config-controlled bootstrap-module path with an attribute-breakout payload.
+      mockMaps.bootstrapModules.set('/test/client', '/x.js" onerror="alert(1)');
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // bootstrapScriptTag is the tail of rebuildTemplate's bodyContent (3rd) arg.
+      const bodyContent = vi.mocked(Templates.rebuildTemplate).mock.calls[0]?.[2]!;
+      expect(bodyContent).toContain('src="/x.js&quot; onerror=&quot;alert(1)"'); // encoded once
+      expect(bodyContent).not.toContain('onerror="alert(1)"'); // no live attribute
     });
 
     it('should handle null nonce', async () => {
