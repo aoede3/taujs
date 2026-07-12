@@ -118,7 +118,7 @@ The `createRenderer` function creates a reusable renderer from your root compone
 ```typescript
 const { renderSSR, renderStream } = createRenderer({
   appComponent: App, // a Vue component, or a render function
-  headContent: ({ data, meta }) => `<title>${data.title}</title>`,
+  headContent: ({ data, meta }) => `<title>${escapeHtml(data.title)}</title>`,
   streamOptions: { shellTimeoutMs: 10000 },
 });
 ```
@@ -297,7 +297,7 @@ const { renderSSR, renderStream } = createRenderer<PageData, RouteContext>({
     const baseTitle =
       data.title ?? (meta.title as string | undefined) ?? "My App";
     const suffix = routeContext?.name === "article" ? " · Article" : "";
-    return `<title>${baseTitle}${suffix}</title>`;
+    return `<title>${escapeHtml(baseTitle)}${suffix}</title>`;
   },
 });
 ```
@@ -315,7 +315,7 @@ Renders the complete application to a string (static SSR). Returns `{ headConten
 ```typescript
 const { renderSSR } = createRenderer<{ msg: string }>({
   appComponent: () => h(App),
-  headContent: ({ data }) => `<title>${data?.msg ?? "no-data"}</title>`,
+  headContent: ({ data }) => `<title>${escapeHtml(data?.msg ?? "no-data")}</title>`,
 });
 
 const { headContent, appHtml, teleports } = await renderSSR(
@@ -635,7 +635,7 @@ hydrateApp({ appComponent: App, setupApp });
 
 ### Pinia
 
-Because `setupApp` runs identically on server and client, it is where you install Pinia. τjs adds **no state-serialization channel** - data flow stays request-first. Seed Pinia store state from the SSR data you already receive (`useSSRData` / `useSSRDataAsync`), which arrives via `window.__INITIAL_DATA__`:
+Because `setupApp` runs identically on server and client, it is where you install Pinia. τjs adds **no state-serialisation channel** - data flow stays request-first. Seed Pinia store state from the SSR data you already receive (`useSSRData` / `useSSRDataAsync`), which arrives via `window.__INITIAL_DATA__`:
 
 ```typescript
 // setup-app.ts - shared by entry-server and entry-client
@@ -796,18 +796,18 @@ export default defineConfig({
 **entry-server.ts** - the renderer `@taujs/server` calls internally:
 
 ```typescript
-import { createRenderer } from "@taujs/vue";
+import { createRenderer, escapeHtml } from "@taujs/vue";
 import App from "./App.vue";
 
 export const { renderSSR, renderStream } = createRenderer({
   appComponent: App,
   headContent: ({ data, meta }) => `
-    <title>${meta?.title || "τjs - Composing systems, not just apps"}</title>
-    <meta name="description" content="${
+    <title>${escapeHtml(meta?.title || "τjs - Composing systems, not just apps")}</title>
+    <meta name="description" content="${escapeHtml(
       meta?.description ||
-      (data as { message?: string })?.message ||
-      "τjs - Composing systems, not just apps"
-    }">
+        (data as { message?: string })?.message ||
+        "τjs - Composing systems, not just apps"
+    )}">
   `,
   enableDebug: process.env.NODE_ENV === "development",
 });
@@ -889,12 +889,12 @@ Outside `@taujs/server`, `createRenderer` and `hydrateApp` are framework-agnosti
 Static SSR (no streaming), for edge runtimes or simple cases - `renderSSR` returns the head and app HTML (and any `teleports`); assemble the document and inject `window.__INITIAL_DATA__` yourself:
 
 ```typescript
-import { createRenderer } from "@taujs/vue";
+import { createRenderer, escapeHtml } from "@taujs/vue";
 import App from "./App.vue";
 
 const { renderSSR } = createRenderer<{ message: string }>({
   appComponent: App,
-  headContent: ({ data }) => `<title>${data?.message ?? "App"}</title>`,
+  headContent: ({ data }) => `<title>${escapeHtml(data?.message ?? "App")}</title>`,
 });
 
 const data = { message: "Hello World" };
@@ -921,7 +921,7 @@ interface PageData {
 
 const { renderSSR, renderStream } = createRenderer<PageData>({
   appComponent: App,
-  headContent: ({ data }) => `<title>${data?.message ?? "App"}</title>`,
+  headContent: ({ data }) => `<title>${escapeHtml(data?.message ?? "App")}</title>`,
 });
 ```
 
@@ -965,7 +965,7 @@ const setupApp = (app) => {
 1. **Prefer Suspense for data.** Reach for `await useSSRDataAsync<T>()` under `<Suspense>` first; fall back to `useSSRData<T>()` + `v-if` only when you specifically want a non-blocking render.
 2. **Streamed routes block on data.** Always use the blocking Suspense idiom on `streaming` routes so the data lands in the streamed HTML, not just in `__INITIAL_DATA__`.
 3. **Keep `headContent` derivable from `meta`.** In streaming mode the data snapshot is usually pending when the head is built - guard optional `data` fields and lean on `meta`/`routeContext`.
-4. **Share one `setupApp` across server and client.** Keep it synchronous, DOM-free and idempotent so the identical function runs on both sides; seed Pinia/state from SSR data rather than adding a serialization channel.
+4. **Share one `setupApp` across server and client.** Keep it synchronous, DOM-free and idempotent so the identical function runs on both sides; seed Pinia/state from SSR data rather than adding a serialisation channel.
 5. **Match `@vue/server-renderer` to `vue`.** Pin both to the same version.
 6. **Handle CSR fallback.** Provide `onHydrationError` so a hydration failure degrades gracefully; remember the CSR path emits no hydration callbacks by design.
 7. **Reserve teleports for `ssr` routes.** `<Teleport>` targets outside the app root are only captured by `renderSSR`.
