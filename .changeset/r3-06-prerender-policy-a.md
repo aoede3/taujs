@@ -13,3 +13,10 @@ advisory warning is logged) and a page whose shell never completed fails the req
 serving a blank page. Output for non-suspending trees is byte-identical to `renderToString`
 (pinned by test), route data is unaffected (the server resolves it before rendering), and the
 `RenderSSR` server contract is untouched. Requires no consumer migration.
+
+Gate-review hardening: `ssrOptions.prerenderTimeoutMs` is validated at `createRenderer` (a
+positive finite number, `0`, or `Infinity`; anything else throws a `TypeError` instead of
+silently waiting forever), and the prerender API is imported from the CONDITIONAL
+`react-dom/static` subpath so browser bundlers resolve a browser-safe build - the earlier
+Node-only subpath produced browser-compatibility warnings (and could hard-fail stricter
+bundlers) even though final bundle bytes were clean.

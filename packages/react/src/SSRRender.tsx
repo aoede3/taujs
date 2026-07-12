@@ -1,10 +1,16 @@
 import React from 'react';
 import { renderToPipeableStream } from 'react-dom/server';
-// R3-06: the explicit `.node` subpath resolves to the Node build under EVERY condition set (its
-// exports map has only `react-server`/`default`), so neither a browser-conditioned test resolver
-// nor a bundler can pick a build without `prerenderToNodeStream`. Node-only by design — safe here
-// because R3-05's unbundled dist keeps this module out of the client entry's graph.
-import { prerenderToNodeStream } from 'react-dom/static.node';
+// R3-06 (+ gate-review fix): the CONDITIONAL subpath, deliberately. Node resolves it to
+// static.node.js (which exports prerenderToNodeStream); a browser bundler resolves it to
+// static.browser.js, which is browser-COMPATIBLE (no node builtins) and tree-shaken from client
+// output like the rest of this module. The earlier `react-dom/static.node` import resolved the
+// NODE build into browser graphs — clean final bytes, but externalization warnings for
+// util/crypto/async_hooks/stream, and a hard resolve error under stricter bundlers (webpack 5).
+// Namespace import + destructure: static.browser.js lacks this export, so a named import could
+// trip CJS named-export detection in some bundlers; property access cannot.
+import * as ReactDOMStatic from 'react-dom/static';
+
+const { prerenderToNodeStream } = ReactDOMStatic;
 
 import type { Writable } from 'node:stream';
 
@@ -135,6 +141,19 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 }) {
   const { shellTimeoutMs = 10_000, dataTimeoutMs = 30_000 } = streamOptions;
   const { prerenderTimeoutMs = 10_000 } = ssrOptions;
+
+  // Gate-review fix: validate ONCE at the factory. The timer site arms only for finite positive
+  // values, so without this check every invalid input (-1, NaN, null, a string from untyped JS,
+  // -Infinity) silently became "wait forever" — only 0 and Infinity are documented sentinels.
+  const validTimeout =
+    prerenderTimeoutMs === 0 ||
+    prerenderTimeoutMs === Infinity ||
+    (typeof prerenderTimeoutMs === 'number' && Number.isFinite(prerenderTimeoutMs) && prerenderTimeoutMs > 0);
+  if (!validTimeout) {
+    throw new TypeError(
+      `createRenderer: ssrOptions.prerenderTimeoutMs must be a positive finite number of milliseconds, 0, or Infinity (received ${String(prerenderTimeoutMs)})`,
+    );
+  }
 
   const renderSSR = async (
     initialData: T,

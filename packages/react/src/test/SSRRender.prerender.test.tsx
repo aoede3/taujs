@@ -169,6 +169,27 @@ describe('R3-06 Policy A degrade matrix (real react-dom)', () => {
   });
 });
 
+describe('R3-06 prerenderTimeoutMs validation (gate-review fix)', () => {
+  const make = (v: unknown) => () =>
+    createRenderer<{ k: string }>({
+      appComponent: () => <div />,
+      headContent: () => '',
+      ssrOptions: { prerenderTimeoutMs: v as number },
+    });
+
+  it('rejects invalid values at the factory instead of silently waiting forever', () => {
+    for (const bad of [-1, Number.NaN, -Infinity, null, '5000']) {
+      expect(make(bad), `value: ${String(bad)}`).toThrow(TypeError);
+    }
+  });
+
+  it('accepts positive finite values and the documented sentinels 0 and Infinity', () => {
+    for (const ok of [1, 10_000, 0, Infinity]) {
+      expect(make(ok), `value: ${String(ok)}`).not.toThrow();
+    }
+  });
+});
+
 describe('R3-06 E2E: the degraded page completes on the client', () => {
   it('hydrateRoot on the served fallback-state HTML client-renders the boundary content', async () => {
     // Server: deadline degrade (the boundary's promise never settles server-side).

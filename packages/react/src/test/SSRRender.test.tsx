@@ -2,9 +2,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 
-// R3-06: renderSSR renders via prerenderToNodeStream (react-dom/static.node). The mock resolves
-// with a one-chunk prelude, mirroring a completed prerender (postponed: null).
-vi.mock('react-dom/static.node', async () => {
+// R3-06: renderSSR renders via prerenderToNodeStream (conditional react-dom/static — Node build
+// at runtime). The mock resolves with a one-chunk prelude, mirroring a completed prerender.
+vi.mock('react-dom/static', async () => {
   const { Readable } = await import('node:stream');
   const prerenderToNodeStream = vi.fn(async (_el: any, _opts: any) => ({
     prelude: Readable.from(['<div>html</div>']),
@@ -101,7 +101,7 @@ import { Readable } from 'node:stream';
 
 import { createRenderer } from '../SSRRender';
 import * as RDS from 'react-dom/server';
-import * as RDStatic from 'react-dom/static.node';
+import * as RDStatic from 'react-dom/static';
 import * as Store from '../SSRDataStore';
 import * as Streaming from '../utils/Streaming';
 
