@@ -87,6 +87,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   streamOptions = {},
   logger,
   enableDebug = false,
+  identifierPrefix,
 }: {
   appComponent: (props: { location: string; routeContext?: R }) => React.ReactElement;
   /**
@@ -101,6 +102,14 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   enableDebug?: boolean;
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
+  /**
+   * React's `identifierPrefix` for `useId` (passed to `renderToString` and `renderToPipeableStream`).
+   * It MUST be identical on the server and the client for a given root (pass the same value to
+   * `hydrateApp`), or hydration mismatches. Set it when rendering MORE THAN ONE τjs root on a page
+   * (the app-per-boundary / micro-frontend model) so each root's `useId` values are collision-free.
+   * A server-derived default from `appId` is a possible future (R3-03); today it is app-supplied.
+   */
+  identifierPrefix?: string;
 }) {
   const { shellTimeoutMs = 10_000, dataTimeoutMs = 30_000 } = streamOptions;
 
@@ -134,7 +143,9 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
       const dynamicHead = headContent({ data: initialData, meta, routeContext });
       const store = createSSRStore(initialData);
-      const html = renderToString(<SSRStoreProvider store={store}>{appComponent({ location, routeContext })}</SSRStoreProvider>);
+      const html = renderToString(<SSRStoreProvider store={store}>{appComponent({ location, routeContext })}</SSRStoreProvider>, {
+        identifierPrefix,
+      });
 
       if (aborted) {
         warn('SSR completed after client abort', { location });
@@ -395,6 +406,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
       const stream = renderToPipeableStream(appElement, {
         nonce: cspNonce,
+        identifierPrefix,
         bootstrapModules: bootstrapModules ? [bootstrapModules] : undefined,
 
         onShellReady() {

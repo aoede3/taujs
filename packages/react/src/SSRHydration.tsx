@@ -84,6 +84,13 @@ export type HydrateAppOptions<T> = {
   onHydrationError?: (err: unknown) => void;
   onStart?: () => void;
   onSuccess?: () => void;
+  /**
+   * React's `identifierPrefix` for `useId` (passed to BOTH `hydrateRoot` and the CSR-fallback
+   * `createRoot`). It MUST be identical to the value the SERVER rendered with (`createRenderer`'s
+   * `identifierPrefix`) for this root, or hydration mismatches. Set it when mounting MORE THAN ONE τjs
+   * root on a page (app-per-boundary / micro-frontend) so each root's `useId` values are collision-free.
+   */
+  identifierPrefix?: string;
 };
 
 // Internal reporter (design 2): a pass-through WRAPPER around the app (renders `children`, adds no
@@ -113,6 +120,7 @@ export function hydrateApp<T>({
   onHydrationError,
   onStart,
   onSuccess,
+  identifierPrefix,
 }: HydrateAppOptions<T>) {
   const { log, warn, error } = createUILogger(logger, { debugCategory: 'ssr', context: { scope: 'react-hydration' }, enableDebug });
 
@@ -161,9 +169,11 @@ export function hydrateApp<T>({
     runObserver('onHydrationError', () => onHydrationError?.(err));
   };
 
-  // ONE root-error adapter (design 1), the SAME object passed to whichever root is created
+  // ONE root-options object (design 1), the SAME object passed to whichever root is created
   // (hydrateRoot or createRoot). All client render errors route through the single `reportFailure`.
+  // `identifierPrefix` rides along here so both call sites (hydrate + CSR) get it (R2-04).
   const rootErrorOptions = {
+    identifierPrefix,
     onUncaughtError: (err: unknown, info: RootErrorInfo) => {
       // A render error with no error boundary. React surfaces this ASYNCHRONOUSLY (not as a throw
       // from hydrateRoot/createRoot), so a sync try/catch cannot see it; this is the real client

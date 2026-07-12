@@ -219,6 +219,27 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
     expect(warn.mock.calls.filter((c) => String(c[0]).includes('Recoverable'))).toHaveLength(0);
   });
 
+  // R2-04: identifierPrefix must be plumbed through hydrateApp so prefixed SSR markup hydrates cleanly.
+  it('identifierPrefix: prefixed SSR markup hydrates with the matching prefix and NO mismatch', async () => {
+    const IdApp = () => {
+      const id = React.useId();
+      return <span data-id={id}>{id}</span>;
+    };
+    const { appHtml } = await createRenderer({ appComponent: () => <IdApp />, headContent: () => '', identifierPrefix: 'app1-' }).renderSSR({}, '/id');
+    expect(appHtml).toContain('app1-'); // sanity: the SSR markup carries the prefix
+    setRoot('root', appHtml);
+    (window as unknown as Record<string, unknown>).__INITIAL_DATA__ = { a: 1 };
+    const warn = vi.fn();
+
+    hydrateApp({ appComponent: <IdApp />, identifierPrefix: 'app1-', logger: { warn } });
+
+    await flush();
+
+    // Client used the matching prefix -> ids equal the server render -> no recoverable mismatch.
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('Recoverable'))).toHaveLength(0);
+    expect(document.getElementById('root')?.innerHTML ?? '').toContain('app1-');
+  });
+
   it('CSR SUCCESS + settled-guard: onSuccess fires once on commit (createRoot DOUBLE-invokes the reporter effect under StrictMode), NO beacon, NO onStart', async () => {
     setRoot('root'); // no SSR html
     // no __INITIAL_DATA__ → CSR path. NB: unlike hydrateRoot, createRoot double-invokes the reporter

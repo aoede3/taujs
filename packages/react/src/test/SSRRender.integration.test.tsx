@@ -608,3 +608,42 @@ describe('R1-01 integration (real react-dom/server)', () => {
     expect(chunks.join('')).toContain('backpressure-body');
   });
 });
+
+describe('R2-04 identifierPrefix (real react-dom/server)', () => {
+  const IdApp = () => {
+    const id = React.useId();
+    return <span data-id={id}>{id}</span>;
+  };
+
+  it('renderSSR embeds identifierPrefix in useId output', async () => {
+    const { appHtml } = await createRenderer<Data>({ appComponent: () => <IdApp />, headContent: () => '', identifierPrefix: 'app1-' }).renderSSR(
+      { value: 1 },
+      '/id',
+    );
+    expect(appHtml).toContain('app1-');
+  });
+
+  it('two roots with distinct prefixes produce disjoint useId sets', async () => {
+    const render = (prefix: string) =>
+      createRenderer<Data>({ appComponent: () => <IdApp />, headContent: () => '', identifierPrefix: prefix }).renderSSR({ value: 1 }, '/id');
+    const [a, b] = await Promise.all([render('app1-'), render('app2-')]);
+    expect(a.appHtml).toContain('app1-');
+    expect(b.appHtml).toContain('app2-');
+    expect(a.appHtml).not.toContain('app2-');
+    expect(b.appHtml).not.toContain('app1-');
+  });
+
+  it('renderStream embeds identifierPrefix in the streamed output', async () => {
+    const { writable, chunks } = driveServerSide();
+    const { done } = createRenderer<Data>({
+      appComponent: () => <IdApp />,
+      headContent: () => '<title>x</title>',
+      identifierPrefix: 'stream1-',
+    }).renderStream(writable, { onHead: () => {} }, { value: 1 }, '/id');
+
+    await done.catch(() => {});
+    await settle();
+
+    expect(chunks.join('')).toContain('stream1-');
+  });
+});
