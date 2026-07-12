@@ -1,5 +1,5 @@
 /**
- * Escape a string for safe interpolation into RAW HTML — both element text and attribute values,
+ * Escape a value for safe interpolation into RAW HTML — both element text and attribute values,
  * single- AND double-quoted. Escapes the five HTML-sensitive characters:
  *
  * - `&` → `&amp;`
