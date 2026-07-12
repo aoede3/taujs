@@ -487,9 +487,10 @@ hydrateApp({
 - Callbacks are isolated: a throwing `onStart`/`onSuccess`/`onHydrationError` is logged and can
   neither break hydration nor tear down the committed tree
 - Recoverable hydration mismatches (React repairs the DOM and continues) and errors caught by your
-  own error boundaries are logged as warnings only - they settle NEITHER callback. Settlement is
-  reserved for the first root commit (`onSuccess`) vs the first uncaught client render error
-  (`onHydrationError`), exactly one of which fires per `hydrateApp` call
+  own error boundaries are logged only - caught errors at error level, recoverable mismatches at
+  warning level - and settle NEITHER callback. Settlement is reserved for the first root commit
+  (`onSuccess`) vs the first uncaught client render error (`onHydrationError`), exactly one of
+  which fires per `hydrateApp` call
 - Uncaught render errors still surface to global monitoring (`window` `error` /
   `reportError`) in addition to `onHydrationError`
 - Automatically handles `DOMContentLoaded` timing
@@ -991,7 +992,7 @@ export const { renderSSR, renderStream } = createRenderer<
 ### With Express
 
 ```typescript
-// server.ts
+// server.tsx
 import express from "express";
 import { createRenderer, escapeHtml } from "@taujs/react";
 import { App } from "./App";
@@ -1065,7 +1066,7 @@ app.listen(3000, () => {
 ### With Native Node.js HTTP
 
 ```typescript
-// server.ts
+// server.tsx
 import http from "node:http";
 import { createRenderer, escapeHtml } from "@taujs/react";
 import { App } from "./App";
@@ -1116,7 +1117,7 @@ server.listen(3000);
 ### With Hono
 
 ```typescript
-// server.ts
+// server.tsx
 import { Hono } from "hono";
 import { createRenderer, escapeHtml } from "@taujs/react";
 import { streamSSR } from "hono/streaming";
@@ -1172,7 +1173,7 @@ For simpler cases where you want complete HTML in a single response. NB `renderS
 `ssrOptions.prerenderTimeoutMs`) - it requires a Node runtime:
 
 ```typescript
-// server.ts
+// server.tsx
 import { createRenderer, escapeHtml } from "@taujs/react";
 import { App } from "./App";
 
@@ -2252,7 +2253,7 @@ await createServer({ fastify, config, serviceRegistry, clientRoot });
 **What you get:**
 
 - Direct control over rendering process
-- Framework/runtime agnostic
+- Framework agnostic on Node
 - Minimal abstraction
 - Explicit SSR and hydration APIs
 
