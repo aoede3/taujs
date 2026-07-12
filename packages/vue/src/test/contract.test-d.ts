@@ -5,19 +5,42 @@
 // runs as a spec. NOTE: requires @taujs/server to be built first (types resolve to its dist).
 import { h } from 'vue';
 
-import type { RenderModule, RenderSSR, RenderStream } from '@taujs/server';
+import type { RenderModule, RenderSSR, RenderStream, RenderStreamHandle } from '@taujs/server';
 
 import { createRenderer } from '../SSRRender';
 
 // The load-bearing assertion: the whole renderer module conforms, cast-free.
-const _module: RenderModule = createRenderer({
+// The CONCRETE renderer output, deliberately un-annotated so tsc keeps its real inferred types.
+// (Annotating this as `RenderModule` would erase them, and every return-shape assertion below would
+// degrade into a tautology comparing the contract against itself - the width-subtyping blindness
+// critical review #3 warns about.)
+const _renderer = createRenderer({
   appComponent: () => h('div'),
   headContent: () => '',
 });
+
+// The load-bearing assertion: the whole renderer module conforms, cast-free.
+const _module: RenderModule = _renderer;
 void _module;
 
 // And each half individually, for a sharper error if one diverges.
-const _renderSSR: RenderSSR = _module.renderSSR;
-const _renderStream: RenderStream = _module.renderStream;
+const _renderSSR: RenderSSR = _renderer.renderSSR;
+const _renderStream: RenderStream = _renderer.renderStream;
 void _renderSSR;
 void _renderStream;
+
+// R3-01 / critical review #3 (mirrored from react): assignability of the FUNCTION alone can hide a
+// capability gap through width-subtyping, so pin the RETURN shape explicitly and in BOTH directions.
+type VueStreamHandle = ReturnType<typeof _renderer.renderStream>;
+
+// 1. What the renderer actually returns must satisfy the published handle contract.
+const _handleSatisfiesContract: RenderStreamHandle = null as unknown as VueStreamHandle;
+void _handleSatisfiesContract;
+
+// 2. ...and every capability the contract REQUIRES must actually be present on it.
+const _contractSatisfiedByHandle: VueStreamHandle = null as unknown as RenderStreamHandle;
+void _contractSatisfiedByHandle;
+
+// 3. `done` is the load-bearing member (R0-01: an unobserved rejection is the process-crash class).
+const _done: Promise<void> = null as unknown as VueStreamHandle['done'];
+void _done;

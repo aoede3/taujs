@@ -172,6 +172,9 @@ importers:
       '@babel/preset-typescript':
         specifier: ^7.24.7
         version: 7.29.7(@babel/core@7.29.7)
+      '@taujs/server':
+        specifier: workspace:*
+        version: link:../server
       '@testing-library/dom':
         specifier: ^10.4.0
         version: 10.4.1
