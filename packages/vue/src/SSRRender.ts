@@ -40,8 +40,21 @@ export type StreamOptions = {
  * value interpolated from `data` (or other services/user input) must be escaped with `escapeHtml`
  * (see the `headContent` option's docs).
  */
-export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>, R = unknown> = {
+/**
+ * RFC 0004 (H6): `headData` is the route's `attr.head` payload, resolved by the host BEFORE the
+ * render and delivered via `opts.headData`. Optional by contract: `undefined` when the route
+ * declares no `attr.head` and when the head loader degraded under the server's signed policy -
+ * handle it (typically by falling back to `meta`). Vue's head stays SINGLE-BUILD, pre-render
+ * (signed: no timing change); `headData` simply widens what that one build can see. Escape
+ * `headData`-derived values with `escapeHtml` like any other dynamic head value.
+ */
+export type HeadContext<
+  T extends Record<string, unknown> = Record<string, unknown>,
+  R = unknown,
+  H extends Record<string, unknown> = Record<string, unknown>,
+> = {
   data: T;
+  headData?: H;
   meta: Record<string, unknown>;
   routeContext?: R;
 };
@@ -61,7 +74,9 @@ type SSRResult = {
 
 type StreamCallOptions<R> = StreamOptions & {
   logger?: LoggerLike;
-  routeContext?: R;
+  // RFC 0004 (H6): broad at the contract boundary; narrowed to R/H at the internal seams.
+  routeContext?: unknown;
+  headData?: Record<string, unknown>;
 };
 
 const NOOP = () => {};
@@ -97,7 +112,11 @@ function createAppWithStore<T>(store: SSRStore<T>, root: Component | ((props: an
  * server consumes only `headContent`/`appHtml` today, so splicing `teleports` into a page
  * is a standalone-consumer concern.
  */
-export function createRenderer<T extends Record<string, unknown> = Record<string, unknown>, R = unknown>({
+export function createRenderer<
+  T extends Record<string, unknown> = Record<string, unknown>,
+  R = unknown,
+  H extends Record<string, unknown> = Record<string, unknown>,
+>({
   appComponent,
   headContent,
   streamOptions = {},
@@ -118,7 +137,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
    * `` `<meta property="og:image" content="${escapeHtml(data.ogImage)}">` ``. See the head-management
    * guide, "Best Practices — Escape User Content".
    */
-  headContent: (ctx: HeadContext<T, R>) => string;
+  headContent: (ctx: HeadContext<T, R, H>) => string;
   enableDebug?: boolean;
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
@@ -138,12 +157,15 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 }) {
   const { shellTimeoutMs = 10_000 } = streamOptions;
 
+  // RFC 0004 (H6): contract-facing parameter types are BROAD (the H2 regularisation model) so a
+  // renderer instantiated with non-default generics stays assignable to the host contracts under
+  // strictFunctionTypes; values are trusted as T/H/R at one internal seam each.
   const renderSSR = async (
-    initialData: T,
+    initialData: Record<string, unknown>,
     location: string,
     meta: Record<string, unknown> = {},
     signal?: AbortSignal,
-    opts?: { logger?: LoggerLike; routeContext?: R },
+    opts?: { logger?: LoggerLike; routeContext?: unknown; headData?: Record<string, unknown> },
   ): Promise<SSRResult> => {
     const { log, warn } = createUILogger(opts?.logger ?? logger, {
       debugCategory: 'ssr',
@@ -160,17 +182,20 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     const onAbort = () => (aborted = true);
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    const routeContext = opts?.routeContext;
+    // The R narrowing seam (RFC 0004 H6).
+    const routeContext = opts?.routeContext as R | undefined;
 
     try {
       log('Starting SSR:', location);
 
+      // The T/H narrowing seam for this strategy.
       const dynamicHead = headContent({
-        data: initialData,
+        data: initialData as T,
+        headData: opts?.headData as H | undefined,
         meta,
         routeContext,
       });
-      const store = createSSRStore(initialData);
+      const store = createSSRStore(initialData as T);
 
       const app = createAppWithStore(store, appComponent, {
         location,
@@ -202,7 +227,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   const renderStream = (
     writable: Writable,
     callbacks: RenderCallbacks<T>,
-    initialData: T | Promise<T> | (() => Promise<T>),
+    initialData: Record<string, unknown> | Promise<Record<string, unknown>> | (() => Promise<Record<string, unknown>>),
     location: string,
     bootstrapModules?: string,
     meta: Record<string, unknown> = {},
@@ -224,7 +249,8 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       enableDebug,
     });
 
-    const routeContext = opts?.routeContext;
+    // The R narrowing seam (RFC 0004 H6).
+    const routeContext = opts?.routeContext as R | undefined;
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
 
     const controller = createStreamController(writable, { log, warn, error });
@@ -375,8 +401,9 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
     try {
       // `store` (the outer let) is what the sink's completion handler reads; `s` is a
-      // non-nullable alias for use within this synchronous+async block.
-      const s = createSSRStore(initialData);
+      // non-nullable alias for use within this synchronous+async block. This is the streaming
+      // strategy's T narrowing seam (RFC 0004 H6).
+      const s = createSSRStore(initialData as T | Promise<T> | (() => Promise<T>));
       store = s;
       const app = createAppWithStore(s, appComponent, { location, routeContext });
 
@@ -387,8 +414,11 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       // Head is built once from the current snapshot and delivered ONLY via onHead. In
       // streaming strategy the snapshot is usually still pending, so heads must be
       // derivable from meta/routeContext.
+      // RFC 0004 (H6): the H narrowing seam for this strategy - headData rides alongside the
+      // snapshot; the single pre-render build timing is unchanged (signed).
       const head = headContent({
         data: (s.getSnapshot() ?? {}) as T,
+        headData: opts?.headData as H | undefined,
         meta,
         routeContext,
       });

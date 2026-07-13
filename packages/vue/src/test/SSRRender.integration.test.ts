@@ -341,6 +341,55 @@ describe('renderStream — server integration (byte order)', () => {
   });
 });
 
+describe('RFC 0004 (H6): headData reaches the single pre-render head build', () => {
+  it('renderSSR: opts.headData arrives typed as H; undefined when the host passes none', async () => {
+    const seen: Array<{ ogTitle: string } | undefined> = [];
+    const { renderSSR } = createRenderer<{ msg: string }, unknown, { ogTitle: string }>({
+      appComponent: defineComponent({
+        setup: () => () => h('div', 'x'),
+      }),
+      headContent: ({ data, headData }) => {
+        seen.push(headData);
+        return `<title>${headData?.ogTitle ?? data.msg}</title>`;
+      },
+    });
+
+    const withHead = await renderSSR({ msg: 'fallback' }, '/h', {}, undefined, { headData: { ogTitle: 'OG' } });
+    const withoutHead = await renderSSR({ msg: 'fallback' }, '/h', {});
+
+    expect(withHead.headContent).toBe('<title>OG</title>');
+    expect(withoutHead.headContent).toBe('<title>fallback</title>');
+    expect(seen).toEqual([{ ogTitle: 'OG' }, undefined]);
+  });
+
+  it('renderStream: opts.headData is visible in the head bytes written BEFORE the app bytes', async () => {
+    const { renderStream } = createRenderer<{ msg: string }, unknown, { ogTitle: string }>({
+      appComponent: defineComponent({
+        setup: () => () => h('div', 'app-bytes'),
+      }),
+      headContent: ({ headData }) => `<title>${headData?.ogTitle ?? 'fallback'}</title>`,
+    });
+
+    const collector = new Collector();
+    const { done } = renderStream(
+      collector as any,
+      { onHead: (headContent: string) => collector.chunks.push(`${TEMPLATE.beforeHead}${headContent}${TEMPLATE.afterHead}${TEMPLATE.beforeBody}`) },
+      { msg: 'x' },
+      '/stream-head',
+      undefined,
+      {},
+      undefined,
+      undefined,
+      { headData: { ogTitle: 'Dynamic OG' } },
+    );
+    await done;
+    const doc = collector.chunks.join('');
+
+    expect(doc.indexOf('<title>Dynamic OG</title>')).toBeGreaterThan(-1);
+    expect(doc.indexOf('<title>Dynamic OG</title>')).toBeLessThan(doc.indexOf('app-bytes'));
+  });
+});
+
 describe('renderStream — server-join regressions (gate review R2-03/R2-04)', () => {
   // Faithful reproduction of the server's streaming failure-path wiring (HandleRender.ts:419-602),
   // which driveLikeServer (happy-path byte order) deliberately omits: the head commit that connects
