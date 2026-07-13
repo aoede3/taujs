@@ -105,7 +105,7 @@ Client-side hydration automatically:
 
 ### Server-Side Rendering
 
-#### `createRenderer<T, R = unknown>(options)`
+#### `createRenderer<T, R = unknown, H = Record<string, unknown>>(options)`
 
 Creates a renderer instance with streaming and static SSR capabilities.
 
@@ -119,6 +119,7 @@ function createRenderer<
   appComponent: (props: { location: string; routeContext?: R }) => React.ReactElement;
   headContent: (ctx: {
     data: T;
+    headData?: H; // the route's attr.head payload, resolved by the host before the render
     meta: Record<string, unknown>;
     routeContext?: R;
   }) => string;
@@ -154,7 +155,7 @@ function createRenderer<
 **Parameters:**
 
 - `appComponent`: Function that returns your root React component, receives `{ location: string; routeContext?: R }`
-- `headContent`: Function that generates HTML head content, receives `{ data: T, meta: Record<string, unknown>, routeContext?: R }`. **Note:** In streaming mode, `data` may not be resolved when shell is ready - guard optional fields or rely on `meta`. **Security:** the return value is written into `<head>` verbatim as raw HTML - escape every value derived from data or user input with `escapeHtml` (exported from `@taujs/react`; see the [head management guide](/guides/head-management/)).
+- `headContent`: Function that generates HTML head content, receives `{ data: T, headData?: H, meta: Record<string, unknown>, routeContext?: R }`. **Note:** In streaming mode, `data` may not be resolved when shell is ready - guard optional fields, rely on `meta`, or declare `attr.head` on the route so the host resolves DYNAMIC head data before the shell and passes it as `headData` (typed by `createRenderer`'s third generic `H`; `undefined` when the route declares no head or the loader degraded - handle it). **Security:** the return value is written into `<head>` verbatim as raw HTML - escape every value derived from `data`, `headData` or user input with `escapeHtml` (exported from `@taujs/react`; see the [head management guide](/guides/head-management/)).
 - `enableDebug`: Enable detailed debug logging (default: `false`). `warn` and `error` always reach your logger (or the console) regardless - only debug-level logging is gated.
 - `logger`: Custom logger implementation
 - `streamOptions`: Streaming configuration

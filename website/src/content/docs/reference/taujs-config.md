@@ -215,6 +215,7 @@ Routes define URL patterns, rendering strategies, and data requirements.
 | `meta`       | `Record<string, unknown>` | `{}`        | Metadata for head   |
 | `middleware` | `Middleware`              | `undefined` | Auth and CSP        |
 | `data`       | `DataHandler`             | `undefined` | Data loader         |
+| `head`       | `HeadAttributes`          | `undefined` | Dynamic head data loader: `{ data, timeoutMs?, optional? }`, resolved before the render starts on both strategies and passed to `headContent` as `headData`. `timeoutMs` must be positive finite (default 3000 ms); `optional: true` degrades loader failures to `headData: undefined` instead of failing the request |
 
 ## Rendering Strategies
 
@@ -240,6 +241,7 @@ Complete HTML rendered before sending:
 - Data fully loaded before rendering
 - Complete HTML in single response
 - Guaranteed data in `headContent`
+- `attr.head` (if declared) resolves before the render and arrives as `headData`
 
 **React renderer semantics (`@taujs/react`):** the `ssr` strategy renders complete HTML with
 React's `prerenderToNodeStream`, so `React.lazy` and `use()` content is included in the response.
@@ -275,7 +277,8 @@ Progressive HTML delivery:
 
 - Shell sent immediately
 - Content streams as it renders
-- Data may not be ready when `headContent` runs
+- Route `data` may not be ready when `headContent` runs - declare `attr.head` for DYNAMIC head
+  data (resolved before the shell, delivered as `headData`); `meta` remains the static layer
 - **Requires `meta` property**
 
 ### Static (No Hydration)
