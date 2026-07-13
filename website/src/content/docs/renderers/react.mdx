@@ -105,7 +105,7 @@ Client-side hydration automatically:
 
 ### Server-Side Rendering
 
-#### `createRenderer<T, R = unknown>(options)`
+#### `createRenderer<T, R = unknown, H = Record<string, unknown>>(options)`
 
 Creates a renderer instance with streaming and static SSR capabilities.
 
@@ -114,36 +114,50 @@ Creates a renderer instance with streaming and static SSR capabilities.
 ```typescript
 function createRenderer<
   T extends Record<string, unknown>,
-  R = unknown
+  R = unknown,
+  H extends Record<string, unknown> = Record<string, unknown>
 >(options: {
   appComponent: (props: { location: string; routeContext?: R }) => React.ReactElement;
   headContent: (ctx: {
     data: T;
+    headData?: H; // the route's attr.head payload, resolved by the host before the render
     meta: Record<string, unknown>;
     routeContext?: R;
   }) => string;
   ...
 }): {
+  // NB the RETURNED functions' host-facing parameters are deliberately BROAD (a renderer must
+  // stay assignable to @taujs/server's renderer-agnostic contracts regardless of your generics):
+  // T, R and H apply INSIDE your callbacks (appComponent, headContent), not at this boundary.
   renderSSR: (
-    initialData: T,
+    initialData: Record<string, unknown>,
     location: string,
     meta?: Record<string, unknown>,
     signal?: AbortSignal,
-    opts?: { logger?: LoggerLike; routeContext?: R }
+    opts?: { logger?: LoggerLike; routeContext?: unknown; headData?: Record<string, unknown> }
   ) => Promise<SSRResult>;
   renderStream: (
     writable: Writable,
     callbacks: RenderCallbacks<T>,
-    initialData: T | Promise<T> | (() => Promise<T>),
+    initialData:
+      | Record<string, unknown>
+      | Promise<Record<string, unknown>>
+      | (() => Promise<Record<string, unknown>>),
     location: string,
     bootstrapModules?: string,
     meta?: Record<string, unknown>,
     cspNonce?: string,
     signal?: AbortSignal,
-    opts?: StreamOptions & { logger?: LoggerLike; routeContext?: R }
+    opts?: StreamOptions & { logger?: LoggerLike; routeContext?: unknown; headData?: Record<string, unknown> }
   ) => { abort: () => void; done: Promise<void> };
 }
 ```
+
+> **Typing model:** the generics narrow your OWN code - `appComponent` receives `routeContext` as
+> `R`, `headContent` receives `data: T` and `headData?: H`. The returned render functions accept
+> broad records at the host boundary, so standalone callers do not get compile-time narrowing on
+> the values they pass in; the route config (with `@taujs/server`) or your own call-site
+> discipline is the type authority for those.
 
 > `bootstrapModules`: URL to your client entry module. `@taujs/react` forwards it to React as a single-item `bootstrapModules` array.
 
@@ -154,7 +168,7 @@ function createRenderer<
 **Parameters:**
 
 - `appComponent`: Function that returns your root React component, receives `{ location: string; routeContext?: R }`
-- `headContent`: Function that generates HTML head content, receives `{ data: T, meta: Record<string, unknown>, routeContext?: R }`. **Note:** In streaming mode, `data` may not be resolved when shell is ready - guard optional fields or rely on `meta`. **Security:** the return value is written into `<head>` verbatim as raw HTML - escape every value derived from data or user input with `escapeHtml` (exported from `@taujs/react`; see the [head management guide](/guides/head-management/)).
+- `headContent`: Function that generates HTML head content, receives `{ data: T, headData?: H, meta: Record<string, unknown>, routeContext?: R }`. **Note:** In streaming mode, `data` may not be resolved when shell is ready - guard optional fields, rely on `meta`, or declare `attr.head` on the route so the host resolves DYNAMIC head data before the shell and passes it as `headData` (typed by `createRenderer`'s third generic `H`; `undefined` when the route declares no head or the loader degraded - handle it). **Security:** the return value is written into `<head>` verbatim as raw HTML - escape every value derived from `data`, `headData` or user input with `escapeHtml` (exported from `@taujs/react`; see the [head management guide](/guides/head-management/)).
 - `enableDebug`: Enable detailed debug logging (default: `false`). `warn` and `error` always reach your logger (or the console) regardless - only debug-level logging is gated.
 - `logger`: Custom logger implementation
 - `streamOptions`: Streaming configuration
@@ -177,8 +191,52 @@ Both methods accept a final `opts` argument:
 
 - `logger`: Optional per-call logger (overrides the one passed to `createRenderer`)
 - `routeContext`: Per-request route context value forwarded into `appComponent` and `headContent`.
+- `headData`: The route's resolved `attr.head` payload. With `@taujs/server` this is passed for
+  you (only when the route declares `attr.head` and its loader resolved); standalone hosts may
+  pass their own pre-resolved head data. Reaches `headContent` typed as `H`.
 - `renderStream` only: any `StreamOptions` field (`shellTimeoutMs`, `dataTimeoutMs`) may also be
   overridden per call.
+
+**Worked example: dynamic head data on a streamed route**
+
+```typescript
+// entry-server.tsx
+import { createRenderer, escapeHtml } from "@taujs/react";
+import { App } from "./App";
+
+type HeadData = { ogTitle?: string; ogDescription?: string };
+
+export const { renderSSR, renderStream } = createRenderer<
+  Record<string, unknown>,
+  unknown,
+  HeadData
+>({
+  appComponent: () => <App />,
+  // headData is undefined when the route declares no attr.head, and when the head loader
+  // degraded (deadline expiry, or an optional loader failure) - always handle it.
+  headContent: ({ headData, meta }) => `
+    <title>${escapeHtml(headData?.ogTitle ?? (meta.title as string | undefined) ?? "My App")}</title>
+    ${
+      headData?.ogDescription
+        ? `<meta name="description" content="${escapeHtml(headData.ogDescription)}">`
+        : ""
+    }
+  `,
+});
+```
+
+```typescript
+// taujs.config.ts - the route side (with @taujs/server)
+{
+  path: '/product/:id',
+  attr: {
+    render: 'streaming',
+    meta: { title: 'Products' },                                 // static fallback layer
+    data: serviceData('catalog', 'getProduct', mapper),          // streams as usual
+    head: { data: serviceData('catalog', 'getProductHead', mapper) }, // resolved pre-shell
+  },
+}
+```
 
 ---
 

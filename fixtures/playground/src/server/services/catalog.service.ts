@@ -25,4 +25,12 @@ export const catalogService = defineService({
     params: parseProductParams,
     result: validateProductResult,
   },
+  // RFC 0004 (H2): the head-critical slice for the streaming route's attr.head - cheap by design
+  // (the head loader blocks the shell; default deadline 3000ms).
+  getProductHead: {
+    handler: async (params: { id: string }) => {
+      return { ogTitle: `Product ${params.id} | τjs playground`, ogDescription: `Live head data for product ${params.id}` };
+    },
+    params: parseProductParams,
+  },
 });

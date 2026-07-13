@@ -48,3 +48,26 @@ void _contractSatisfiedByHandle;
 //    Pin it on the ACTUAL return type, not on the contract alias.
 const _done: Promise<void> = null as unknown as ReactStreamHandle['done'];
 void _done;
+
+// ---------------------------------------------------------------------------------------------
+// RFC 0004 (H2) - HARD GATE (ruling 7): a renderer instantiated with NON-DEFAULT generics must
+// remain assignable to the host's broad contracts. The default-only assertions above masked a
+// strictFunctionTypes gap: narrow parameter types are not assignable to broad ones, so this only
+// holds because the renderer's contract-facing signatures are BROAD with internal narrowing seams
+// (the RFC's chosen model). If someone re-narrows a signature, THESE lines fail, not production.
+type PageData = { title: string; body: string };
+type Ctx = { name: 'home' | 'article' };
+type Head = { ogTitle: string; ogImage?: string };
+
+const _typedRenderer = createRenderer<PageData, Ctx, Head>({
+  appComponent: () => createElement('div'),
+  // The app-facing callback stays fully narrow-typed: data is PageData, headData is Head | undefined.
+  headContent: ({ data, headData, meta, routeContext }) => `${data.title}${headData?.ogTitle ?? ''}${String(meta)}${routeContext?.name ?? ''}`,
+});
+
+const _typedModule: RenderModule = _typedRenderer;
+const _typedSSR: RenderSSR = _typedRenderer.renderSSR;
+const _typedStream: RenderStream = _typedRenderer.renderStream;
+void _typedModule;
+void _typedSSR;
+void _typedStream;

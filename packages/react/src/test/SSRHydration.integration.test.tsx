@@ -12,7 +12,20 @@ import { createRenderer } from '../SSRRender';
 // FAILING-FIRST against the pre-R2-01 renderer (which emits success synchronously and routes no
 // client render error); they go green once the single root-error adapter + reporter land.
 
+// `flush` remains ONLY as a short bounded grace AFTER a terminal condition has been reached
+// (single-settlement negative assertions need some window for a hypothetical double-fire).
 const flush = (ms = 40) => new Promise<void>((r) => setTimeout(r, ms));
+
+// Gate-review finding: fixed sleeps are load-sensitive - under workspace concurrency a first
+// commit can land after its test's window and bleed into the NEXT test's global hook. Every test
+// now waits for ITS OWN terminal condition, so nothing is left pending when the test ends.
+const waitFor = async (cond: () => boolean, what: string, timeoutMs = 5_000): Promise<void> => {
+  const t0 = Date.now();
+  while (!cond()) {
+    if (Date.now() - t0 > timeoutMs) throw new Error(`waitFor timed out after ${timeoutMs}ms: ${what}`);
+    await new Promise<void>((r) => setTimeout(r, 10));
+  }
+};
 
 type Beacon = 'hydration:start' | 'hydration:success' | 'hydration:error';
 
@@ -49,6 +62,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Belt for the cross-test bleed class: `hydrateApp` returns no root handle (Q2, by design), so
+  // a root cannot be unmounted here - instead any not-yet-drained emission from a stray root
+  // lands in a dead sink, never a later test's harness. Each test's `harness()` replaces it.
+  (window as unknown as { __TAUJS_DEVTOOLS_HOOK__?: unknown }).__TAUJS_DEVTOOLS_HOOK__ = { emit: () => {} };
   document.body.innerHTML = '';
   delete (globalThis as { reportError?: unknown }).reportError;
 });
@@ -68,7 +85,7 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
     expect(beacons).not.toContain('hydration:success');
     expect(onSuccess).not.toHaveBeenCalled();
 
-    await flush();
+    await waitFor(() => onSuccess.mock.calls.length > 0, 'onSuccess after first commit');
 
     expect(onSuccess).toHaveBeenCalledTimes(1);
     expect(beacons.filter((b) => b === 'hydration:success')).toHaveLength(1);
@@ -85,7 +102,7 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
 
     hydrateApp({ appComponent: <Boom />, logger: { error: vi.fn() }, onHydrationError, onSuccess });
 
-    await flush();
+    await waitFor(() => onHydrationError.mock.calls.length > 0, 'onHydrationError after hydrate throw');
 
     expect(onHydrationError).toHaveBeenCalledTimes(1);
     expect(onHydrationError.mock.calls[0]![0]).toBeInstanceOf(Error);
@@ -102,7 +119,7 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
 
     hydrateApp({ appComponent: <Boom />, logger: { error: vi.fn(), warn: vi.fn() }, onHydrationError });
 
-    await flush();
+    await waitFor(() => onHydrationError.mock.calls.length > 0, 'onHydrationError after CSR throw');
 
     expect(onHydrationError).toHaveBeenCalledTimes(1);
     expect(beacons).toHaveLength(0); // CSR emits NO beacon events (vue parity)
@@ -118,7 +135,7 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
 
     hydrateApp({ appComponent: <div>CLIENT</div>, logger: { warn }, onSuccess, onHydrationError });
 
-    await flush();
+    await waitFor(() => onSuccess.mock.calls.length > 0, 'onSuccess after recoverable mismatch');
 
     expect(onSuccess).toHaveBeenCalledTimes(1);
     expect(beacons).toContain('hydration:success');
@@ -135,7 +152,7 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
 
     hydrateApp({ appComponent: <div>app</div>, logger: { error: vi.fn() }, onHydrationError });
 
-    await flush();
+    await waitFor(() => onHydrationError.mock.calls.length > 0, 'onHydrationError for missing root');
 
     expect(onHydrationError).toHaveBeenCalledTimes(1);
     expect((onHydrationError.mock.calls[0]![0] as Error).message).toContain('not found');
@@ -151,7 +168,8 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
 
     hydrateApp({ appComponent: <Boom />, logger: { error: vi.fn() }, onHydrationError, onSuccess });
 
-    await flush(80); // give StrictMode's double-invoke + any late ticks time
+    await waitFor(() => onHydrationError.mock.calls.length > 0, 'first failure settlement');
+    await flush(40); // bounded grace: give StrictMode's double-invoke + any late ticks time
 
     expect(onHydrationError).toHaveBeenCalledTimes(1);
     expect(beacons.filter((b) => b === 'hydration:error')).toHaveLength(1);
@@ -184,7 +202,8 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
     try {
       hydrateApp({ appComponent: <Later />, logger: { error: vi.fn() }, onSuccess, onHydrationError });
 
-      await flush(90); // first commit (success) + the 10ms delayed throw
+      await waitFor(() => onSuccess.mock.calls.length > 0, 'success settlement (first commit)');
+      await waitFor(() => reportErrorSpy.mock.calls.length > 0, 'post-settlement error surfaced globally');
 
       expect(onSuccess).toHaveBeenCalledTimes(1); // settled on first commit
       expect(onHydrationError).not.toHaveBeenCalled(); // NOT re-fired post-settlement (log-only)
@@ -210,10 +229,11 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
     setRoot('root', appHtml);
     (window as unknown as Record<string, unknown>).__INITIAL_DATA__ = { a: 1 };
     const warn = vi.fn();
+    const onSuccess = vi.fn();
 
-    hydrateApp({ appComponent: <IdApp />, logger: { warn } });
+    hydrateApp({ appComponent: <IdApp />, logger: { warn }, onSuccess });
 
-    await flush();
+    await waitFor(() => onSuccess.mock.calls.length > 0, 'useId app committed');
 
     // No recoverable hydration mismatch: the app's useId is identical on server and client.
     expect(warn.mock.calls.filter((c) => String(c[0]).includes('Recoverable'))).toHaveLength(0);
@@ -230,10 +250,11 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
     setRoot('root', appHtml);
     (window as unknown as Record<string, unknown>).__INITIAL_DATA__ = { a: 1 };
     const warn = vi.fn();
+    const onSuccess = vi.fn();
 
-    hydrateApp({ appComponent: <IdApp />, identifierPrefix: 'app1-', logger: { warn } });
+    hydrateApp({ appComponent: <IdApp />, identifierPrefix: 'app1-', logger: { warn }, onSuccess });
 
-    await flush();
+    await waitFor(() => onSuccess.mock.calls.length > 0, 'prefixed app committed');
 
     // Client used the matching prefix -> ids equal the server render -> no recoverable mismatch.
     expect(warn.mock.calls.filter((c) => String(c[0]).includes('Recoverable'))).toHaveLength(0);
@@ -251,7 +272,8 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
 
     hydrateApp({ appComponent: <div>csr</div>, onStart, onSuccess });
 
-    await flush(80);
+    await waitFor(() => onSuccess.mock.calls.length > 0, 'CSR first commit');
+    await flush(40); // bounded grace for StrictMode's double-invoked reporter effect
 
     expect(onSuccess).toHaveBeenCalledTimes(1);
     expect(onStart).not.toHaveBeenCalled();
@@ -266,7 +288,8 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
 
     hydrateApp({ appComponent: <div>app</div>, onSuccess });
 
-    await flush(80);
+    await waitFor(() => onSuccess.mock.calls.length > 0, 'hydrate first commit');
+    await flush(40); // bounded grace: prove no double settlement
 
     expect(onSuccess).toHaveBeenCalledTimes(1);
     expect(beacons.filter((b) => b === 'hydration:success')).toHaveLength(1);
@@ -290,7 +313,8 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
 
     hydrateApp({ appComponent: <div>app</div>, logger: { error: errorLog }, onSuccess, onHydrationError });
 
-    await flush(90);
+    await waitFor(() => successCalls > 0, 'throwing onSuccess invoked');
+    await flush(40); // bounded grace: the throw must not manufacture a late failure
 
     expect(successCalls).toBe(1); // fired once
     expect(onHydrationError).not.toHaveBeenCalled(); // the throw did NOT become a failure
@@ -320,7 +344,7 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
     try {
       hydrateApp({ appComponent: <Boom />, logger: { error: vi.fn() }, onHydrationError: vi.fn() });
 
-      await flush();
+      await waitFor(() => globalErrors.length > 0, 'ErrorEvent reached window.onerror');
 
       expect(globalErrors.length).toBeGreaterThanOrEqual(1);
       expect(globalErrors[0]).toBeInstanceOf(Error);
@@ -345,7 +369,8 @@ describe('R2-01 hydration observability (real react-dom/client)', () => {
 
     hydrateApp({ appComponent: <Boom />, logger: { error: vi.fn() }, onHydrationError });
 
-    await flush(90);
+    await waitFor(() => errCalls > 0, 'throwing onHydrationError invoked');
+    await flush(40); // bounded grace: prove single settlement
 
     expect(errCalls).toBe(1); // called once, its throw swallowed
     expect(beacons.filter((b) => b === 'hydration:error')).toHaveLength(1); // single settlement

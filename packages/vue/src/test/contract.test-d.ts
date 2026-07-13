@@ -44,3 +44,24 @@ void _contractSatisfiedByHandle;
 // 3. `done` is the load-bearing member (R0-01: an unobserved rejection is the process-crash class).
 const _done: Promise<void> = null as unknown as VueStreamHandle['done'];
 void _done;
+
+// ---------------------------------------------------------------------------------------------
+// RFC 0004 (H6) - HARD GATE (ruling 7, vue twin of react's): a renderer instantiated with
+// NON-DEFAULT generics must remain assignable to the host's broad contracts. Holds because the
+// contract-facing signatures are BROAD with internal narrowing seams (the H2 regularisation
+// model); re-narrowing any signature fails THESE lines, not production.
+type PageData = { title: string; body: string };
+type Ctx = { name: 'home' | 'article' };
+type Head = { ogTitle: string; ogImage?: string };
+
+const _typedRenderer = createRenderer<PageData, Ctx, Head>({
+  appComponent: () => h('div'),
+  headContent: ({ data, headData, meta, routeContext }) => `${data.title}${headData?.ogTitle ?? ''}${String(meta)}${routeContext?.name ?? ''}`,
+});
+
+const _typedModule: RenderModule = _typedRenderer;
+const _typedSSR: RenderSSR = _typedRenderer.renderSSR;
+const _typedStream: RenderStream = _typedRenderer.renderStream;
+void _typedModule;
+void _typedSSR;
+void _typedStream;

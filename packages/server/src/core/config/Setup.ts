@@ -36,6 +36,21 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
 
   for (const app of taujsConfig.apps) {
     const appRoutes = (app.routes ?? []).map((route) => {
+      // RFC 0004 (H1): validate `attr.head` at BOOT - misconfiguration fails fast, before any
+      // request depends on it. `timeoutMs` must be POSITIVE FINITE (ruling 3: the head blocks
+      // the shell, so there is deliberately no 0/Infinity wait-forever sentinel).
+      const head = (route.attr as { head?: { data?: unknown; timeoutMs?: unknown; optional?: unknown } } | undefined)?.head;
+      if (head !== undefined) {
+        const at = `Route "${route.path}" (app "${app.appId}")`;
+        if (typeof head.data !== 'function') throw new Error(`${at}: attr.head.data must be a function (a data handler or serviceData(...) sugar)`);
+        if (head.timeoutMs !== undefined && !(typeof head.timeoutMs === 'number' && Number.isFinite(head.timeoutMs) && head.timeoutMs > 0)) {
+          throw new Error(`${at}: attr.head.timeoutMs must be a positive finite number of milliseconds (received ${String(head.timeoutMs)})`);
+        }
+        if (head.optional !== undefined && typeof head.optional !== 'boolean') {
+          throw new Error(`${at}: attr.head.optional must be a boolean (received ${String(head.optional)})`);
+        }
+      }
+
       const fullRoute: Route<PathToRegExpParams> = { ...route, appId: app.appId };
 
       if (!pathTracker.has(route.path)) pathTracker.set(route.path, []);

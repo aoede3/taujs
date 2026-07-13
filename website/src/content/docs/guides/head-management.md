@@ -8,7 +8,8 @@ description: How τjs manages document head content
 :::caution[headContent is a raw-HTML sink]
 Whatever `headContent` returns is written into `<head>` **verbatim** - it is not auto-escaped. Escape
 every value you interpolate that could carry service data, user input, or other untrusted content
-(from **either** `data` **or** `meta` - route meta is often built from application data too). Use the
+(from **`data`, `headData` or `meta`** - route meta is often built from application data too, and
+`headData` is loader output like any other). Use the
 `escapeHtml` helper exported by `@taujs/react` / `@taujs/vue` for HTML text and quoted attributes; see
 [Escape User Content](#3-escape-user-content) for the important exceptions (JSON-LD / `<script>`, URLs).
 :::
@@ -35,11 +36,14 @@ every value you interpolate that could carry service data, user input, or other 
    - Always available, including in streaming routes.
 
 3. **Renderer Head (`headContent` in `entry-server.tsx`)**
-   - Converts `meta` and (optionally) `data` into actual HTML tags.
+   - Converts `meta`, (optionally) `data`, and (when the route declares `attr.head`) `headData`
+     into actual HTML tags.
    - Can enrich or override route meta.
    - Runs:
-     - after data resolution in SSR
-     - at shell-ready time in streaming
+     - after data resolution in SSR (`data` is real; `headData` is resolved when declared)
+     - on streaming routes, React builds the head at shell-ready (the `data` snapshot is usually
+       still pending - `headData` is the resolved-before-render exception); Vue performs its
+       single head build before rendering starts
 
 This separation ensures:
 
@@ -109,6 +113,42 @@ From your route's `attr.meta` configuration:
 }
 ```
 
+### headData
+
+From your route's `attr.head` loader - dynamic head data resolved BEFORE the render starts, on
+both strategies. This is how STREAMED pages get real data into `<head>`:
+
+```typescript
+// Route config
+{
+  path: '/products/:id',
+  attr: {
+    render: 'streaming',
+    meta: { title: 'Products' },            // static fallback layer
+    data: serviceData('catalog', 'getProduct', mapper),          // streams as usual
+    head: {
+      data: serviceData('catalog', 'getProductHead', mapper),    // resolved pre-shell
+      timeoutMs: 3000,   // optional; positive finite only (default 3000)
+      optional: false,   // optional; true degrades loader failures instead of failing the request
+    }
+  }
+}
+```
+
+```typescript
+headContent: ({ headData, meta }) => `
+  <title>${escapeHtml(headData?.ogTitle ?? meta?.title ?? "Products")}</title>
+`;
+```
+
+`headData` is OPTIONAL in the type, and your callback must handle `undefined`: routes without
+`attr.head` pass nothing, and the loader DEGRADES to `undefined` (with a server-side advisory
+log) when its deadline expires on a live request, or when it fails and the route declared
+`optional: true`. A failing non-optional head loader fails the request through the normal error
+path - real defects stay visible - and a client that disconnects mid-fetch never proceeds into
+the render at all. Head data is never serialised into `__INITIAL_DATA__`; it exists for the
+server-rendered `<head>` only. Keep head loaders cheap - they block the shell.
+
 ## Data Availability by Mode
 
 ### SSR Mode
@@ -141,8 +181,9 @@ headContent: ({ data, meta }) => {
 };
 ```
 
-> Because `headContent` runs before all data is available in streaming mode,
-> SEO-critical values should come from route `meta`, not fetched data.
+> Because `headContent` runs before route data is available in streaming mode, SEO-critical
+> values should come from route `meta` - or, for DYNAMIC values, from an `attr.head` loader
+> (see the `headData` source above), which the server resolves before the shell is sent.
 
 ## Common Patterns
 
@@ -245,8 +286,8 @@ const title = data.title || meta.title || "Default Title";
 ### 3. Escape User Content
 
 `headContent` returns **raw HTML** written verbatim into `<head>`, so any value that could carry
-service data or user input - from **`data` or `meta`** - must be escaped at the point it enters the
-string. Escape by output **context**, not by property name:
+service data or user input - from **`data`, `headData` or `meta`** - must be escaped at the point
+it enters the string. Escape by output **context**, not by property name:
 
 - **HTML text and quoted attributes** → `escapeHtml` (exported by both renderers; escapes
   `& < > " '`, so it is safe in single- and double-quoted attributes):
@@ -279,9 +320,13 @@ function escapeHtml(value: unknown): string {
 }
 ```
 
-### 4. Use SSR for Data-Dependent Head
+### 4. Data-Dependent Heads: SSR Has It Built In; Streaming Declares `attr.head`
 
-If your head content critically depends on fetched data, use `render: 'ssr'`.
+On `render: 'ssr'` the route data is fully resolved before the head is built, so `data` is always
+real. On `render: 'streaming'` the data snapshot is usually still pending at head time - declare
+`attr.head` with a head-critical loader and read `headData` in `headContent` instead (resolved
+before the render, bounded by `head.timeoutMs`; `undefined` on degrade - handle it and fall back
+to `meta`).
 
 <!--
 ## What's Next?

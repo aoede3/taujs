@@ -100,7 +100,11 @@ export type RenderSSR = (
   location: string,
   meta?: Record<string, unknown>,
   signal?: AbortSignal,
-  opts?: { logger?: RendererLogger; routeContext?: unknown },
+  // RFC 0004 (H1): `headData` is the route's resolved `attr.head` payload (undefined when the
+  // route declares none, or when the head degraded under the signed policy). BROAD at this
+  // boundary by design - the host stores heterogeneous render modules and cannot know a route's
+  // `H`; the renderer narrows at its own internal seam (the same trust model as the body data).
+  opts?: { logger?: RendererLogger; routeContext?: unknown; headData?: Record<string, unknown> },
 ) => Promise<{
   headContent: string;
   appHtml: string;
@@ -136,7 +140,8 @@ export type RenderStream = (
   meta?: Record<string, unknown>,
   cspNonce?: string,
   signal?: AbortSignal,
-  opts?: { logger?: RendererLogger; routeContext?: unknown },
+  // RFC 0004 (H1): see RenderSSR's `headData` note - resolved pre-shell, broad at this boundary.
+  opts?: { logger?: RendererLogger; routeContext?: unknown; headData?: Record<string, unknown> },
 ) => RenderStreamHandle;
 
 export type RenderModule = {

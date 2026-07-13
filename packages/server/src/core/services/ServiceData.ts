@@ -1,4 +1,4 @@
-import type { DataHandler, PathToRegExpParams } from '../config/types';
+import type { DataHandler, PathToRegExpParams, ServiceDataHandler } from '../config/types';
 import type { JsonObject, ServiceMethodParams, ServiceRegistry } from './DataServices';
 
 // Module-private: graph code reads via getServiceDataMetadata, never the symbol itself.
@@ -21,10 +21,13 @@ type ServiceDataArgs<R extends ServiceRegistry, S extends keyof R & string, M ex
 // builds the descriptor at request time — dispatch stays in fetchInitialData — and stamps
 // non-enumerable metadata so createRequestGraph can read the declared route → service edge
 // without executing the handler.
+// RFC 0004 (H1): the eventual result of dispatching the selected method's descriptor.
+type ServiceMethodResult<F> = F extends (...args: any[]) => infer P ? Awaited<P> : never;
+
 export function createServiceData<R extends ServiceRegistry>() {
   return function serviceData<S extends keyof R & string, M extends keyof R[S] & string>(
     ...[serviceName, serviceMethod, mapper]: ServiceDataArgs<R, S, M>
-  ): DataHandler<PathToRegExpParams> {
+  ): ServiceDataHandler<ServiceMethodResult<R[S][M]>> {
     const handler: DataHandler<PathToRegExpParams> = async (params) => ({
       serviceName,
       serviceMethod,
@@ -36,7 +39,9 @@ export function createServiceData<R extends ServiceRegistry>() {
       enumerable: false,
     });
 
-    return handler;
+    // RFC 0004 (H1): the ONLY brand seam. The cast is type-level - no property is added; the
+    // handler still returns the honest descriptor at runtime (see ServiceDataHandler's JSDoc).
+    return handler as ServiceDataHandler<ServiceMethodResult<R[S][M]>>;
   };
 }
 

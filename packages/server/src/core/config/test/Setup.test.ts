@@ -177,3 +177,28 @@ describe('extractSecurity', () => {
     expect(out.summary.reportOnly).toBe(false);
   });
 });
+
+describe('extractRoutes attr.head validation (RFC 0004 H1)', () => {
+  const withHead = (head: unknown) => ({ apps: [{ appId: 'shop', entryPoint: '', routes: [{ path: '/product/:id', attr: { render: 'ssr', head } }] }] }) as any;
+
+  it('accepts a valid head declaration (and routes without head are untouched)', () => {
+    expect(() => extractRoutes(withHead({ data: async () => ({}), timeoutMs: 3000, optional: true }))).not.toThrow();
+    expect(() => extractRoutes(withHead(undefined))).not.toThrow();
+  });
+
+  it('rejects a non-function data', () => {
+    expect(() => extractRoutes(withHead({ data: 42 }))).toThrow(/attr\.head\.data must be a function/);
+  });
+
+  it.each([[0], [-1], [Number.NaN], [Infinity], ['5000']])('rejects timeoutMs %s (positive finite only - RFC 0004 ruling 3)', (v) => {
+    expect(() => extractRoutes(withHead({ data: async () => ({}), timeoutMs: v }))).toThrow(/attr\.head\.timeoutMs must be a positive finite number/);
+  });
+
+  it('rejects a non-boolean optional', () => {
+    expect(() => extractRoutes(withHead({ data: async () => ({}), optional: 'yes' }))).toThrow(/attr\.head\.optional must be a boolean/);
+  });
+
+  it('names the offending route and app', () => {
+    expect(() => extractRoutes(withHead({ data: 42 }))).toThrow(/Route "\/product\/:id" \(app "shop"\)/);
+  });
+});

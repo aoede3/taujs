@@ -34,6 +34,9 @@ export default defineConfig({
             },
             // The killer-demo route: declared edge with a narrowing mapper.
             data: serviceData('catalog', 'getProduct', (p) => ({ id: String(p.id) })),
+            // RFC 0004: dynamic head data, resolved BEFORE the shell (streamed pages get real
+            // <head> data; attr.meta stays the static fallback layer).
+            head: { data: serviceData('catalog', 'getProductHead', (p) => ({ id: String(p.id) })) },
           },
         },
         {

@@ -83,6 +83,26 @@ describe('R3-06 output equivalence with renderToString (non-suspending trees)', 
   }
 });
 
+describe('RFC 0004 (H2): renderSSR headData seam', () => {
+  it('opts.headData reaches headContent typed as H; undefined when the host passes none', async () => {
+    const seen: Array<{ ogTitle: string } | undefined> = [];
+    const renderer = createRenderer<{ k: string }, unknown, { ogTitle: string }>({
+      appComponent: () => <div>x</div>,
+      headContent: ({ data, headData }) => {
+        seen.push(headData);
+        return `<title>${headData?.ogTitle ?? data.k}</title>`;
+      },
+    });
+
+    const withHead = await renderer.renderSSR({ k: 'v' }, '/h', {}, undefined, { headData: { ogTitle: 'OG' } });
+    const withoutHead = await renderer.renderSSR({ k: 'v' }, '/h', {});
+
+    expect(withHead.headContent).toBe('<title>OG</title>');
+    expect(withoutHead.headContent).toBe('<title>v</title>');
+    expect(seen).toEqual([{ ogTitle: 'OG' }, undefined]);
+  });
+});
+
 describe('R3-06 Policy A degrade matrix (real react-dom)', () => {
   it('deadline with a suspending child INSIDE a boundary: serves fallback-state HTML + advisory warn, no throw', async () => {
     const warn = vi.fn();

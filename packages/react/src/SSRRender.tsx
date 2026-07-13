@@ -89,11 +89,22 @@ export type SSROptions = {
 /**
  * Context passed to `headContent`: `data` is the resolved route data, `meta`/`routeContext` the
  * route's static metadata and per-request context. NB `headContent` returns RAW `<head>` HTML — any
- * value interpolated from `data` (or other services/user input) must be escaped with `escapeHtml`
- * (see the `headContent` option's docs).
+ * value interpolated from `data`, `headData` (or other services/user input) must be escaped with
+ * `escapeHtml` (see the `headContent` option's docs).
+ *
+ * RFC 0004 (H2): `headData` is the route's `attr.head` payload, resolved by the host BEFORE the
+ * render starts on BOTH strategies and delivered via `opts.headData`. It is OPTIONAL in the type
+ * by contract: `undefined` when the route declares no `attr.head`, and when the head loader
+ * degraded under the signed policy (deadline expiry, or an `optional` loader failure) — handle
+ * the undefined case (typically by falling back to `meta`).
  */
-export type HeadContext<T extends Record<string, unknown> = Record<string, unknown>, R = unknown> = {
+export type HeadContext<
+  T extends Record<string, unknown> = Record<string, unknown>,
+  R = unknown,
+  H extends Record<string, unknown> = Record<string, unknown>,
+> = {
   data: T;
+  headData?: H;
   meta: Record<string, unknown>;
   routeContext?: R;
 };
@@ -102,12 +113,22 @@ type SSRResult = { headContent: string; appHtml: string; aborted: boolean };
 
 type StreamCallOptions<R> = StreamOptions & {
   logger?: LoggerLike;
-  routeContext?: R;
+  // RFC 0004 (H2): broad at the contract boundary (same contravariance reality as headData/T);
+  // narrowed to `R` at the single read below. `R` remains the app-facing type via HeadContext
+  // and appComponent.
+  routeContext?: unknown;
+  // RFC 0004 (H2): BROAD at the contract boundary (the host cannot know `H`); narrowed to `H` at
+  // the single seam where `headContent` is invoked — the same trust model as the body data.
+  headData?: Record<string, unknown>;
 };
 
 const NOOP = () => {};
 
-export function createRenderer<T extends Record<string, unknown> = Record<string, unknown>, R = unknown>({
+export function createRenderer<
+  T extends Record<string, unknown> = Record<string, unknown>,
+  R = unknown,
+  H extends Record<string, unknown> = Record<string, unknown>,
+>({
   appComponent,
   headContent,
   streamOptions = {},
@@ -125,7 +146,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
    * `` `<meta property="og:image" content="${escapeHtml(data.ogImage)}">` ``. See the head-management
    * guide, "Best Practices — Escape User Content".
    */
-  headContent: (ctx: HeadContext<T, R>) => string;
+  headContent: (ctx: HeadContext<T, R, H>) => string;
   enableDebug?: boolean;
   logger?: LoggerLike;
   streamOptions?: StreamOptions;
@@ -155,12 +176,17 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     );
   }
 
+  // RFC 0004 (H2): the contract-facing parameter types are BROAD (`Record<string, unknown>`) so a
+  // renderer instantiated with non-default generics stays assignable to the host's RenderSSR /
+  // RenderStream contracts under strictFunctionTypes (the non-default conformance test pins this).
+  // The values are trusted as `T`/`H` at ONE internal seam each — route-config inference is the
+  // type authority, exactly as it always was for the body data.
   const renderSSR = async (
-    initialData: T,
+    initialData: Record<string, unknown>,
     location: string,
     meta: Record<string, unknown> = {},
     signal?: AbortSignal,
-    opts?: { logger?: LoggerLike; routeContext?: R },
+    opts?: { logger?: LoggerLike; routeContext?: unknown; headData?: Record<string, unknown> },
   ): Promise<SSRResult> => {
     const { log, warn } = createUILogger(opts?.logger ?? logger, {
       debugCategory: 'ssr',
@@ -186,13 +212,15 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
     };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    const routeContext = opts?.routeContext;
+    // The R narrowing seam (RFC 0004 H2).
+    const routeContext = opts?.routeContext as R | undefined;
 
     try {
       log('Starting SSR:', location);
 
-      const dynamicHead = headContent({ data: initialData, meta, routeContext });
-      const store = createSSRStore(initialData);
+      // The T/H narrowing seam for this strategy (see the note on renderSSR's signature).
+      const dynamicHead = headContent({ data: initialData as T, headData: opts?.headData as H | undefined, meta, routeContext });
+      const store = createSSRStore(initialData as T);
 
       // R3-06 (Q3, Policy A): `prerenderToNodeStream` replaces `renderToString`, which could not
       // suspend - any `React.lazy`/`use()` subtree SILENTLY became its fallback plus a
@@ -268,7 +296,7 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
   const renderStream = (
     writable: Writable,
     callbacks: RenderCallbacks<T> = {},
-    initialData: T | Promise<T> | (() => Promise<T>),
+    initialData: Record<string, unknown> | Promise<Record<string, unknown>> | (() => Promise<Record<string, unknown>>),
     location: string,
     bootstrapModules?: string,
     meta: Record<string, unknown> = {},
@@ -289,7 +317,8 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
       context: { scope: 'react-streaming' },
       enableDebug,
     });
-    const routeContext = opts?.routeContext;
+    // The R narrowing seam (RFC 0004 H2).
+    const routeContext = opts?.routeContext as R | undefined;
 
     // Merge renderer defaults with per-call overrides
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
@@ -376,8 +405,9 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
     try {
       // Store is created here so the renderer can read its INTERNAL readiness (design 1) for the
-      // bounded end-gate; the public SSRStore type is unchanged.
-      const store = createSSRStore(initialData);
+      // bounded end-gate; the public SSRStore type is unchanged. This is the streaming strategy's
+      // T narrowing seam (RFC 0004 H2 - see the note on renderSSR's signature).
+      const store = createSSRStore(initialData as T | Promise<T> | (() => Promise<T>));
       const readiness = getStoreReadiness(store) ?? Promise.resolve();
 
       // Single-fire delivery (design 2): fires onAllReady/onFinish exactly once, from the end-gate
@@ -522,9 +552,9 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
 
           try {
             // Prefer current snapshot if available (sync path).
-            let headData: T | undefined;
+            let snapshotData: T | undefined;
             try {
-              headData = store.getSnapshot();
+              snapshotData = store.getSnapshot();
             } catch (thrown) {
               // In async/lazy cases, snapshot may not be ready yet. That's fine.
               // If it's a promise (thenable), attach a rejection handler to prevent unhandled rejection
@@ -535,7 +565,10 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
               }
             }
 
-            const head = headContent({ data: headData ?? ({} as T), meta, routeContext });
+            // RFC 0004 (H2): `headData` (host-resolved, pre-shell) rides alongside the snapshot -
+            // the H narrowing seam for this strategy. `data` semantics are UNCHANGED (current
+            // snapshot, or `{}` while route data is still pending at shell-ready).
+            const head = headContent({ data: snapshotData ?? ({} as T), headData: opts?.headData as H | undefined, meta, routeContext });
 
             // onHead is REQUIRED (design 6): it commits the response head and connects the sink. A
             // throwing onHead is fatal — do NOT pipe into an unconsumed sink (hung response).

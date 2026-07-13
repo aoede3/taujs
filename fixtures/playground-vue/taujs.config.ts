@@ -47,6 +47,9 @@ export default defineConfig({
             // Streaming: the blocking idiom (await useSSRDataAsync) delivers the resolved
             // data into the payload (V1-07 R1).
             data: serviceData('content', 'greet', () => ({ name: 'Vue' })),
+            // RFC 0004: dynamic head data, resolved BEFORE the head is built (streamed pages get
+            // real <head> data; attr.meta stays the static fallback layer).
+            head: { data: serviceData('content', 'greetHead', () => ({ name: 'Vue' })) },
           },
         },
       ],
