@@ -51,10 +51,29 @@ const closureRoute = {
 
 type _ClosureArm = Expect<Equal<HeadDataOf<typeof closureRoute>, { note: string }>>;
 
+// --- Arm 2b (gate-recheck): a MIXED closure return must keep the descriptor branch as
+// Record<string, unknown> - never be silently narrowed to the direct-object member alone
+// (the dispatched descriptor may resolve to any record). ---
+const mixedRoute = {
+  path: '/mixed',
+  attr: {
+    render: 'ssr',
+    head: {
+      data: async (params: { premium?: string }) =>
+        params.premium ? { title: 'direct' } : ({ serviceName: 'catalog', serviceMethod: 'getProductHead', args: {} } as ServiceDescriptor),
+    },
+  },
+} as const;
+
+type _MixedArm = Expect<Equal<HeadDataOf<typeof mixedRoute>, { title: string } | Record<string, unknown>>>;
+
+// And explicitly NOT the direct-object member alone:
+type _MixedNotNarrowed = Expect<Equal<HeadDataOf<typeof mixedRoute> extends { title: string } ? true : false, false>>;
+
 // --- Arm 3: no `attr.head` -> undefined. ---
 const plainRoute = { path: '/', attr: { render: 'ssr' } } as const;
 
 type _NoHeadArm = Expect<Equal<HeadDataOf<typeof plainRoute>, undefined>>;
 
 // Keep tsc's noUnusedLocals honest.
-export type _Proof = [_ServiceArm, _ClosureArm, _NoHeadArm];
+export type _Proof = [_ServiceArm, _ClosureArm, _MixedArm, _MixedNotNarrowed, _NoHeadArm];

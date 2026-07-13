@@ -126,12 +126,19 @@ export type HeadDataOf<R> = R extends { attr?: infer A }
     ? H extends { readonly [SERVICE_RESULT]: infer Res }
       ? Res
       : H extends (...args: any) => infer Ret
-        ? Exclude<Awaited<Ret>, ServiceDescriptor> extends never
-          ? Record<string, unknown>
-          : Exclude<Awaited<Ret>, ServiceDescriptor>
+        ? DescriptorMemberToRecord<Awaited<Ret>>
         : unknown
     : undefined
   : undefined;
+
+/**
+ * Distributes over a closure handler's return union: a descriptor MEMBER resolves (via service
+ * dispatch) to an untyped record, so it contributes `Record<string, unknown>` to the union - it
+ * must never be EXCLUDED, which would falsely narrow a mixed `{ title } | ServiceDescriptor`
+ * return to `{ title }` alone (gate-recheck finding: the dispatched branch may resolve to any
+ * record). Pure-object returns stay precise; pure-descriptor returns collapse to the record.
+ */
+type DescriptorMemberToRecord<V> = V extends ServiceDescriptor ? Record<string, unknown> : V;
 
 export type RoutePathOf<R> = R extends { path: infer P } ? P : never;
 
