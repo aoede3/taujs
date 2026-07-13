@@ -141,6 +141,16 @@ headContent: ({ headData, meta }) => `
 `;
 ```
 
+When head data goes missing there is not one failure - there are four distinct situations, and
+taujs refuses to lump them together:
+
+| What happened                                          | What taujs does                                                    | Why                                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| Client disconnected mid-fetch                          | Benign abort - the request is torn down, rendering never starts    | Never do degraded work for a dead request                            |
+| Loader too slow (deadline hit, request alive)          | Degrade: render with `headData: undefined` + an advisory log       | A slow head fetch should not cost you the page                       |
+| Loader genuinely failed                                | The existing error path - a real 500                               | A thrown error is an application defect; hiding it conceals bugs     |
+| Loader failed but the route said `head.optional: true` | Reclassified as degrade                                            | The route author explicitly decided head data is nice-to-have here   |
+
 `headData` is OPTIONAL in the type, and your callback must handle `undefined`: routes without
 `attr.head` pass nothing, and the loader DEGRADES to `undefined` (with a server-side advisory
 log) when its deadline expires on a live request, or when it fails and the route declared
