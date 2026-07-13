@@ -3017,7 +3017,7 @@ describe('handleRender', () => {
       expect(renderSSR).toHaveBeenCalledWith({ body: 1 }, '/test-path', undefined, expect.anything(), expect.objectContaining({ headData: { ogTitle: 'X' } }));
     });
 
-    it('ssr: no attr.head -> fetchHeadData is never called and opts.headData is undefined (byte-identical guard)', async () => {
+    it('ssr: no attr.head -> fetchHeadData is never called and no headData key exists (byte-identical guard)', async () => {
       useRealAbortController();
       stubTemplate();
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'ssr' }));
@@ -3027,13 +3027,7 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(DataRoutes.fetchHeadData).not.toHaveBeenCalled();
-      expect(renderSSR).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
-        undefined,
-        expect.anything(),
-        expect.objectContaining({ headData: undefined }),
-      );
+      expect(Object.hasOwn((renderSSR as Mock).mock.calls[0]![4], 'headData')).toBe(false);
     });
 
     it('ssr: deadline expiry degrades to undefined with an advisory warn (Policy ii)', async () => {
@@ -3050,13 +3044,7 @@ describe('handleRender', () => {
         expect.objectContaining({ timeoutMs: 20, optional: false }),
         'Head data degraded; rendering with headData undefined',
       );
-      expect(renderSSR).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
-        undefined,
-        expect.anything(),
-        expect.objectContaining({ headData: undefined }),
-      );
+      expect(Object.hasOwn((renderSSR as Mock).mock.calls[0]![4], 'headData')).toBe(false);
     });
 
     it('ssr: a non-optional head rejection fails the request through the existing error path', async () => {
@@ -3087,13 +3075,7 @@ describe('handleRender', () => {
         expect.objectContaining({ optional: true, reason: 'flaky head service' }),
         'Head data degraded; rendering with headData undefined',
       );
-      expect(renderSSR).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
-        undefined,
-        expect.anything(),
-        expect.objectContaining({ headData: undefined }),
-      );
+      expect(Object.hasOwn((renderSSR as Mock).mock.calls[0]![4], 'headData')).toBe(false);
     });
 
     it('ssr: caller abort during the head fetch skips the render (never proceeds degraded)', async () => {
@@ -3140,6 +3122,76 @@ describe('handleRender', () => {
       expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.anything());
       expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
       expect(mockLogger.error).toHaveBeenCalledWith(expect.anything(), 'Head data failed; terminating streaming request');
+    });
+
+    it('streaming: deadline expiry degrades to an ABSENT headData key with an advisory warn (Policy ii)', async () => {
+      useRealAbortController();
+      stubTemplate();
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(
+        createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}), timeoutMs: 20 } }),
+      );
+      vi.mocked(DataRoutes.fetchHeadData).mockImplementation(() => new Promise(() => {}));
+      const renderStream = streamModule();
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: 20, optional: false }),
+        'Head data degraded; rendering with headData undefined',
+      );
+      expect(renderStream).toHaveBeenCalledTimes(1);
+      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![8], 'headData')).toBe(false);
+    });
+
+    it('streaming: head.optional degrades an ordinary rejection and the stream still starts', async () => {
+      useRealAbortController();
+      stubTemplate();
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(
+        createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}), optional: true } }),
+      );
+      vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('flaky head service'));
+      const renderStream = streamModule();
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ optional: true, reason: 'flaky head service' }),
+        'Head data degraded; rendering with headData undefined',
+      );
+      expect(renderStream).toHaveBeenCalledTimes(1);
+      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![8], 'headData')).toBe(false);
+      expect(mockReply.raw.writeHead).not.toHaveBeenCalledWith(500, expect.anything());
+    });
+
+    it('streaming: no attr.head -> fetchHeadData never called and no headData key (byte-identical parity)', async () => {
+      useRealAbortController();
+      stubTemplate();
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'streaming', meta: {} }));
+      const renderStream = streamModule();
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(DataRoutes.fetchHeadData).not.toHaveBeenCalled();
+      expect(renderStream).toHaveBeenCalledTimes(1);
+      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![8], 'headData')).toBe(false);
+    });
+
+    it('streaming: a THROWING host logger cannot skip the hijacked-socket teardown on head failure (belted telemetry)', async () => {
+      useRealAbortController();
+      stubTemplate();
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } }));
+      vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('head boom'));
+      mockLogger.error.mockImplementation(() => {
+        throw new Error('hostile logger');
+      });
+      const renderStream = streamModule();
+
+      // Must resolve (no escape into the outer catch) AND still terminate the response.
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(renderStream).not.toHaveBeenCalled();
+      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.anything());
+      expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
     });
 
     it('streaming: caller abort during the head fetch destroys the hijacked socket without starting the stream', async () => {

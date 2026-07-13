@@ -349,10 +349,12 @@ export const handleRender = async (
       let headContent = '';
       let appHtml = '';
       try {
+        // RFC 0004: `headData` is present only when the route's head RESOLVED to a value -
+        // conditional spread so no-head (and degraded) routes show no observable key.
         const res = await renderSSR(initialDataResolved, req.url!, attr?.meta, ac.signal, {
           logger: reqLogger,
           routeContext,
-          headData: headResolution.headData,
+          ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}),
         });
         headContent = res.headContent;
         appHtml = res.appHtml;
@@ -510,8 +512,13 @@ export const handleRender = async (
       } catch (err) {
         // Non-optional head rejection: terminate deterministically (the finish-listener
         // serialize-failure idiom) - 500 if the head has not been committed, destroy otherwise.
-        logger.error({ error: safeNormaliseError(err), url: req.url }, 'Head data failed; terminating streaming request');
-        recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
+        // Telemetry is BELTED INDEPENDENTLY of the teardown (gate-review finding 1, same rule as
+        // the fatal-stream path): a throwing host logger/recorder must never skip the raw-socket
+        // settlement - the outer catch rethrows into Fastify, which no longer owns this response.
+        try {
+          logger.error({ error: safeNormaliseError(err), url: req.url }, 'Head data failed; terminating streaming request');
+          recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
+        } catch {}
         try {
           if (!reply.raw.headersSent) {
             reply.raw.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -640,7 +647,8 @@ export const handleRender = async (
         attr?.meta,
         cspNonce,
         ac.signal,
-        { logger: reqLogger, routeContext, headData: headResolution.headData },
+        // RFC 0004: conditional inclusion - see the renderSSR call site.
+        { logger: reqLogger, routeContext, ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}) },
       );
 
       // R0-01: observe the stream handle's `done`. Fatal stream errors are already fully handled
