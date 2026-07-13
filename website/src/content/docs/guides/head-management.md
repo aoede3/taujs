@@ -174,38 +174,42 @@ headContent: ({ data, meta }) => `
 
 ### Streaming Mode
 
-Data may not be ready when `headContent` runs. Use `meta` for reliable SEO:
+Route `data` may not be ready when `headContent` runs - do not read it here. Static values come
+from `meta`; DYNAMIC values come from the route's `attr.head` loader, delivered as `headData`
+(resolved before the shell is sent, `undefined` on degrade):
 
 ```typescript
-headContent: ({ data, meta }) => {
-  // Use meta for guaranteed values
+headContent: ({ headData, meta }) => {
   return `
-    <title>${escapeHtml(meta?.title || "Streaming page")}</title>
-    <meta name="description" content="${escapeHtml(meta.description)}">
+    <title>${escapeHtml(headData?.title ?? meta?.title ?? "Streaming page")}</title>
+    <meta name="description" content="${escapeHtml(headData?.description ?? meta.description)}">
     ${
-      data.ogImage
-        ? `<meta property="og:image" content="${escapeHtml(data.ogImage)}">`
+      headData?.ogImage
+        ? `<meta property="og:image" content="${escapeHtml(headData.ogImage)}">`
         : ""
     }
   `;
 };
 ```
 
-> Because `headContent` runs before route data is available in streaming mode, SEO-critical
-> values should come from route `meta` - or, for DYNAMIC values, from an `attr.head` loader
-> (see the `headData` source above), which the server resolves before the shell is sent.
+> The rule: `meta` for static defaults and degradation fallback; `attr.head` -> `headData` for
+> dynamic, head-critical values; `attr.data` for the page body - never depend on it for streamed
+> heads.
 
 ## Common Patterns
 
-Each interpolated value below is passed through `escapeHtml` at the point it enters the HTML string.
+Each interpolated value below is passed through `escapeHtml` at the point it enters the HTML
+string. The patterns read `headData` first with `meta` as the fallback, which is correct on BOTH
+strategies (on `ssr` routes you may additionally read `data` - it is fully resolved there; on
+streaming routes it may still be pending, so do not).
 
 ### Open Graph Tags
 
 ```typescript
-headContent: ({ data, meta }) => {
-  const title = data?.title || meta?.title || "Default title";
-  const description = data?.description || meta?.description || "";
-  const image = data?.ogImage || meta?.ogImage;
+headContent: ({ headData, meta }) => {
+  const title = headData?.title ?? meta?.title ?? "Default title";
+  const description = headData?.description ?? meta?.description ?? "";
+  const image = headData?.ogImage ?? meta?.ogImage;
 
   return `
     <title>${escapeHtml(title)}</title>
@@ -229,8 +233,8 @@ closed from inside the data:
 const jsonForScript = (value: unknown) =>
   JSON.stringify(value).replace(/</g, "\\u003c");
 
-headContent: ({ data, meta }) => {
-  const jsonLd = data?.jsonLd || meta?.jsonLd;
+headContent: ({ headData, meta }) => {
+  const jsonLd = headData?.jsonLd ?? meta?.jsonLd;
 
   return `
     <title>${escapeHtml(meta?.title || "Page")}</title>
@@ -248,8 +252,8 @@ If you use CSP with script-src restrictions, inline JSON-LD may require a nonce/
 ### Canonical URLs
 
 ```typescript
-headContent: ({ data, meta }) => {
-  const canonical = data.canonical || meta.canonical;
+headContent: ({ headData, meta }) => {
+  const canonical = headData?.canonical ?? meta?.canonical;
 
   return `
     <title>${escapeHtml(meta.title)}</title>
@@ -268,20 +272,23 @@ headContent: ({ data, meta }) => {
 
 ## Best Practices
 
-### 1. Prioritise Meta Over Data in Streaming
+### 1. Use `meta` for Static Values and `attr.head` for Dynamic Values
+
+`meta` is cheap, deterministic, and survives head-loader degradation - it is the fallback layer,
+not the answer to dynamic streamed heads. Declare `attr.head` for dynamic head-critical values:
 
 ```typescript
 import { escapeHtml } from "@taujs/react"; // or "@taujs/vue"
 
-// reliable in streaming
-headContent: ({ data, meta }) => `
-  <title>${escapeHtml(meta?.title || "Default Title")}</title>
+// correct on both strategies
+headContent: ({ headData, meta }) => `
+  <title>${escapeHtml(headData?.title ?? meta?.title ?? "Default Title")}</title>
   <meta name="description" content="${escapeHtml(
-    meta?.description || "Default description",
+    headData?.description ?? meta?.description ?? "Default description",
   )}">
   ${
-    data?.ogImage
-      ? `<meta property="og:image" content="${escapeHtml(data.ogImage)}">`
+    headData?.ogImage
+      ? `<meta property="og:image" content="${escapeHtml(headData.ogImage)}">`
       : ""
   }
 `;
@@ -290,7 +297,11 @@ headContent: ({ data, meta }) => `
 ### 2. Provide Fallbacks
 
 ```typescript
-const title = data.title || meta.title || "Default Title";
+// streaming (and safe everywhere): dynamic -> static -> default
+const title = headData?.title ?? meta?.title ?? "Default Title";
+
+// ssr only: route data is fully resolved, so it may join the chain
+const ssrTitle = data.title ?? meta?.title ?? "Default Title";
 ```
 
 ### 3. Escape User Content
@@ -305,8 +316,8 @@ it enters the string. Escape by output **context**, not by property name:
   ```typescript
   import { escapeHtml } from "@taujs/react"; // or "@taujs/vue"
 
-  headContent: ({ data }) => `
-    <meta property="og:image" content="${escapeHtml(data.ogImage)}">
+  headContent: ({ headData }) => `
+    <meta property="og:image" content="${escapeHtml(headData?.ogImage ?? "")}">
   `;
   ```
 
