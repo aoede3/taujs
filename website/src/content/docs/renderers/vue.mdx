@@ -431,7 +431,7 @@ const { done, abort } = renderStream(
       console.error("Stream error:", err);
     },
   },
-  { msg: "hello" }, // initialData: T | Promise<T> | (() => Promise<T>)
+  { msg: "hello" }, // initialData: a record, a promise of one, or a lazy factory
   "/streaming", // location
   "/assets/entry-client.js", // bootstrapModules
   { requestId: "123" }, // meta

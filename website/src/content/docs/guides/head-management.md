@@ -8,7 +8,8 @@ description: How τjs manages document head content
 :::caution[headContent is a raw-HTML sink]
 Whatever `headContent` returns is written into `<head>` **verbatim** - it is not auto-escaped. Escape
 every value you interpolate that could carry service data, user input, or other untrusted content
-(from **either** `data` **or** `meta` - route meta is often built from application data too). Use the
+(from **`data`, `headData` or `meta`** - route meta is often built from application data too, and
+`headData` is loader output like any other). Use the
 `escapeHtml` helper exported by `@taujs/react` / `@taujs/vue` for HTML text and quoted attributes; see
 [Escape User Content](#3-escape-user-content) for the important exceptions (JSON-LD / `<script>`, URLs).
 :::
@@ -35,11 +36,14 @@ every value you interpolate that could carry service data, user input, or other 
    - Always available, including in streaming routes.
 
 3. **Renderer Head (`headContent` in `entry-server.tsx`)**
-   - Converts `meta` and (optionally) `data` into actual HTML tags.
+   - Converts `meta`, (optionally) `data`, and (when the route declares `attr.head`) `headData`
+     into actual HTML tags.
    - Can enrich or override route meta.
    - Runs:
-     - after data resolution in SSR
-     - at shell-ready time in streaming
+     - after data resolution in SSR (`data` is real; `headData` is resolved when declared)
+     - on streaming routes, React builds the head at shell-ready (the `data` snapshot is usually
+       still pending - `headData` is the resolved-before-render exception); Vue performs its
+       single head build before rendering starts
 
 This separation ensures:
 
