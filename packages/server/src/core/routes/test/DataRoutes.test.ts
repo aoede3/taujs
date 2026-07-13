@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { createRouteMatchers, matchRoute, matchAllRoutes, extractRouteParams, getRouteStats, fetchInitialData } from '../DataRoutes';
+import { createRouteMatchers, matchRoute, matchAllRoutes, extractRouteParams, getRouteStats, fetchHeadData, fetchInitialData } from '../DataRoutes';
 import { AppError } from '../../errors/AppError';
 
 const mkRoute = (path: string, appId = 'app', attr: any = {}) => ({ path, appId, attr }) as any;
@@ -448,5 +448,50 @@ describe('fetchInitialData', () => {
         logged: true,
       }),
     );
+  });
+});
+
+describe('fetchHeadData (RFC 0004 H1)', () => {
+  const registry = {
+    svc: {
+      head: { handler: vi.fn(async () => ({ t: 'x' })) },
+    },
+  } as any;
+
+  const mkCtx = () => ({ traceId: 'test-trace', headers: {}, logger: { error: vi.fn(), warn: vi.fn() } });
+
+  it('returns undefined when the route declares no head', async () => {
+    expect(await fetchHeadData(undefined as any, {} as any, registry, mkCtx() as any)).toBeUndefined();
+    expect(await fetchHeadData({ render: 'ssr' } as any, {} as any, registry, mkCtx() as any)).toBeUndefined();
+    expect(await fetchHeadData({ head: { data: null } } as any, {} as any, registry, mkCtx() as any)).toBeUndefined();
+  });
+
+  it('returns a plain object from the head handler', async () => {
+    const attr = { head: { data: vi.fn(async () => ({ title: 'T' })) } } as any;
+    expect(await fetchHeadData(attr, {} as any, registry, mkCtx() as any)).toEqual({ title: 'T' });
+  });
+
+  it('dispatches a ServiceDescriptor via callServiceMethodImpl', async () => {
+    const attr = {
+      head: { data: vi.fn(async () => ({ serviceName: 'svc', serviceMethod: 'head', args: { id: '1' } })) },
+    } as any;
+    const impl = vi.fn(async () => ({ title: 'from-service' }));
+
+    const out = await fetchHeadData(attr, {} as any, registry, mkCtx() as any, impl as any);
+    expect(impl).toHaveBeenCalledWith(registry, 'svc', 'head', { id: '1' }, expect.any(Object));
+    expect(out).toEqual({ title: 'from-service' });
+  });
+
+  it('throws badRequest for non-object non-descriptor returns', async () => {
+    const attr = { head: { data: vi.fn(async () => 42 as any) } } as any;
+    await expect(fetchHeadData(attr, {} as any, registry, mkCtx() as any)).rejects.toThrow(
+      /attr\.head\.data must return a plain object or a ServiceDescriptor/,
+    );
+  });
+
+  it('propagates raw rejections unclassified - the caller owns the taxonomy', async () => {
+    const boom = new Error('head boom');
+    const attr = { head: { data: vi.fn(async () => Promise.reject(boom)) } } as any;
+    await expect(fetchHeadData(attr, {} as any, registry, mkCtx() as any)).rejects.toBe(boom);
   });
 });

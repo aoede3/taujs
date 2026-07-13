@@ -142,6 +142,48 @@ export const matchAllRoutes = <Params extends PathToRegExpParams>(url: string, r
   return matches;
 };
 
+/**
+ * RFC 0004 (H1): resolve `attr.head.data` - the same dispatch shape as `fetchInitialData`
+ * (handler -> `ServiceDescriptor` ? service call : plain object), returning `undefined` when the
+ * route declares no head. Deliberately NO logging or error classification here: the caller
+ * (`HandleRender`'s head resolution) owns the signed abort/deadline/rejection taxonomy, so raw
+ * rejections propagate untouched.
+ */
+export const fetchHeadData = async <Params extends PathToRegExpParams, R extends ServiceRegistry, L extends Logs = Logs>(
+  attr: RouteAttributes<Params> | undefined,
+  params: Params,
+  serviceRegistry: R,
+  ctx: RequestContext<L>,
+  callServiceMethodImpl: CallServiceOn<R> = callServiceMethod as CallServiceOn<R>,
+): Promise<Record<string, unknown> | undefined> => {
+  const headHandler = attr?.head?.data;
+  if (!headHandler || typeof headHandler !== 'function') return undefined;
+
+  const ctxForData: RequestServiceContext<L> = {
+    ...ctx,
+    headers: ctx.headers ?? {},
+  } as const;
+
+  ensureServiceCaller(serviceRegistry, ctxForData as ServiceContext & Partial<{ call: typeof ctxForData.call }>);
+
+  const result = await headHandler(
+    params,
+    ctxForData as unknown as RequestServiceContext<L> & {
+      call: NonNullable<RequestServiceContext<L>['call']>;
+    } & { [key: string]: unknown },
+  );
+
+  if (isServiceDescriptor(result)) {
+    const { serviceName, serviceMethod, args } = result;
+
+    return callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {}, ctxForData);
+  }
+
+  if (isPlainObject(result)) return result;
+
+  throw AppError.badRequest('attr.head.data must return a plain object or a ServiceDescriptor');
+};
+
 export const fetchInitialData = async <Params extends PathToRegExpParams, R extends ServiceRegistry, L extends Logs = Logs>(
   attr: RouteAttributes<Params> | undefined,
   params: Params,

@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 
 import { RENDERTYPE } from '../core/constants';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
-import { fetchInitialData, matchRoute } from '../core/routes/DataRoutes';
+import { fetchHeadData, fetchInitialData, matchRoute } from '../core/routes/DataRoutes';
 import { now } from '../core/telemetry/Telemetry';
 import { resolveEntryFile } from '../Build';
 import { createLogger } from '../logging/Logger';
@@ -246,6 +246,64 @@ export const handleRender = async (
       }
     };
 
+    // RFC 0004 (H1): resolve `attr.head` BEFORE the renderer starts, on both strategies. Signed
+    // taxonomy, tracked by WHICH source fired (never inferred from error shape - R0-02 doctrine):
+    // - caller abort  -> { aborted: true }; the branch returns through its existing abort path -
+    //                    a dead request never proceeds into the renderer with degraded head data;
+    // - deadline      -> Policy ii: proceed with headData undefined + an advisory warn. The
+    //                    deadline WINS THE AWAIT via a race (a loader that ignores ctx.signal
+    //                    cannot hold the shell hostage); the loser's eventual settlement is
+    //                    pre-observed so it can never raise unhandledRejection (R0-01 class);
+    // - rejection     -> rethrow into the branch's existing error path, unless the route opted in
+    //                    with `head.optional`, which degrades like the deadline.
+    // No recorder events here - request-graph/trace support is the rule-11 escalation (H4).
+    const resolveHeadData = async (requestSignal: AbortSignal): Promise<{ aborted: boolean; headData?: Record<string, unknown> }> => {
+      const head = attr?.head;
+      if (!head) return { aborted: false, headData: undefined };
+      if (requestSignal.aborted) return { aborted: true };
+
+      const timeoutMs = head.timeoutMs ?? 3_000;
+      const headAbort = new AbortController();
+      let deadlineHit = false;
+      const onRequestAbort = () => headAbort.abort((requestSignal as { reason?: unknown }).reason ?? new Error('request aborted'));
+      requestSignal.addEventListener('abort', onRequestAbort, { once: true });
+      const timer = setTimeout(() => {
+        deadlineHit = true;
+        headAbort.abort(new Error(`head data deadline (${timeoutMs}ms) reached`));
+      }, timeoutMs);
+
+      const abortRace = new Promise<never>((_, rejectRace) => {
+        headAbort.signal.addEventListener('abort', () => rejectRace(headAbort.signal.reason ?? new Error('head data aborted')), { once: true });
+      });
+      abortRace.catch(() => {}); // pre-observed: the race loser must never be an unhandled rejection
+
+      try {
+        // Same shape as the body-data ctx, but with the HEAD controller's signal: loaders that
+        // honour ctx.signal stop on the head deadline as well as on client disconnect.
+        const headCtx = { ...ctx, signal: headAbort.signal };
+        const fetchPromise = fetchHeadData(attr, params, serviceRegistry, headCtx);
+        fetchPromise.catch(() => {}); // pre-observed for the same reason (a late loser settlement is discarded)
+
+        const headData = await Promise.race([fetchPromise, abortRace]);
+        return { aborted: false, headData };
+      } catch (err) {
+        if (requestSignal.aborted) return { aborted: true };
+        if (deadlineHit || head.optional === true) {
+          logger.warn(
+            { url: req.url, timeoutMs, optional: head.optional === true, reason: safeErrorMessage(err) },
+            'Head data degraded; rendering with headData undefined',
+          );
+          return { aborted: false, headData: undefined };
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+        try {
+          requestSignal.removeEventListener('abort', onRequestAbort);
+        } catch {}
+      }
+    };
+
     if (renderType === RENDERTYPE.ssr) {
       const { renderSSR } = renderModule;
       if (!renderSSR) {
@@ -279,10 +337,23 @@ export const handleRender = async (
 
       const initialDataResolved = await initialDataInput();
 
+      // RFC 0004 (H1): head data resolves after the body data (both are pre-render on this
+      // strategy); a caller abort during either returns through the same abort path.
+      const headResolution = await resolveHeadData(ac.signal);
+      if (headResolution.aborted) {
+        logger.warn({ url: req.url }, 'SSR skipped; client disconnected during head data');
+        recorder?.aborted({ traceId, phase: 'pre-render' });
+        return;
+      }
+
       let headContent = '';
       let appHtml = '';
       try {
-        const res = await renderSSR(initialDataResolved, req.url!, attr?.meta, ac.signal, { logger: reqLogger, routeContext });
+        const res = await renderSSR(initialDataResolved, req.url!, attr?.meta, ac.signal, {
+          logger: reqLogger,
+          routeContext,
+          headData: headResolution.headData,
+        });
         headContent = res.headContent;
         appHtml = res.appHtml;
 
@@ -428,6 +499,36 @@ export const handleRender = async (
       let finalData: unknown = undefined;
       let pipedToReply = false;
 
+      // RFC 0004 (H1): head data resolves BEFORE the stream starts - the only pre-shell await on
+      // this strategy (body data streams as always). Placed AFTER the socket/writable guard
+      // wiring so those handlers observe errors during the head fetch too. The reply is already
+      // HIJACKED, so every arm must settle the raw socket itself - the outer catch rethrows into
+      // Fastify, which no longer owns this response and would leave the socket hanging.
+      let headResolution: { aborted: boolean; headData?: Record<string, unknown> };
+      try {
+        headResolution = await resolveHeadData(ac.signal);
+      } catch (err) {
+        // Non-optional head rejection: terminate deterministically (the finish-listener
+        // serialize-failure idiom) - 500 if the head has not been committed, destroy otherwise.
+        logger.error({ error: safeNormaliseError(err), url: req.url }, 'Head data failed; terminating streaming request');
+        recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
+        try {
+          if (!reply.raw.headersSent) {
+            reply.raw.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+            reply.raw.end('Internal Server Error');
+          } else if (!reply.raw.writableEnded && !reply.raw.destroyed) {
+            reply.raw.destroy();
+          }
+        } catch {}
+        return;
+      }
+      if (headResolution.aborted) {
+        try {
+          if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
+        } catch {}
+        return;
+      }
+
       const { done } = renderStream(
         writable,
         {
@@ -539,7 +640,7 @@ export const handleRender = async (
         attr?.meta,
         cspNonce,
         ac.signal,
-        { logger: reqLogger, routeContext },
+        { logger: reqLogger, routeContext, headData: headResolution.headData },
       );
 
       // R0-01: observe the stream handle's `done`. Fatal stream errors are already fully handled

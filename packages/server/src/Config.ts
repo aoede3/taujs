@@ -53,6 +53,11 @@ export type { ServiceDataMetadata } from './core/services/ServiceData';
 export type RouteContext = CoreRouteContext<TaujsConfig>;
 export type RouteData<C extends TaujsConfig = TaujsConfig, P extends string = string> = CoreRouteData<C, P>;
 
+// RFC 0004 (H1): the config-side head-data surface. `HeadDataOf<R>` infers what `headContent`
+// receives as `headData` for a route (the phantom-branded service result for `serviceData()`
+// loaders); `ServiceDataHandler` is `serviceData()`'s branded return type.
+export type { HeadAttributes, HeadDataOf, ServiceDataHandler } from './core/config/types';
+
 export { AppError } from './core/errors/AppError';
 
 export function defineConfig<const C extends TaujsConfig>(config: C): C {
