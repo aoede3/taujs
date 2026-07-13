@@ -1,4 +1,5 @@
 name: CI
+# Gates: frozen-lockfile install -> build -> typecheck -> format -> exports -> test
 
 on:
   pull_request:

@@ -1,6 +1,7 @@
 {
   "name": "taujs",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.4.1",
   "engines": {
