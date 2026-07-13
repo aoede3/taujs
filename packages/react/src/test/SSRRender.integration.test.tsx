@@ -150,6 +150,36 @@ describe('React behaviour facts (pure react-dom/server)', () => {
 });
 
 describe('R1-01 integration (real react-dom/server)', () => {
+  it('RFC 0004 (H2): opts.headData reaches headContent at shell-ready; undefined when the host passes none', async () => {
+    const heads: string[] = [];
+    const make = () =>
+      createRenderer<Data, unknown, { ogTitle: string }>({
+        appComponent: () => <div>app</div>,
+        headContent: ({ headData }) => `<title>${headData?.ogTitle ?? 'fallback'}</title>`,
+      });
+
+    // With headData: the host-resolved payload is visible in the PRE-SHELL head bytes.
+    {
+      const { writable } = driveServerSide();
+      const { done } = make().renderStream(writable, { onHead: (h) => heads.push(h) }, { value: 1 }, '/with-head', undefined, {}, undefined, undefined, {
+        headData: { ogTitle: 'Dynamic OG' },
+      });
+      await done.catch(() => {});
+      await settle();
+    }
+
+    // Without headData: the callback's own undefined-handling branch runs.
+    {
+      const { writable } = driveServerSide();
+      const { done } = make().renderStream(writable, { onHead: (h) => heads.push(h) }, { value: 2 }, '/no-head');
+      await done.catch(() => {});
+      await settle();
+    }
+
+    expect(heads[0]).toBe('<title>Dynamic OG</title>');
+    expect(heads[1]).toBe('<title>fallback</title>');
+  });
+
   it('R2: late-resolving data with NO store consumer — finish must serialize the RESOLVED data, not {}', async () => {
     const { writable, state } = driveServerSide();
 
