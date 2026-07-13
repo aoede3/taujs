@@ -129,10 +129,13 @@ Shell sent immediately, data may load progressively:
 **Characteristics:**
 
 - Faster Time to First Byte
-- Data may not be ready when `headContent` runs
-- Requires `meta` property for reliable SEO
+- Route `data` may not be ready when `headContent` runs - never depend on it for streamed heads
+- Static `meta` is required (the fallback layer that survives degradation)
+- For DYNAMIC head values, declare `attr.head` - its loader resolves before the shell and reaches
+  `headContent` as `headData`
 
-See [Head Management](/guides/head-management) for details on meta.
+See [Head Management](/guides/head-management) for the full model (`meta` static, `attr.head`
+dynamic) and the degradation taxonomy.
 
 ## Using Data on the Client
 
@@ -213,6 +216,8 @@ export const { renderSSR, renderStream } = createRenderer<
     <AppBootstrap location={location} routeContext={routeContext} />
   ),
   headContent: ({ data, meta, routeContext }) => {
+    // `data` is resolved on ssr routes; for STREAMED heads read `headData`/`meta` instead
+    // (see the head-management guide).
     const anyData = data as { title?: string; description?: string };
 
     const baseTitle =
