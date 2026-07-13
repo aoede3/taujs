@@ -282,8 +282,8 @@ const title = data.title || meta.title || "Default Title";
 ### 3. Escape User Content
 
 `headContent` returns **raw HTML** written verbatim into `<head>`, so any value that could carry
-service data or user input - from **`data` or `meta`** - must be escaped at the point it enters the
-string. Escape by output **context**, not by property name:
+service data or user input - from **`data`, `headData` or `meta`** - must be escaped at the point
+it enters the string. Escape by output **context**, not by property name:
 
 - **HTML text and quoted attributes** → `escapeHtml` (exported by both renderers; escapes
   `& < > " '`, so it is safe in single- and double-quoted attributes):
@@ -316,9 +316,13 @@ function escapeHtml(value: unknown): string {
 }
 ```
 
-### 4. Use SSR for Data-Dependent Head
+### 4. Data-Dependent Heads: SSR Has It Built In; Streaming Declares `attr.head`
 
-If your head content critically depends on fetched data, use `render: 'ssr'`.
+On `render: 'ssr'` the route data is fully resolved before the head is built, so `data` is always
+real. On `render: 'streaming'` the data snapshot is usually still pending at head time - declare
+`attr.head` with a head-critical loader and read `headData` in `headContent` instead (resolved
+before the render, bounded by `head.timeoutMs`; `undefined` on degrade - handle it and fall back
+to `meta`).
 
 <!--
 ## What's Next?

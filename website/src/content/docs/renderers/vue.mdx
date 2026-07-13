@@ -214,12 +214,15 @@ function createRenderer<
   enableDebug?: boolean;
   setupApp?: (app: App) => void;
 }): {
+  // NB the RETURNED functions' host-facing parameters are deliberately BROAD (a renderer must
+  // stay assignable to @taujs/server's renderer-agnostic contracts regardless of your generics):
+  // T, R and H apply INSIDE your callbacks (appComponent, headContent), not at this boundary.
   renderSSR: (
-    initialData: T,
+    initialData: Record<string, unknown>,
     location: string,
     meta?: Record<string, unknown>,
     signal?: AbortSignal,
-    opts?: { logger?: LoggerLike; routeContext?: R; headData?: Record<string, unknown> }
+    opts?: { logger?: LoggerLike; routeContext?: unknown; headData?: Record<string, unknown> }
   ) => Promise<{
     headContent: string;
     appHtml: string;
@@ -229,16 +232,25 @@ function createRenderer<
   renderStream: (
     writable: Writable,
     callbacks: RenderCallbacks<T>,
-    initialData: T | Promise<T> | (() => Promise<T>),
+    initialData:
+      | Record<string, unknown>
+      | Promise<Record<string, unknown>>
+      | (() => Promise<Record<string, unknown>>),
     location: string,
     bootstrapModules?: string,
     meta?: Record<string, unknown>,
     cspNonce?: string,
     signal?: AbortSignal,
-    opts?: StreamOptions & { logger?: LoggerLike; routeContext?: R; headData?: Record<string, unknown> }
+    opts?: StreamOptions & { logger?: LoggerLike; routeContext?: unknown; headData?: Record<string, unknown> }
   ) => { abort: () => void; done: Promise<void> };
 };
 ```
+
+> **Typing model:** the generics narrow your OWN code - `appComponent` receives `routeContext` as
+> `R`, `headContent` receives `data: T` and `headData?: H`. The returned render functions accept
+> broad records at the host boundary, so standalone callers do not get compile-time narrowing on
+> the values they pass in; the route config (with `@taujs/server`) or your own call-site
+> discipline is the type authority for those.
 
 **Parameters:**
 
