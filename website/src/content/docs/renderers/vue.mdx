@@ -194,7 +194,7 @@ This idiom is a good fit for `ssr` routes, where the server has already resolved
 
 ### Server-side rendering
 
-#### `createRenderer<T, R>(options)`
+#### `createRenderer<T, R, H>(options)`
 
 Creates a renderer instance with streaming and static SSR capabilities.
 
@@ -203,11 +203,12 @@ Creates a renderer instance with streaming and static SSR capabilities.
 ```typescript
 function createRenderer<
   T extends Record<string, unknown> = Record<string, unknown>,
-  R = unknown
+  R = unknown,
+  H extends Record<string, unknown> = Record<string, unknown>
 >(options: {
   /** A Vue component, or a function returning a VNode. Rendered with props { location, routeContext? }. */
   appComponent: Component | ((props: { location: string; routeContext?: R }) => VNode);
-  headContent: (ctx: HeadContext<T, R>) => string;
+  headContent: (ctx: HeadContext<T, R, H>) => string;
   streamOptions?: StreamOptions;
   logger?: LoggerLike;
   enableDebug?: boolean;
@@ -218,7 +219,7 @@ function createRenderer<
     location: string,
     meta?: Record<string, unknown>,
     signal?: AbortSignal,
-    opts?: { logger?: LoggerLike; routeContext?: R }
+    opts?: { logger?: LoggerLike; routeContext?: R; headData?: Record<string, unknown> }
   ) => Promise<{
     headContent: string;
     appHtml: string;
@@ -234,7 +235,7 @@ function createRenderer<
     meta?: Record<string, unknown>,
     cspNonce?: string,
     signal?: AbortSignal,
-    opts?: StreamOptions & { logger?: LoggerLike; routeContext?: R }
+    opts?: StreamOptions & { logger?: LoggerLike; routeContext?: R; headData?: Record<string, unknown> }
   ) => { abort: () => void; done: Promise<void> };
 };
 ```
@@ -242,7 +243,7 @@ function createRenderer<
 **Parameters:**
 
 - `appComponent`: Your Vue root. Pass the component directly (it receives `{ location, routeContext? }` as props) or a render function returning a VNode.
-- `headContent`: Generates HTML head content from `{ data, meta, routeContext? }`. **Note:** in streaming mode the data snapshot is usually still pending when the head is built, so heads must be derivable from `meta`/`routeContext` - guard optional `data` fields.
+- `headContent`: Generates HTML head content from `{ data, headData?, meta, routeContext? }`. **Note:** in streaming mode the data snapshot is usually still pending when the head is built - guard optional `data` fields, lean on `meta`/`routeContext`, or declare `attr.head` on the route so the host resolves DYNAMIC head data before the render and passes it as `headData` (typed by `createRenderer`'s third generic `H`). `headData` is `undefined` when the route declares no `attr.head` and when the head loader degraded (deadline expiry, or an `optional` loader failure) - always handle it. Vue's head stays SINGLE-BUILD, pre-render; `headData` widens what that one build can see. Escape every `headData`/`data`-derived value with `escapeHtml`.
 - `streamOptions.shellTimeoutMs`: Time-to-first-content watchdog in ms (default `10000`). See [Streaming semantics](#streaming-semantics).
 - `logger`: Custom logger implementation (`LoggerLike`).
 - `enableDebug`: Enable detailed logging (default `false`).
@@ -250,14 +251,61 @@ function createRenderer<
 
 **Returns** an object with two rendering methods: `renderSSR` (static, returns complete HTML plus teleports) and `renderStream` (streaming, pipes to a writable).
 
+**Per-call `opts.headData`:** the route's resolved `attr.head` payload. With `@taujs/server` this
+is passed for you (only when the route declares `attr.head` and its loader resolved); standalone
+hosts may pass their own pre-resolved head data. Reaches `headContent` typed as `H`.
+
+**Worked example: dynamic head data on a streamed route**
+
+```typescript
+// entry-server.ts
+import { createRenderer, escapeHtml } from "@taujs/vue";
+import App from "./App.vue";
+
+type HeadData = { ogTitle?: string; ogDescription?: string };
+
+export const { renderSSR, renderStream } = createRenderer<
+  Record<string, unknown>,
+  unknown,
+  HeadData
+>({
+  appComponent: App,
+  // headData is undefined when the route declares no attr.head, and when the head loader
+  // degraded (deadline expiry, or an optional loader failure) - always handle it.
+  headContent: ({ headData, meta }) => `
+    <title>${escapeHtml(headData?.ogTitle ?? (meta.title as string | undefined) ?? "My App")}</title>
+    ${
+      headData?.ogDescription
+        ? `<meta name="description" content="${escapeHtml(headData.ogDescription)}">`
+        : ""
+    }
+  `,
+});
+```
+
+```typescript
+// taujs.config.ts - the route side (with @taujs/server)
+{
+  path: '/streaming',
+  attr: {
+    render: 'streaming',
+    meta: { title: 'My App' },                                  // static fallback layer
+    data: serviceData('content', 'greet', () => ({ name: 'Vue' })),
+    head: { data: serviceData('content', 'greetHead', () => ({ name: 'Vue' })) }, // resolved pre-render
+  },
+}
+```
+
 The `HeadContext`, `RenderCallbacks` and `StreamOptions` types:
 
 ```typescript
 type HeadContext<
   T extends Record<string, unknown> = Record<string, unknown>,
-  R = unknown
+  R = unknown,
+  H extends Record<string, unknown> = Record<string, unknown>
 > = {
   data: T;
+  headData?: H; // the route's attr.head payload, resolved by the host before the render
   meta: Record<string, unknown>;
   routeContext?: R;
 };
@@ -964,7 +1012,7 @@ const setupApp = (app) => {
 
 1. **Prefer Suspense for data.** Reach for `await useSSRDataAsync<T>()` under `<Suspense>` first; fall back to `useSSRData<T>()` + `v-if` only when you specifically want a non-blocking render.
 2. **Streamed routes block on data.** Always use the blocking Suspense idiom on `streaming` routes so the data lands in the streamed HTML, not just in `__INITIAL_DATA__`.
-3. **Keep `headContent` derivable from `meta`.** In streaming mode the data snapshot is usually pending when the head is built - guard optional `data` fields and lean on `meta`/`routeContext`.
+3. **Head data: `meta` for static, `attr.head` for dynamic.** In streaming mode the data snapshot is usually pending when the head is built - guard optional `data` fields. Static values belong in `meta`; DYNAMIC head values belong in an `attr.head` loader, which the host resolves before the render and delivers as `headData` (handle `undefined` - it degrades on deadline or `optional` failure).
 4. **Share one `setupApp` across server and client.** Keep it synchronous, DOM-free and idempotent so the identical function runs on both sides; seed Pinia/state from SSR data rather than adding a serialisation channel.
 5. **Match `@vue/server-renderer` to `vue`.** Pin both to the same version.
 6. **Handle CSR fallback.** Provide `onHydrationError` so a hydration failure degrades gracefully; remember the CSR path emits no hydration callbacks by design.
