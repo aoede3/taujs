@@ -1,5 +1,19 @@
 # @taujs/server
 
+## 0.12.0
+
+### Minor Changes
+
+- [#25](https://github.com/aoede3/taujs/pull/25) [`0e7186c`](https://github.com/aoede3/taujs/commit/0e7186cfa1a257178a629e0bb19f5c3dfa69e185) Thanks [@aoede3](https://github.com/aoede3)! - Declared Vite customisation surface (RFC 0005): one config file owns the whole Vite surface, applied symmetrically to dev and build.
+
+  - `config.vite` - a new first-class field on `taujs.config.ts`, typed as an allowlisted `TaujsViteConfig` (or a `(ctx) => TaujsViteConfig` function form receiving a discriminated serve/build context). Admitted fields (`plugins`, `define`, `css.preprocessorOptions`, `esbuild`, `logLevel`, dev-only `optimizeDeps`, non-`alias` `resolve`, and build tuning such as `build.sourcemap`/`minify`/`rollupOptions.external`/`output.manualChunks`) now reach the shared dev server and every production build through one merge engine and one precedence chain (framework invariants -> `config.vite` -> `taujsBuild({ vite })`).
+  - `config.alias` - the declarative home for aliases, sourced by both dev and build. Relative values normalise against the project root; absolute values pass through. The programmatic `createServer({ alias })` and `taujsBuild({ alias })` options remain as escape hatches, layered on top.
+  - `configFile: false` is now pinned in both dev and build, so no stray `vite.config.*` is ever auto-discovered. A `vite.config.*` left in a formerly probed location (the client base root or a per-entry root) triggers a targeted migration warning at dev boot and at build start, naming the file and pointing at the `config.vite` recipe. Project-root files were never read and are exempt.
+  - Plugin composition rule (dev and build): concatenate in declared order, dedupe by plugin name with the first occurrence winning, and report every cross-source collision once at warn level with the name, each declaring source, and the winner. The `τjs-` framework prefix is reserved - a user plugin carrying it is dropped with a warning. Cross-app plugin collisions in the shared dev server are promoted from debug to warn.
+  - Protected-field warnings: supplying a framework-owned field (`root`, `base`, `publicDir`, `configFile`, `server.*`, `appType`, `build.outDir`/`ssr`/`ssrManifest`/`format`/`target`/`manifest`, `rollupOptions.input`, `resolve.alias`) through the override channels is rejected and logged at warn in both dev and build, never silently applied or dropped. The typed `TaujsViteConfig` surface excludes these, so only a JS config or `as any` cast can reach the runtime guard.
+  - `optimizeDeps` is a development-only subset (`include`/`exclude`/`esbuildOptions`); the same package in both `include` and `exclude` is a config-validation error, and nothing from `optimizeDeps` reaches production builds.
+  - Fix: multi-app builds are now ordered parent-first (root app before named entry points), so a root app declared after a named MFE no longer empties `dist/client`/`dist/ssr` and deletes the MFE's already-emitted output. Per-app `emptyOutDir` behaviour is unchanged. The reorder is ancestry-aware and minimal: an app moves only to sit immediately before the first app whose output directory it contains (ancestry derived from resolved paths, so non-canonical entry points such as trailing-slash parents order correctly). An ancestor moves immediately before its first already-placed descendant, crossing unrelated apps when required; otherwise declared order - which callback and plugin execution observe - is retained, and a collection containing no ancestry relationships is never reordered.
+
 ## 0.11.0
 
 ### Minor Changes
