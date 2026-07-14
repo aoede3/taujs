@@ -33,9 +33,10 @@ export type AppConfig = CoreAppConfig & {
 export type TaujsConfig = CoreTaujsConfig & {
   apps: readonly AppConfig[];
   security?: SecurityConfig;
-  // RFC 0005 (VS2): the allowlisted Vite surface (static object or serve/build-context function).
-  // Vite-typed, so it lives on this extension - mirroring `AppConfig.plugins: PluginOption[]` and
-  // keeping `core/config/types.ts` Vite-free. Typed here but unread until VS3/VS4.
+  // RFC 0005: the allowlisted Vite surface (static object or serve/build-context function),
+  // applied to the shared dev server (SSRServer -> resolveDevViteConfig) and every app build
+  // (taujsBuild). Vite-typed, so it lives on this extension - mirroring
+  // `AppConfig.plugins: PluginOption[]` and keeping `core/config/types.ts` Vite-free.
   vite?: TaujsViteOverride;
 };
 

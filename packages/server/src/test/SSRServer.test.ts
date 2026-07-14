@@ -445,6 +445,24 @@ describe('SSRServer', () => {
     );
   });
 
+  it('forwards projectRoot to setupDevServer (RFC 0005 §3 - dev alias normalisation root)', async () => {
+    devRef.value = true;
+
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [],
+      routes: [],
+      serviceRegistry: {},
+      clientRoot: '/client',
+      debug: false,
+      projectRoot: '/repo/apps/shop',
+    });
+
+    // Dropping this forwarding line would break monorepo alias symmetry while leaving the
+    // hard-gate 4 test green (it drives setupDevServer directly) - hence the explicit pin.
+    expect(setupDevServerMock).toHaveBeenLastCalledWith(expect.objectContaining({ projectRoot: '/repo/apps/shop' }));
+  });
+
   it('non-dev mode does not set viteDevServer', async () => {
     devRef.value = false;
 

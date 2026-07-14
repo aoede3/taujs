@@ -331,7 +331,7 @@ defaults (`@client` / `@server` / `@shared`), user values winning on conflict:
 ```typescript
 export default defineConfig({
   alias: {
-    // Relative values resolve against the project root at config load.
+    // Relative values resolve against the project root before the map is handed to Vite.
     "@components": "./src/client/shared/components",
     // Absolute values pass through untouched.
     "@icons": "/opt/shared/icons",
@@ -341,10 +341,11 @@ export default defineConfig({
 ```
 
 **Normalisation rule:** Vite does not resolve relative alias replacements - it expects
-absolute paths. τjs therefore normalises declarative values at config load: a relative
-replacement resolves against the project root, an absolute one passes through untouched. This
-keeps the config file free of `path.resolve(...)` boilerplate without shipping strings Vite
-would misread.
+absolute paths. τjs therefore normalises declarative values before the alias map is handed to
+Vite (during dev-server setup and in `taujsBuild`, once the project root is known - not in
+`defineConfig` itself): a relative replacement resolves against the project root, an absolute
+one passes through untouched. This keeps the config file free of `path.resolve(...)`
+boilerplate without shipping strings Vite would misread.
 
 The project root is `taujsBuild({ projectRoot })` at build time and the `projectRoot` option
 on `createServer` in development (default `process.cwd()`). Pass the same directory to both -

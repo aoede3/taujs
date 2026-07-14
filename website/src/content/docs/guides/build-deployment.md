@@ -261,7 +261,7 @@ identically. User values win over the framework defaults on conflict:
 // taujs.config.ts
 export default defineConfig({
   alias: {
-    // Relative values resolve against the project root at config load.
+    // Relative values resolve against the project root before the map is handed to Vite.
     "@components": "./src/client/shared/components",
     "@utils": "./src/client/shared/utils",
   },
