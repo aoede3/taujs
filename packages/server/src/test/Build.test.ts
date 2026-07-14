@@ -383,7 +383,8 @@ describe('Build.ts - Full Coverage', () => {
       // the root app's outDir (dist/client, entryPoint '') is an ANCESTOR of every named app's
       // (dist/client/mfe). In declared order [mfe, root], the root build emptied dist/client and
       // deleted the already-emitted dist/client/mfe - reproduced with real Vite 7.3.6, client and
-      // SSR alike. taujsBuild therefore orders builds depth-ascending (stable between siblings).
+      // SSR alike. taujsBuild therefore pulls an ancestor forward to immediately before its
+      // first descendant (ancestry-aware minimal reorder; unrelated apps keep declared order).
       const declaredOrder = [
         { ...mockAppConfig, entryPoint: 'mfe', appId: 'mfe' },
         { ...mockAppConfig, entryPoint: '', appId: 'root' },
@@ -447,10 +448,11 @@ describe('Build.ts - Full Coverage', () => {
       expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/foo'), path.resolve(mockProjectRoot, 'dist/client/foo/bar')]);
     });
 
-    it('orders globally by depth: unrelated apps of different depths reorder (documented, harmless)', async () => {
-      // Declared [foo/bar, baz] builds baz first - global depth ordering is intentional. Build
-      // order only has an output effect between ancestor and descendant outDirs; unrelated apps
-      // each own their outDir, so this reorder is inert. Pinned so the semantics stay documented.
+    it('preserves declared order between unrelated apps of DIFFERENT depths (reorder is ancestry-only)', async () => {
+      // Maintainer review (third ordering pass): declared order is observable - it drives the
+      // invocation order of config.vite(ctx)/taujsBuild vite(ctx) function forms, plugin
+      // lifecycles, and build logs - so apps with no ancestor/descendant outDir relationship
+      // must never reorder, whatever their depths. [foo/bar, baz] stays [foo/bar, baz].
       const unrelated = [
         { ...mockAppConfig, entryPoint: 'foo/bar', appId: 'nested' },
         { ...mockAppConfig, entryPoint: 'baz', appId: 'flat' },
@@ -465,7 +467,32 @@ describe('Build.ts - Full Coverage', () => {
       });
 
       const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
-      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/baz'), path.resolve(mockProjectRoot, 'dist/client/foo/bar')]);
+      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/foo/bar'), path.resolve(mockProjectRoot, 'dist/client/baz')]);
+    });
+
+    it('resolves a full ancestor chain declared worst-case-last: [a/b, root, a] builds [root, a, a/b]', async () => {
+      // Each ancestor is pulled forward only to immediately before its first descendant; the
+      // chain root -> a -> a/b must come out fully parent-first regardless of declared order.
+      const chain = [
+        { ...mockAppConfig, entryPoint: 'a/b', appId: 'grandchild' },
+        { ...mockAppConfig, entryPoint: '', appId: 'root' },
+        { ...mockAppConfig, entryPoint: 'a', appId: 'child' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(chain as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([
+        path.resolve(mockProjectRoot, 'dist/client'),
+        path.resolve(mockProjectRoot, 'dist/client/a'),
+        path.resolve(mockProjectRoot, 'dist/client/a/b'),
+      ]);
     });
 
     it('should exit process on build failure', async () => {

@@ -231,20 +231,27 @@ export async function taujsBuild({
   // Parent output directories must build BEFORE their descendants. Each app builds with
   // emptyOutDir: true, and an ancestor outDir (the root app's `dist/client` / `dist/ssr`, or
   // any prefix entry point) emptied AFTER a descendant deletes that descendant's already-
-  // emitted output. Depth is derived from the RESOLVED output path - never the raw entryPoint
-  // string, whose slash count miscounts non-canonical entries (a trailing-slash parent 'foo/'
-  // would tie with its child 'foo/bar' and never sort ahead of it). Resolving through the same
-  // expression the loop below uses normalises trailing/duplicate separators and '.' segments
-  // exactly as the real outDir ancestry does. Ordering is global by depth: the sort is stable,
-  // so declared order is preserved between EQUAL-DEPTH apps, while unrelated apps of different
-  // depths reorder (declared [foo/bar, baz] builds baz first) - harmless, since build order
-  // only matters between ancestor and descendant outDirs.
-  const outDirDepth = (entryPoint: string) =>
-    path
-      .resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`)
-      .split(path.sep)
-      .filter(Boolean).length;
-  const buildOrder = [...configsToBuild].sort((a, b) => outDirDepth(a.entryPoint) - outDirDepth(b.entryPoint));
+  // emitted output. Ancestry is derived from the RESOLVED output path - never the raw
+  // entryPoint string, whose slash count misreads non-canonical entries (a trailing-slash
+  // parent 'foo/' looks as deep as its child 'foo/bar') - using the same expression the loop
+  // below uses, so trailing/duplicate separators and '.' segments normalise exactly as the
+  // real outDir ancestry does.
+  //
+  // The reorder is ancestry-aware and MINIMAL: declared order is observable (it drives the
+  // invocation order of `config.vite(ctx)` and `taujsBuild({ vite })` function forms, plugin
+  // lifecycles, and build/failure logs), so it is preserved except for the one constraint that
+  // matters to output integrity - an app is pulled forward only to sit immediately before the
+  // first already-placed app whose outDir it contains. Apps with no ancestor/descendant
+  // relationship never reorder.
+  const resolveOutDir = (entryPoint: string) => path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
+  const isAncestorOf = (parent: string, child: string) => child.startsWith(parent + path.sep);
+  const buildOrder: (typeof configsToBuild)[number][] = [];
+  for (const config of configsToBuild) {
+    const outDir = resolveOutDir(config.entryPoint);
+    const firstDescendant = buildOrder.findIndex((placed) => isAncestorOf(outDir, resolveOutDir(placed.entryPoint)));
+    if (firstDescendant === -1) buildOrder.push(config);
+    else buildOrder.splice(firstDescendant, 0, config);
+  }
 
   for (const appConfig of buildOrder) {
     const { appId, entryPoint, clientRoot, entryClient, entryServer, htmlTemplate, plugins = [] } = appConfig;
