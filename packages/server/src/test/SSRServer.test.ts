@@ -24,7 +24,7 @@ const {
   autoStaticPluginMock,
   getAutoStaticOpts,
   printVitePluginSummaryMock,
-  mergePluginsMock,
+  composePluginsMock,
 } = vi.hoisted(() => {
   class AppErrorFake {
     message!: string;
@@ -83,7 +83,7 @@ const {
   };
   const getAutoStaticOpts = () => autoStaticOpts;
   const printVitePluginSummaryMock = vi.fn();
-  const mergePluginsMock = vi.fn(() => ['merged:one', 'merged:two']);
+  const composePluginsMock = vi.fn(() => ['composed:one', 'composed:two']);
 
   return {
     AppErrorFake,
@@ -105,7 +105,7 @@ const {
     autoStaticPluginMock,
     getAutoStaticOpts,
     printVitePluginSummaryMock,
-    mergePluginsMock,
+    composePluginsMock,
   };
 });
 
@@ -146,13 +146,17 @@ vi.mock('../utils/ResolveRouteData', () => ({ resolveRouteData: resolveRouteData
 vi.mock('@fastify/static', () => ({ default: autoStaticPluginMock }));
 
 vi.mock('../Setup', () => ({ printVitePluginSummary: printVitePluginSummaryMock }));
-vi.mock('../utils/VitePlugins', () => ({ mergePlugins: mergePluginsMock }));
+vi.mock('../utils/VitePlugins', () => ({
+  composePlugins: composePluginsMock,
+  pluginCollisionMessage: (c: any) => `collision:${c.name}`,
+  reservedPluginMessage: (d: any) => `reserved:${d.name}`,
+}));
 
 import { SSRServer, TEMPLATE } from '../SSRServer';
 import { loadAssets } from '../utils/AssetManager';
 import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
-import { mergePlugins } from '../utils/VitePlugins';
+import { composePlugins } from '../utils/VitePlugins';
 import { printVitePluginSummary } from '../Setup';
 
 describe('SSRServer', () => {
@@ -401,7 +405,7 @@ describe('SSRServer', () => {
         debug: { all: true },
         devNet: { host: 'localhost', hmrPort: 5173 },
         declarativeAlias: undefined,
-        viteConfig: expect.objectContaining({ plugins: ['merged:one', 'merged:two'] }),
+        viteConfig: expect.objectContaining({ plugins: ['composed:one', 'composed:two'] }),
       }),
     );
 
@@ -436,7 +440,7 @@ describe('SSRServer', () => {
         debug: { all: true },
         devNet: { host: 'localhost', hmrPort: 5173 },
         declarativeAlias: { '@components': './src/client/shared/components' },
-        viteConfig: expect.objectContaining({ plugins: ['merged:one', 'merged:two'] }),
+        viteConfig: expect.objectContaining({ plugins: ['composed:one', 'composed:two'] }),
       }),
     );
   });
@@ -747,17 +751,33 @@ describe('SSRServer', () => {
       ],
     } as any);
 
-    expect(mergePlugins).toHaveBeenCalledWith(
+    // VS6 (RFC 0005 §5): dev composes via composePlugins with each app as a labelled source, an
+    // empty internal slot (the debug plugin is appended in setupDevServer), and warn-level reporters.
+    expect(composePlugins).toHaveBeenCalledWith(
       expect.objectContaining({
         internal: [],
-        apps: expect.any(Array),
+        sources: [
+          { source: 'app-a', plugins: [pluginArrayOption, namedPlugin, unnamedObject, pluginFn, falsyPlugin, nullPlugin] },
+          { source: 'app-b', plugins: undefined },
+        ],
+        onCollision: expect.any(Function),
+        onReservedPrefix: expect.any(Function),
       }),
     );
+
+    // The cross-app dedup log is promoted from debug to WARN (and reserved-prefix drops too): invoke
+    // the reporters composePlugins was handed and prove both land on logger.warn, not logger.debug.
+    const composeOpts = (composePlugins as any).mock.calls[0]![0];
+    mockLogger.warn.mockClear(); // ignore any registration-time warns; isolate the reporter routing
+    composeOpts.onCollision({ name: 'dup', sources: ['app-a', 'app-b'], winner: 'app-a' });
+    composeOpts.onReservedPrefix({ name: 'τjs-x', source: 'app-a' });
+    expect(mockLogger.warn).toHaveBeenCalledTimes(2);
+    expect(mockLogger.debug).not.toHaveBeenCalledWith('vite', expect.anything(), expect.stringContaining('Duplicate'));
 
     expect(printVitePluginSummary).toHaveBeenCalledTimes(1);
 
     const call = (printVitePluginSummary as any).mock.calls[0]!;
-    const [loggerArg, perAppArg, mergedArg] = call;
+    const [loggerArg, perAppArg, composedArg] = call;
 
     expect(loggerArg).toBe(mockLogger);
 
@@ -772,6 +792,34 @@ describe('SSRServer', () => {
       },
     ]);
 
-    expect(mergedArg).toEqual(['merged:one', 'merged:two']);
+    expect(composedArg).toEqual(['composed:one', 'composed:two']);
+  });
+
+  it('routes config.vite plugins through the §5 composition as the config.vite source, resolving the override once (VS4/VS6 integration)', async () => {
+    devRef.value = true;
+
+    const overridePlugin = { name: 'override-plugin' };
+    const viteFn = vi.fn(() => ({ plugins: [overridePlugin], define: { __X__: '1' } }));
+
+    await app.register(SSRServer, {
+      alias: {},
+      clientRoot: '/client',
+      routes: [],
+      debug: false,
+      configs: [{ appId: 'app-a', entryPoint: '.', plugins: [{ name: 'app-plugin' }] }],
+      taujsConfig: { apps: [], vite: viteFn },
+    } as any);
+
+    // §1: the function form resolves exactly once, with the serve arm and no appId.
+    expect(viteFn).toHaveBeenCalledTimes(1);
+    expect(viteFn).toHaveBeenCalledWith({ command: 'serve', mode: 'development', isSSRBuild: false, clientRoot: '/client' });
+
+    // §5: the override's plugins enter composePlugins as the labelled `config.vite` source AFTER the
+    // app sources - they must not bypass dedupe via the engine's plain plugin append.
+    const composeArgs = (composePlugins as any).mock.calls.at(-1)![0];
+    expect(composeArgs.sources).toEqual([
+      { source: 'app-a', plugins: [{ name: 'app-plugin' }] },
+      { source: 'config.vite', plugins: [overridePlugin] },
+    ]);
   });
 });

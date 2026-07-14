@@ -170,8 +170,8 @@ describe('printVitePluginSummary', () => {
 
   beforeEach(() => reset());
 
-  it('prints "no app plugins" and merged=[none] when arrays are effectively empty', () => {
-    // merged includes junk that should be filtered out
+  it('prints "no app plugins" and composed=[none] when arrays are effectively empty', () => {
+    // composed includes junk that should be filtered out
     const merged = [
       {}, // no name
       { name: '' }, // empty string -> filtered out
@@ -185,7 +185,7 @@ describe('printVitePluginSummary', () => {
     expect(infoCalls).toHaveLength(1);
 
     const [msg] = infoCalls[0] as any[];
-    expect(msg).toContain('[τjs] [vite] Plugins no app plugins merged=[none]');
+    expect(msg).toContain('[τjs] [vite] Plugins no app plugins composed=[none]');
   });
 
   it('prints per-app plugin lists and merged plugin names (filters invalid names)', () => {
@@ -212,6 +212,6 @@ describe('printVitePluginSummary', () => {
     expect(msg).toContain('[τjs] [vite] Plugins');
     expect(msg).toContain('main=[vite:vue, inspect]');
     expect(msg).toContain('admin=[none]');
-    expect(msg).toContain('merged=[vite:vue, inspect]');
+    expect(msg).toContain('composed=[vite:vue, inspect]');
   });
 });

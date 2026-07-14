@@ -95,6 +95,11 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
     },
     mode: 'development',
     plugins: [
+      // The fragment's `plugins` arrive already composed + deduped by composePlugins (RFC 0005 §5,
+      // SSRServer: apps -> config.vite sources) and engine-merged (VS4). The internal debug-logging
+      // plugin below is appended LAST - the framework's pinned-last position by contract (§5),
+      // exempt from user dedupe, and the reserved `τjs-` prefix it carries is why a user plugin can
+      // never impersonate it (composePlugins drops user `τjs-` plugins upstream).
       ...normalisePlugins(mergedPlugins),
       ...(debug
         ? [
