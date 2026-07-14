@@ -108,9 +108,9 @@ This is your own server code bundled for production.
 
 ## Build Configuration
 
-### Vite Override
+### Vite Plugins per App
 
-Customise Vite configuration per app:
+Register standard Vite plugins per app in `taujs.config.ts`:
 
 ```typescript
 // taujs.config.ts
@@ -128,6 +128,58 @@ export default defineConfig({
 });
 ```
 
+Plugins apply in both development and build, with one difference in scope:
+
+- **Build**: each app is built with exactly its own plugin list.
+- **Development**: τjs runs a single shared Vite dev server for all apps, so every app's
+  plugins are merged into one list. Duplicate plugin names are dropped - the first
+  occurrence wins.
+
+Declare a plugin in every app that needs it and keep its options consistent across apps: in
+development the first app's instance serves them all.
+
+A `vite.config.ts` is not a τjs configuration surface - `taujs.config.ts` and the
+`taujsBuild` override below are the two supported Vite configuration channels. Configuration
+placed in a `vite.config.ts` is not part of the contract and must not be relied upon.
+
+### Build-time Vite Override
+
+`taujsBuild` accepts a guardrailed `vite` override for build tuning. It applies to builds
+only - it does not affect the dev server.
+
+```typescript
+// build.ts
+await taujsBuild({
+  clientBaseDir: path.resolve(process.cwd(), "src/client"),
+  config,
+  projectRoot: process.cwd(),
+  vite: {
+    plugins: [visualizer()],
+    build: { sourcemap: "inline" },
+  },
+});
+```
+
+A function form receives `{ appId, entryPoint, isSSRBuild, clientRoot }` per app:
+
+```typescript
+vite: ({ isSSRBuild, entryPoint }) => ({
+  plugins: isSSRBuild ? [] : [visualizer()],
+  logLevel: entryPoint === "admin" ? "info" : "warn",
+});
+```
+
+Allowed customisations: `plugins` (appended after app plugins), `define` (shallow-merged),
+`css.preprocessorOptions` (merged per preprocessor engine), `build.sourcemap` / `minify` /
+`terserOptions`, `build.rollupOptions.external`, `build.rollupOptions.output.manualChunks`,
+`resolve.*` except `alias`, `esbuild`, `logLevel`.
+
+Protected fields (framework-controlled; supplying one logs a warning and the framework value
+is kept): `root`, `base`, `publicDir`, `build.outDir`, `build.ssr` / `ssrManifest`,
+`build.format`, `build.target`, `build.rollupOptions.input`, `resolve.alias` (use the
+`alias` option instead), `server.*`. `build.manifest` is also framework-controlled and is
+restored without a warning.
+
 ### Alias Configuration
 
 τjs provides default aliases:
@@ -138,19 +190,35 @@ export default defineConfig({
 '@shared'  → project/src/shared
 ```
 
-Override or extend:
+Override or extend with the `alias` option. It is an option of `taujsBuild` (build) and
+`createServer` (dev), not a `taujs.config.ts` field - pass the same map to both so
+development and build resolve identically. User values win over the framework defaults on
+conflict.
+
+Define the map once in a shared module:
 
 ```typescript
-// taujs.config.ts with custom aliases
-export default defineConfig({
-  alias: {
-    "@components": path.resolve(__dirname, "client/shared/components"),
-    "@utils": path.resolve(__dirname, "client/shared/utils"),
-  },
-  apps: [
-    /* ... */
-  ],
-});
+// src/shared/vite-alias.ts
+import path from "node:path";
+
+export const alias = {
+  "@components": path.resolve(process.cwd(), "src/client/shared/components"),
+  "@utils": path.resolve(process.cwd(), "src/client/shared/utils"),
+};
+```
+
+```typescript
+// build.ts
+import { alias } from "./src/shared/vite-alias.ts";
+
+await taujsBuild({ clientBaseDir, config, projectRoot, alias });
+```
+
+```typescript
+// src/server/index.ts
+import { alias } from "../shared/vite-alias.ts";
+
+await createServer({ config, serviceRegistry, alias });
 ```
 
 ## Public Assets
@@ -159,9 +227,10 @@ export default defineConfig({
 
 **Client build:**
 
-- Uses `public/` at project root
-- All apps share the same public directory
-- Assets copied to `dist/client/`
+- Uses `public/` resolved against each app's root: `src/client/{entryPoint}/public/`, or
+  `src/client/public/` when `entryPoint` is empty
+- Each app has its own public directory - apps do not share one
+- Assets copied into that app's output under `dist/client/`
 
 **SSR build:**
 

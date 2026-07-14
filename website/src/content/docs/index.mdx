@@ -57,6 +57,15 @@ import vueLogo from "../../assets/vue.svg";
 
 τjs is an orchestration layer built on Fastify, Vite, and React / Vue. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
 
+## Leverage every ecosystem
+
+τjs orchestrates Fastify, Vite, React, and Vue rather than wrapping them behind its own abstractions, so each ecosystem stays fully open to you:
+
+- **Fastify** - register plugins, hooks, and decorators on the server instance as you would in any Fastify app
+- **Vite** - use standard Vite plugins directly through τjs's declared plugin channels; the configuration fields τjs owns are documented and protected
+- **React / Vue** - bring the component libraries, tooling, and patterns of whichever framework each app uses
+
+There is no parallel plugin system to learn and no fork to track - when the underlying ecosystems move, τjs moves with them.
 
 ## Request boundary not component tree
 

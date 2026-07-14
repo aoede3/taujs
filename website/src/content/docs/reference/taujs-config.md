@@ -159,6 +159,14 @@ apps: [
 | `routes`     | `AppRoute[]`     | No       | Route definitions              |
 | `plugins`    | `PluginOption[]` | No       | Vite plugins for this app      |
 
+Any standard Vite plugin is accepted in `plugins` - the τjs renderer plugins are the
+scaffolded defaults, not a closed set. Scope differs by mode: at build time each app is
+built with exactly its own list; in development τjs runs one shared Vite dev server, so all
+apps' plugin lists are merged and duplicate plugin names are dropped (first occurrence
+wins). A `vite.config.ts` is not a τjs configuration surface - this field and `taujsBuild`'s
+`vite` override are the two supported Vite configuration channels (see the
+[build guide](/guides/build-deployment/#build-configuration)).
+
 ### Entry Point Structure
 
 Each `entryPoint` directory must contain:
