@@ -109,7 +109,7 @@ describe('VS1 - dev server closes config-file discovery', () => {
     writeFileSync(planted, VITE_CONFIG_SOURCE);
 
     const { setupDevServer } = await import('../utils/DevServer');
-    await setupDevServer(makeApp(), baseClientRoot, undefined, false);
+    await setupDevServer({ app: makeApp(), clientRoot: baseClientRoot, debug: false });
 
     expect(createServerMock).toHaveBeenCalledTimes(1);
     const cfg = createServerMock.mock.calls[0]![0];
@@ -134,7 +134,7 @@ describe('VS1 - dev server closes config-file discovery', () => {
     writeFileSync(path.join(tmpRoot, 'vite.config.ts'), VITE_CONFIG_SOURCE);
 
     const { setupDevServer } = await import('../utils/DevServer');
-    await setupDevServer(makeApp(), baseClientRoot, undefined, false);
+    await setupDevServer({ app: makeApp(), clientRoot: baseClientRoot, debug: false });
 
     expect(createServerMock.mock.calls[0]![0].configFile).toBe(false);
     const anyMigrationWarn = logger.warn.mock.calls.some((call) => call.some((arg) => typeof arg === 'string' && arg.includes('no longer reads')));

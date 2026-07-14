@@ -30,7 +30,8 @@ describe('ViteMergeEngine - profiles (declared data)', () => {
     expect(BUILD_PROFILE.protectedTop).toEqual(expect.arrayContaining(['root', 'base', 'publicDir', 'configFile', 'server']));
 
     expect(DEV_PROFILE.admitBuild).toBe(false);
-    expect(DEV_PROFILE.protectedTop).toEqual(expect.arrayContaining(['root', 'configFile', 'server', 'appType']));
+    // VS4 ruling: dev protects `base`/`publicDir` too (matrix Protected in all columns).
+    expect(DEV_PROFILE.protectedTop).toEqual(expect.arrayContaining(['root', 'base', 'publicDir', 'configFile', 'server', 'appType']));
   });
 
   it('normalisePlugins and getFrameworkInvariants remain reachable from the engine', () => {

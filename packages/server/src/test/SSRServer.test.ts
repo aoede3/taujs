@@ -390,15 +390,19 @@ describe('SSRServer', () => {
       devNet: { host: 'localhost', hmrPort: 5173 },
     });
 
+    // RFC 0005 VS4: setupDevServer now takes one options object. The app plugin list rides inside the
+    // resolved `viteConfig` fragment (apps -> config.vite); `declarativeAlias` is undefined here (no
+    // taujsConfig passed).
     expect(setupDevServerMock).toHaveBeenCalledWith(
-      expect.any(Object),
-      '/client',
-      { '@': '/src' },
-      { all: true },
-      { host: 'localhost', hmrPort: 5173 },
-      ['merged:one', 'merged:two'],
-      // RFC 0005 (VS5): declarative `config.alias` forwarded from taujsConfig - undefined here (no taujsConfig passed).
-      undefined,
+      expect.objectContaining({
+        app: expect.any(Object),
+        clientRoot: '/client',
+        alias: { '@': '/src' },
+        debug: { all: true },
+        devNet: { host: 'localhost', hmrPort: 5173 },
+        declarativeAlias: undefined,
+        viteConfig: expect.objectContaining({ plugins: ['merged:one', 'merged:two'] }),
+      }),
     );
 
     await app.inject({ method: 'GET', url: '/x' });
@@ -422,16 +426,18 @@ describe('SSRServer', () => {
       taujsConfig: { apps: [], alias: { '@components': './src/client/shared/components' } } as any,
     });
 
-    // Programmatic alias stays the 3rd arg (escape hatch); the declarative map is the 7th arg,
-    // layered UNDER it inside setupDevServer.
+    // Programmatic `alias` stays the escape hatch; the declarative map is forwarded as
+    // `declarativeAlias`, layered UNDER it inside setupDevServer (RFC 0005 VS4/VS5).
     expect(setupDevServerMock).toHaveBeenLastCalledWith(
-      expect.any(Object),
-      '/client',
-      { '@': '/src' },
-      { all: true },
-      { host: 'localhost', hmrPort: 5173 },
-      ['merged:one', 'merged:two'],
-      { '@components': './src/client/shared/components' },
+      expect.objectContaining({
+        app: expect.any(Object),
+        clientRoot: '/client',
+        alias: { '@': '/src' },
+        debug: { all: true },
+        devNet: { host: 'localhost', hmrPort: 5173 },
+        declarativeAlias: { '@components': './src/client/shared/components' },
+        viteConfig: expect.objectContaining({ plugins: ['merged:one', 'merged:two'] }),
+      }),
     );
   });
 

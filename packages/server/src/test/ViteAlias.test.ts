@@ -146,7 +146,7 @@ describe('VS5 - hard gate 4: declarative alias resolves identically in dev and b
 
   async function runDev(declarativeAlias?: Record<string, string>, programmaticAlias?: Record<string, string>) {
     const { setupDevServer } = await import('../utils/DevServer');
-    await setupDevServer(makeApp(), clientBaseDir, programmaticAlias, false, undefined, [], declarativeAlias);
+    await setupDevServer({ app: makeApp(), clientRoot: clientBaseDir, alias: programmaticAlias, debug: false, declarativeAlias });
 
     return createServerMock.mock.calls[0]![0].resolve.alias as Record<string, string>;
   }

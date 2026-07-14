@@ -104,9 +104,12 @@ describe('setupDevServer', () => {
     const app = makeApp();
     const baseClientRoot = path.join('/', 'root', 'client');
 
-    const server = await setupDevServer(app as any, baseClientRoot, { '~foo': '/bar' }, /* debug */ false, {
-      host: 'dev.example.com',
-      hmrPort: 7777,
+    const server = await setupDevServer({
+      app: app as any,
+      clientRoot: baseClientRoot,
+      alias: { '~foo': '/bar' },
+      debug: false,
+      devNet: { host: 'dev.example.com', hmrPort: 7777 },
     });
 
     // createLogger called with expected shape
@@ -165,7 +168,7 @@ describe('setupDevServer', () => {
     const { setupDevServer } = await importer();
 
     const app = makeApp();
-    const server = await setupDevServer(app as any, '/root/client', undefined, /* debug */ { all: true });
+    const server = await setupDevServer({ app: app as any, clientRoot: '/root/client', debug: { all: true } });
 
     // The debug plugin should have executed configureServer and registered a middleware
     expect((server as any)._useHandlers.length).toBe(1);
@@ -210,7 +213,7 @@ describe('setupDevServer', () => {
     const { setupDevServer } = await importer();
 
     const app = makeApp();
-    await setupDevServer(app as any, '/root/client', undefined, /* debug */ false);
+    await setupDevServer({ app: app as any, clientRoot: '/root/client', debug: false });
 
     const cfg = createServerMock.mock.calls[0]![0];
 
@@ -227,7 +230,7 @@ describe('setupDevServer', () => {
     const { setupDevServer } = await importer();
 
     const app = makeApp();
-    await setupDevServer(app as any, '/root/client');
+    await setupDevServer({ app: app as any, clientRoot: '/root/client' });
 
     const cfg = createServerMock.mock.calls[0]![0];
     expect(cfg.server.hmr.clientPort).toBe(5174);
@@ -240,9 +243,13 @@ describe('setupDevServer', () => {
     const { setupDevServer } = await importer();
     const app = makeApp();
 
-    await setupDevServer(app as any, '/root/client', {
-      '@client': '/override/client',
-      custom: '/x/y',
+    await setupDevServer({
+      app: app as any,
+      clientRoot: '/root/client',
+      alias: {
+        '@client': '/override/client',
+        custom: '/x/y',
+      },
     });
 
     const cfg = createServerMock.mock.calls[0]![0];

@@ -23,6 +23,7 @@ import { cspPlugin } from './security/CSP';
 import { cspReportPlugin } from './security/CSPReporting';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
+import { resolveDevViteConfig } from './utils/ViteMergeEngine';
 import { createRequestContext } from './utils/Telemetry';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
@@ -108,9 +109,28 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         plugins,
       );
 
-      // RFC 0005 §3 (VS5): `alias` here is the programmatic escape hatch (createServer option);
-      // the declarative `config.alias` is layered UNDER it inside setupDevServer.
-      viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet, plugins, opts.taujsConfig?.alias);
+      // RFC 0005 §1 (VS4): resolve `config.vite` ONCE here, beside the app plugin merge, with the
+      // discriminated `serve` context arm (no `appId` - per-app dev servers are rejected). The engine
+      // (DEV_PROFILE) merges the admitted dev fields over the app plugins + scss default and warns any
+      // protected field; `setupDevServer` then receives one resolved fragment rather than a growing
+      // positional list. `taujsBuild({ vite })` is build-only and is NOT consulted here.
+      const devViteConfig = resolveDevViteConfig({
+        viteOverride: opts.taujsConfig?.vite,
+        clientRoot,
+        appPlugins: plugins,
+      });
+
+      // RFC 0005 §3 (VS5): `alias` is the programmatic escape hatch (createServer option); the
+      // declarative `config.alias` is layered UNDER it inside setupDevServer.
+      viteDevServer = await setupDevServer({
+        app,
+        clientRoot,
+        alias,
+        declarativeAlias: opts.taujsConfig?.alias,
+        debug: opts.debug,
+        devNet: opts.devNet,
+        viteConfig: devViteConfig,
+      });
 
       // Structural gate (spec 03 invariant 1): recorder, dev files, and overlay endpoints
       // exist only when the dev Vite middleware exists, loaded via lazy dynamic import.

@@ -4,22 +4,44 @@ import { CONTENT } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { overrideCSSHMRConsoleError } from './Templates';
 import { layerAlias } from './ViteAlias';
+import { normalisePlugins } from './ViteMergeEngine';
 import { findFormerlyDiscoveredViteConfig, formerlyDiscoveredViteConfigWarning } from './ViteConfigDiscovery';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
-import type { PluginOption, ViteDevServer } from 'vite';
+import type { InlineConfig, ViteDevServer } from 'vite';
 import type { DebugConfig } from '../core/logging/types';
 
-export const setupDevServer = async (
-  app: FastifyInstance,
-  baseClientRoot: string,
-  alias?: Record<string, string>,
-  debug?: DebugConfig,
-  devNet?: { host: string; hmrPort: number },
-  plugins: PluginOption[] = [],
-  declarativeAlias?: Record<string, string>,
-): Promise<ViteDevServer> => {
+/**
+ * RFC 0005 VS4 - `setupDevServer` options.
+ *
+ * Refactored OFF positional parameters (the surface kept growing: `alias`, `debug`, `devNet`,
+ * `plugins`, then VS5's trailing `declarativeAlias`). One options object, so future dev-config
+ * widening never reshuffles argument positions again.
+ */
+export type SetupDevServerOptions = {
+  app: FastifyInstance;
+  /** The shared client base root (dev `root` invariant + framework alias base). */
+  clientRoot: string;
+  /** Programmatic escape-hatch alias (`createServer({ alias })`) - the TOP alias layer (VS5). */
+  alias?: Record<string, string>;
+  /** Declarative `config.alias` (VS5) - layered UNDER the programmatic alias. */
+  declarativeAlias?: Record<string, string>;
+  debug?: DebugConfig;
+  devNet?: { host: string; hmrPort: number };
+  /**
+   * The resolved, engine-merged dev Vite fragment (VS4), assembled ONCE in `SSRServer` via
+   * `resolveDevViteConfig`: `plugins` (apps -> config.vite), `define`, `css` (scss `modern-compiler`
+   * default merged with any user `css.preprocessorOptions`), `esbuild`, `logLevel`, `optimizeDeps`,
+   * and non-`alias` `resolve` keys. Framework invariants (`root`, `server`, `appType`, `configFile`,
+   * `mode`, `resolve.alias`) are applied HERE and NEVER read from this fragment.
+   */
+  viteConfig?: InlineConfig;
+};
+
+export const setupDevServer = async (options: SetupDevServerOptions): Promise<ViteDevServer> => {
+  const { app, clientRoot: baseClientRoot, alias, declarativeAlias, debug, devNet, viteConfig } = options;
+
   const logger = createLogger({
     context: { service: 'setupDevServer' },
     debug,
@@ -53,10 +75,18 @@ export const setupDevServer = async (
 
   const { createServer } = await import('vite');
 
+  // Split the engine-merged fragment (VS4) into its admitted dev fields. `build` (an empty `{}` the
+  // engine spreads from the framework layer) and the invariant carriers are dropped; everything else
+  // (`define`, `esbuild`, `logLevel`, `optimizeDeps`) rides through untouched in `...admittedDevFields`.
+  const { build: _ignoredBuild, plugins: mergedPlugins, resolve: mergedResolve, css: mergedCss, ...admittedDevFields } = viteConfig ?? {};
+
   const viteDevServer = await createServer({
+    ...admittedDevFields,
     appType: 'custom',
     configFile: false,
-    css: {
+    // scss `modern-compiler` default. Normally the fragment already carries it (merged with any user
+    // `css.preprocessorOptions` in the engine); the fallback covers a direct call with no fragment.
+    css: mergedCss ?? {
       preprocessorOptions: {
         scss: {
           api: 'modern-compiler',
@@ -65,7 +95,7 @@ export const setupDevServer = async (
     },
     mode: 'development',
     plugins: [
-      ...plugins,
+      ...normalisePlugins(mergedPlugins),
       ...(debug
         ? [
             {
@@ -105,6 +135,7 @@ export const setupDevServer = async (
         : []),
     ],
     resolve: {
+      ...(mergedResolve ?? {}),
       alias: resolvedAlias,
     },
     root: baseClientRoot,

@@ -8,6 +8,7 @@ import type { ServiceRegistry } from './core/services/DataServices';
 
 import type { AppConfig, SecurityConfig } from './Config';
 import type { StaticAssetsRegistration } from './utils/StaticAssets';
+import type { TaujsViteOverride } from './ViteConfig';
 
 export type SSRServerOptions = {
   alias?: Record<string, string>;
@@ -19,8 +20,14 @@ export type SSRServerOptions = {
   staticAssets?: StaticAssetsRegistration;
   debug?: DebugConfig;
   devNet?: { host: string; hmrPort: number };
-  /** Full resolved config — consumed only by dev introspection surfaces (graph endpoint). */
-  taujsConfig?: CoreTaujsConfig;
+  /**
+   * Full resolved config — consumed by dev introspection surfaces (graph endpoint) AND, per RFC 0005
+   * VS4, the dev `config.vite` wiring (`resolveDevViteConfig`). `vite` lives on the `TaujsConfig`
+   * extension (Vite-typed), not the Vite-free `CoreTaujsConfig`, so it is re-attached here via the
+   * same minimal intersection `taujsBuild` uses - assignable from both a bare `CoreTaujsConfig` and a
+   * full `TaujsConfig` (`CreateServer` forwards `opts.config`, a `TaujsConfig`).
+   */
+  taujsConfig?: CoreTaujsConfig & { vite?: TaujsViteOverride };
 };
 
 export type GenericPlugin = FastifyPluginCallback<Record<string, unknown>> | FastifyPluginAsync<Record<string, unknown>>;

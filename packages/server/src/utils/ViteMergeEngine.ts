@@ -19,8 +19,8 @@
  * warn level (mere coexistence is silent). Framework defaults being overridden by a user layer is
  * normal operation and never warns.
  */
-import type { InlineConfig } from 'vite';
-import type { TaujsOptimizeDeps } from '../ViteConfig';
+import type { InlineConfig, PluginOption } from 'vite';
+import type { TaujsOptimizeDeps, TaujsViteConfig, TaujsViteContext, TaujsViteOverride } from '../ViteConfig';
 
 /**
  * Core invariants for τjs builds.
@@ -100,15 +100,22 @@ export const BUILD_PROFILE: ViteMergeProfile = {
 };
 
 /**
- * Dev profile (RFC 0005 §4 matrix + §6). DECLARED for the shared dev server; VS4 wires it into
- * `setupDevServer`. `build.*` is not admitted in dev (the whole `build` key is rejected), and the
- * framework owns `server.*`, `appType`, `root`, `configFile`, and `resolve.alias`. `optimizeDeps`
- * is dev-only and merged separately via `mergeOptimizeDeps` (never through this field-copy path).
+ * Dev profile (RFC 0005 §4 matrix + §6). CONSUMED by `resolveDevViteConfig` (VS4). `build.*` is not
+ * admitted in dev (the whole `build` key is rejected), and the framework owns `server.*`, `appType`,
+ * `root`, `base`, `publicDir`, `configFile`, and `resolve.alias`. `optimizeDeps` is dev-only and
+ * merged separately via `mergeOptimizeDeps` (never through this field-copy path).
+ *
+ * `base`/`publicDir` are protected in dev per the §4 matrix (Protected in ALL three columns) - VS3
+ * shipped DEV_PROFILE without them and flagged the ruling to VS4. Decided (decisions.md, VS4): they
+ * ARE protected in dev, so a smuggled `base`/`publicDir` (the allowlist `TaujsViteConfig` type
+ * already excludes both; only a JS/`as any` cast reaches here) is WARNED, never silently dropped -
+ * both fields genuinely reshape the shared dev server (public path, static root), and the "warn,
+ * never apply" invariant must hold symmetrically with build.
  */
 export const DEV_PROFILE: ViteMergeProfile = {
   mode: 'dev',
   admitBuild: false,
-  protectedTop: ['root', 'configFile', 'server', 'appType'],
+  protectedTop: ['root', 'base', 'publicDir', 'configFile', 'server', 'appType'],
   protectedBuild: [],
 };
 
@@ -364,4 +371,54 @@ export function mergeOptimizeDeps(layers: readonly OptimizeDepsLayer[]): TaujsOp
   if (esbuildOptions) result.esbuildOptions = esbuildOptions as TaujsOptimizeDeps['esbuildOptions'];
 
   return result;
+}
+
+/**
+ * RFC 0005 VS4 - resolve `config.vite` for the shared development server, ONCE per dev boot.
+ *
+ * This is the dev consumer of the DEV_PROFILE engine (the mirror of `taujsBuild`'s per-app build-arm
+ * composition). Called from `SSRServer` beside the app plugin merge; the result is the single
+ * engine-merged fragment handed to `setupDevServer`, so that function never grows more positional
+ * parameters as the surface widens.
+ *
+ * - The function form of `vite` is invoked EXACTLY ONCE with the discriminated `serve` context arm
+ *   (`{ command: 'serve', mode, isSSRBuild: false, clientRoot }`, no `appId`/`entryPoint`) - per-app
+ *   dev invocation is rejected on architectural grounds (one shared dev server; RFC Non-goals).
+ * - Admitted dev fields flow through DEV_PROFILE: `plugins` (appended AFTER the app plugins, so the
+ *   dev order is apps -> config.vite -> internal, VS6 owns final dedupe), `define` (shallow),
+ *   `css.preprocessorOptions` (per-engine deep merge over the framework scss `modern-compiler`
+ *   default, NOT replacing it), `esbuild`, `logLevel`, and non-`alias` `resolve` keys.
+ * - `optimizeDeps` (§6 subset) is merged and validated separately via `mergeOptimizeDeps`
+ *   (include/exclude contradiction throws here) and is DEV-ONLY - it never reaches a build config.
+ * - Dev invariants (`server.*`, `appType`, `root`, `base`, `publicDir`, `configFile`,
+ *   `resolve.alias`) are protected by DEV_PROFILE: supplying them via `config.vite` WARNS, never
+ *   applies. `taujsBuild({ vite })` is build-only and deliberately NOT consulted here.
+ *
+ * Returns an `InlineConfig` fragment carrying only the admitted dev fields (plus the framework css
+ * default and the app+config.vite plugin list). Framework invariants are applied by `setupDevServer`.
+ */
+export function resolveDevViteConfig(args: { viteOverride?: TaujsViteOverride; clientRoot: string; mode?: string; appPlugins?: PluginOption[] }): InlineConfig {
+  const { viteOverride, clientRoot, mode = 'development', appPlugins = [] } = args;
+
+  // Framework base the engine merges the user layer over: the scss `modern-compiler` default (so a
+  // user `css.preprocessorOptions.scss` merges WITH it) and the already-merged app plugin list.
+  const framework: InlineConfig = {
+    css: { preprocessorOptions: { scss: { api: 'modern-compiler' } } },
+    plugins: appPlugins,
+  };
+
+  let resolved: TaujsViteConfig | undefined;
+  if (viteOverride) {
+    const context: TaujsViteContext = { command: 'serve', mode, isSSRBuild: false, clientRoot };
+    resolved = typeof viteOverride === 'function' ? viteOverride(context) : viteOverride;
+  }
+
+  const layers: ViteLayer[] = resolved ? [{ source: 'config.vite', config: resolved as Partial<InlineConfig> }] : [];
+  const merged = layers.length > 0 ? composeViteConfig(framework, layers, DEV_PROFILE, '[taujs:dev]') : { ...framework };
+
+  // Dev-only optimizeDeps (§6): never copied by composeViteConfig; merged + validated here.
+  const optimizeDeps = mergeOptimizeDeps([{ source: 'config.vite', optimizeDeps: resolved?.optimizeDeps }]);
+  if (optimizeDeps) merged.optimizeDeps = optimizeDeps;
+
+  return merged;
 }
