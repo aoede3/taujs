@@ -406,7 +406,7 @@ describe('Build.ts - Full Coverage', () => {
       }
     });
 
-    it('preserves declared order between sibling (non-nested) apps', async () => {
+    it('preserves declared order between equal-depth apps', async () => {
       const siblings = [
         { ...mockAppConfig, entryPoint: 'mfe-b', appId: 'mfe-b' },
         { ...mockAppConfig, entryPoint: 'mfe-a', appId: 'mfe-a' },
@@ -422,6 +422,50 @@ describe('Build.ts - Full Coverage', () => {
 
       const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
       expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/mfe-b'), path.resolve(mockProjectRoot, 'dist/client/mfe-a')]);
+    });
+
+    it('orders a trailing-slash parent before its child (depth from the RESOLVED outDir, not raw slash count)', async () => {
+      // Regression (maintainer review, 2026-07-14, second pass): raw entryPoint.split('/')
+      // counting gave 'foo/' (a trailing-slash parent) the same depth as its child 'foo/bar',
+      // so declared [foo/bar, foo/] kept that order under the stable sort and the parent build
+      // erased dist/client/foo/bar - reproduced with real Vite 7.3.6. Depth now comes from the
+      // resolved output path, which normalises the trailing slash away.
+      const nested = [
+        { ...mockAppConfig, entryPoint: 'foo/bar', appId: 'child' },
+        { ...mockAppConfig, entryPoint: 'foo/', appId: 'parent' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(nested as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/foo'), path.resolve(mockProjectRoot, 'dist/client/foo/bar')]);
+    });
+
+    it('orders globally by depth: unrelated apps of different depths reorder (documented, harmless)', async () => {
+      // Declared [foo/bar, baz] builds baz first - global depth ordering is intentional. Build
+      // order only has an output effect between ancestor and descendant outDirs; unrelated apps
+      // each own their outDir, so this reorder is inert. Pinned so the semantics stay documented.
+      const unrelated = [
+        { ...mockAppConfig, entryPoint: 'foo/bar', appId: 'nested' },
+        { ...mockAppConfig, entryPoint: 'baz', appId: 'flat' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(unrelated as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/baz'), path.resolve(mockProjectRoot, 'dist/client/foo/bar')]);
     });
 
     it('should exit process on build failure', async () => {

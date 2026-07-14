@@ -229,13 +229,22 @@ export async function taujsBuild({
   if (!isSSRBuild) await deleteDist();
 
   // Parent output directories must build BEFORE their descendants. Each app builds with
-  // emptyOutDir: true, and the root app's outDir (`dist/client` / `dist/ssr`, entryPoint '')
-  // is an ancestor of every named app's - so a root app declared AFTER a named MFE would
-  // empty the parent directory and delete the MFE's already-emitted output. Depth-ascending
-  // order guarantees every ancestor outDir is emptied before its descendants build into it;
-  // the sort is stable, so declared order is preserved between non-nested apps.
-  const entryPointDepth = (entryPoint: string) => (entryPoint ? entryPoint.split('/').length : 0);
-  const buildOrder = [...configsToBuild].sort((a, b) => entryPointDepth(a.entryPoint) - entryPointDepth(b.entryPoint));
+  // emptyOutDir: true, and an ancestor outDir (the root app's `dist/client` / `dist/ssr`, or
+  // any prefix entry point) emptied AFTER a descendant deletes that descendant's already-
+  // emitted output. Depth is derived from the RESOLVED output path - never the raw entryPoint
+  // string, whose slash count miscounts non-canonical entries (a trailing-slash parent 'foo/'
+  // would tie with its child 'foo/bar' and never sort ahead of it). Resolving through the same
+  // expression the loop below uses normalises trailing/duplicate separators and '.' segments
+  // exactly as the real outDir ancestry does. Ordering is global by depth: the sort is stable,
+  // so declared order is preserved between EQUAL-DEPTH apps, while unrelated apps of different
+  // depths reorder (declared [foo/bar, baz] builds baz first) - harmless, since build order
+  // only matters between ancestor and descendant outDirs.
+  const outDirDepth = (entryPoint: string) =>
+    path
+      .resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`)
+      .split(path.sep)
+      .filter(Boolean).length;
+  const buildOrder = [...configsToBuild].sort((a, b) => outDirDepth(a.entryPoint) - outDirDepth(b.entryPoint));
 
   for (const appConfig of buildOrder) {
     const { appId, entryPoint, clientRoot, entryClient, entryServer, htmlTemplate, plugins = [] } = appConfig;
