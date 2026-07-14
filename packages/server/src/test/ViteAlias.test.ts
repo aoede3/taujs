@@ -137,28 +137,36 @@ describe('VS5 - shared alias layering (utils/ViteAlias)', () => {
 });
 
 describe('VS5 - hard gate 4: declarative alias resolves identically in dev and build', () => {
-  // projectRoot === process.cwd() so the dev side (which normalises against process.cwd(), see
-  // decisions.md) and the build side (explicit projectRoot) agree - the scaffold invariant.
+  // projectRoot === process.cwd() here, the scaffold invariant; dev's projectRoot option
+  // defaults to process.cwd() when not threaded (see the monorepo-shape test below for the
+  // explicit-threading case where the two directories differ).
   const projectRoot = process.cwd();
   const clientBaseDir = path.join(projectRoot, 'src', 'client');
   const relativeAlias = { '@components': './src/client/shared/components' };
   const expectedAbsolute = path.resolve(projectRoot, './src/client/shared/components');
 
-  async function runDev(declarativeAlias?: Record<string, string>, programmaticAlias?: Record<string, string>) {
+  async function runDev(declarativeAlias?: Record<string, string>, programmaticAlias?: Record<string, string>, devProjectRoot?: string) {
     const { setupDevServer } = await import('../utils/DevServer');
-    await setupDevServer({ app: makeApp(), clientRoot: clientBaseDir, alias: programmaticAlias, debug: false, declarativeAlias });
+    await setupDevServer({
+      app: makeApp(),
+      clientRoot: clientBaseDir,
+      alias: programmaticAlias,
+      debug: false,
+      declarativeAlias,
+      projectRoot: devProjectRoot,
+    });
 
     return createServerMock.mock.calls[0]![0].resolve.alias as Record<string, string>;
   }
 
-  async function runBuildApps(apps: any[], config: any) {
+  async function runBuildApps(apps: any[], config: any, buildProjectRoot: string = projectRoot) {
     const setup = await import('../core/config/Setup');
     const assets = await import('../utils/AssetManager');
     vi.mocked(setup.extractBuildConfigs).mockReturnValue(apps as any);
     vi.mocked(assets.processConfigs).mockReturnValue(apps as any);
 
     const { taujsBuild } = await import('../Build');
-    await taujsBuild({ config, projectRoot, clientBaseDir, isSSRBuild: false });
+    await taujsBuild({ config, projectRoot: buildProjectRoot, clientBaseDir, isSSRBuild: false });
 
     return buildMock.mock.calls.map((call) => (call[0] as any).resolve.alias as Record<string, string>);
   }
@@ -199,6 +207,35 @@ describe('VS5 - hard gate 4: declarative alias resolves identically in dev and b
       expect(buildAlias['@components']).toBe(expectedAbsolute);
       expect(buildAlias['@components']).toBe(devAlias['@components']);
     }
+  });
+
+  it('monorepo shape: an explicit dev projectRoot (differing from cwd) matches a build with the same projectRoot', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    // The maintainer-review scenario: process runs from /repo, the app's projectRoot is deeper.
+    const monorepoAppRoot = path.join(process.cwd(), 'apps', 'shop');
+    expect(monorepoAppRoot).not.toBe(process.cwd());
+    const expected = path.resolve(monorepoAppRoot, './src/components');
+
+    const devAlias = await runDev({ '@mono': './src/components' }, undefined, monorepoAppRoot);
+    expect(devAlias['@mono']).toBe(expected);
+    // And explicitly NOT the cwd-based resolution the un-threaded default would produce.
+    expect(devAlias['@mono']).not.toBe(path.resolve(process.cwd(), './src/components'));
+
+    const apps = [
+      {
+        appId: 'shop',
+        entryPoint: '',
+        clientRoot: clientBaseDir,
+        entryClient: 'entry-client',
+        entryServer: 'entry-server',
+        htmlTemplate: 'index.html',
+        plugins: [],
+      },
+    ];
+    const buildAliases = await runBuildApps(apps, { apps: [], alias: { '@mono': './src/components' } }, monorepoAppRoot);
+    expect(buildAliases[0]!['@mono']).toBe(expected);
+    expect(buildAliases[0]!['@mono']).toBe(devAlias['@mono']);
   });
 
   it('passes an absolute declarative alias through untouched in both dev and build', async () => {

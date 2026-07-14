@@ -27,6 +27,13 @@ export type SetupDevServerOptions = {
   alias?: Record<string, string>;
   /** Declarative `config.alias` (VS5) - layered UNDER the programmatic alias. */
   declarativeAlias?: Record<string, string>;
+  /**
+   * Project root that relative declarative alias values resolve against (RFC 0005 §3). Must be the
+   * SAME directory the caller passes to `taujsBuild({ projectRoot })`, or dev and build resolve a
+   * relative `config.alias` to different absolute paths (monorepo shape: dev cwd `/repo`, build
+   * projectRoot `/repo/apps/shop`). Defaults to `process.cwd()` for compatibility.
+   */
+  projectRoot?: string;
   debug?: DebugConfig;
   devNet?: { host: string; hmrPort: number };
   /**
@@ -40,7 +47,7 @@ export type SetupDevServerOptions = {
 };
 
 export const setupDevServer = async (options: SetupDevServerOptions): Promise<ViteDevServer> => {
-  const { app, clientRoot: baseClientRoot, alias, declarativeAlias, debug, devNet, viteConfig } = options;
+  const { app, clientRoot: baseClientRoot, alias, declarativeAlias, projectRoot, debug, devNet, viteConfig } = options;
 
   const logger = createLogger({
     context: { service: 'setupDevServer' },
@@ -59,8 +66,9 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
 
   // RFC 0005 §3 (VS5): one shared alias layering - framework defaults, then declarative
   // `config.alias` (relative values normalised against the project root), then the programmatic
-  // `createServer({ alias })` option on top. The dev-side project root is `process.cwd()` (see
-  // decisions.md); build has an explicit `projectRoot`. Identical resolution in dev and build.
+  // `createServer({ alias })` option on top. The project root is threaded from the caller
+  // (createServer -> SSRServer -> here), falling back to `process.cwd()`; thread the same value
+  // `taujsBuild({ projectRoot })` receives so dev and build resolve identically.
   const resolvedAlias = layerAlias({
     defaults: {
       '@client': path.resolve(baseClientRoot),
@@ -69,7 +77,7 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
     },
     declarative: declarativeAlias,
     programmatic: alias,
-    projectRoot: process.cwd(),
+    projectRoot: projectRoot ?? process.cwd(),
     onDeclarativeOverride: (key) => logger.debug('vite', { alias: key }, 'Programmatic alias overrides declarative config.alias'),
   });
 

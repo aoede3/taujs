@@ -147,6 +147,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         clientRoot,
         alias,
         declarativeAlias: opts.taujsConfig?.alias,
+        projectRoot: opts.projectRoot,
         debug: opts.debug,
         devNet: opts.devNet,
         viteConfig: devViteConfig,

@@ -13,6 +13,12 @@ import type { TaujsViteOverride } from './ViteConfig';
 export type SSRServerOptions = {
   alias?: Record<string, string>;
   clientRoot: string;
+  /**
+   * Project root for relative declarative alias normalisation (RFC 0005 §3) - thread the same
+   * value `taujsBuild({ projectRoot })` receives so dev and build resolve identically. Defaults
+   * to `process.cwd()` downstream.
+   */
+  projectRoot?: string;
   configs: readonly AppConfig[];
   routes: Route<PathToRegExpParams>[];
   serviceRegistry?: ServiceRegistry;

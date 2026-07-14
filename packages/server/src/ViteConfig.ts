@@ -14,8 +14,10 @@
  * These types describe exactly the Vite fields τjs supports through its declared channels - no
  * more. `Partial<InlineConfig>` would autocomplete every Vite property while the merge silently
  * dropped the protected ones (a lie in the editor); `TaujsViteConfig` instead admits only the
- * matrix-supported fields (RFC 0005 Amended contract §4). Runtime consumption lands in VS3/VS4/VS5;
- * VS2 ships the types (and their type tests) alone - the fields may be present but unread.
+ * matrix-supported fields (RFC 0005 Amended contract §4). The runtime honours them symmetrically:
+ * the merge engine (`utils/ViteMergeEngine.ts`) applies `config.vite` to the shared dev server and
+ * to every app build, and `config.alias` layers into both sides' alias resolution
+ * (`utils/ViteAlias.ts`).
  *
  * NOTE: these live OUTSIDE `core/` on purpose. `core/config/types.ts` is deliberately Vite-free
  * (e.g. `CoreAppConfig.plugins` is `readonly unknown[]`, re-decorated to `PluginOption[]` in

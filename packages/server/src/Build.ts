@@ -61,15 +61,18 @@ export function resolveInputs(isSSRBuild: boolean, mainExists: boolean, paths: {
  * - `build.rollupOptions.external`: Direct override
  * - `build.rollupOptions.output.manualChunks`: Merged into output config
  * - `resolve.*` (except `alias`): Merged with framework resolve config
- * - `esbuild`, `logLevel`, `optimizeDeps`: Direct overrides
+ * - `esbuild`, `logLevel`: Direct overrides
  *
- * **Protected fields (cannot override):**
- * - `root`, `base`, `publicDir`: Framework-controlled per-app paths
+ * `optimizeDeps` is development-only (RFC 0005 §6) and is stripped from every build config -
+ * declare it on `vite` in `taujs.config.ts` for the dev server instead.
+ *
+ * **Protected fields (warned when supplied, never applied):**
+ * - `root`, `base`, `publicDir`, `appType`, `configFile`: Framework-controlled
  * - `build.outDir`: Framework manages `dist/client` vs `dist/ssr` separation
- * - `build.ssr`, `ssrManifest`, `format`, `target`: Framework-controlled for SSR integrity
+ * - `build.ssr`, `ssrManifest`, `format`, `target`, `manifest`: Framework-controlled for SSR integrity
  * - `build.rollupOptions.input`: Framework manages entry points
- * - `resolve.alias`: Use top-level `alias` option in taujsBuild() instead
- * - `server.*`: Ignored in builds (dev-mode only; configure in DevServer.ts)
+ * - `resolve.alias`: Use the top-level `alias` in `taujs.config.ts` (or the `taujsBuild()` option) instead
+ * - `server.*`: Dev-mode only; never applies to builds
  *
  * @example
  * ```ts
