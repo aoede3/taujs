@@ -18,6 +18,7 @@ import { extractBuildConfigs } from './core/config/Setup';
 import { emitGraphArtifact } from './core/introspection/EmitGraph';
 import { processConfigs } from './utils/AssetManager';
 import { resolveEntryFile } from './utils/Entry';
+import { layerAlias } from './utils/ViteAlias';
 import { findFormerlyDiscoveredViteConfig, formerlyDiscoveredViteConfigWarning } from './utils/ViteConfigDiscovery';
 
 export { resolveEntryFile };
@@ -375,7 +376,16 @@ export async function taujsBuild({
       '@shared': path.resolve(projectRoot, 'src/shared'),
     };
 
-    const resolvedAlias: Record<string, string> = { ...defaultAlias, ...(userAlias ?? {}) };
+    // RFC 0005 §3 (VS5): one shared alias layering - framework defaults, then declarative
+    // `config.alias` (relative values normalised against projectRoot), then the programmatic
+    // `taujsBuild({ alias })` option on top. Identical resolution to the dev side.
+    const resolvedAlias = layerAlias({
+      defaults: defaultAlias,
+      declarative: config.alias,
+      programmatic: userAlias,
+      projectRoot,
+      onDeclarativeOverride: (key) => console.debug(`[taujs:build:${entryPoint}] Programmatic alias '${key}' overrides declarative config.alias`),
+    });
 
     const entryClientFile = resolveEntryFile(clientRoot, entryClient);
     const entryServerFile = resolveEntryFile(clientRoot, entryServer);

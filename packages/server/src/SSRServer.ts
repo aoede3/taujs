@@ -108,7 +108,9 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         plugins,
       );
 
-      viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet, plugins);
+      // RFC 0005 §3 (VS5): `alias` here is the programmatic escape hatch (createServer option);
+      // the declarative `config.alias` is layered UNDER it inside setupDevServer.
+      viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet, plugins, opts.taujsConfig?.alias);
 
       // Structural gate (spec 03 invariant 1): recorder, dev files, and overlay endpoints
       // exist only when the dev Vite middleware exists, loaded via lazy dynamic import.
