@@ -54,6 +54,8 @@ type TaujsConfig = {
   server?: ServerConfig;
   security?: SecurityConfig;
   apps: AppConfig[];
+  alias?: Record<string, string>;
+  vite?: TaujsViteOverride;
 };
 
 type ServerConfig = {
@@ -74,6 +76,9 @@ type AppRoute = {
   attr?: RouteAttributes;
 };
 ```
+
+The `vite` and `alias` fields are the declared Vite customisation surface - see
+[Vite Configuration](#vite-configuration) below for their types and merge behaviour.
 
 ## Server Configuration
 
@@ -162,10 +167,15 @@ apps: [
 Any standard Vite plugin is accepted in `plugins` - the τjs renderer plugins are the
 scaffolded defaults, not a closed set. Scope differs by mode: at build time each app is
 built with exactly its own list; in development τjs runs one shared Vite dev server, so all
-apps' plugin lists are merged and duplicate plugin names are dropped (first occurrence
-wins). A `vite.config.ts` is not a τjs configuration surface - this field and `taujsBuild`'s
-`vite` override are the two supported Vite configuration channels (see the
-[build guide](/guides/build-deployment/#build-configuration)).
+apps' plugin lists are composed into one list and duplicate plugin names are dropped (first
+occurrence wins, and every collision is reported at warn level - see
+[Plugin composition](#plugin-composition)).
+
+`apps[].plugins` is one of three declared plugin channels; the top-level
+[`vite`](#vite-configuration) field and the `taujsBuild({ vite })` escape hatch are the
+other two. τjs never reads a `vite.config.*` - if one sits where Vite used to probe for it,
+τjs emits a migration warning naming the file and pointing at these channels
+(see [Vite Configuration](#vite-configuration)).
 
 ### Entry Point Structure
 
@@ -177,6 +187,260 @@ client/{entryPoint}/
 ├── entry-client.tsx    # Client hydration entry
 └── entry-server.tsx    # SSR render entry
 ```
+
+## Vite Configuration
+
+τjs owns the Vite topology - roots, inputs, output directories, manifests, aliases, and the
+single shared development server - and exposes the fields it does _not_ own through two
+declared channels in `taujs.config.ts`:
+
+- **`alias`** - the declarative home for path aliases, applied identically in dev and build.
+- **`vite`** - an allowlisted Vite override (`TaujsViteOverride`), applied symmetrically to
+  the shared dev server and to every per-app build.
+
+A third channel, the `taujsBuild({ vite })` option, remains as a build-only escape hatch (see
+the [build guide](/guides/build-deployment/#build-time-vite-override)).
+
+**τjs never reads a `vite.config.*`.** Both the dev server and every build pin
+`configFile: false`, so Vite never probes for one. If a `vite.config.*` sits where Vite used
+to discover it (the shared client base root in dev, each per-app entry root in build), τjs
+emits a migration warning naming the file, stating that it is not loaded, and pointing at the
+`vite` / `alias` fields. A project-root `vite.config.*` was never read and is not warned about.
+This is not a limitation of the ecosystem - the `vite` field _is_ your Vite configuration, with
+a topology-aware home (see [Reusing Vite fragments](#reusing-vite-fragments)).
+
+### The `vite` field
+
+```typescript
+type TaujsViteOverride = TaujsViteConfig | ((ctx: TaujsViteContext) => TaujsViteConfig);
+
+type TaujsConfig = CoreTaujsConfig & {
+  // ...
+  alias?: Record<string, string>;
+  vite?: TaujsViteOverride;
+};
+```
+
+`vite` is either a static `TaujsViteConfig` object or a function of a discriminated
+serve/build context. The type is an explicit allowlist - only the supported fields appear, so
+the editor refuses a protected field up front rather than the merge dropping it silently.
+
+```typescript
+type TaujsViteConfig = {
+  // Appended to the framework plugin list (append + dedupe by name).
+  plugins?: PluginOption[];
+  // Shallow-merged with the framework defines.
+  define?: Record<string, unknown>;
+  // Per-engine deep merge; only preprocessorOptions is admitted.
+  css?: {
+    preprocessorOptions?: CSSOptions["preprocessorOptions"];
+  };
+  // Dev-only (see below); never reaches build configs.
+  optimizeDeps?: TaujsOptimizeDeps;
+  esbuild?: ESBuildOptions | false;
+  logLevel?: LogLevel;
+  // resolve subset - alias is intentionally excluded (use the top-level alias field).
+  resolve?: ResolveOptions;
+  // Build-tuning subset - the framework owns everything else under build.
+  build?: {
+    sourcemap?: BuildOptions["sourcemap"];
+    minify?: BuildOptions["minify"];
+    terserOptions?: BuildOptions["terserOptions"];
+    rollupOptions?: {
+      external?: Rollup.ExternalOption;
+      output?: {
+        manualChunks?: Rollup.ManualChunksOption;
+      };
+    };
+  };
+};
+```
+
+The function form receives a discriminated context. Dev invokes it **once** with the `serve`
+arm (there is no `appId` - the shared dev server is not per-app); build invokes it per app with
+the `build` arm:
+
+```typescript
+type TaujsViteContext =
+  | {
+      command: "serve";
+      mode: string;
+      isSSRBuild: false;
+      appId?: never;
+      entryPoint?: never;
+      clientRoot: string;
+    }
+  | {
+      command: "build";
+      mode: string;
+      isSSRBuild: boolean;
+      appId: string;
+      entryPoint: string;
+      clientRoot: string;
+    };
+```
+
+```typescript
+// taujs.config.ts
+export default defineConfig({
+  vite: {
+    define: { __APP_VERSION__: JSON.stringify(version) },
+    plugins: [visualizer()],
+  },
+  apps: [{ appId: "main", entryPoint: "", plugins: [pluginVue()] }],
+});
+```
+
+```typescript
+// Function form - branch on the serve/build context.
+export default defineConfig({
+  vite: (ctx) => ({
+    // A visualiser only makes sense for client builds.
+    plugins: ctx.command === "build" && !ctx.isSSRBuild ? [visualizer()] : [],
+  }),
+  apps: [/* ... */],
+});
+```
+
+#### `optimizeDeps` (dev-only)
+
+`optimizeDeps` tunes Vite's dependency pre-bundling on the shared dev server. It is
+development-only - nothing from it reaches a client or SSR build. τjs admits a subset:
+
+```typescript
+type TaujsOptimizeDeps = Pick<
+  DepOptimizationOptions,
+  "include" | "exclude" | "esbuildOptions"
+>;
+```
+
+- `include` forces a dependency into pre-bundling, `exclude` keeps an incompatible one out,
+  and `esbuildOptions` accommodates dependency transforms, loaders, and esbuild plugins.
+- `include` and `exclude` are deduplicated. The same package appearing in **both** is a
+  config-validation error - it cannot be force-included and excluded at once.
+- The remaining Vite optimiser fields (`entries`, `noDiscovery`, `force`, and the experimental
+  set) are deliberately withheld: τjs retains authority over how the shared development
+  application graph is discovered.
+
+### The `alias` field
+
+`alias` is the declarative home for path aliases - the field the previous docs described but
+that did not exist. It is sourced by **both** dev and build and merged over the framework
+defaults (`@client` / `@server` / `@shared`), user values winning on conflict:
+
+```typescript
+export default defineConfig({
+  alias: {
+    // Relative values resolve against the project root at config load.
+    "@components": "./src/client/shared/components",
+    // Absolute values pass through untouched.
+    "@icons": "/opt/shared/icons",
+  },
+  apps: [/* ... */],
+});
+```
+
+**Normalisation rule:** Vite does not resolve relative alias replacements - it expects
+absolute paths. τjs therefore normalises declarative values at config load: a relative
+replacement resolves against the project root, an absolute one passes through untouched. This
+keeps the config file free of `path.resolve(...)` boilerplate without shipping strings Vite
+would misread.
+
+The programmatic `alias` options on `createServer` (dev) and `taujsBuild` (build) remain as
+escape hatches, layered above the declarative field (see the
+[build guide](/guides/build-deployment/#alias-configuration)). Programmatic values are passed
+through untouched (callers already hold real paths); a per-key override of a differing
+declarative value is logged at debug level, never warned.
+
+### Vite support matrix
+
+The matrix is the supported set. `Dev` is the shared development server; `Client build` and
+`SSR build` are the per-app production builds.
+
+| Surface                                                | Dev       | Client build | SSR build | Merge behaviour                        |
+| ------------------------------------------------------ | --------- | ------------ | --------- | -------------------------------------- |
+| `plugins`                                              | Yes       | Yes          | Yes       | Append + dedupe by name (first wins)   |
+| `define`                                               | Yes       | Yes          | Yes       | Shallow merge                          |
+| `css.preprocessorOptions`                              | Yes       | Yes          | Yes       | Per-engine deep merge                  |
+| `optimizeDeps` (`include`/`exclude`/`esbuildOptions`)  | Yes       | N/A          | N/A       | Dev-only subset; stripped from builds  |
+| `esbuild`, `logLevel`                                  | Yes       | Yes          | Yes       | Override                               |
+| `resolve.*` (not `alias`)                              | Yes       | Yes          | Yes       | Merge per key                          |
+| `build.sourcemap` / `minify` / `terserOptions`         | N/A       | Yes          | Yes       | Override                               |
+| `build.rollupOptions.external`                         | N/A       | Yes          | Yes       | Override                               |
+| `build.rollupOptions.output.manualChunks`              | N/A       | Yes          | Yes       | Merge into output                      |
+| aliases                                                | Yes       | Yes          | Yes       | Via top-level `alias` only             |
+| `root`, `base`, `publicDir`, `configFile`, `appType`, `server.*`, `build.outDir`, `build.ssr` / `ssrManifest`, `build.format` / `target` / `manifest`, `build.rollupOptions.input`, `resolve.alias` | Protected | Protected | Protected | Rejected; logged at warn |
+
+Protected fields are absent from `TaujsViteConfig`, so they cannot be supplied through the
+typed surface at all. If one reaches the merge engine anyway (a JavaScript config, or an
+`as any` cast), it is rejected and logged at warn rather than silently applied - including
+`build.manifest`, which warns like its siblings. In dev the whole `build` key is rejected
+(builds are a per-app concern), and `optimizeDeps` never reaches any build config.
+
+### How τjs composes Vite config
+
+One precedence chain runs through one merge engine, in both dev and build:
+
+```
+framework invariants  ->  config.vite  ->  taujsBuild({ vite })
+```
+
+- Each layer merges over the previous with the per-field rules in the matrix. A later layer
+  wins **field conflicts** while unrelated fields from earlier layers survive - so a CI wrapper
+  passing `taujsBuild({ vite: { build: { sourcemap: true } } })` tunes only that field and
+  keeps every `plugins`, `define`, and CSS setting declared in `taujs.config.ts`.
+- Both layers coexisting is normal operation and is silent. A genuine per-field conflict
+  between the two user layers is reported at warn, naming the field, both sources, and the
+  winner (the programmatic layer). A framework default being overridden by a user layer is
+  never warned.
+- The dev server reads `config.vite` only; `taujsBuild({ vite })` is build-only and is not
+  consulted in development.
+
+#### Plugin composition
+
+Plugins from every channel are composed by one rule, in declared order, deduped by plugin
+`name` with the first occurrence winning across all sources. The order is:
+
+- **Dev (shared server):** every app's `plugins` in config order, then `config.vite.plugins`,
+  then the internal framework plugin(s).
+- **Build (per app):** the app's `plugins`, then `config.vite.plugins`, then
+  `taujsBuild.vite.plugins`, then the internal framework plugin(s).
+
+Every cross-source name collision is reported at warn with the plugin name, each declaring
+source, and the winner. Plugin options are never serialised or compared - identity is by
+`name` alone; a nameless plugin passes through undeduped. Internal framework plugins are
+appended **last** and are exempt from the user dedupe. The `τjs-` name prefix (Greek tau,
+U+03C4) is reserved: a user plugin carrying it is dropped with a warning, so it can neither
+displace nor impersonate a framework plugin. The renderer wrappers use ordinary Latin names
+(`@taujs/react`'s `taujs:react-refresh-preamble-fix`, `@taujs/vue`'s `vite:vue`) and are not
+affected.
+
+### Reusing Vite fragments
+
+Not auto-loading `vite.config.ts` does not close the Vite ecosystem. Reusable configuration
+lives in an ordinary module, shareable with tools that genuinely are Vite-hosted:
+
+```typescript
+// vite.shared.ts
+import type { TaujsViteConfig } from "@taujs/server/config";
+
+export const sharedVite = {
+  define: { __VERSION__: JSON.stringify(version) },
+  plugins: [ecosystemPlugin()],
+} satisfies TaujsViteConfig;
+```
+
+```typescript
+// taujs.config.ts
+import { defineConfig } from "@taujs/server/config";
+import { sharedVite } from "./vite.shared";
+
+export default defineConfig({ vite: sharedVite, apps: [/* ... */] });
+```
+
+Vitest, Storybook, or a standalone Vite app import the same `sharedVite` pieces into their own
+config files; τjs simply never discovers those files implicitly. The `satisfies TaujsViteConfig`
+check keeps the shared fragment within the supported surface.
 
 ## Route Configuration
 
