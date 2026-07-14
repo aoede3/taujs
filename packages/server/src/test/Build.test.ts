@@ -378,6 +378,52 @@ describe('Build.ts - Full Coverage', () => {
       expect(build).toHaveBeenCalledTimes(3);
     });
 
+    it('builds a root app BEFORE a named MFE declared ahead of it (parent outDir must not delete descendant output)', async () => {
+      // Regression (maintainer review, 2026-07-14): every app builds with emptyOutDir: true, and
+      // the root app's outDir (dist/client, entryPoint '') is an ANCESTOR of every named app's
+      // (dist/client/mfe). In declared order [mfe, root], the root build emptied dist/client and
+      // deleted the already-emitted dist/client/mfe - reproduced with real Vite 7.3.6, client and
+      // SSR alike. taujsBuild therefore orders builds depth-ascending (stable between siblings).
+      const declaredOrder = [
+        { ...mockAppConfig, entryPoint: 'mfe', appId: 'mfe' },
+        { ...mockAppConfig, entryPoint: '', appId: 'root' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(declaredOrder as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      // Root (the ancestor outDir) empties dist/client FIRST; the MFE then builds into its subdir.
+      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client'), path.resolve(mockProjectRoot, 'dist/client/mfe')]);
+      // Both invocations keep per-app emptyOutDir - ordering, not flag removal, is the guarantee.
+      for (const call of vi.mocked(build).mock.calls) {
+        expect((call[0] as InlineConfig).build!.emptyOutDir).toBe(true);
+      }
+    });
+
+    it('preserves declared order between sibling (non-nested) apps', async () => {
+      const siblings = [
+        { ...mockAppConfig, entryPoint: 'mfe-b', appId: 'mfe-b' },
+        { ...mockAppConfig, entryPoint: 'mfe-a', appId: 'mfe-a' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(siblings as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/mfe-b'), path.resolve(mockProjectRoot, 'dist/client/mfe-a')]);
+    });
+
     it('should exit process on build failure', async () => {
       const mockExit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

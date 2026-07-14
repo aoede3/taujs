@@ -228,7 +228,16 @@ export async function taujsBuild({
 
   if (!isSSRBuild) await deleteDist();
 
-  for (const appConfig of configsToBuild) {
+  // Parent output directories must build BEFORE their descendants. Each app builds with
+  // emptyOutDir: true, and the root app's outDir (`dist/client` / `dist/ssr`, entryPoint '')
+  // is an ancestor of every named app's - so a root app declared AFTER a named MFE would
+  // empty the parent directory and delete the MFE's already-emitted output. Depth-ascending
+  // order guarantees every ancestor outDir is emptied before its descendants build into it;
+  // the sort is stable, so declared order is preserved between non-nested apps.
+  const entryPointDepth = (entryPoint: string) => (entryPoint ? entryPoint.split('/').length : 0);
+  const buildOrder = [...configsToBuild].sort((a, b) => entryPointDepth(a.entryPoint) - entryPointDepth(b.entryPoint));
+
+  for (const appConfig of buildOrder) {
     const { appId, entryPoint, clientRoot, entryClient, entryServer, htmlTemplate, plugins = [] } = appConfig;
 
     const outDir = path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
