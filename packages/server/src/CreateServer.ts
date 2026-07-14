@@ -28,6 +28,13 @@ type CreateServerOptions = {
   serviceRegistry?: ServiceRegistry;
   clientRoot?: string;
   alias?: Record<string, string>;
+  /**
+   * Project root for relative declarative alias normalisation (RFC 0005 §3). Pass the SAME
+   * directory `taujsBuild({ projectRoot })` receives (the scaffold uses `process.cwd()` for
+   * both) so a relative `config.alias` resolves identically in dev and build. Defaults to
+   * `process.cwd()`.
+   */
+  projectRoot?: string;
   fastify?: FastifyInstance;
   debug?: DebugConfig;
   logger?: BaseLogger;
@@ -113,6 +120,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       staticAssets: opts.staticAssets ?? false,
       debug: opts.debug,
       alias: opts.alias,
+      projectRoot: opts.projectRoot,
       security,
       devNet: { host: net.host, hmrPort: net.hmrPort },
       taujsConfig: opts.config,

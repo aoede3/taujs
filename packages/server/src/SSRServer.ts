@@ -23,11 +23,12 @@ import { cspPlugin } from './security/CSP';
 import { cspReportPlugin } from './security/CSPReporting';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
+import { resolveDevViteConfig } from './utils/ViteMergeEngine';
 import { createRequestContext } from './utils/Telemetry';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { registerStaticAssets } from './utils/StaticAssets';
-import { mergePlugins } from './utils/VitePlugins';
+import { composePlugins, pluginCollisionMessage, reservedPluginMessage } from './utils/VitePlugins';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -93,10 +94,31 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     });
 
     if (isDevelopment) {
-      const plugins = mergePlugins({
+      // RFC 0005 §1 (VS4): resolve `config.vite` ONCE, with the discriminated `serve` context arm
+      // (no `appId` - per-app dev servers are rejected by maintainer ruling). Resolution happens
+      // HERE rather than inside the engine so the override's plugins can enter the same §5
+      // composition rule as app plugins below, instead of bypassing dedupe via the engine's plain
+      // append; the remaining admitted fields ride to the engine with plugins stripped.
+      const devOverride = opts.taujsConfig?.vite;
+      const resolvedDevOverride =
+        typeof devOverride === 'function' ? devOverride({ command: 'serve', mode: 'development', isSSRBuild: false, clientRoot }) : devOverride;
+      const { plugins: overridePlugins, ...devOverrideFields } = resolvedDevOverride ?? {};
+
+      // RFC 0005 §5 (VS6): ONE composition rule for the shared dev server. Each app is a labelled
+      // source (dedupe by plugin name, first occurrence wins), then the `config.vite` source.
+      // Cross-app collisions and reserved-prefix drops are promoted from debug to WARN through the
+      // shared reporter, so dev and build emit one format. `internal` is empty here: the sole dev
+      // internal plugin (`τjs-development-server-debug-logging`) is appended LAST inside
+      // setupDevServer, which holds the dev logger it closes over - its pinned-last position is the
+      // same §5 contract composePlugins enforces for the reserved `internal` slot.
+      const plugins = composePlugins({
+        sources: [
+          ...processedConfigs.map((c) => ({ source: c.appId, plugins: c.plugins })),
+          ...(overridePlugins ? [{ source: 'config.vite', plugins: overridePlugins }] : []),
+        ],
         internal: [],
-        apps: processedConfigs,
-        onDuplicate: (name) => logger.debug('vite', { plugin: name }, 'Duplicate plugin dropped (first occurrence wins)'),
+        onCollision: (c) => logger.warn({ plugin: c.name, sources: c.sources, winner: c.winner }, pluginCollisionMessage(c)),
+        onReservedPrefix: (d) => logger.warn({ plugin: d.name, source: d.source }, reservedPluginMessage(d)),
       });
 
       printVitePluginSummary(
@@ -108,7 +130,28 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         plugins,
       );
 
-      viteDevServer = await setupDevServer(app, clientRoot, alias, opts.debug, opts.devNet, plugins);
+      // The engine (DEV_PROFILE) merges the remaining admitted dev fields (define, css, esbuild,
+      // logLevel, optimizeDeps, non-alias resolve) over the composed plugin list + scss default and
+      // warns any protected field; `setupDevServer` then receives one resolved fragment rather than
+      // a growing positional list. `taujsBuild({ vite })` is build-only and is NOT consulted here.
+      const devViteConfig = resolveDevViteConfig({
+        viteOverride: resolvedDevOverride ? devOverrideFields : undefined,
+        clientRoot,
+        appPlugins: plugins,
+      });
+
+      // RFC 0005 §3 (VS5): `alias` is the programmatic escape hatch (createServer option); the
+      // declarative `config.alias` is layered UNDER it inside setupDevServer.
+      viteDevServer = await setupDevServer({
+        app,
+        clientRoot,
+        alias,
+        declarativeAlias: opts.taujsConfig?.alias,
+        projectRoot: opts.projectRoot,
+        debug: opts.debug,
+        devNet: opts.devNet,
+        viteConfig: devViteConfig,
+      });
 
       // Structural gate (spec 03 invariant 1): recorder, dev files, and overlay endpoints
       // exist only when the dev Vite middleware exists, loaded via lazy dynamic import.

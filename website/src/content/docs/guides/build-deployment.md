@@ -132,20 +132,75 @@ Plugins apply in both development and build, with one difference in scope:
 
 - **Build**: each app is built with exactly its own plugin list.
 - **Development**: τjs runs a single shared Vite dev server for all apps, so every app's
-  plugins are merged into one list. Duplicate plugin names are dropped - the first
-  occurrence wins.
+  plugins are composed into one list. Duplicate plugin names are dropped - the first
+  occurrence wins, and every collision is reported at warn level.
 
 Declare a plugin in every app that needs it and keep its options consistent across apps: in
 development the first app's instance serves them all.
 
-A `vite.config.ts` is not a τjs configuration surface - `taujs.config.ts` and the
-`taujsBuild` override below are the two supported Vite configuration channels. Configuration
-placed in a `vite.config.ts` is not part of the contract and must not be relied upon.
+`apps[].plugins` is one of three declared plugin channels. The other two are the top-level
+`vite` field (dev and build) and the `taujsBuild({ vite })` escape hatch (build only) - see
+[Build-time Vite Override](#build-time-vite-override) below and the
+[Vite configuration reference](/reference/taujs-config/#vite-configuration).
+
+**τjs never reads a `vite.config.*`.** The dev server and every build pin
+`configFile: false`, so Vite never probes for one. If a `vite.config.*` sits where Vite used
+to discover it, τjs emits a migration warning naming the file and pointing at the `vite` /
+`alias` fields; move its contents into `taujs.config.ts`. A project-root `vite.config.*` was
+never read and is not warned about.
+
+### Vite Configuration in `taujs.config.ts`
+
+The declarative home for Vite customisation is the top-level `vite` field in
+`taujs.config.ts`. It applies symmetrically to the shared dev server and to every per-app
+build:
+
+```typescript
+// taujs.config.ts
+export default defineConfig({
+  vite: {
+    define: { __APP_VERSION__: JSON.stringify(version) },
+    plugins: [visualizer()],
+  },
+  apps: [/* ... */],
+});
+```
+
+`vite` is typed as an explicit allowlist (`TaujsViteConfig`), so the editor only offers the
+supported fields. Its function form receives a discriminated serve/build context. The full
+type, the support matrix, and the composition rules live in the
+[Vite configuration reference](/reference/taujs-config/#vite-configuration).
+
+One Vite behaviour worth knowing: in development Vite injects `define` values into client
+modules at runtime rather than statically replacing the identifiers, so dev output will not
+show dead-code elimination based on a `define`. Builds perform full static replacement - the
+value itself is identical in both modes.
+
+**`optimizeDeps` is dev-only.** Under `config.vite`, τjs admits the
+`include` / `exclude` / `esbuildOptions` subset to tune the shared dev server's dependency
+pre-bundling. Nothing from `optimizeDeps` reaches a client or SSR build (Vite ignores it
+during builds). The same package in both `include` and `exclude` is a config-validation
+error:
+
+```typescript
+// taujs.config.ts - dev-only dependency pre-bundling
+export default defineConfig({
+  vite: {
+    optimizeDeps: {
+      include: ["some-cjs-dep"],
+      exclude: ["esm-only-dep"],
+    },
+  },
+  apps: [/* ... */],
+});
+```
 
 ### Build-time Vite Override
 
-`taujsBuild` accepts a guardrailed `vite` override for build tuning. It applies to builds
-only - it does not affect the dev server.
+`taujsBuild` accepts a guardrailed `vite` override as a build-only escape hatch. Use it for
+tweaks that only make sense in a CI or build wrapper (a build-only `visualizer()`, per-app
+sourcemaps); prefer the declarative `config.vite` field for anything the dev server should
+also see.
 
 ```typescript
 // build.ts
@@ -169,16 +224,24 @@ vite: ({ isSSRBuild, entryPoint }) => ({
 });
 ```
 
-Allowed customisations: `plugins` (appended after app plugins), `define` (shallow-merged),
-`css.preprocessorOptions` (merged per preprocessor engine), `build.sourcemap` / `minify` /
-`terserOptions`, `build.rollupOptions.external`, `build.rollupOptions.output.manualChunks`,
-`resolve.*` except `alias`, `esbuild`, `logLevel`.
+**Relationship to `config.vite`.** The two layer through one precedence chain -
+`framework invariants -> config.vite -> taujsBuild({ vite })` - applied per app at build. A
+later layer wins **field conflicts** while unrelated fields from earlier layers survive: a
+wrapper passing only `vite: { build: { sourcemap: "inline" } }` tunes that field and keeps
+every `plugins` / `define` / CSS setting declared in `taujs.config.ts`. Both layers coexisting
+is normal and silent; a genuine per-field conflict is reported at warn, naming the field, both
+sources, and the winner (the programmatic layer).
+
+Allowed customisations: `plugins` (appended after app plugins, then deduped by name),
+`define` (shallow-merged), `css.preprocessorOptions` (merged per preprocessor engine),
+`build.sourcemap` / `minify` / `terserOptions`, `build.rollupOptions.external`,
+`build.rollupOptions.output.manualChunks`, `resolve.*` except `alias`, `esbuild`, `logLevel`.
 
 Protected fields (framework-controlled; supplying one logs a warning and the framework value
-is kept): `root`, `base`, `publicDir`, `build.outDir`, `build.ssr` / `ssrManifest`,
-`build.format`, `build.target`, `build.rollupOptions.input`, `resolve.alias` (use the
-`alias` option instead), `server.*`. `build.manifest` is also framework-controlled and is
-restored without a warning.
+is kept): `root`, `base`, `publicDir`, `appType`, `build.outDir`, `build.ssr` / `ssrManifest`,
+`build.format`, `build.target`, `build.manifest`, `build.rollupOptions.input`, `resolve.alias`
+(use the `alias` option instead), `server.*`, `configFile`. `appType`, `build.manifest`, and
+`configFile` warn on supply like every other protected field.
 
 ### Alias Configuration
 
@@ -190,12 +253,36 @@ restored without a warning.
 '@shared'  → project/src/shared
 ```
 
-Override or extend with the `alias` option. It is an option of `taujsBuild` (build) and
-`createServer` (dev), not a `taujs.config.ts` field - pass the same map to both so
-development and build resolve identically. User values win over the framework defaults on
-conflict.
+Override or extend them declaratively with the top-level `alias` field in `taujs.config.ts`.
+The one declaration is sourced by both dev and build, so development and production resolve
+identically. User values win over the framework defaults on conflict:
 
-Define the map once in a shared module:
+```typescript
+// taujs.config.ts
+export default defineConfig({
+  alias: {
+    // Relative values resolve against the project root before the map is handed to Vite.
+    "@components": "./src/client/shared/components",
+    "@utils": "./src/client/shared/utils",
+  },
+  apps: [/* ... */],
+});
+```
+
+Relative replacements are normalised against the project root, so there is no
+`path.resolve(...)` boilerplate; absolute values pass through untouched.
+
+The project root is `taujsBuild`'s `projectRoot` at build time and, in development, the
+`projectRoot` option on `createServer` - defaulting to `process.cwd()`. Under the scaffold
+the two are the same directory. If your dev process runs from a different directory than the
+`projectRoot` you pass to `taujsBuild` (some monorepo shapes), pass the same value to
+`createServer({ projectRoot })` so relative aliases resolve identically in both modes.
+
+**Programmatic escape hatches.** The `alias` option still exists on `taujsBuild` (build) and
+`createServer` (dev) for callers that must compute paths at runtime. It layers _above_ the
+declarative field (framework defaults lowest, `config.alias` next, the programmatic option on
+top). When both are used, define the map once in a shared, ESM-safe module - use
+`process.cwd()`, never `__dirname`:
 
 ```typescript
 // src/shared/vite-alias.ts
@@ -220,6 +307,9 @@ import { alias } from "../shared/vite-alias.ts";
 
 await createServer({ config, serviceRegistry, alias });
 ```
+
+A programmatic value overriding a differing declarative value for the same key is logged at
+debug level, not warned - deliberate overrides are common in tooling wrappers.
 
 ## Public Assets
 

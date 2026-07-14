@@ -378,6 +378,161 @@ describe('Build.ts - Full Coverage', () => {
       expect(build).toHaveBeenCalledTimes(3);
     });
 
+    it('builds a root app BEFORE a named MFE declared ahead of it (parent outDir must not delete descendant output)', async () => {
+      // Regression (maintainer review, 2026-07-14): every app builds with emptyOutDir: true, and
+      // the root app's outDir (dist/client, entryPoint '') is an ANCESTOR of every named app's
+      // (dist/client/mfe). In declared order [mfe, root], the root build emptied dist/client and
+      // deleted the already-emitted dist/client/mfe - reproduced with real Vite 7.3.6, client and
+      // SSR alike. taujsBuild therefore pulls an ancestor forward to immediately before its
+      // first descendant (ancestry-aware minimal reorder; unrelated apps keep declared order).
+      const declaredOrder = [
+        { ...mockAppConfig, entryPoint: 'mfe', appId: 'mfe' },
+        { ...mockAppConfig, entryPoint: '', appId: 'root' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(declaredOrder as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      // Root (the ancestor outDir) empties dist/client FIRST; the MFE then builds into its subdir.
+      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client'), path.resolve(mockProjectRoot, 'dist/client/mfe')]);
+      // Both invocations keep per-app emptyOutDir - ordering, not flag removal, is the guarantee.
+      for (const call of vi.mocked(build).mock.calls) {
+        expect((call[0] as InlineConfig).build!.emptyOutDir).toBe(true);
+      }
+    });
+
+    it('preserves declared order between equal-depth apps', async () => {
+      const siblings = [
+        { ...mockAppConfig, entryPoint: 'mfe-b', appId: 'mfe-b' },
+        { ...mockAppConfig, entryPoint: 'mfe-a', appId: 'mfe-a' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(siblings as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/mfe-b'), path.resolve(mockProjectRoot, 'dist/client/mfe-a')]);
+    });
+
+    it('orders a trailing-slash parent before its child (depth from the RESOLVED outDir, not raw slash count)', async () => {
+      // Regression (maintainer review, 2026-07-14, second pass): raw entryPoint.split('/')
+      // counting gave 'foo/' (a trailing-slash parent) the same depth as its child 'foo/bar',
+      // so declared [foo/bar, foo/] kept that order under the stable sort and the parent build
+      // erased dist/client/foo/bar - reproduced with real Vite 7.3.6. Depth now comes from the
+      // resolved output path, which normalises the trailing slash away.
+      const nested = [
+        { ...mockAppConfig, entryPoint: 'foo/bar', appId: 'child' },
+        { ...mockAppConfig, entryPoint: 'foo/', appId: 'parent' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(nested as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/foo'), path.resolve(mockProjectRoot, 'dist/client/foo/bar')]);
+    });
+
+    it('never reorders a collection containing NO ancestry relationships, whatever the depths', async () => {
+      // Maintainer review (third ordering pass): declared order is observable - it drives the
+      // invocation order of config.vite(ctx)/taujsBuild vite(ctx) function forms, plugin
+      // lifecycles, and build logs. With no ancestor/descendant outDir relationship anywhere in
+      // the collection, nothing moves: [foo/bar, baz] stays [foo/bar, baz]. (When an ancestry
+      // constraint IS present it can cross unrelated apps - see the interleaved test below.)
+      const unrelated = [
+        { ...mockAppConfig, entryPoint: 'foo/bar', appId: 'nested' },
+        { ...mockAppConfig, entryPoint: 'baz', appId: 'flat' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(unrelated as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/foo/bar'), path.resolve(mockProjectRoot, 'dist/client/baz')]);
+    });
+
+    it('resolves a full ancestor chain declared worst-case-last: [a/b, root, a] builds [root, a, a/b]', async () => {
+      // Each ancestor is pulled forward only to immediately before its first descendant; the
+      // chain root -> a -> a/b must come out fully parent-first regardless of declared order.
+      const chain = [
+        { ...mockAppConfig, entryPoint: 'a/b', appId: 'grandchild' },
+        { ...mockAppConfig, entryPoint: '', appId: 'root' },
+        { ...mockAppConfig, entryPoint: 'a', appId: 'child' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(chain as any);
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([
+        path.resolve(mockProjectRoot, 'dist/client'),
+        path.resolve(mockProjectRoot, 'dist/client/a'),
+        path.resolve(mockProjectRoot, 'dist/client/a/b'),
+      ]);
+    });
+
+    it('interleaved: an ancestry move MAY cross unrelated apps - declared [a/b, baz, a] builds [a, a/b, baz]', async () => {
+      // Maintainer review (fourth ordering pass): "unrelated apps never reorder" is an
+      // impossible contract here - integrity requires a < a/b while declared order says
+      // a/b < baz < a, so no ordering satisfies both. The pinned policy: the ancestor moves
+      // immediately before its first already-placed descendant, crossing unrelated apps when
+      // required (baz/a reverse); everything else keeps declared order. This is also the
+      // observable config.vite(ctx) callback order: parent, child, unrelated.
+      const interleaved = [
+        { ...mockAppConfig, entryPoint: 'a/b', appId: 'child' },
+        { ...mockAppConfig, entryPoint: 'baz', appId: 'unrelated' },
+        { ...mockAppConfig, entryPoint: 'a', appId: 'parent' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(interleaved as any);
+
+      const contextOrder: string[] = [];
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+        vite: (ctx) => {
+          contextOrder.push(ctx.entryPoint);
+          return {};
+        },
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([
+        path.resolve(mockProjectRoot, 'dist/client/a'),
+        path.resolve(mockProjectRoot, 'dist/client/a/b'),
+        path.resolve(mockProjectRoot, 'dist/client/baz'),
+      ]);
+      // The callback observes the same order - the side channel that makes ordering a contract.
+      expect(contextOrder).toEqual(['a', 'a/b', 'baz']);
+    });
+
     it('should exit process on build failure', async () => {
       const mockExit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -1074,7 +1229,9 @@ describe('Build.ts - Full Coverage', () => {
       expect((buildConfig as any).envPrefix).toBe('APP_');
     });
 
-    it('should allow user to configure optimizeDeps', async () => {
+    // RFC 0005 §6: optimizeDeps is development-only and is STRIPPED from anything passed to build()
+    // (Vite ignores it in builds since 5.1). VS3 migration of the former "passes through" assertion.
+    it('should strip optimizeDeps from the build config (dev-only)', async () => {
       await taujsBuild({
         config: { apps: [] },
         projectRoot: mockProjectRoot,
@@ -1088,10 +1245,7 @@ describe('Build.ts - Full Coverage', () => {
       });
 
       const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
-      expect((buildConfig as any).optimizeDeps).toEqual({
-        include: ['lodash'],
-        exclude: ['some-package'],
-      });
+      expect((buildConfig as any).optimizeDeps).toBeUndefined();
     });
 
     it('should allow user to configure top-level ssr options', async () => {
@@ -1387,6 +1541,189 @@ describe('Build.ts - Full Coverage', () => {
       expect(warningMessage).toContain('base');
       expect(warningMessage).toContain('build.outDir');
       expect(warningMessage).toContain('build.ssr');
+
+      consoleWarnSpy.mockRestore();
+    });
+  });
+
+  // RFC 0005 §2 (VS3): the three-layer precedence chain framework -> config.vite -> taujsBuild.vite,
+  // resolved end-to-end through taujsBuild (build-arm context for config.vite; legacy context for
+  // the taujsBuild escape hatch).
+  describe('Vite Config Override - config.vite + taujsBuild.vite layering', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('applies both layers: declarative config.vite plugins survive alongside the programmatic build.sourcemap override', async () => {
+      const declarativePlugin = { name: 'declarative-plugin' };
+
+      await taujsBuild({
+        config: { apps: [], vite: { plugins: [declarativePlugin], define: { __DECLARED__: '"yes"' } } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: { build: { sourcemap: true } },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.plugins as any[]).toContainEqual(declarativePlugin);
+      expect(buildConfig.define).toMatchObject({ __DECLARED__: '"yes"' });
+      expect((buildConfig.build as any).sourcemap).toBe(true);
+    });
+
+    it('resolves the config.vite function form with the discriminated build-arm context', async () => {
+      const configViteFn = vi.fn().mockReturnValue({});
+
+      await taujsBuild({
+        config: { apps: [], vite: configViteFn } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      expect(configViteFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'build',
+          isSSRBuild: false,
+          appId: 'test-app',
+          entryPoint: 'admin',
+          clientRoot: '/project/src/client/admin',
+        }),
+      );
+    });
+
+    it('warns per field when config.vite and taujsBuild.vite both set the same define key; programmatic wins', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [], vite: { define: { __X__: '"declarative"' } } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: { define: { __X__: '"programmatic"' } },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.define as Record<string, unknown>).__X__).toBe('"programmatic"');
+
+      const conflictLine = consoleWarnSpy.mock.calls.map(([m]) => m as string).find((m) => typeof m === 'string' && m.includes('define.__X__'));
+      expect(conflictLine).toContain('config.vite');
+      expect(conflictLine).toContain('taujsBuild.vite');
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('strips optimizeDeps supplied via config.vite from the build config', async () => {
+      await taujsBuild({
+        config: { apps: [], vite: { optimizeDeps: { include: ['lodash'] } } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig as any).optimizeDeps).toBeUndefined();
+    });
+  });
+
+  // RFC 0005 §5 (VS6): the pinned plugin composition rule at build - concatenate app -> config.vite
+  // -> taujsBuild.vite, dedupe by name WITHIN one app's chain (first wins), reserve the τjs- prefix.
+  // Build never dedupes cross-app: per-app plugin lists are independent.
+  describe('Plugin composition (RFC 0005 §5)', () => {
+    const mockAppConfig = {
+      appId: 'main',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('same name in app.plugins and config.vite: app wins, one instance, collision warned', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const appPlugin = { name: 'shared', from: 'app' };
+      const configVitePlugin = { name: 'shared', from: 'config.vite' };
+
+      vi.mocked(processConfigs).mockReturnValue([{ ...mockAppConfig, plugins: [appPlugin] }] as any);
+
+      await taujsBuild({
+        config: { apps: [], vite: { plugins: [configVitePlugin] } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const named = (buildConfig.plugins as any[]).filter((p) => p?.name === 'shared');
+      expect(named).toEqual([appPlugin]); // app wins; config.vite instance dropped
+
+      const collisionLine = consoleWarnSpy.mock.calls.map(([m]) => m as string).find((m) => typeof m === 'string' && m.includes('"shared"'));
+      expect(collisionLine).toContain('main');
+      expect(collisionLine).toContain('config.vite');
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('drops a user plugin carrying the reserved τjs- prefix and warns (via config.vite)', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const legit = { name: 'legit' };
+
+      vi.mocked(processConfigs).mockReturnValue([{ ...mockAppConfig, plugins: [legit] }] as any);
+
+      await taujsBuild({
+        config: { apps: [], vite: { plugins: [{ name: 'τjs-impostor' }] } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const names = (buildConfig.plugins as any[]).map((p) => p?.name);
+      expect(names).toContain('legit');
+      expect(names).not.toContain('τjs-impostor');
+
+      const reservedLine = consoleWarnSpy.mock.calls.map(([m]) => m as string).find((m) => typeof m === 'string' && m.includes('τjs-impostor'));
+      expect(reservedLine).toContain('reserved');
+      expect(reservedLine).toContain('config.vite');
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('does NOT dedupe across apps: two apps declaring the same plugin name each keep their own instance', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const mainPlugin = { name: 'vite:vue', from: 'main' };
+      const adminPlugin = { name: 'vite:vue', from: 'admin' };
+
+      vi.mocked(processConfigs).mockReturnValue([
+        { ...mockAppConfig, appId: 'main', entryPoint: 'main', plugins: [mainPlugin] },
+        { ...mockAppConfig, appId: 'admin', entryPoint: 'admin', plugins: [adminPlugin] },
+      ] as any);
+
+      await taujsBuild({
+        config: { apps: [] } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const firstBuild = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const secondBuild = vi.mocked(build).mock.calls[1]![0] as InlineConfig;
+      expect(firstBuild.plugins as any[]).toContainEqual(mainPlugin);
+      expect(secondBuild.plugins as any[]).toContainEqual(adminPlugin);
+
+      // No cross-app collision warning: the shared name across independent per-app chains is expected.
+      const collisionLine = consoleWarnSpy.mock.calls.map(([m]) => m as string).find((m) => typeof m === 'string' && m.includes('Duplicate Vite plugin'));
+      expect(collisionLine).toBeUndefined();
 
       consoleWarnSpy.mockRestore();
     });
@@ -2141,9 +2478,8 @@ describe('Build.ts - Full Coverage', () => {
       expect((merged as any).esbuild).toEqual({ jsxFactory: 'h' });
       expect(merged.logLevel).toBe('info');
       expect((merged as any).envPrefix).toBe('APP_');
-      expect((merged as any).optimizeDeps).toEqual({
-        include: ['lodash'],
-      });
+      // RFC 0005 §6 (VS3): optimizeDeps is dev-only and never reaches a build config.
+      expect((merged as any).optimizeDeps).toBeUndefined();
       expect((merged as any).ssr).toEqual({
         noExternal: ['some-package'],
       });

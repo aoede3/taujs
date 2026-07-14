@@ -276,6 +276,21 @@ describe('createServer', () => {
     expect(registerMock).toHaveBeenNthCalledWith(2, SSRServerPlugin, expect.objectContaining({ staticAssets: custom }));
   });
 
+  it('forwards projectRoot to SSRServer (RFC 0005 §3 - dev alias normalisation root)', async () => {
+    const { createServer } = await importer();
+    const projectRoot = '/repo/apps/shop';
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+      projectRoot,
+    });
+
+    // Dropping this forwarding line would break monorepo alias symmetry while leaving the
+    // hard-gate 4 test green (it drives setupDevServer directly) - hence the explicit pin.
+    expect(registerMock).toHaveBeenNthCalledWith(2, SSRServerPlugin, expect.objectContaining({ projectRoot }));
+  });
+
   it('logs and rethrows if SSRServer registration throws (no zombie server)', async () => {
     const { createServer } = await importer();
     ssrShouldThrow = true;

@@ -65,9 +65,15 @@ export function printContractReport(logger: Logger, report: ContractReport) {
   }
 }
 
-export function printVitePluginSummary(logger: Logger, appPlugins: Array<{ appId: string; plugins: string[] }>, merged: Plugin[]) {
-  const mergedNames = merged.map((p) => p?.name).filter((n): n is string => typeof n === 'string' && n.length > 0);
+/**
+ * Dev-side one-line summary of the composed plugin set (RFC 0005 §5). `composed` is the output of
+ * `composePlugins` - the user sources deduped (first occurrence wins), `τjs-`-prefixed user plugins
+ * dropped, collisions already warned separately. It lists each app's declared plugins alongside the
+ * final composed names, so a plugin silently lost to dedupe is visible against its source.
+ */
+export function printVitePluginSummary(logger: Logger, appPlugins: Array<{ appId: string; plugins: string[] }>, composed: Plugin[]) {
+  const composedNames = composed.map((p) => p?.name).filter((n): n is string => typeof n === 'string' && n.length > 0);
   const appsLine = appPlugins.length === 0 ? 'no app plugins' : appPlugins.map((a) => `${a.appId}=[${a.plugins.join(', ') || 'none'}]`).join(' ');
 
-  logger.info(undefined, `${CONTENT.TAG} [vite] Plugins ${appsLine} merged=[${mergedNames.join(', ') || 'none'}]`);
+  logger.info(undefined, `${CONTENT.TAG} [vite] Plugins ${appsLine} composed=[${composedNames.join(', ') || 'none'}]`);
 }

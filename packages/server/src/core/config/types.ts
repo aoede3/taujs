@@ -204,4 +204,10 @@ export type CoreTaujsConfig = {
     port?: number;
     hmrPort?: number;
   };
+  // RFC 0005 (VS2): the declarative home for the alias maps that are programmatic-only today
+  // (`createServer`/`taujsBuild` options). Vite-free (plain `Record`), so it lives on the core
+  // structural type - readable by BOTH dev (via `TaujsConfig`) and build (`taujsBuild` receives
+  // `CoreTaujsConfig`). Relative values normalise against `projectRoot` at config load (VS5).
+  // Typed here but unread until VS5.
+  alias?: Record<string, string>;
 };
