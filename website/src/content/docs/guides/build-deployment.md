@@ -171,6 +171,11 @@ supported fields. Its function form receives a discriminated serve/build context
 type, the support matrix, and the composition rules live in the
 [Vite configuration reference](/reference/taujs-config/#vite-configuration).
 
+One Vite behaviour worth knowing: in development Vite injects `define` values into client
+modules at runtime rather than statically replacing the identifiers, so dev output will not
+show dead-code elimination based on a `define`. Builds perform full static replacement - the
+value itself is identical in both modes.
+
 **`optimizeDeps` is dev-only.** Under `config.vite`, τjs admits the
 `include` / `exclude` / `esbuildOptions` subset to tune the shared dev server's dependency
 pre-bundling. Nothing from `optimizeDeps` reaches a client or SSR build (Vite ignores it
@@ -233,10 +238,10 @@ Allowed customisations: `plugins` (appended after app plugins, then deduped by n
 `build.rollupOptions.output.manualChunks`, `resolve.*` except `alias`, `esbuild`, `logLevel`.
 
 Protected fields (framework-controlled; supplying one logs a warning and the framework value
-is kept): `root`, `base`, `publicDir`, `build.outDir`, `build.ssr` / `ssrManifest`,
+is kept): `root`, `base`, `publicDir`, `appType`, `build.outDir`, `build.ssr` / `ssrManifest`,
 `build.format`, `build.target`, `build.manifest`, `build.rollupOptions.input`, `resolve.alias`
-(use the `alias` option instead), `server.*`, `configFile`. `build.manifest` and `configFile`
-warn on supply like every other protected field.
+(use the `alias` option instead), `server.*`, `configFile`. `appType`, `build.manifest`, and
+`configFile` warn on supply like every other protected field.
 
 ### Alias Configuration
 
@@ -266,6 +271,12 @@ export default defineConfig({
 
 Relative replacements are normalised against the project root, so there is no
 `path.resolve(...)` boilerplate; absolute values pass through untouched.
+
+The project root is `taujsBuild`'s `projectRoot` at build time and, in development, the
+`projectRoot` option on `createServer` - defaulting to `process.cwd()`. Under the scaffold
+the two are the same directory. If your dev process runs from a different directory than the
+`projectRoot` you pass to `taujsBuild` (some monorepo shapes), pass the same value to
+`createServer({ projectRoot })` so relative aliases resolve identically in both modes.
 
 **Programmatic escape hatches.** The `alias` option still exists on `taujsBuild` (build) and
 `createServer` (dev) for callers that must compute paths at runtime. It layers _above_ the

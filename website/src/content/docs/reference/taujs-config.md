@@ -346,6 +346,10 @@ replacement resolves against the project root, an absolute one passes through un
 keeps the config file free of `path.resolve(...)` boilerplate without shipping strings Vite
 would misread.
 
+The project root is `taujsBuild({ projectRoot })` at build time and the `projectRoot` option
+on `createServer` in development (default `process.cwd()`). Pass the same directory to both -
+the scaffold already does - so relative aliases resolve identically in dev and build.
+
 The programmatic `alias` options on `createServer` (dev) and `taujsBuild` (build) remain as
 escape hatches, layered above the declarative field (see the
 [build guide](/guides/build-deployment/#alias-configuration)). Programmatic values are passed
