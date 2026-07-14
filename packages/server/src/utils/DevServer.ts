@@ -3,6 +3,7 @@ import path from 'node:path';
 import { CONTENT } from '../constants';
 import { createLogger } from '../logging/Logger';
 import { overrideCSSHMRConsoleError } from './Templates';
+import { findFormerlyDiscoveredViteConfig, formerlyDiscoveredViteConfigWarning } from './ViteConfigDiscovery';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
@@ -26,10 +27,17 @@ export const setupDevServer = async (
   const host = devNet?.host ?? process.env.HOST?.trim() ?? process.env.FASTIFY_ADDRESS?.trim() ?? 'localhost';
   const hmrPort = devNet?.hmrPort ?? (Number(process.env.HMR_PORT) || 5174);
 
+  // Migration detection: with configFile: false pinned below, Vite no longer probes the client
+  // base root that it used to search on τjs's behalf. Warn if a vite.config.* still sits there,
+  // so its silent behaviour loss is visible. Project-root files were never read and are exempt.
+  const discovered = findFormerlyDiscoveredViteConfig(baseClientRoot);
+  if (discovered) logger.warn({ file: discovered }, formerlyDiscoveredViteConfigWarning(discovered));
+
   const { createServer } = await import('vite');
 
   const viteDevServer = await createServer({
     appType: 'custom',
+    configFile: false,
     css: {
       preprocessorOptions: {
         scss: {

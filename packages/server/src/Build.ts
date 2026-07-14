@@ -18,6 +18,7 @@ import { extractBuildConfigs } from './core/config/Setup';
 import { emitGraphArtifact } from './core/introspection/EmitGraph';
 import { processConfigs } from './utils/AssetManager';
 import { resolveEntryFile } from './utils/Entry';
+import { findFormerlyDiscoveredViteConfig, formerlyDiscoveredViteConfigWarning } from './utils/ViteConfigDiscovery';
 
 export { resolveEntryFile };
 
@@ -41,13 +42,6 @@ export function resolveInputs(isSSRBuild: boolean, mainExists: boolean, paths: {
 /**
  * User-supplied vite config override.
  * Can be a static config object or a function that receives build context.
- *
- * **Plugin order**: Framework applies plugins in this sequence:
- * 1. `appConfig.plugins` (from taujs.config.ts)
- * 2. `nodePolyfills({ include: ['stream'] })` (client builds only)
- * 3. `userViteConfig.plugins` (from this option)
- *
- * If you need plugins before nodePolyfills, add them to `appConfig.plugins` instead.
  *
  * **Allowed customisations:**
  * - `plugins`: Appended to framework plugin list
@@ -395,8 +389,15 @@ export async function taujsBuild({
 
     const nodeVersion = process.versions.node.split('.')[0];
 
+    // Migration detection: with configFile: false pinned below, Vite no longer probes this
+    // per-entry root that it used to search on τjs's behalf. Warn if a vite.config.* still sits
+    // there. Project-root files were never read and are exempt.
+    const discovered = findFormerlyDiscoveredViteConfig(root);
+    if (discovered) console.warn(`[taujs:build:${entryPoint}] ${formerlyDiscoveredViteConfigWarning(discovered)}`);
+
     const frameworkConfig: InlineConfig = {
       base: entryPoint ? `/${entryPoint}/` : '/',
+      configFile: false,
       build: {
         outDir,
         emptyOutDir: true,
