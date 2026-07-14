@@ -448,11 +448,12 @@ describe('Build.ts - Full Coverage', () => {
       expect(outDirs).toEqual([path.resolve(mockProjectRoot, 'dist/client/foo'), path.resolve(mockProjectRoot, 'dist/client/foo/bar')]);
     });
 
-    it('preserves declared order between unrelated apps of DIFFERENT depths (reorder is ancestry-only)', async () => {
+    it('never reorders a collection containing NO ancestry relationships, whatever the depths', async () => {
       // Maintainer review (third ordering pass): declared order is observable - it drives the
       // invocation order of config.vite(ctx)/taujsBuild vite(ctx) function forms, plugin
-      // lifecycles, and build logs - so apps with no ancestor/descendant outDir relationship
-      // must never reorder, whatever their depths. [foo/bar, baz] stays [foo/bar, baz].
+      // lifecycles, and build logs. With no ancestor/descendant outDir relationship anywhere in
+      // the collection, nothing moves: [foo/bar, baz] stays [foo/bar, baz]. (When an ancestry
+      // constraint IS present it can cross unrelated apps - see the interleaved test below.)
       const unrelated = [
         { ...mockAppConfig, entryPoint: 'foo/bar', appId: 'nested' },
         { ...mockAppConfig, entryPoint: 'baz', appId: 'flat' },
@@ -493,6 +494,43 @@ describe('Build.ts - Full Coverage', () => {
         path.resolve(mockProjectRoot, 'dist/client/a'),
         path.resolve(mockProjectRoot, 'dist/client/a/b'),
       ]);
+    });
+
+    it('interleaved: an ancestry move MAY cross unrelated apps - declared [a/b, baz, a] builds [a, a/b, baz]', async () => {
+      // Maintainer review (fourth ordering pass): "unrelated apps never reorder" is an
+      // impossible contract here - integrity requires a < a/b while declared order says
+      // a/b < baz < a, so no ordering satisfies both. The pinned policy: the ancestor moves
+      // immediately before its first already-placed descendant, crossing unrelated apps when
+      // required (baz/a reverse); everything else keeps declared order. This is also the
+      // observable config.vite(ctx) callback order: parent, child, unrelated.
+      const interleaved = [
+        { ...mockAppConfig, entryPoint: 'a/b', appId: 'child' },
+        { ...mockAppConfig, entryPoint: 'baz', appId: 'unrelated' },
+        { ...mockAppConfig, entryPoint: 'a', appId: 'parent' },
+      ];
+      vi.mocked(processConfigs).mockReturnValue(interleaved as any);
+
+      const contextOrder: string[] = [];
+
+      await taujsBuild({
+        config: { apps: [] },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+        vite: (ctx) => {
+          contextOrder.push(ctx.entryPoint);
+          return {};
+        },
+      });
+
+      const outDirs = vi.mocked(build).mock.calls.map((call) => (call[0] as InlineConfig).build!.outDir);
+      expect(outDirs).toEqual([
+        path.resolve(mockProjectRoot, 'dist/client/a'),
+        path.resolve(mockProjectRoot, 'dist/client/a/b'),
+        path.resolve(mockProjectRoot, 'dist/client/baz'),
+      ]);
+      // The callback observes the same order - the side channel that makes ordering a contract.
+      expect(contextOrder).toEqual(['a', 'a/b', 'baz']);
     });
 
     it('should exit process on build failure', async () => {

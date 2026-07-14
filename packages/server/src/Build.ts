@@ -239,10 +239,12 @@ export async function taujsBuild({
   //
   // The reorder is ancestry-aware and MINIMAL: declared order is observable (it drives the
   // invocation order of `config.vite(ctx)` and `taujsBuild({ vite })` function forms, plugin
-  // lifecycles, and build/failure logs), so it is preserved except for the one constraint that
-  // matters to output integrity - an app is pulled forward only to sit immediately before the
-  // first already-placed app whose outDir it contains. Apps with no ancestor/descendant
-  // relationship never reorder.
+  // lifecycles, and build/failure logs), so it is disturbed only by the one constraint that
+  // matters to output integrity. The contract, precisely: an ancestor moves immediately before
+  // its first already-placed descendant. That move can cross unrelated apps when required
+  // (declared [a/b, baz, a] builds [a, a/b, baz] - baz/a reverse, unavoidably: no order
+  // satisfies both a < a/b and the declared a/b < baz < a); otherwise declared order is
+  // retained, and a collection containing no ancestry relationships is never reordered.
   const resolveOutDir = (entryPoint: string) => path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
   const isAncestorOf = (parent: string, child: string) => child.startsWith(parent + path.sep);
   const buildOrder: (typeof configsToBuild)[number][] = [];
