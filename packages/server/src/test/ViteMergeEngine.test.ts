@@ -27,7 +27,8 @@ describe('ViteMergeEngine - profiles (declared data)', () => {
   it('BUILD_PROFILE protects manifest and configFile explicitly; DEV_PROFILE rejects build.*', () => {
     expect(BUILD_PROFILE.admitBuild).toBe(true);
     expect(BUILD_PROFILE.protectedBuild).toContain('manifest');
-    expect(BUILD_PROFILE.protectedTop).toEqual(expect.arrayContaining(['root', 'base', 'publicDir', 'configFile', 'server']));
+    // VS8: `appType` protected in build too (§4 matrix lists it Protected in all columns), matching dev.
+    expect(BUILD_PROFILE.protectedTop).toEqual(expect.arrayContaining(['root', 'base', 'publicDir', 'configFile', 'server', 'appType']));
 
     expect(DEV_PROFILE.admitBuild).toBe(false);
     // VS4 ruling: dev protects `base`/`publicDir` too (matrix Protected in all columns).
@@ -140,6 +141,7 @@ describe('ViteMergeEngine - composeViteConfig (build profile)', () => {
             publicDir: '/wrong',
             configFile: '/wrong/vite.config.ts',
             server: { port: 3000 },
+            appType: 'custom',
             build: {
               outDir: '/wrong',
               manifest: false,
@@ -162,6 +164,7 @@ describe('ViteMergeEngine - composeViteConfig (build profile)', () => {
       'publicDir',
       'configFile',
       'server',
+      'appType',
       'build.outDir',
       'build.manifest',
       'build.ssrManifest',
@@ -170,6 +173,9 @@ describe('ViteMergeEngine - composeViteConfig (build profile)', () => {
     ]) {
       expect(msg).toContain(field);
     }
+
+    // VS8: the smuggled build-side `appType` is warned and never applied (not silently dropped).
+    expect((merged as any).appType).toBeUndefined();
 
     // Framework invariants win: manifest and configFile restored, protected values never applied.
     expect((merged.build as any).manifest).toBe(true);

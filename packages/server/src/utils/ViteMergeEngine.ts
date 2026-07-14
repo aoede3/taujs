@@ -90,12 +90,14 @@ export type ViteMergeProfile = {
  * and the dev-only `server.*`. `manifest` is protected here WITH a warning - aligning it to its
  * siblings (it was silently restored before, the one Ground-truth inconsistency VS3 fixes).
  * `configFile` is an EXPLICIT protected invariant (pinned to `false` by the framework), no longer
- * merely never-copied.
+ * merely never-copied. `appType` is protected here too (VS8): the §4 matrix lists it Protected in
+ * ALL three columns, so a smuggled build-side `appType` (only reachable via a JS config or `as any`
+ * cast - `TaujsViteConfig` omits it) must WARN, matching dev, never be silently dropped.
  */
 export const BUILD_PROFILE: ViteMergeProfile = {
   mode: 'build',
   admitBuild: true,
-  protectedTop: ['root', 'base', 'publicDir', 'configFile', 'server'],
+  protectedTop: ['root', 'base', 'publicDir', 'configFile', 'server', 'appType'],
   protectedBuild: ['outDir', 'ssr', 'ssrManifest', 'format', 'target', 'manifest'],
 };
 
