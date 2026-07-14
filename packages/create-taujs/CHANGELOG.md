@@ -1,5 +1,11 @@
 # @taujs/cli
 
+## 0.3.2
+
+### Patch Changes
+
+- [#25](https://github.com/aoede3/taujs/pull/25) [`f825c9a`](https://github.com/aoede3/taujs/commit/f825c9aaaa124332493794dde40072d80d74b9c9) Thanks [@aoede3](https://github.com/aoede3)! - Scaffold a commented `vite` / `alias` stub in the generated `taujs.config.ts`, pointing at the declared Vite customisation surface (RFC 0005, VS7). This is the discoverability moment for the new fields - no `vite.config.ts` is ever scaffolded, since τjs never reads one.
+
 ## 0.3.1
 
 ### Patch Changes
