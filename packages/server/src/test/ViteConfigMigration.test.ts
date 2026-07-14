@@ -96,7 +96,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.clearAllMocks();
+  // restore (not just clear): the console.log/warn spies below must not leak into other suites
+  vi.restoreAllMocks();
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 
