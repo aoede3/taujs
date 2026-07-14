@@ -606,6 +606,12 @@ export default defineConfig({
     host: 'localhost',
     hmrPort: 5174,
   },
+  // Declared Vite surface - applied to dev and build. See https://taujs.dev/reference/taujs-config/#vite-configuration
+  // vite: {
+  //   define: { __APP_VERSION__: JSON.stringify('0.0.0') },
+  //   plugins: [],
+  // },
+  // alias: { '@components': './src/client/shared/components' },
   apps: [
     {
       appId: 'main',
