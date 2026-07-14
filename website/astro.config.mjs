@@ -89,6 +89,7 @@ export default defineConfig({
           items: [
             { label: "τjs Configuration", slug: "reference/taujs-config" },
             { label: "App Shell Pattern", slug: "reference/app-shell-pattern" },
+            { label: "MCP Server", slug: "reference/mcp" },
             // { label: "Platformatic Watt", slug: "reference/platformatic-watt" },
           ],
         },
