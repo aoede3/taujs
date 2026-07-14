@@ -27,7 +27,7 @@ import { createRequestContext } from './utils/Telemetry';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { registerStaticAssets } from './utils/StaticAssets';
-import { mergePlugins } from './utils/VitePlugins';
+import { composePlugins, pluginCollisionMessage, reservedPluginMessage } from './utils/VitePlugins';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -93,10 +93,19 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     });
 
     if (isDevelopment) {
-      const plugins = mergePlugins({
+      // RFC 0005 §5 (VS6): ONE composition rule for the shared dev server. Each app is a labelled
+      // source (dedupe by plugin name, first app wins), followed by the `config.vite` slot - left
+      // for VS4 to feed once dev-side `config.vite` resolution lands (composing `apps -> internal`
+      // until then). Cross-app collisions and reserved-prefix drops are promoted from debug to WARN
+      // through the shared reporter, so dev and build emit one format. `internal` is empty here: the
+      // sole dev internal plugin (`τjs-development-server-debug-logging`) is appended LAST inside
+      // setupDevServer, which holds the dev logger it closes over - its pinned-last position is the
+      // same §5 contract composePlugins enforces for the reserved `internal` slot.
+      const plugins = composePlugins({
+        sources: processedConfigs.map((c) => ({ source: c.appId, plugins: c.plugins })),
         internal: [],
-        apps: processedConfigs,
-        onDuplicate: (name) => logger.debug('vite', { plugin: name }, 'Duplicate plugin dropped (first occurrence wins)'),
+        onCollision: (c) => logger.warn({ plugin: c.name, sources: c.sources, winner: c.winner }, pluginCollisionMessage(c)),
+        onReservedPrefix: (d) => logger.warn({ plugin: d.name, source: d.source }, reservedPluginMessage(d)),
       });
 
       printVitePluginSummary(

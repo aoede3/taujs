@@ -21,6 +21,7 @@ import { resolveEntryFile } from './utils/Entry';
 import { layerAlias } from './utils/ViteAlias';
 import { findFormerlyDiscoveredViteConfig, formerlyDiscoveredViteConfigWarning } from './utils/ViteConfigDiscovery';
 import { BUILD_PROFILE, composeViteConfig, getFrameworkInvariants, normalisePlugins } from './utils/ViteMergeEngine';
+import { composePlugins, pluginCollisionMessage, reservedPluginMessage } from './utils/VitePlugins';
 
 export { resolveEntryFile };
 // Re-exported from the shared merge engine (VS3): these lived here historically and stay importable
@@ -30,6 +31,7 @@ export type { FrameworkInvariant } from './utils/ViteMergeEngine';
 
 import type { InlineConfig, PluginOption } from 'vite';
 import type { ViteLayer } from './utils/ViteMergeEngine';
+import type { PluginSource } from './utils/VitePlugins';
 import type { CoreTaujsConfig } from './core/config/types';
 import type { TaujsViteContext, TaujsViteOverride } from './ViteConfig';
 
@@ -305,6 +307,11 @@ export async function taujsBuild({
     // (the serve arm is VS4's dev-server job), the legacy `taujsBuild.vite` with `ViteBuildContext`.
     const layers: ViteLayer[] = [];
 
+    // VS6 (RFC 0005 §5): the ordered plugin sources for THIS app's chain - app plugins, then
+    // config.vite, then taujsBuild.vite. composePlugins dedupes WITHIN this one app's chain (build
+    // never dedupes cross-app: per-app lists are independent) and reserves the `τjs-` prefix.
+    const pluginSources: PluginSource[] = [{ source: appId, plugins: plugins as PluginOption[] }];
+
     if (config.vite) {
       const taujsViteContext: TaujsViteContext = {
         command: 'build',
@@ -315,15 +322,33 @@ export async function taujsBuild({
         clientRoot,
       };
       const resolvedConfigVite = typeof config.vite === 'function' ? config.vite(taujsViteContext) : config.vite;
-      if (resolvedConfigVite) layers.push({ source: 'config.vite', config: resolvedConfigVite as Partial<InlineConfig> });
+      if (resolvedConfigVite) {
+        layers.push({ source: 'config.vite', config: resolvedConfigVite as Partial<InlineConfig> });
+        pluginSources.push({ source: 'config.vite', plugins: resolvedConfigVite.plugins });
+      }
     }
 
     if (userViteConfig) {
       const resolvedBuildVite = typeof userViteConfig === 'function' ? userViteConfig(buildContext) : userViteConfig;
-      if (resolvedBuildVite) layers.push({ source: 'taujsBuild.vite', config: resolvedBuildVite as Partial<InlineConfig> });
+      if (resolvedBuildVite) {
+        layers.push({ source: 'taujsBuild.vite', config: resolvedBuildVite as Partial<InlineConfig> });
+        pluginSources.push({ source: 'taujsBuild.vite', plugins: (resolvedBuildVite as Partial<InlineConfig>).plugins });
+      }
     }
 
     const finalConfig = layers.length > 0 ? composeViteConfig(frameworkConfig, layers, BUILD_PROFILE, `[taujs:build:${entryPoint}]`) : frameworkConfig;
+
+    // VS6 (RFC 0005 §5): composeViteConfig appends plugins naively per layer for the legacy
+    // single-layer path (mergeViteConfig). The build path owns the FINAL plugin composition here -
+    // one dedupe across this app's whole source chain (first occurrence wins), the `τjs-` reservation,
+    // and internal plugins last (none today) - overwriting that naive concatenation. Collisions and
+    // reserved-prefix drops report through the SAME reporter dev uses, so both modes emit one format.
+    finalConfig.plugins = composePlugins({
+      sources: pluginSources,
+      internal: [],
+      onCollision: (c) => console.warn(`[taujs:build:${entryPoint}] ${pluginCollisionMessage(c)}`),
+      onReservedPrefix: (d) => console.warn(`[taujs:build:${entryPoint}] ${reservedPluginMessage(d)}`),
+    }) as PluginOption[];
 
     try {
       const mode = isSSRBuild ? 'SSR' : 'Client';

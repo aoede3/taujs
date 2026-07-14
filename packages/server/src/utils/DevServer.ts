@@ -65,6 +65,10 @@ export const setupDevServer = async (
     },
     mode: 'development',
     plugins: [
+      // `plugins` arrive already composed + deduped by composePlugins (RFC 0005 §5, SSRServer). The
+      // internal debug-logging plugin is appended LAST - the framework's pinned-last position by
+      // contract (§5), exempt from user dedupe, and the reserved `τjs-` prefix it carries is why a
+      // user plugin can never impersonate it (composePlugins drops user `τjs-` plugins upstream).
       ...plugins,
       ...(debug
         ? [

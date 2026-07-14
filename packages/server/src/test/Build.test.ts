@@ -1478,6 +1478,102 @@ describe('Build.ts - Full Coverage', () => {
     });
   });
 
+  // RFC 0005 §5 (VS6): the pinned plugin composition rule at build - concatenate app -> config.vite
+  // -> taujsBuild.vite, dedupe by name WITHIN one app's chain (first wins), reserve the τjs- prefix.
+  // Build never dedupes cross-app: per-app plugin lists are independent.
+  describe('Plugin composition (RFC 0005 §5)', () => {
+    const mockAppConfig = {
+      appId: 'main',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('same name in app.plugins and config.vite: app wins, one instance, collision warned', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const appPlugin = { name: 'shared', from: 'app' };
+      const configVitePlugin = { name: 'shared', from: 'config.vite' };
+
+      vi.mocked(processConfigs).mockReturnValue([{ ...mockAppConfig, plugins: [appPlugin] }] as any);
+
+      await taujsBuild({
+        config: { apps: [], vite: { plugins: [configVitePlugin] } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const named = (buildConfig.plugins as any[]).filter((p) => p?.name === 'shared');
+      expect(named).toEqual([appPlugin]); // app wins; config.vite instance dropped
+
+      const collisionLine = consoleWarnSpy.mock.calls.map(([m]) => m as string).find((m) => typeof m === 'string' && m.includes('"shared"'));
+      expect(collisionLine).toContain('main');
+      expect(collisionLine).toContain('config.vite');
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('drops a user plugin carrying the reserved τjs- prefix and warns (via config.vite)', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const legit = { name: 'legit' };
+
+      vi.mocked(processConfigs).mockReturnValue([{ ...mockAppConfig, plugins: [legit] }] as any);
+
+      await taujsBuild({
+        config: { apps: [], vite: { plugins: [{ name: 'τjs-impostor' }] } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const names = (buildConfig.plugins as any[]).map((p) => p?.name);
+      expect(names).toContain('legit');
+      expect(names).not.toContain('τjs-impostor');
+
+      const reservedLine = consoleWarnSpy.mock.calls.map(([m]) => m as string).find((m) => typeof m === 'string' && m.includes('τjs-impostor'));
+      expect(reservedLine).toContain('reserved');
+      expect(reservedLine).toContain('config.vite');
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('does NOT dedupe across apps: two apps declaring the same plugin name each keep their own instance', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const mainPlugin = { name: 'vite:vue', from: 'main' };
+      const adminPlugin = { name: 'vite:vue', from: 'admin' };
+
+      vi.mocked(processConfigs).mockReturnValue([
+        { ...mockAppConfig, appId: 'main', entryPoint: 'main', plugins: [mainPlugin] },
+        { ...mockAppConfig, appId: 'admin', entryPoint: 'admin', plugins: [adminPlugin] },
+      ] as any);
+
+      await taujsBuild({
+        config: { apps: [] } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const firstBuild = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      const secondBuild = vi.mocked(build).mock.calls[1]![0] as InlineConfig;
+      expect(firstBuild.plugins as any[]).toContainEqual(mainPlugin);
+      expect(secondBuild.plugins as any[]).toContainEqual(adminPlugin);
+
+      // No cross-app collision warning: the shared name across independent per-app chains is expected.
+      const collisionLine = consoleWarnSpy.mock.calls.map(([m]) => m as string).find((m) => typeof m === 'string' && m.includes('Duplicate Vite plugin'));
+      expect(collisionLine).toBeUndefined();
+
+      consoleWarnSpy.mockRestore();
+    });
+  });
+
   describe('Vite Config Override - Function-Based Config', () => {
     const mockAppConfig = {
       appId: 'test-app',
