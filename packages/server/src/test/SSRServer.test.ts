@@ -390,16 +390,49 @@ describe('SSRServer', () => {
       devNet: { host: 'localhost', hmrPort: 5173 },
     });
 
-    expect(setupDevServerMock).toHaveBeenCalledWith(expect.any(Object), '/client', { '@': '/src' }, { all: true }, { host: 'localhost', hmrPort: 5173 }, [
-      'merged:one',
-      'merged:two',
-    ]);
+    expect(setupDevServerMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      '/client',
+      { '@': '/src' },
+      { all: true },
+      { host: 'localhost', hmrPort: 5173 },
+      ['merged:one', 'merged:two'],
+      // RFC 0005 (VS5): declarative `config.alias` forwarded from taujsConfig - undefined here (no taujsConfig passed).
+      undefined,
+    );
 
     await app.inject({ method: 'GET', url: '/x' });
 
     const lastCall = handleRenderMock.mock.calls[handleRenderMock.mock.calls.length - 1] as any[] | undefined;
     const opts = lastCall?.[6] as any;
     expect(opts?.viteDevServer).toBeDefined();
+  });
+
+  it('forwards declarative config.alias (taujsConfig.alias) to setupDevServer as the declarative layer (VS5)', async () => {
+    devRef.value = true;
+
+    await app.register(SSRServer, {
+      alias: { '@': '/src' },
+      configs: [],
+      routes: [],
+      serviceRegistry: {},
+      clientRoot: '/client',
+      debug: { all: true },
+      devNet: { host: 'localhost', hmrPort: 5173 },
+      taujsConfig: { apps: [], alias: { '@components': './src/client/shared/components' } } as any,
+    });
+
+    // Programmatic alias stays the 3rd arg (escape hatch); the declarative map is the 7th arg,
+    // layered UNDER it inside setupDevServer.
+    expect(setupDevServerMock).toHaveBeenLastCalledWith(
+      expect.any(Object),
+      '/client',
+      { '@': '/src' },
+      { all: true },
+      { host: 'localhost', hmrPort: 5173 },
+      ['merged:one', 'merged:two'],
+      { '@components': './src/client/shared/components' },
+    );
   });
 
   it('non-dev mode does not set viteDevServer', async () => {
