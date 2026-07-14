@@ -1074,7 +1074,9 @@ describe('Build.ts - Full Coverage', () => {
       expect((buildConfig as any).envPrefix).toBe('APP_');
     });
 
-    it('should allow user to configure optimizeDeps', async () => {
+    // RFC 0005 §6: optimizeDeps is development-only and is STRIPPED from anything passed to build()
+    // (Vite ignores it in builds since 5.1). VS3 migration of the former "passes through" assertion.
+    it('should strip optimizeDeps from the build config (dev-only)', async () => {
       await taujsBuild({
         config: { apps: [] },
         projectRoot: mockProjectRoot,
@@ -1088,10 +1090,7 @@ describe('Build.ts - Full Coverage', () => {
       });
 
       const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
-      expect((buildConfig as any).optimizeDeps).toEqual({
-        include: ['lodash'],
-        exclude: ['some-package'],
-      });
+      expect((buildConfig as any).optimizeDeps).toBeUndefined();
     });
 
     it('should allow user to configure top-level ssr options', async () => {
@@ -1389,6 +1388,93 @@ describe('Build.ts - Full Coverage', () => {
       expect(warningMessage).toContain('build.ssr');
 
       consoleWarnSpy.mockRestore();
+    });
+  });
+
+  // RFC 0005 §2 (VS3): the three-layer precedence chain framework -> config.vite -> taujsBuild.vite,
+  // resolved end-to-end through taujsBuild (build-arm context for config.vite; legacy context for
+  // the taujsBuild escape hatch).
+  describe('Vite Config Override - config.vite + taujsBuild.vite layering', () => {
+    const mockAppConfig = {
+      appId: 'test-app',
+      entryPoint: 'admin',
+      clientRoot: '/project/src/client/admin',
+      entryClient: 'entry-client',
+      entryServer: 'entry-server',
+      htmlTemplate: 'index.html',
+      plugins: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(extractBuildConfigs).mockReturnValue([mockAppConfig] as any);
+      vi.mocked(processConfigs).mockReturnValue([mockAppConfig] as any);
+    });
+
+    it('applies both layers: declarative config.vite plugins survive alongside the programmatic build.sourcemap override', async () => {
+      const declarativePlugin = { name: 'declarative-plugin' };
+
+      await taujsBuild({
+        config: { apps: [], vite: { plugins: [declarativePlugin], define: { __DECLARED__: '"yes"' } } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: { build: { sourcemap: true } },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.plugins as any[]).toContainEqual(declarativePlugin);
+      expect(buildConfig.define).toMatchObject({ __DECLARED__: '"yes"' });
+      expect((buildConfig.build as any).sourcemap).toBe(true);
+    });
+
+    it('resolves the config.vite function form with the discriminated build-arm context', async () => {
+      const configViteFn = vi.fn().mockReturnValue({});
+
+      await taujsBuild({
+        config: { apps: [], vite: configViteFn } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      expect(configViteFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'build',
+          isSSRBuild: false,
+          appId: 'test-app',
+          entryPoint: 'admin',
+          clientRoot: '/project/src/client/admin',
+        }),
+      );
+    });
+
+    it('warns per field when config.vite and taujsBuild.vite both set the same define key; programmatic wins', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await taujsBuild({
+        config: { apps: [], vite: { define: { __X__: '"declarative"' } } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        vite: { define: { __X__: '"programmatic"' } },
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig.define as Record<string, unknown>).__X__).toBe('"programmatic"');
+
+      const conflictLine = consoleWarnSpy.mock.calls.map(([m]) => m as string).find((m) => typeof m === 'string' && m.includes('define.__X__'));
+      expect(conflictLine).toContain('config.vite');
+      expect(conflictLine).toContain('taujsBuild.vite');
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('strips optimizeDeps supplied via config.vite from the build config', async () => {
+      await taujsBuild({
+        config: { apps: [], vite: { optimizeDeps: { include: ['lodash'] } } } as any,
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect((buildConfig as any).optimizeDeps).toBeUndefined();
     });
   });
 
@@ -2141,9 +2227,8 @@ describe('Build.ts - Full Coverage', () => {
       expect((merged as any).esbuild).toEqual({ jsxFactory: 'h' });
       expect(merged.logLevel).toBe('info');
       expect((merged as any).envPrefix).toBe('APP_');
-      expect((merged as any).optimizeDeps).toEqual({
-        include: ['lodash'],
-      });
+      // RFC 0005 §6 (VS3): optimizeDeps is dev-only and never reaches a build config.
+      expect((merged as any).optimizeDeps).toBeUndefined();
       expect((merged as any).ssr).toEqual({
         noExternal: ['some-package'],
       });

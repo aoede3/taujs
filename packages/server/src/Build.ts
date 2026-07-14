@@ -19,11 +19,18 @@ import { emitGraphArtifact } from './core/introspection/EmitGraph';
 import { processConfigs } from './utils/AssetManager';
 import { resolveEntryFile } from './utils/Entry';
 import { findFormerlyDiscoveredViteConfig, formerlyDiscoveredViteConfigWarning } from './utils/ViteConfigDiscovery';
+import { BUILD_PROFILE, composeViteConfig, getFrameworkInvariants, normalisePlugins } from './utils/ViteMergeEngine';
 
 export { resolveEntryFile };
+// Re-exported from the shared merge engine (VS3): these lived here historically and stay importable
+// from `./Build` for existing consumers/tests. Their home is now `utils/ViteMergeEngine.ts`.
+export { getFrameworkInvariants, normalisePlugins };
+export type { FrameworkInvariant } from './utils/ViteMergeEngine';
 
 import type { InlineConfig, PluginOption } from 'vite';
+import type { ViteLayer } from './utils/ViteMergeEngine';
 import type { CoreTaujsConfig } from './core/config/types';
+import type { TaujsViteContext, TaujsViteOverride } from './ViteConfig';
 
 export type ViteBuildContext = {
   appId: string;
@@ -79,175 +86,23 @@ export function resolveInputs(isSSRBuild: boolean, mainExists: boolean, paths: {
 export type ViteConfigOverride = Partial<InlineConfig> | ((ctx: ViteBuildContext) => Partial<InlineConfig>);
 
 /**
- * Core invariants for τjs builds.
- * These fields are non-negotiable to maintain framework integrity.
- */
-type FrameworkInvariant = {
-  root: string;
-  base: string;
-  publicDir: string | false;
-  build: {
-    outDir: string;
-    manifest: boolean;
-    ssr?: any; // Preserve exact type (string | boolean)
-    ssrManifest: boolean;
-    format?: string;
-    target?: string | string[];
-    rollupOptions: {
-      input: Record<string, string>;
-    };
-  };
-};
-
-/**
- * Extract and validate framework invariants from config.
- * Used during merge to ensure user config doesn't violate critical paths.
- */
-export function getFrameworkInvariants(config: InlineConfig): FrameworkInvariant {
-  return {
-    root: config.root || '',
-    base: config.base || '/',
-    publicDir: config.publicDir === undefined ? 'public' : (config.publicDir as string | false),
-    build: {
-      outDir: (config.build?.outDir as string) || '',
-      manifest: (config.build?.manifest as boolean) ?? false,
-      ssr: (config.build?.ssr as any) ?? undefined, // Preserve exact type
-      ssrManifest: (config.build?.ssrManifest as boolean) ?? false,
-      format: (config.build as any)?.format,
-      target: (config.build as any)?.target,
-      rollupOptions: {
-        input: (config.build?.rollupOptions?.input as Record<string, string>) || {},
-      },
-    },
-  };
-}
-
-/**
- * Merge user vite config into framework config with explicit guardrails.
+ * Merge a single legacy `taujsBuild({ vite })` override into the framework config through the shared
+ * build engine (VS3). Retained for backward compatibility and unit coverage; the multi-layer chain
+ * (`config.vite` -> `taujsBuild.vite`) is composed in `taujsBuild` via {@link composeViteConfig}.
  *
- * Strategy:
- * 1. Preserve all framework invariants (root, base, outDir, ssr, ssrManifest, input)
- * 2. Deep-merge safe extension points (plugins, define, css.preprocessorOptions)
- * 3. Allow selective overrides for tuning (sourcemap, minify, external, etc.)
- * 4. Reject or ignore unsafe overrides (alias, server, build paths)
+ * Strategy is unchanged: framework invariants win, safe extension points (plugins, define,
+ * css.preprocessorOptions) merge, tuning fields override, and protected fields are rejected with a
+ * warning. `optimizeDeps` is dev-only and never reaches the returned build config.
  *
  * Returns a config safe to pass directly to vite.build().
  */
-export const normalisePlugins = (p: any): any[] => (Array.isArray(p) ? p : p ? [p] : []);
-
 export function mergeViteConfig(framework: InlineConfig, userOverride?: ViteConfigOverride, context?: ViteBuildContext): InlineConfig {
   if (!userOverride) return framework;
 
   const userConfig: Partial<InlineConfig> = typeof userOverride === 'function' && context ? userOverride(context) : (userOverride as Partial<InlineConfig>);
+  const prefix = context ? `[taujs:build:${context.entryPoint}]` : '[taujs:build]';
 
-  const invariants = getFrameworkInvariants(framework);
-
-  const merged: InlineConfig = {
-    ...framework,
-    build: { ...(framework.build ?? {}) },
-    css: { ...(framework.css ?? {}) },
-    resolve: { ...(framework.resolve ?? {}) },
-    plugins: [...(framework.plugins ?? [])],
-    define: { ...(framework.define ?? {}) },
-  };
-
-  const ignoredKeys: string[] = [];
-
-  if (userConfig.plugins) merged.plugins = [...normalisePlugins(merged.plugins), ...normalisePlugins(userConfig.plugins)];
-
-  if (userConfig.define && typeof userConfig.define === 'object') merged.define = { ...merged.define, ...userConfig.define };
-
-  if (userConfig.css?.preprocessorOptions) {
-    const fpp = merged.css?.preprocessorOptions ?? {};
-    const upp = userConfig.css.preprocessorOptions;
-
-    merged.css ??= {};
-    merged.css.preprocessorOptions ??= {};
-    merged.css.preprocessorOptions = Object.keys({ ...fpp, ...upp }).reduce((acc, engine) => {
-      (acc as any)[engine] = {
-        ...(fpp as any)[engine],
-        ...(upp as any)[engine],
-      };
-      return acc;
-    }, {} as any);
-  }
-
-  if (userConfig.build) {
-    const protectedBuildFields = ['outDir', 'ssr', 'ssrManifest', 'format', 'target'];
-
-    for (const field of protectedBuildFields) {
-      if (field in userConfig.build) ignoredKeys.push(`build.${field}`);
-    }
-
-    if ('sourcemap' in userConfig.build) (merged.build as any).sourcemap = (userConfig.build as any).sourcemap;
-
-    if ('minify' in userConfig.build) (merged.build as any).minify = (userConfig.build as any).minify;
-
-    if ((userConfig.build as any).terserOptions) {
-      (merged.build as any).terserOptions = {
-        ...(merged.build as any).terserOptions,
-        ...(userConfig.build as any).terserOptions,
-      };
-    }
-
-    if ((userConfig.build as any).rollupOptions) {
-      const userRollup = (userConfig.build as any).rollupOptions;
-      const ro = ((merged.build as any).rollupOptions ??= {});
-
-      if ('input' in userRollup) ignoredKeys.push('build.rollupOptions.input');
-      if ('external' in userRollup) ro.external = userRollup.external;
-
-      if (userRollup.output) {
-        const uo = Array.isArray(userRollup.output) ? userRollup.output[0] : userRollup.output;
-
-        ro.output = {
-          ...(Array.isArray(ro.output) ? ro.output[0] : ro.output),
-          ...(uo?.manualChunks ? { manualChunks: uo.manualChunks } : {}),
-        };
-      }
-    }
-  }
-
-  if (userConfig.resolve) {
-    const { alias: _ignore, ...rest } = userConfig.resolve as any;
-    if (_ignore) ignoredKeys.push('resolve.alias');
-    merged.resolve = { ...merged.resolve, ...rest };
-  }
-
-  if (userConfig.server) ignoredKeys.push('server');
-  if ('root' in userConfig) ignoredKeys.push('root');
-  if ('base' in userConfig) ignoredKeys.push('base');
-  if ('publicDir' in userConfig) ignoredKeys.push('publicDir');
-
-  for (const key of ['esbuild', 'logLevel', 'envPrefix', 'optimizeDeps', 'ssr']) {
-    if (key in userConfig) (merged as any)[key] = (userConfig as any)[key];
-  }
-
-  merged.root = invariants.root;
-  merged.base = invariants.base;
-  merged.publicDir = invariants.publicDir as any;
-
-  (merged.build as any).outDir = invariants.build.outDir;
-  (merged.build as any).manifest = invariants.build.manifest;
-
-  (merged.build as any).ssr = invariants.build.ssr;
-  (merged.build as any).ssrManifest = invariants.build.ssrManifest;
-  (merged.build as any).format = invariants.build.format;
-  (merged.build as any).target = invariants.build.target;
-
-  if (invariants.build.ssr === undefined) delete (merged.build as any).ssr;
-  if (invariants.build.format === undefined) delete (merged.build as any).format;
-  if (invariants.build.target === undefined) delete (merged.build as any).target;
-
-  ((merged.build as any).rollupOptions ??= {}).input = invariants.build.rollupOptions.input;
-
-  if (ignoredKeys.length > 0) {
-    const prefix = context ? `[taujs:build:${context.entryPoint}]` : '[taujs:build]';
-
-    console.warn(`${prefix} Ignored Vite config overrides: ${[...new Set(ignoredKeys)].join(', ')}`);
-  }
-
-  return merged;
+  return composeViteConfig(framework, [{ source: 'taujsBuild.vite', config: userConfig }], BUILD_PROFILE, prefix);
 }
 
 type AppFilter = {
@@ -308,7 +163,11 @@ export async function taujsBuild({
   alias: userAlias,
   vite: userViteConfig,
 }: {
-  config: CoreTaujsConfig;
+  // Widened from `CoreTaujsConfig` (VS3): `vite` lives on the `TaujsConfig` extension (Config.ts),
+  // not the Vite-free core type. The intersection reads `config.vite` type-safely while staying
+  // assignable from BOTH `CoreTaujsConfig` (extra optional field) and `TaujsConfig` (existing
+  // callers, e.g. the scaffolded build.ts) - so no caller breaks.
+  config: CoreTaujsConfig & { vite?: TaujsViteOverride };
   projectRoot: string;
   clientBaseDir: string;
   isSSRBuild?: boolean;
@@ -431,7 +290,30 @@ export async function taujsBuild({
       clientRoot,
     };
 
-    const finalConfig = mergeViteConfig(frameworkConfig, userViteConfig, buildContext);
+    // Three-layer precedence chain (RFC 0005 §2): framework -> config.vite -> taujsBuild.vite.
+    // Function forms resolve BEFORE merging - `config.vite` with the discriminated BUILD context arm
+    // (the serve arm is VS4's dev-server job), the legacy `taujsBuild.vite` with `ViteBuildContext`.
+    const layers: ViteLayer[] = [];
+
+    if (config.vite) {
+      const taujsViteContext: TaujsViteContext = {
+        command: 'build',
+        mode: 'production',
+        isSSRBuild,
+        appId,
+        entryPoint,
+        clientRoot,
+      };
+      const resolvedConfigVite = typeof config.vite === 'function' ? config.vite(taujsViteContext) : config.vite;
+      if (resolvedConfigVite) layers.push({ source: 'config.vite', config: resolvedConfigVite as Partial<InlineConfig> });
+    }
+
+    if (userViteConfig) {
+      const resolvedBuildVite = typeof userViteConfig === 'function' ? userViteConfig(buildContext) : userViteConfig;
+      if (resolvedBuildVite) layers.push({ source: 'taujsBuild.vite', config: resolvedBuildVite as Partial<InlineConfig> });
+    }
+
+    const finalConfig = layers.length > 0 ? composeViteConfig(frameworkConfig, layers, BUILD_PROFILE, `[taujs:build:${entryPoint}]`) : frameworkConfig;
 
     try {
       const mode = isSSRBuild ? 'SSR' : 'Client';
