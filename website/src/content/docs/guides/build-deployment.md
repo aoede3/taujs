@@ -172,11 +172,13 @@ vite: ({ isSSRBuild, entryPoint }) => ({
 Allowed customisations: `plugins` (appended after app plugins), `define` (shallow-merged),
 `css.preprocessorOptions` (merged per preprocessor engine), `build.sourcemap` / `minify` /
 `terserOptions`, `build.rollupOptions.external`, `build.rollupOptions.output.manualChunks`,
-`resolve.*` except `alias`, `esbuild`, `logLevel`, `optimizeDeps`.
+`resolve.*` except `alias`, `esbuild`, `logLevel`.
 
-Protected fields (framework-controlled, silently ignored if supplied): `root`, `base`,
-`publicDir`, `build.outDir`, `build.ssr` / `ssrManifest`, `build.rollupOptions.input`,
-`resolve.alias` (use the `alias` option instead), `server.*`.
+Protected fields (framework-controlled; supplying one logs a warning and the framework value
+is kept): `root`, `base`, `publicDir`, `build.outDir`, `build.ssr` / `ssrManifest`,
+`build.format`, `build.target`, `build.rollupOptions.input`, `resolve.alias` (use the
+`alias` option instead), `server.*`. `build.manifest` is also framework-controlled and is
+restored without a warning.
 
 ### Alias Configuration
 
@@ -193,29 +195,30 @@ Override or extend with the `alias` option. It is an option of `taujsBuild` (bui
 development and build resolve identically. User values win over the framework defaults on
 conflict.
 
+Define the map once in a shared module:
+
+```typescript
+// src/shared/vite-alias.ts
+import path from "node:path";
+
+export const alias = {
+  "@components": path.resolve(process.cwd(), "src/client/shared/components"),
+  "@utils": path.resolve(process.cwd(), "src/client/shared/utils"),
+};
+```
+
 ```typescript
 // build.ts
-await taujsBuild({
-  clientBaseDir,
-  config,
-  projectRoot,
-  alias: {
-    "@components": path.resolve(__dirname, "src/client/shared/components"),
-    "@utils": path.resolve(__dirname, "src/client/shared/utils"),
-  },
-});
+import { alias } from "./src/shared/vite-alias.ts";
+
+await taujsBuild({ clientBaseDir, config, projectRoot, alias });
 ```
 
 ```typescript
 // src/server/index.ts
-await createServer({
-  config,
-  serviceRegistry,
-  alias: {
-    "@components": path.resolve(__dirname, "../client/shared/components"),
-    "@utils": path.resolve(__dirname, "../client/shared/utils"),
-  },
-});
+import { alias } from "../shared/vite-alias.ts";
+
+await createServer({ config, serviceRegistry, alias });
 ```
 
 ## Public Assets
