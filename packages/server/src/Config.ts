@@ -69,6 +69,26 @@ export type { HeadAttributes, HeadDataOf, ServiceDataHandler } from './core/conf
 // resolves from the same place users import `defineConfig`.
 export type { TaujsOptimizeDeps, TaujsViteConfig, TaujsViteContext, TaujsViteOverride } from './ViteConfig';
 
+// ESC-1 (RFC 0006): the ONE new public concept - an opaque managed compiler contribution obtained from
+// a renderer factory (`scopedPluginReact()`/`scopedPluginSolid()`) and placed in an app's `plugins`.
+export type { TaujsManagedPluginContribution } from './utils/ManagedPlugins';
+
+// ESC-1 internal contract (NON-public, unstable, versioned by the brand): the shared types the
+// first-party renderer packages implement `prepare()`/`createPlugin()` against, and the literal brand
+// type they reproduce by value. Consumers never import these; they are exported so `@taujs/react` /
+// `@taujs/solid` can type-only-import the contract without a runtime dependency on `@taujs/server`.
+export { MANAGED_CONTRIBUTION_BRAND } from './utils/ManagedPlugins';
+export type {
+  CompilerImpl,
+  EffectiveScope,
+  ManagedContributionBrand,
+  ManagedContributionShape,
+  ManagedGroupMember,
+  OwnershipMatcher,
+  PrepareInput,
+  PreparedPlan,
+} from './utils/ManagedPlugins';
+
 export { AppError } from './core/errors/AppError';
 
 export function defineConfig<const C extends TaujsConfig>(config: C): C {
