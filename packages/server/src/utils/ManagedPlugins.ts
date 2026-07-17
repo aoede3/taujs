@@ -239,6 +239,67 @@ export function effectiveScopeFor(key: string, plans: ReadonlyMap<string, Prepar
   return { include: own.claims, exclude };
 }
 
+/**
+ * The global-symbol tag a raw JSX-compiler wrapper (`pluginReact()`/`pluginSolid()`) stamps on its
+ * returned plugin OBJECTS, valued with its unscoped compiler key (`'react'`/`'solid'`). A global symbol
+ * is deliberate here: unlike the implementation-identity token it needs cross-copy DETECTION, not
+ * distinctness, and the renderers reproduce `Symbol.for(UNSCOPED_COMPILER_TAG)` by value so the wrappers
+ * stay portable to a plain Vite project (no `@taujs/server` import). The host reads it ONLY for the
+ * different-key raw/managed diagnostic (checkpoint §2 blocking-gap rule).
+ */
+export const UNSCOPED_COMPILER_TAG = 'taujs.unscoped-compiler';
+
+/** Read the unscoped-compiler key a raw wrapper stamped on a plugin object, if any. */
+export function readUnscopedCompilerTag(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const tag = (value as Record<symbol, unknown>)[Symbol.for(UNSCOPED_COMPILER_TAG)];
+  return typeof tag === 'string' ? tag : undefined;
+}
+
+/** A tagged unscoped raw compiler found in a resolved plugin chain. */
+export type TaggedRawCompiler = { key: string; name: string };
+
+/**
+ * Walk a resolved plugin chain (nested arrays included - detection only) and collect every tagged
+ * unscoped raw JSX compiler. Used per Vite environment (checkpoint §4 phase 2): with managed JSX
+ * ownership active, ANY hit is a hard configuration error, key- and name-independent.
+ */
+export function findTaggedRawCompilers(chain: ReadonlyArray<unknown> | undefined): TaggedRawCompiler[] {
+  const found: TaggedRawCompiler[] = [];
+  const walk = (entries: ReadonlyArray<unknown> | undefined): void => {
+    for (const entry of entries ?? []) {
+      if (Array.isArray(entry)) {
+        walk(entry);
+        continue;
+      }
+      const key = readUnscopedCompilerTag(entry);
+      if (key !== undefined) {
+        const name = typeof (entry as { name?: unknown }).name === 'string' ? (entry as { name: string }).name : '(anonymous)';
+        found.push({ key, name });
+      }
+    }
+  };
+  walk(chain);
+  return found;
+}
+
+/** Flatten a resolved plugin chain (nested arrays included) to the plugin objects that carry a `name`. */
+export function collectPluginNames(chain: ReadonlyArray<unknown> | undefined): string[] {
+  const names: string[] = [];
+  const walk = (entries: ReadonlyArray<unknown> | undefined): void => {
+    for (const entry of entries ?? []) {
+      if (Array.isArray(entry)) {
+        walk(entry);
+        continue;
+      }
+      const name = (entry as { name?: unknown } | null)?.name;
+      if (typeof name === 'string') names.push(name);
+    }
+  };
+  walk(chain);
+  return names;
+}
+
 /** Which declared region a resolved id falls in, from the renderer-supplied boundaries (checkpoint §5). */
 export type OwnershipRegion = 'expected-framework' | 'expected-generic' | 'outside';
 /** The severity the ownership diagnostic reports for one resolved id. */

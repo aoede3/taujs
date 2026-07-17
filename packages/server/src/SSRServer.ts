@@ -29,6 +29,7 @@ import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { registerStaticAssets } from './utils/StaticAssets';
 import { composePlugins, pluginCollisionMessage, reservedPluginMessage } from './utils/VitePlugins';
+import { assembleManagedSources, prepareOwnership } from './utils/OwnershipPrepass';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -104,8 +105,30 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         typeof devOverride === 'function' ? devOverride({ command: 'serve', mode: 'development', isSSRBuild: false, clientRoot }) : devOverride;
       const { plugins: overridePlugins, ...devOverrideFields } = resolvedDevOverride ?? {};
 
-      // RFC 0005 §5 (VS6): ONE composition rule for the shared dev server. Each app is a labelled
-      // source (dedupe by plugin name, first occurrence wins), then the `config.vite` source.
+      // ESC-1 (RFC 0006) phase 1 - GLOBAL ownership preparation over ALL apps, before the single dev
+      // Vite environment. Partitions managed compiler contributions out of each app's `plugins`, groups
+      // by key, asserts one implementation per key, and asks each renderer to prepare its scope. A
+      // no-op when no app declares a managed contribution.
+      const ownership = await prepareOwnership(
+        processedConfigs.map((c) => ({ appId: c.appId, appRoot: c.clientRoot, plugins: c.plugins })),
+        { projectRoot: opts.projectRoot ?? process.cwd(), lifecycle: 'dev' },
+      );
+      const rawOf = (appId: string) => ownership.rawByApp.get(appId) ?? [];
+
+      // ESC-1 phase 2 (dev) - the shared server instantiates EVERY active renderer once. Construct fresh
+      // managed compilers + a fresh fail-closed diagnostic, and hard-error on a tagged unscoped raw JSX
+      // compiler in the resolved chain (§2 different-key rule).
+      const managed = assembleManagedSources({
+        prepared: ownership,
+        keysToInstantiate: [...ownership.plans.keys()],
+        resolvedChain: [...processedConfigs.flatMap((c) => rawOf(c.appId)), ...(overridePlugins ? [overridePlugins] : [])],
+        env: 'dev',
+        warn: (message) => logger.warn(message),
+      });
+
+      // RFC 0005 §5 (VS6): ONE composition rule for the shared dev server. Host-owned managed sources
+      // are PREPENDED (diagnostic first within the `enforce:'pre'` tier), then each app is a labelled
+      // source of its RAW plugins (managed contributions removed), then the `config.vite` source.
       // Cross-app collisions and reserved-prefix drops are promoted from debug to WARN through the
       // shared reporter, so dev and build emit one format. `internal` is empty here: the sole dev
       // internal plugin (`τjs-development-server-debug-logging`) is appended LAST inside
@@ -113,7 +136,8 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       // same §5 contract composePlugins enforces for the reserved `internal` slot.
       const plugins = composePlugins({
         sources: [
-          ...processedConfigs.map((c) => ({ source: c.appId, plugins: c.plugins })),
+          ...managed.hostSources,
+          ...processedConfigs.map((c) => ({ source: c.appId, plugins: rawOf(c.appId) })),
           ...(overridePlugins ? [{ source: 'config.vite', plugins: overridePlugins }] : []),
         ],
         internal: [],
@@ -125,7 +149,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         logger,
         processedConfigs.map((c) => ({
           appId: c.appId,
-          plugins: (c.plugins ?? []).map((p) => (Array.isArray(p) ? `array(${p.length})` : ((p as any)?.name ?? typeof p))),
+          plugins: rawOf(c.appId).map((p) => (Array.isArray(p) ? `array(${p.length})` : ((p as any)?.name ?? typeof p))),
         })),
         plugins,
       );

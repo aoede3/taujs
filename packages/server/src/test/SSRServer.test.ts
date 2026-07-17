@@ -775,8 +775,12 @@ describe('SSRServer', () => {
       expect.objectContaining({
         internal: [],
         sources: [
+          // ESC-1: each app source now carries its RAW plugins as a concrete array (managed
+          // contributions are extracted in the pre-pass; an app with no plugins yields [] not
+          // undefined). composePlugins treats [] and undefined identically, so the composed list is
+          // unchanged - a functional no-op when no managed contribution is declared.
           { source: 'app-a', plugins: [pluginArrayOption, namedPlugin, unnamedObject, pluginFn, falsyPlugin, nullPlugin] },
-          { source: 'app-b', plugins: undefined },
+          { source: 'app-b', plugins: [] },
         ],
         onCollision: expect.any(Function),
         onReservedPrefix: expect.any(Function),

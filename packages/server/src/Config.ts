@@ -10,6 +10,7 @@ import type {
 } from './core/config/types';
 import type { CSPDirectives } from './security/CSP';
 import type { CSPViolationReport } from './security/CSPReporting';
+import type { TaujsManagedPluginContribution } from './utils/ManagedPlugins';
 import type { TaujsViteOverride } from './ViteConfig';
 
 export type SecurityConfig = CoreSecurityConfig & {
@@ -26,7 +27,11 @@ export type SecurityConfig = CoreSecurityConfig & {
 };
 
 export type AppConfig = CoreAppConfig & {
-  plugins?: PluginOption[];
+  // ESC-1 (RFC 0006): the per-app `plugins` array additionally carries opaque managed compiler
+  // contributions (`scopedPluginReact()`/`scopedPluginSolid()`) alongside ordinary Vite plugins. The
+  // host extracts the branded contributions BEFORE `composePlugins` (they never reach Vite as plugins);
+  // the Vite-free core (`core/config/types.ts` `plugins?: readonly unknown[]`) is untouched.
+  plugins?: (PluginOption | TaujsManagedPluginContribution)[];
   routes?: readonly AppRoute[];
 };
 

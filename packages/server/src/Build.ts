@@ -22,6 +22,7 @@ import { layerAlias } from './utils/ViteAlias';
 import { findFormerlyDiscoveredViteConfig, formerlyDiscoveredViteConfigWarning } from './utils/ViteConfigDiscovery';
 import { BUILD_PROFILE, composeViteConfig, getFrameworkInvariants, normalisePlugins } from './utils/ViteMergeEngine';
 import { composePlugins, pluginCollisionMessage, reservedPluginMessage } from './utils/VitePlugins';
+import { assembleManagedSources, prepareOwnership } from './utils/OwnershipPrepass';
 
 export { resolveEntryFile };
 // Re-exported from the shared merge engine (VS3): these lived here historically and stay importable
@@ -212,6 +213,16 @@ export async function taujsBuild({
   const extractedConfigs = extractBuildConfigs(config);
   const processedConfigs = processConfigs(extractedConfigs, clientBaseDir, TEMPLATE);
 
+  // ESC-1 (RFC 0006) phase 1 - GLOBAL ownership preparation over ALL apps (never the filtered
+  // `configsToBuild`), before the per-app build loop. Exclusions are computed against the global
+  // other-key claims even for a filtered build, so chain-global contributions never leak into an
+  // unrelated app's build. Classify-only: no Vite plugin is constructed here. A no-op when no app
+  // declares a managed contribution.
+  const ownership = await prepareOwnership(
+    processedConfigs.map((c) => ({ appId: c.appId, appRoot: c.clientRoot, plugins: c.plugins })),
+    { projectRoot, lifecycle: 'build' },
+  );
+
   const { selectedIds, raw: appFilterRaw } = resolveAppFilter(process.argv.slice(2), process.env);
 
   const configsToBuild = selectedIds
@@ -257,6 +268,10 @@ export async function taujsBuild({
 
   for (const appConfig of buildOrder) {
     const { appId, entryPoint, clientRoot, entryClient, entryServer, htmlTemplate, plugins = [] } = appConfig;
+
+    // ESC-1: this app's RAW plugins only (managed contributions extracted in phase 1). Managed
+    // compilers are constructed below from the global plan and prepended to the composition.
+    const rawAppPlugins = ownership.rawByApp.get(appId) ?? (plugins as PluginOption[]);
 
     const outDir = path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
     const root = entryPoint ? path.resolve(clientBaseDir, entryPoint) : clientBaseDir;
@@ -319,7 +334,7 @@ export async function taujsBuild({
           scss: { api: 'modern-compiler' },
         },
       },
-      plugins: plugins as PluginOption[],
+      plugins: rawAppPlugins,
       publicDir: isSSRBuild ? false : 'public',
       resolve: { alias: resolvedAlias },
       root,
@@ -340,7 +355,7 @@ export async function taujsBuild({
     // VS6 (RFC 0005 §5): the ordered plugin sources for THIS app's chain - app plugins, then
     // config.vite, then taujsBuild.vite. composePlugins dedupes WITHIN this one app's chain (build
     // never dedupes cross-app: per-app lists are independent) and reserves the `τjs-` prefix.
-    const pluginSources: PluginSource[] = [{ source: appId, plugins: plugins as PluginOption[] }];
+    const pluginSources: PluginSource[] = [{ source: appId, plugins: rawAppPlugins }];
 
     if (config.vite) {
       const taujsViteContext: TaujsViteContext = {
@@ -368,13 +383,26 @@ export async function taujsBuild({
 
     const finalConfig = layers.length > 0 ? composeViteConfig(frameworkConfig, layers, BUILD_PROFILE, `[taujs:build:${entryPoint}]`) : frameworkConfig;
 
+    // ESC-1 phase 2 (build) - construct FRESH managed compilers for ONLY this app's keys (build
+    // containment, §6) with exclusions computed against the GLOBAL other-key universe, plus a fresh
+    // fail-closed diagnostic; hard-error on a tagged raw JSX compiler or a name collision in THIS
+    // app's resolved chain. Host-owned sources are prepended (diagnostic first in the pre tier). A
+    // raw compiler belonging only to an unrelated, non-selected app never enters this chain.
+    const managed = assembleManagedSources({
+      prepared: ownership,
+      keysToInstantiate: ownership.keysByApp.get(appId) ?? [],
+      resolvedChain: pluginSources.flatMap((s) => (Array.isArray(s.plugins) ? s.plugins : s.plugins == null ? [] : [s.plugins])),
+      env: `build:${entryPoint}`,
+      warn: (message) => console.warn(message),
+    });
+
     // VS6 (RFC 0005 §5): composeViteConfig appends plugins naively per layer for the legacy
     // single-layer path (mergeViteConfig). The build path owns the FINAL plugin composition here -
     // one dedupe across this app's whole source chain (first occurrence wins), the `τjs-` reservation,
     // and internal plugins last (none today) - overwriting that naive concatenation. Collisions and
     // reserved-prefix drops report through the SAME reporter dev uses, so both modes emit one format.
     finalConfig.plugins = composePlugins({
-      sources: pluginSources,
+      sources: [...managed.hostSources, ...pluginSources],
       internal: [],
       onCollision: (c) => console.warn(`[taujs:build:${entryPoint}] ${pluginCollisionMessage(c)}`),
       onReservedPrefix: (d) => console.warn(`[taujs:build:${entryPoint}] ${reservedPluginMessage(d)}`),
