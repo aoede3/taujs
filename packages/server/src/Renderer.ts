@@ -37,4 +37,4 @@ export type {
 
 // The named render-options bag + render-module contract types (the runtime half) live on the package root
 // (`@taujs/server`) alongside RenderModule/RenderSSR/RenderStream; re-exported here for renderer authors.
-export type { RenderModule, RenderSSR, RenderStream, RenderStreamHandle, RendererLogger } from './types';
+export type { RenderModule, RenderOptions, RenderSSR, RenderStream, RenderStreamHandle, RendererLogger } from './types';

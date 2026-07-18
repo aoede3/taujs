@@ -187,7 +187,7 @@ describe('createRenderer.renderStream — bootstrap & hydration (F3)', () => {
   it('emits the module bootstrap tag once, before end(), with nonce', async () => {
     const writable = new Collector();
 
-    makeRenderer().renderStream(writable as any, {}, {} as any, '/', '/entry-client.js', {}, 'nonce-123');
+    makeRenderer().renderStream(writable as any, {}, {} as any, '/', '/entry-client.js', {}, undefined, { cspNonce: 'nonce-123' });
 
     const sink = getSink();
     sink.push('<div id="app"></div>');
@@ -218,7 +218,7 @@ describe('createRenderer.renderStream — bootstrap & hydration (F3)', () => {
   it('escapes the bootstrap src and nonce attributes (SEC2, R2-03)', async () => {
     const writable = new Collector();
 
-    makeRenderer().renderStream(writable as any, {}, {} as any, '/', '/x.js" onmouseover="alert(1)', {}, 'n"once');
+    makeRenderer().renderStream(writable as any, {}, {} as any, '/', '/x.js" onmouseover="alert(1)', {}, undefined, { cspNonce: 'n"once' });
 
     const sink = getSink();
     sink.push('<div id="app"></div>');
@@ -248,7 +248,7 @@ describe('createRenderer.renderStream — bootstrap & hydration (F3)', () => {
   it('never writes the __INITIAL_DATA__ script (the server owns that)', () => {
     const writable = new Collector();
 
-    makeRenderer().renderStream(writable as any, {}, { title: 'T' } as any, '/', '/entry-client.js', {}, 'n');
+    makeRenderer().renderStream(writable as any, {}, { title: 'T' } as any, '/', '/entry-client.js', {}, undefined, { cspNonce: 'n' });
 
     const sink = getSink();
     sink.push('<div/>');
@@ -320,7 +320,6 @@ describe('createRenderer.renderStream — shell semantics (F5)', () => {
       '/override',
       undefined,
       {},
-      undefined,
       undefined,
       { shellTimeoutMs: 25 },
     );
@@ -435,7 +434,6 @@ describe('createRenderer.renderStream — completion & data delivery', () => {
       '/reentrant',
       undefined,
       {},
-      undefined,
       ac.signal,
     );
 
@@ -533,7 +531,7 @@ describe('createRenderer.renderStream — error & abort paths', () => {
     const ac = new AbortController();
     ac.abort();
 
-    const r = makeRenderer().renderStream(writable as any, {}, {} as any, '/pre-abort', undefined, {}, undefined, ac.signal);
+    const r = makeRenderer().renderStream(writable as any, {}, {} as any, '/pre-abort', undefined, {}, ac.signal);
 
     expect(SR.renderToSimpleStream).not.toHaveBeenCalled();
     await expect(r.done).resolves.toBeUndefined();
@@ -544,7 +542,7 @@ describe('createRenderer.renderStream — error & abort paths', () => {
     const writable = new Collector();
     const ac = new AbortController();
 
-    const { done } = makeRenderer().renderStream(writable as any, {}, {} as any, '/mid-abort', undefined, {}, undefined, ac.signal);
+    const { done } = makeRenderer().renderStream(writable as any, {}, {} as any, '/mid-abort', undefined, {}, ac.signal);
 
     expect(SR.renderToSimpleStream).toHaveBeenCalledTimes(1);
     ac.abort();

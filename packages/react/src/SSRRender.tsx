@@ -121,6 +121,10 @@ type StreamCallOptions<R> = StreamOptions & {
   // RFC 0004 (H2): BROAD at the contract boundary (the host cannot know `H`); narrowed to `H` at
   // the single seam where `headContent` is invoked — the same trust model as the body data.
   headData?: Record<string, unknown>;
+  // ESC-2: cspNonce is now delivered via opts (authoritative, replacing the removed positional arg);
+  // shouldHydrate is the host-resolved hydration policy. Keeps this in step with the host RenderOptions.
+  cspNonce?: string;
+  shouldHydrate?: boolean;
 };
 
 const NOOP = () => {};
@@ -301,10 +305,11 @@ export function createRenderer<
     location: string,
     bootstrapModules?: string,
     meta: Record<string, unknown> = {},
-    cspNonce?: string,
     signal?: AbortSignal,
     opts?: StreamCallOptions<R>, // per-call override
   ) => {
+    // ESC-2: cspNonce arrives via opts (authoritative), no longer a positional argument.
+    const cspNonce = opts?.cspNonce;
     const cb = {
       onHead: callbacks.onHead ?? NOOP,
       onShellReady: callbacks.onShellReady ?? NOOP,

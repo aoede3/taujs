@@ -1031,7 +1031,8 @@ describe('handleRender', () => {
       expect(mockRenderStream).toHaveBeenCalled();
 
       const call = mockRenderStream.mock.calls[0] as any[];
-      const options = call[8];
+      // ESC-2: positional cspNonce removed, so opts shifted from index 8 to 7.
+      const options = call[7];
 
       expect(options).toEqual(
         expect.objectContaining({
@@ -3105,7 +3106,7 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(renderStream).toHaveBeenCalledTimes(1);
-      const opts = (renderStream as Mock).mock.calls[0]![8];
+      const opts = (renderStream as Mock).mock.calls[0]![7];
       expect(opts).toEqual(expect.objectContaining({ headData: { t: 1 } }));
     });
 
@@ -3140,7 +3141,7 @@ describe('handleRender', () => {
         'Head data degraded; rendering with headData undefined',
       );
       expect(renderStream).toHaveBeenCalledTimes(1);
-      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![8], 'headData')).toBe(false);
+      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![7], 'headData')).toBe(false);
     });
 
     it('streaming: head.optional degrades an ordinary rejection and the stream still starts', async () => {
@@ -3159,7 +3160,7 @@ describe('handleRender', () => {
         'Head data degraded; rendering with headData undefined',
       );
       expect(renderStream).toHaveBeenCalledTimes(1);
-      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![8], 'headData')).toBe(false);
+      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![7], 'headData')).toBe(false);
       expect(mockReply.raw.writeHead).not.toHaveBeenCalledWith(500, expect.anything());
     });
 
@@ -3173,7 +3174,7 @@ describe('handleRender', () => {
 
       expect(DataRoutes.fetchHeadData).not.toHaveBeenCalled();
       expect(renderStream).toHaveBeenCalledTimes(1);
-      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![8], 'headData')).toBe(false);
+      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![7], 'headData')).toBe(false);
     });
 
     it('streaming: a THROWING host logger cannot skip the hijacked-socket teardown on head failure (belted telemetry)', async () => {

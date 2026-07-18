@@ -77,7 +77,8 @@ async function driveLikeServer<T extends Record<string, unknown>>(
     '/streaming',
     bootstrapModule,
     {},
-    cspNonce,
+    undefined,
+    { cspNonce },
   );
 
   // Server: on writable finish, append the data script + template tail, then end.
@@ -379,7 +380,6 @@ describe('RFC 0004 (H6): headData reaches the single pre-render head build', () 
       undefined,
       {},
       undefined,
-      undefined,
       { headData: { ogTitle: 'Dynamic OG' } },
     );
     await done;
@@ -482,7 +482,6 @@ describe('renderStream — server-join regressions (gate review R2-03/R2-04)', (
       '/server-join',
       '/entry-client.js',
       {},
-      undefined,
       ac.signal, // HandleRender.ts:541 — the signal the production onError aborts re-entrantly
     );
 

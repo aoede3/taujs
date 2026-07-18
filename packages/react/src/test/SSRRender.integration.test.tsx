@@ -161,7 +161,7 @@ describe('R1-01 integration (real react-dom/server)', () => {
     // With headData: the host-resolved payload is visible in the PRE-SHELL head bytes.
     {
       const { writable } = driveServerSide();
-      const { done } = make().renderStream(writable, { onHead: (h) => heads.push(h) }, { value: 1 }, '/with-head', undefined, {}, undefined, undefined, {
+      const { done } = make().renderStream(writable, { onHead: (h) => heads.push(h) }, { value: 1 }, '/with-head', undefined, {}, undefined, {
         headData: { ogTitle: 'Dynamic OG' },
       });
       await done.catch(() => {});
@@ -385,7 +385,6 @@ describe('R1-01 integration (real react-dom/server)', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       { dataTimeoutMs: 60 }, // small → the end-gate must fail deterministically
     );
 
@@ -408,7 +407,6 @@ describe('R1-01 integration (real react-dom/server)', () => {
       { onHead: () => {} },
       () => Promise.reject(boom),
       '/store-error',
-      undefined,
       undefined,
       undefined,
       undefined,
@@ -468,7 +466,6 @@ describe('R1-01 integration (real react-dom/server)', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       { dataTimeoutMs: 80 },
     );
 
@@ -501,7 +498,6 @@ describe('R1-01 integration (real react-dom/server)', () => {
       { onHead: () => {}, onError },
       { value: 1 },
       '/reentrant-abort',
-      undefined,
       undefined,
       undefined,
       ac.signal, // the signal onError will abort re-entrantly
@@ -537,7 +533,6 @@ describe('R1-01 integration (real react-dom/server)', () => {
       { onHead: () => {}, onError, onAllReady },
       () => new Promise<Data>(() => {}), // never settles → deadline armed at shell commit
       '/emit-close-false',
-      undefined,
       undefined,
       undefined,
       undefined,
@@ -578,7 +573,6 @@ describe('R1-01 integration (real react-dom/server)', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       { dataTimeoutMs: 5_000 }, // long — the test aborts long before it could fire
     );
 
@@ -605,7 +599,6 @@ describe('R1-01 integration (real react-dom/server)', () => {
       { onHead: () => {}, onError },
       () => Promise.resolve(undefined as unknown as Data),
       '/undefined-data',
-      undefined,
       undefined,
       undefined,
       undefined,

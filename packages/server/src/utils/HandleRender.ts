@@ -573,15 +573,15 @@ export const handleRender = async (
             // introspection-owned, conventions #3). Never fails the response.
             //
             // Log at `warn`, not `error`: this channel is advisory by contract. Only `post-shell`
-            // errors are provably recoverable (React retries the boundary client-side); a
-            // `pre-shell` error's fatality is resolved by the SEPARATE fatal channel
+            // errors are provably recoverable (the renderer's client runtime completes the affected
+            // boundary); a `pre-shell` error's fatality is resolved by the SEPARATE fatal channel
             // (`onError`/`onShellError`), which logs the real failure at `error` if it fails the
             // response. Keying the message on `recoverable` avoids claiming "Recoverable" for a
             // pre-shell error that then turns fatal (which previously double-logged at `error` with
-            // contradictory framing).
+            // contradictory framing). ESC-2: framework-neutral wording (the host is multi-renderer).
             const message =
               info.recoverable === true
-                ? 'Recoverable render error (React retries the affected boundary client-side)'
+                ? 'Recoverable render error (the client runtime completes the affected boundary)'
                 : 'Render error observed (pre-shell); response outcome resolved by the fatal channel';
             reqLogger.warn({ error: safeNormaliseError(info.error), phase: info.phase, recoverable: info.recoverable, clientRoot, url: req.url }, message);
           },
@@ -643,12 +643,20 @@ export const handleRender = async (
         },
         initialDataInput,
         req.url!,
+        // The bootstrapModules gate stays the operative hydration mechanism; the host keeps it consistent
+        // with the same `shouldHydrate` it now also passes explicitly in opts (one host-side source).
         shouldHydrate ? bootstrapModule : undefined,
         attr?.meta,
-        cspNonce,
         ac.signal,
-        // RFC 0004: conditional inclusion - see the renderSSR call site.
-        { logger: reqLogger, routeContext, ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}) },
+        // ESC-2: cspNonce is now opts-authoritative (was a positional argument); shouldHydrate is the
+        // host-resolved policy. RFC 0004: headData conditional inclusion - see the renderSSR call site.
+        {
+          logger: reqLogger,
+          routeContext,
+          ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}),
+          ...(cspNonce ? { cspNonce } : {}),
+          shouldHydrate,
+        },
       );
 
       // R0-01: observe the stream handle's `done`. Fatal stream errors are already fully handled
