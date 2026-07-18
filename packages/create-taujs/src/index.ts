@@ -399,9 +399,13 @@ function generateServerTsConfig() {
 }
 
 function generateTaujsConfig(framework: Framework) {
-  const pluginImport = framework === 'vue' ? `\nimport { pluginVue } from '@taujs/vue/plugin';` : '';
-  const pluginsLine = framework === 'vue' ? `\n      plugins: [pluginVue()],` : '';
-  return `import { defineConfig } from '@taujs/server/config';${pluginImport}
+  // Renderer v1: every app declares a REQUIRED singular `renderer:`. Vue supplies its compiler internally
+  // (no plugins entry); React declares its ownership tsconfig `project` (the root tsconfig covers src/**).
+  const rendererImport =
+    framework === 'vue' ? `\nimport { vueRenderer } from '@taujs/vue/renderer';` : `\nimport { reactRenderer } from '@taujs/react/renderer';`;
+  const rendererLine =
+    framework === 'vue' ? `\n      renderer: vueRenderer(),` : `\n      renderer: reactRenderer({ project: './tsconfig.json' }),`;
+  return `import { defineConfig } from '@taujs/server/config';${rendererImport}
 
 export default defineConfig({
   server: {
@@ -418,7 +422,7 @@ export default defineConfig({
   apps: [
     {
       appId: 'main',
-      entryPoint: '',${pluginsLine}
+      entryPoint: '',${rendererLine}
       routes: [
         {
           path: '/',

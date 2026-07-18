@@ -64,9 +64,11 @@ describe('planFiles — Vue template', () => {
     }
   });
 
-  it('taujs.config wires pluginVue from @taujs/vue/plugin', () => {
-    expect(vue['taujs.config.ts']).toContain("import { pluginVue } from '@taujs/vue/plugin';");
-    expect(vue['taujs.config.ts']).toContain('plugins: [pluginVue()],');
+  it('taujs.config declares renderer: vueRenderer() (not a raw pluginVue in plugins)', () => {
+    expect(vue['taujs.config.ts']).toContain("import { vueRenderer } from '@taujs/vue/renderer';");
+    expect(vue['taujs.config.ts']).toContain('renderer: vueRenderer(),');
+    // vueRenderer supplies pluginVue internally - no raw pluginVue in the scaffolded config.
+    expect(vue['taujs.config.ts']).not.toContain('pluginVue');
   });
 
   it('package.json swaps React deps for Vue, adds vue-tsc, and externals @taujs/vue', () => {

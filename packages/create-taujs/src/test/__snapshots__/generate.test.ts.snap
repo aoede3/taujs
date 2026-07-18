@@ -599,6 +599,7 @@ export type ServiceRegistry = typeof serviceRegistry;
 }
 ",
   "taujs.config.ts": "import { defineConfig } from '@taujs/server/config';
+import { reactRenderer } from '@taujs/react/renderer';
 
 export default defineConfig({
   server: {
@@ -616,6 +617,7 @@ export default defineConfig({
     {
       appId: 'main',
       entryPoint: '',
+      renderer: reactRenderer({ project: './tsconfig.json' }),
       routes: [
         {
           path: '/',
