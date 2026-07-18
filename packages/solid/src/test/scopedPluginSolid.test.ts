@@ -61,3 +61,25 @@ describe('solidCompilerImpl.prepare (end-to-end ownership)', () => {
     expect((built as Record<symbol, unknown>)?.[UNSCOPED]).toBeUndefined();
   });
 });
+
+describe('ESC-1 matrix coverage (Solid)', () => {
+  const member = (name: string): ManagedGroupMember => ({ contribution: asShape(scopedPluginSolid({ project: name })), appId: name, appRoot: fixturesDir });
+
+  it('case 1 - two same-key Solid apps at different roots union their claims', async () => {
+    const group = [member('tsconfig.owned.json'), member('tsconfig.owned2.json')];
+    const plan = await group[0]!.contribution.impl.prepare(group, { projectRoot: fixturesDir, lifecycle: 'build' });
+    expect(plan.claims).toContain(toFwd(path.join(fixturesDir, 'app/**/*.tsx')));
+    expect(plan.claims).toContain(toFwd(path.join(fixturesDir, 'app2/**/*.tsx')));
+  });
+
+  it('case 18 - the built plugin bundle carries NO runtime @taujs/server import (raw pluginSolid stays portable)', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const dist = fileURLToPath(new URL('../../dist/plugin.js', import.meta.url));
+    const code = await readFile(dist, 'utf8').catch(() => {
+      throw new Error(`dist/plugin.js missing at ${dist} - run \`pnpm build\` first (CI builds before tests)`);
+    });
+    expect(code).not.toMatch(/from ['"]@taujs\/server/);
+    expect(code).not.toMatch(/require\(['"]@taujs\/server/);
+    expect(code).toMatch(/vite-plugin-solid/); // the raw wrapper's real, portable dependency
+  });
+});
