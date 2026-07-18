@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 
+import { MANAGED_CONTRIBUTION_BRAND } from '@taujs/server/config';
 import { scopedPluginReact } from '@taujs/react/plugin';
 import { scopedPluginSolid } from '@taujs/solid/plugin';
 import { build, createFilter } from 'vite';
@@ -97,6 +98,11 @@ async function buildScoped(): Promise<{ reactOut: string; solidOut: string }> {
 }
 
 describe('ESC-1 composition (real Vite build)', () => {
+  it('cross-package brand literal matches the host (dependency-free marker stays in sync)', () => {
+    expect(asShape(scopedPluginReact({ project: 'tsconfig.react.json' })).brand).toBe(MANAGED_CONTRIBUTION_BRAND);
+    expect(asShape(scopedPluginSolid({ project: 'tsconfig.solid.json' })).brand).toBe(MANAGED_CONTRIBUTION_BRAND);
+  });
+
   it('cases 3 + 12 - React and Solid compile together with no cross-framework contamination', async () => {
     const { reactOut, solidOut } = await buildScoped();
 

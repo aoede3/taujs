@@ -1,12 +1,16 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { MANAGED_CONTRIBUTION_BRAND } from '@taujs/server/config';
 import { describe, expect, it } from 'vitest';
 
 import { pluginSolid, scopedPluginSolid } from '../plugin.js';
 
 import type { ManagedContributionShape, ManagedGroupMember } from '@taujs/server/config';
+
+// The brand LITERAL (asserted by value, not imported at runtime): @taujs/solid must not runtime-depend
+// on @taujs/server. Compile-time equality with the host is enforced by the ManagedContributionBrand
+// type in plugin.ts; the cross-package literal match is checked in fixtures/esc1-composition.
+const MANAGED_CONTRIBUTION_BRAND = 'taujs.managed-plugin-contribution/v1';
 
 const fixturesDir = path.dirname(fileURLToPath(new URL('../compiler/test/fixtures/tsconfig.owned.json', import.meta.url)));
 const UNSCOPED = Symbol.for('taujs.unscoped-compiler');
