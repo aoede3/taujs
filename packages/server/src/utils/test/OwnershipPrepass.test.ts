@@ -146,6 +146,32 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
     expect(error.mock.calls[0]![0]).toMatch(/owned by NO compiler/);
   });
 
+  it('subtracts the project exclude from ownership: a deliberately excluded file is neither owned nor flagged', () => {
+    // solid claims all of /solid, but deliberately excludes /solid/legacy; the boundary covers /solid.
+    const excludePlans = new Map<string, PreparedPlan>([
+      ['solid', { key: 'solid', claims: [SOLID], boundaries: [SOLID], exclude: [/\/solid\/legacy\//], createPlugin: () => undefined }],
+    ]);
+    const diag = createOwnershipDiagnostic(excludePlans, 'dev', vi.fn());
+    // an excluded file is OUTSIDE the boundary too -> ignored, not a zero-owner error
+    expect(drive(diag, '/repo/solid/legacy/Old.tsx').error).not.toHaveBeenCalled();
+    // a normal owned file is still fine
+    expect(drive(diag, '/repo/solid/App.tsx').error).not.toHaveBeenCalled();
+  });
+
+  it('still flags a genuine gap (in the boundary, not excluded, unclaimed) after exclude subtraction', () => {
+    const gapPlans = new Map<string, PreparedPlan>([
+      // claims only /solid/src; boundary covers all of /solid; excludes /solid/legacy
+      ['solid', { key: 'solid', claims: [/\/solid\/src\/.*\.tsx$/], boundaries: [SOLID], exclude: [/\/solid\/legacy\//], createPlugin: () => undefined }],
+    ]);
+    const diag = createOwnershipDiagnostic(gapPlans, 'dev', vi.fn());
+    // deliberately excluded -> ignored
+    expect(drive(diag, '/repo/solid/legacy/Old.tsx').error).not.toHaveBeenCalled();
+    // in boundary, not excluded, unclaimed -> hard error
+    const { error } = drive(diag, '/repo/solid/Orphan.tsx');
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]![0]).toMatch(/owned by NO compiler/);
+  });
+
   it('passes a singly-owned file and ignores files outside every boundary', () => {
     const diag = createOwnershipDiagnostic(plans, 'dev', vi.fn());
     expect(drive(diag, '/repo/react/App.tsx').error).not.toHaveBeenCalled();

@@ -68,17 +68,30 @@ export type PreparedPlan = {
   /** The diagnostic key this plan owns (`'react'`/`'solid'`). */
   key: string;
   /**
-   * The final positive ownership set for this key: the tsconfig project's `include` minus `exclude`
-   * (resolving `references`/`extends`) plus the exact node_modules package-directory matchers, compiled
-   * to `createFilter`-compatible patterns. Same-key union across apps = array union.
+   * The positive ownership set for this key: the tsconfig project's `include` globs (resolving
+   * `references`/`extends`) plus the exact node_modules package-directory matchers, compiled to
+   * `createFilter`-compatible patterns. Same-key union across apps = array union. The project's own
+   * `exclude` is carried separately in {@link PreparedPlan.exclude} and subtracted by the host when it
+   * evaluates ownership (a positive matcher list cannot encode subtraction).
    */
   claims: OwnershipMatcher[];
   /**
-   * Renderer-SUPPLIED expected-owner boundary matchers (checkpoint §3/§5). The host evaluates these; it
-   * never derives tsconfig boundaries itself. "Expected boundary" is NOT the whole app root - deliberate
-   * exclusions (fixtures, generated files) must not be reported as zero-owner errors.
+   * Renderer-SUPPLIED expected-owner boundary matchers (checkpoint §3/§5) - the region a JSX/TSX file
+   * SHOULD be owned in (broader than `claims`, so a file in the boundary that no compiler claims is a
+   * zero-owner gap). The host evaluates these; it never derives tsconfig boundaries itself. "Expected
+   * boundary" is NOT the whole app root: {@link PreparedPlan.exclude} is subtracted here too, so a
+   * deliberately excluded file (fixtures, generated files) falls OUTSIDE the boundary and is not
+   * reported as a zero-owner error.
    */
   boundaries: OwnershipMatcher[];
+  /**
+   * Renderer-SUPPLIED negative matchers = the tsconfig project's own `exclude` (checkpoint §3: "the
+   * tsconfig's own exclude is already folded into the claims"). The host subtracts these from BOTH
+   * `claims` and `boundaries` when evaluating ownership/region - a file the project deliberately
+   * excludes is neither owned nor flagged. Cross-key exclusion (the effective-scope algebra) uses the
+   * OTHER keys' `claims` only; the renderer folds its own `exclude` into the compiler it constructs.
+   */
+  exclude?: OwnershipMatcher[];
   /**
    * Constructs a FRESH real Vite plugin for the given effective scope. Called afresh per `vite.build()`
    * invocation and once per active renderer in dev - constructed plugins may carry lifecycle state and

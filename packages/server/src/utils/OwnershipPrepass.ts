@@ -181,9 +181,12 @@ export function createOwnershipDiagnostic(plans: ReadonlyMap<string, PreparedPla
   const claimsFilter = new Map<string, (id: string) => boolean>();
   const boundaryFilter = new Map<string, (id: string) => boolean>();
   for (const [key, plan] of plans) {
-    // createFilter([]) matches everything - guard so an empty set owns nothing.
-    claimsFilter.set(key, plan.claims.length ? createFilter(plan.claims) : () => false);
-    boundaryFilter.set(key, plan.boundaries.length ? createFilter(plan.boundaries) : () => false);
+    // The project's own exclude is subtracted from BOTH claims and boundaries (checkpoint §3), so a
+    // deliberately excluded file is neither owned nor flagged. createFilter([]) matches everything -
+    // guard so an empty include set owns nothing.
+    const exclude = plan.exclude && plan.exclude.length ? plan.exclude : undefined;
+    claimsFilter.set(key, plan.claims.length ? createFilter(plan.claims, exclude) : () => false);
+    boundaryFilter.set(key, plan.boundaries.length ? createFilter(plan.boundaries, exclude) : () => false);
   }
   const seen = new Set<string>();
 
