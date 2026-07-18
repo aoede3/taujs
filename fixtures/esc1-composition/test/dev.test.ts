@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import os from 'node:os';
 import path from 'node:path';
 
-import { scopedPluginReact } from '@taujs/react/plugin';
-import { scopedPluginSolid } from '@taujs/solid/plugin';
+import { reactRenderer } from '@taujs/react/renderer';
+import { solidRenderer } from '@taujs/solid/renderer';
 import { createServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -13,7 +13,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // @taujs/server's public API - the alias exists only while the repo's own fixtures run.
 import { assembleDevPluginChain } from '@taujs/server-internal/ownership';
 
-import type { ManagedContributionShape } from '@taujs/server/config';
 import type { Plugin, ViteDevServer } from 'vite';
 
 /**
@@ -29,7 +28,6 @@ import type { Plugin, ViteDevServer } from 'vite';
  * invalidation/re-transform path.
  */
 
-const asShape = (contribution: unknown) => contribution as unknown as ManagedContributionShape;
 const REACT_MARK = /react\/jsx|jsxDEV|_jsx/;
 const SOLID_MARK = /solid-js\/web|_tmpl\$|createComponent/;
 
@@ -59,16 +57,16 @@ beforeAll(async () => {
   writeFileSync(path.join(root, 'src-react', 'App.tsx'), 'export default function App() {\n  return <div className="r">react</div>;\n}\n');
   writeFileSync(path.join(root, 'src-solid', 'App.tsx'), solidApp('solid-original'));
 
-  const reactC = asShape(scopedPluginReact({ project: 'tsconfig.react.json' }));
-  const solidC = asShape(scopedPluginSolid({ project: 'tsconfig.solid.json' }));
+  const reactC = reactRenderer({ project: 'tsconfig.react.json' });
+  const solidC = solidRenderer({ project: 'tsconfig.solid.json' });
 
   // --- THE REAL taujs DEV COMPOSITION - the SAME assembleDevPluginChain SSRServer's dev branch runs, so
   // the fixture cannot drift from the host's §5 source ordering (host managed sources -> app raw sources
   // -> config.vite). No prepareOwnership/assembleManagedSources/composePlugins order is re-stated here. ---
   const { plugins } = await assembleDevPluginChain({
     apps: [
-      { appId: 'web', appRoot: path.join(root, 'src-react'), plugins: [reactC] },
-      { appId: 'admin', appRoot: path.join(root, 'src-solid'), plugins: [solidC] },
+      { appId: 'web', appRoot: path.join(root, 'src-react'), plugins: [], renderer: reactC },
+      { appId: 'admin', appRoot: path.join(root, 'src-solid'), plugins: [], renderer: solidC },
     ],
     projectRoot: root,
   });

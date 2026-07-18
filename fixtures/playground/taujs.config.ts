@@ -1,4 +1,5 @@
 import { defineConfig } from '@taujs/server/config';
+import { reactRenderer } from '@taujs/react/renderer';
 
 import { serviceData } from './src/server/services/registry.ts';
 
@@ -15,6 +16,8 @@ export default defineConfig({
     {
       appId: 'playground',
       entryPoint: '',
+      // React app: the client (src/client/**) compiles under the root tsconfig.json (jsx: react-jsx).
+      renderer: reactRenderer({ project: './tsconfig.json' }),
       routes: [
         {
           path: '/',

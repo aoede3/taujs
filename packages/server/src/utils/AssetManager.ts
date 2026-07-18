@@ -7,6 +7,7 @@ import { AppError } from '../core/errors/AppError';
 import { resolveLogs } from '../core/logging/resolve';
 import { isDevelopment } from '../System';
 import { resolveEntryFile } from './Entry';
+import { assertRenderContract, declaredContractOf, isRendererContribution } from './RendererContract';
 import { getCssLinks, renderPreloadLinks } from './Templates';
 
 import type { Logs } from '../core/logging/types';
@@ -140,17 +141,31 @@ export const loadAssets = async (
       preloadLinks.set(clientRoot, renderPreloadLinks(ssrManifest, adjustedRelativePath));
       cssLinks.set(clientRoot, getCssLinks(manifest, adjustedRelativePath));
 
-      const renderModulePath = path.join(ssrDistPath, `${entryServer}.js`);
-      const moduleUrl = pathToFileURL(renderModulePath).href;
+      // Renderer v1: a compiler-only renderer (e.g. solidRenderer() - the Solid render module lands
+      // post-GATE) declares expectsModule:false and ships NO render module; skip loading/validating one.
+      const contribution = isRendererContribution(config.renderer) ? config.renderer : undefined;
+      if (!contribution || contribution.expectsModule) {
+        const renderModulePath = path.join(ssrDistPath, `${entryServer}.js`);
+        const moduleUrl = pathToFileURL(renderModulePath).href;
 
-      try {
-        const importedModule = await import(moduleUrl);
+        let importedModule: unknown;
+        try {
+          importedModule = await import(moduleUrl);
+        } catch (err) {
+          throw AppError.internal(`Failed to load render module ${renderModulePath}`, {
+            cause: err,
+            details: { moduleUrl, clientRoot, entryServer, ssrDistPath },
+          });
+        }
+
+        // Validate the render-module identity against the app's renderer declaration BEFORE storing it
+        // (outside the import try so the migration message is not masked by "Failed to load render
+        // module"). Fails boot fail-closed: the outer catch rethrows in production. Apps with no renderer
+        // contribution load unvalidated (pre-renderer behaviour).
+        if (contribution) {
+          assertRenderContract(importedModule, declaredContractOf(contribution), { phase: 'prod-boot', appId: config.appId, clientRoot });
+        }
         renderModules.set(clientRoot, importedModule as RenderModule);
-      } catch (err) {
-        throw AppError.internal(`Failed to load render module ${renderModulePath}`, {
-          cause: err,
-          details: { moduleUrl, clientRoot, entryServer, ssrDistPath },
-        });
       }
     } catch (err) {
       logAssetError(logger, isDevelopment ? 'loadAssets:development' : 'loadAssets:production', err);

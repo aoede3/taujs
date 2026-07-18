@@ -1,7 +1,7 @@
 import { assertNoExclusionConflicts, dedupeMatchers, deriveBoundaries, mergeCompilerOptions, parseTsconfigProject, resolveProjectPath } from './tsconfigOwnership.js';
 
 import type { OwnershipMatcher, ProjectOwnership } from './tsconfigOwnership.js';
-import type { ManagedGroupMember, PrepareInput } from '@taujs/server/config';
+import type { ManagedGroupMember, PrepareInput } from '@taujs/server/renderer';
 
 /**
  * ESC-1 - React ownership computation (RFC 0006). Turns a same-key group of `scopedPluginReact()`

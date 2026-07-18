@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { MANAGED_CONTRIBUTION_BRAND, UNSCOPED_COMPILER_TAG } from '../ManagedPlugins';
 import { assembleManagedSources, createOwnershipDiagnostic, prepareOwnership } from '../OwnershipPrepass';
+import { rendererFromManaged } from '../../test/support/renderer';
 
 import type { CompilerImpl, ManagedContributionShape, PreparedPlan } from '../ManagedPlugins';
 import type { PreparedOwnership } from '../OwnershipPrepass';
@@ -27,7 +28,7 @@ const contribution = (key: string, impl: CompilerImpl, project = `./tsconfig.${k
   options: {},
 });
 
-const app = (appId: string, plugins: unknown[] | undefined) => ({ appId, appRoot: `/repo/${appId}`, plugins });
+const app = (appId: string, plugins: unknown[] | undefined, renderer?: unknown) => ({ appId, appRoot: `/repo/${appId}`, plugins, renderer });
 
 const INPUT = { projectRoot: '/repo', lifecycle: 'dev' as const };
 
@@ -51,7 +52,7 @@ describe('prepareOwnership (phase 1)', () => {
   it('extracts managed contributions, leaving only raw plugins per app', async () => {
     const solid = makeImpl('solid');
     const rawPlugin = { name: 'y' };
-    const prepared = await prepareOwnership([app('admin', [rawPlugin, contribution('solid', solid)])], INPUT);
+    const prepared = await prepareOwnership([app('admin', [rawPlugin], rendererFromManaged(contribution('solid', solid)))], INPUT);
     expect(prepared.active).toBe(true);
     expect(prepared.rawByApp.get('admin')).toEqual([rawPlugin]);
     expect(prepared.keysByApp.get('admin')).toEqual(['solid']);
@@ -60,7 +61,7 @@ describe('prepareOwnership (phase 1)', () => {
 
   it('prepares each same-key group ONCE with the whole group (union across apps)', async () => {
     const solid = makeImpl('solid');
-    await prepareOwnership([app('a', [contribution('solid', solid)]), app('b', [contribution('solid', solid)])], INPUT);
+    await prepareOwnership([app('a', [], rendererFromManaged(contribution('solid', solid))), app('b', [], rendererFromManaged(contribution('solid', solid)))], INPUT);
     expect(solid.prepare).toHaveBeenCalledTimes(1);
     const group = (solid.prepare as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(group).toHaveLength(2);
@@ -68,9 +69,12 @@ describe('prepareOwnership (phase 1)', () => {
   });
 
   it('HARD errors on two distinct implementations claiming one key (safeguard 1)', async () => {
-    await expect(prepareOwnership([app('a', [contribution('solid', makeImpl('solid'))]), app('b', [contribution('solid', makeImpl('solid'))])], INPUT)).rejects.toThrow(
-      /claimed by 2 different renderer implementations/,
-    );
+    await expect(
+      prepareOwnership(
+        [app('a', [], rendererFromManaged(contribution('solid', makeImpl('solid')))), app('b', [], rendererFromManaged(contribution('solid', makeImpl('solid'))))],
+        INPUT,
+      ),
+    ).rejects.toThrow(/claimed by 2 different renderer implementations/);
   });
 
   it('HARD errors on a branded contribution nested inside a sub-array', async () => {
@@ -89,14 +93,17 @@ describe('assembleManagedSources (phase 2)', () => {
 
   it('installs the diagnostic even with ZERO instantiated keys when ownership is active (filtered build fail-closed, finding 1)', async () => {
     // another app declares managed ownership, but THIS environment instantiates nothing
-    const prepared = await prepareSync([app('admin', [contribution('solid', makeImpl('solid'))])]);
+    const prepared = await prepareSync([app('admin', [], rendererFromManaged(contribution('solid', makeImpl('solid'))))]);
     const { hostSources } = assembleManagedSources({ prepared, keysToInstantiate: [], resolvedChain: [], env: 'build:web' });
     expect(hostSources).toHaveLength(1);
     expect(hostSources[0]!.source).toBe('taujs:ownership-diagnostic');
   });
 
   it('prepends the diagnostic FIRST, then the managed compilers (constructed for keysToInstantiate only)', async () => {
-    const prepared = await prepareSync([app('web', [contribution('react', makeImpl('react'))]), app('admin', [contribution('solid', makeImpl('solid'))])]);
+    const prepared = await prepareSync([
+      app('web', [], rendererFromManaged(contribution('react', makeImpl('react')))),
+      app('admin', [], rendererFromManaged(contribution('solid', makeImpl('solid')))),
+    ]);
     const { hostSources } = assembleManagedSources({ prepared, keysToInstantiate: ['react'], resolvedChain: [], env: 'build:web' });
     expect(hostSources[0]!.source).toBe('taujs:ownership-diagnostic');
     expect(hostSources[1]!.source).toBe('taujs:managed-compilers');
@@ -106,15 +113,15 @@ describe('assembleManagedSources (phase 2)', () => {
     expect(hostSources[1]!.plugins).toEqual([{ name: 'react:compiler' }]);
   });
 
-  it('HARD errors on a tagged unscoped raw JSX compiler alongside managed ownership, directing to the scoped equivalent', async () => {
-    const prepared = await prepareSync([app('admin', [contribution('solid', makeImpl('solid'))])]);
+  it('HARD errors on a tagged unscoped raw JSX compiler alongside managed ownership, directing to the renderer field', async () => {
+    const prepared = await prepareSync([app('admin', [], rendererFromManaged(contribution('solid', makeImpl('solid'))))]);
     expect(() =>
       assembleManagedSources({ prepared, keysToInstantiate: ['solid'], resolvedChain: [taggedRawCompiler('react', 'vite:react-babel')], env: 'dev' }),
-    ).toThrow(/scopedPluginReact\(\)/);
+    ).toThrow(/reactRenderer\(\)/);
   });
 
   it('HARD errors on a raw plugin whose NAME collides with a managed compiler (secondary net)', async () => {
-    const prepared = await prepareSync([app('web', [contribution('react', makeImpl('react', { createPlugin: () => ({ name: 'vite:react-babel' }) }))])]);
+    const prepared = await prepareSync([app('web', [], rendererFromManaged(contribution('react', makeImpl('react', { createPlugin: () => ({ name: 'vite:react-babel' }) }))))]);
     expect(() =>
       assembleManagedSources({ prepared, keysToInstantiate: ['react'], resolvedChain: [{ name: 'vite:react-babel' }], env: 'dev' }),
     ).toThrow(/collides with a managed compiler/);

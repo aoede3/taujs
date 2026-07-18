@@ -5,23 +5,26 @@ import { fileURLToPath } from 'node:url';
 import { createFilter } from 'vite';
 import { describe, expect, it } from 'vitest';
 
-import { pluginReact, scopedPluginReact } from '../plugin.js';
+import { buildReactContribution } from '../compiler/reactCompiler.js';
+import { pluginReact } from '../plugin.js';
+import { reactRenderer } from '../renderer.js';
 
-import type { ManagedContributionShape, ManagedGroupMember } from '@taujs/server/config';
+import type { ManagedContributionShape, ManagedGroupMember, RendererContributionShape } from '@taujs/server/renderer';
 
-// The brand LITERAL (asserted by value, not imported at runtime): @taujs/react must not runtime-depend
-// on @taujs/server. Compile-time equality with the host is enforced by the ManagedContributionBrand
-// type in plugin.ts; the cross-package literal match is checked in fixtures/esc1-composition.
+// The brand LITERALS (asserted by value, not imported at runtime): @taujs/react must not runtime-depend
+// on @taujs/server. Compile-time equality with the host is enforced by the type-only brand imports; the
+// cross-package literal match is checked in fixtures/esc1-composition.
 const MANAGED_CONTRIBUTION_BRAND = 'taujs.managed-plugin-contribution/v1';
+const RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v1';
 
 const fixturesDir = path.dirname(fileURLToPath(new URL('../compiler/test/fixtures/tsconfig.owned.json', import.meta.url)));
 const UNSCOPED = Symbol.for('taujs.unscoped-compiler');
 const toFwd = (p: string) => p.replace(/\\/g, '/');
 const asShape = (contribution: unknown) => contribution as unknown as ManagedContributionShape;
 
-describe('scopedPluginReact', () => {
+describe('buildReactContribution (the managed compiler contribution reactRenderer carries)', () => {
   it('returns a branded managed contribution with the react key, project pointer, and impl reference', () => {
-    const contribution = asShape(scopedPluginReact({ project: './tsconfig.react.json' }));
+    const contribution = buildReactContribution({ project: './tsconfig.react.json' });
     expect(contribution.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
     expect(contribution.key).toBe('react');
     expect(contribution.project).toBe('./tsconfig.react.json');
@@ -30,19 +33,32 @@ describe('scopedPluginReact', () => {
   });
 
   it('shares ONE impl reference across contributions (safeguard 1: reference identity)', () => {
-    expect(asShape(scopedPluginReact({ project: './a.json' })).impl).toBe(asShape(scopedPluginReact({ project: './b.json' })).impl);
+    expect(buildReactContribution({ project: './a.json' }).impl).toBe(buildReactContribution({ project: './b.json' }).impl);
   });
 
   it('rejects a missing project and the reserved include/exclude options', () => {
-    expect(() => scopedPluginReact({ project: '' })).toThrow(/requires a `project`/);
+    expect(() => buildReactContribution({ project: '' })).toThrow(/requires a `project`/);
     // @ts-expect-error include is reserved - ownership is computed from the project
-    expect(() => scopedPluginReact({ project: './t.json', include: ['x'] })).toThrow(/does not accept `include`/);
+    expect(() => buildReactContribution({ project: './t.json', include: ['x'] })).toThrow(/does not accept `include`/);
     // @ts-expect-error exclude is reserved
-    expect(() => scopedPluginReact({ project: './t.json', exclude: ['x'] })).toThrow(/does not accept/);
+    expect(() => buildReactContribution({ project: './t.json', exclude: ['x'] })).toThrow(/does not accept/);
   });
 
   it('carries opaque React options through unchanged', () => {
-    expect(asShape(scopedPluginReact({ project: './t.json', jsxRuntime: 'automatic' })).options).toEqual({ jsxRuntime: 'automatic' });
+    expect(buildReactContribution({ project: './t.json', jsxRuntime: 'automatic' }).options).toEqual({ jsxRuntime: 'automatic' });
+  });
+});
+
+describe('reactRenderer (the public renderer contribution)', () => {
+  it('wraps the React managed compiler contribution with managedCompilation + a render-module contract', () => {
+    const contribution = reactRenderer({ project: './tsconfig.react.json' }) as unknown as RendererContributionShape;
+    expect(contribution.brand).toBe(RENDERER_CONTRIBUTION_BRAND);
+    expect(contribution.key).toBe('react');
+    expect(contribution.contractVersion).toBe('v1');
+    expect(contribution.managedCompilation).toBe(true);
+    expect(contribution.expectsModule).toBe(true);
+    expect(contribution.compiler?.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
+    expect(contribution.compiler?.key).toBe('react');
   });
 });
 
@@ -70,8 +86,8 @@ describe('pluginReact (raw, tagged)', () => {
 
 describe('reactCompilerImpl.prepare (end-to-end ownership)', () => {
   it('derives claims/boundaries/exclude from the tsconfig project and builds a fresh, untagged plugin', async () => {
-    const contribution = asShape(scopedPluginReact({ project: 'tsconfig.owned.json' }));
-    const member: ManagedGroupMember = { contribution, appId: 'web', appRoot: fixturesDir };
+    const contribution = buildReactContribution({ project: 'tsconfig.owned.json' });
+    const member: ManagedGroupMember = { contribution: asShape(contribution), appId: 'web', appRoot: fixturesDir };
 
     const plan = await contribution.impl.prepare([member], { projectRoot: fixturesDir, lifecycle: 'build' });
     expect(plan.key).toBe('react');
@@ -92,8 +108,8 @@ describe('reactCompilerImpl.prepare (end-to-end ownership)', () => {
 // Framework-agnostic matrix cases proven at the prepare/filter level (integration cases 3/9/11/12 use
 // a real Vite build). These exercise the React renderer but the mechanism is identical for Solid.
 describe('ESC-1 matrix coverage (prepare/filter level)', () => {
-  const project = (name: string) => asShape(scopedPluginReact({ project: name }));
-  const member = (name: string): ManagedGroupMember => ({ contribution: project(name), appId: name, appRoot: fixturesDir });
+  const project = (name: string) => buildReactContribution({ project: name });
+  const member = (name: string): ManagedGroupMember => ({ contribution: asShape(project(name)), appId: name, appRoot: fixturesDir });
   const prepareInput = { projectRoot: fixturesDir, lifecycle: 'build' as const };
 
   it('case 1 - two same-key apps at different roots union their claims in one plan', async () => {

@@ -10,20 +10,20 @@
  * Brand/version literals are reproduced BY VALUE (never runtime-importing `@taujs/server`); the type-only
  * imports keep them in sync with the host contract at compile time.
  */
-import { scopedPluginReact } from './plugin.js';
+import { buildReactContribution } from './compiler/reactCompiler.js';
 import { REACT_RENDERER_KEY, RENDER_CONTRACT_VERSION } from './renderContract.js';
 
-import type { ScopedPluginReactOptions } from './plugin.js';
-import type { ManagedContributionShape, RendererContributionBrand, RendererContributionShape, TaujsRendererContribution } from '@taujs/server/renderer';
+import type { ReactCompilerOptions } from './compiler/reactCompiler.js';
+import type { RendererContributionBrand, RendererContributionShape, TaujsRendererContribution } from '@taujs/server/renderer';
 
 const RENDERER_BRAND: RendererContributionBrand = 'taujs.renderer-contribution/v1';
 
 /** Options for {@link reactRenderer}: a required tsconfig `project` plus React options (ownership
  * `include`/`exclude` are RESERVED - the host computes them from the project). */
-export type ReactRendererOptions = ScopedPluginReactOptions;
+export type ReactRendererOptions = ReactCompilerOptions;
 
 export function reactRenderer(opts: ReactRendererOptions): TaujsRendererContribution {
-  const compiler = scopedPluginReact(opts) as unknown as ManagedContributionShape;
+  const compiler = buildReactContribution(opts);
   const contribution: RendererContributionShape = {
     brand: RENDERER_BRAND,
     key: REACT_RENDERER_KEY,

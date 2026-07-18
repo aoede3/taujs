@@ -3,23 +3,26 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { pluginSolid, scopedPluginSolid } from '../plugin.js';
+import { buildSolidContribution } from '../compiler/solidCompiler.js';
+import { pluginSolid } from '../plugin.js';
+import { solidRenderer } from '../renderer.js';
 
-import type { ManagedContributionShape, ManagedGroupMember } from '@taujs/server/config';
+import type { ManagedContributionShape, ManagedGroupMember, RendererContributionShape } from '@taujs/server/renderer';
 
-// The brand LITERAL (asserted by value, not imported at runtime): @taujs/solid must not runtime-depend
-// on @taujs/server. Compile-time equality with the host is enforced by the ManagedContributionBrand
-// type in plugin.ts; the cross-package literal match is checked in fixtures/esc1-composition.
+// The brand LITERALS (asserted by value, not imported at runtime): @taujs/solid must not runtime-depend
+// on @taujs/server. Compile-time equality with the host is enforced by the type-only brand imports; the
+// cross-package literal match is checked in fixtures/esc1-composition.
 const MANAGED_CONTRIBUTION_BRAND = 'taujs.managed-plugin-contribution/v1';
+const RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v1';
 
 const fixturesDir = path.dirname(fileURLToPath(new URL('../compiler/test/fixtures/tsconfig.owned.json', import.meta.url)));
 const UNSCOPED = Symbol.for('taujs.unscoped-compiler');
 const toFwd = (p: string) => p.replace(/\\/g, '/');
 const asShape = (contribution: unknown) => contribution as unknown as ManagedContributionShape;
 
-describe('scopedPluginSolid', () => {
+describe('buildSolidContribution (the managed compiler contribution solidRenderer carries)', () => {
   it('returns a branded managed contribution with the solid key, project pointer, and impl reference', () => {
-    const contribution = asShape(scopedPluginSolid({ project: './tsconfig.solid.json', ssr: true }));
+    const contribution = buildSolidContribution({ project: './tsconfig.solid.json', ssr: true });
     expect(contribution.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
     expect(contribution.key).toBe('solid');
     expect(contribution.project).toBe('./tsconfig.solid.json');
@@ -28,15 +31,29 @@ describe('scopedPluginSolid', () => {
   });
 
   it('shares ONE impl reference across contributions (safeguard 1: reference identity)', () => {
-    expect(asShape(scopedPluginSolid({ project: './a.json' })).impl).toBe(asShape(scopedPluginSolid({ project: './b.json' })).impl);
+    expect(buildSolidContribution({ project: './a.json' }).impl).toBe(buildSolidContribution({ project: './b.json' }).impl);
   });
 
   it('rejects a missing project and the reserved include/exclude options', () => {
-    expect(() => scopedPluginSolid({ project: '' })).toThrow(/requires a `project`/);
+    expect(() => buildSolidContribution({ project: '' })).toThrow(/requires a `project`/);
     // @ts-expect-error include is reserved
-    expect(() => scopedPluginSolid({ project: './t.json', include: ['x'] })).toThrow(/does not accept `include`/);
+    expect(() => buildSolidContribution({ project: './t.json', include: ['x'] })).toThrow(/does not accept `include`/);
     // @ts-expect-error exclude is reserved
-    expect(() => scopedPluginSolid({ project: './t.json', exclude: ['x'] })).toThrow(/does not accept/);
+    expect(() => buildSolidContribution({ project: './t.json', exclude: ['x'] })).toThrow(/does not accept/);
+  });
+});
+
+describe('solidRenderer (the public renderer contribution - COMPILER ONLY, no render module in v1)', () => {
+  it('wraps the Solid managed compiler contribution with managedCompilation, expectsModule:false', () => {
+    const contribution = solidRenderer({ project: './tsconfig.solid.json', ssr: true }) as unknown as RendererContributionShape;
+    expect(contribution.brand).toBe(RENDERER_CONTRIBUTION_BRAND);
+    expect(contribution.key).toBe('solid');
+    expect(contribution.contractVersion).toBe('v1');
+    expect(contribution.managedCompilation).toBe(true);
+    // The Solid render module lands post-GATE; the host skips render-module load/validation for it.
+    expect(contribution.expectsModule).toBe(false);
+    expect(contribution.compiler?.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
+    expect(contribution.compiler?.key).toBe('solid');
   });
 });
 
@@ -51,8 +68,8 @@ describe('pluginSolid (raw, tagged)', () => {
 
 describe('solidCompilerImpl.prepare (end-to-end ownership)', () => {
   it('derives claims/boundaries/exclude from the tsconfig project and builds a fresh, untagged plugin', async () => {
-    const contribution = asShape(scopedPluginSolid({ project: 'tsconfig.owned.json' }));
-    const member: ManagedGroupMember = { contribution, appId: 'admin', appRoot: fixturesDir };
+    const contribution = buildSolidContribution({ project: 'tsconfig.owned.json' });
+    const member: ManagedGroupMember = { contribution: asShape(contribution), appId: 'admin', appRoot: fixturesDir };
 
     const plan = await contribution.impl.prepare([member], { projectRoot: fixturesDir, lifecycle: 'build' });
     expect(plan.key).toBe('solid');
@@ -67,7 +84,7 @@ describe('solidCompilerImpl.prepare (end-to-end ownership)', () => {
 });
 
 describe('ESC-1 matrix coverage (Solid)', () => {
-  const member = (name: string): ManagedGroupMember => ({ contribution: asShape(scopedPluginSolid({ project: name })), appId: name, appRoot: fixturesDir });
+  const member = (name: string): ManagedGroupMember => ({ contribution: asShape(buildSolidContribution({ project: name })), appId: name, appRoot: fixturesDir });
 
   it('case 1 - two same-key Solid apps at different roots union their claims', async () => {
     const group = [member('tsconfig.owned.json'), member('tsconfig.owned2.json')];
@@ -77,8 +94,8 @@ describe('ESC-1 matrix coverage (Solid)', () => {
   });
 
   it('case §8 - the REAL scoped Solid plugin transforms a query-suffixed id (HMR ?t / dep ?v), not only the bare path', async () => {
-    const contribution = asShape(scopedPluginSolid({ project: 'tsconfig.owned.json' }));
-    const plan = await contribution.impl.prepare([{ contribution, appId: 'admin', appRoot: fixturesDir }], { projectRoot: fixturesDir, lifecycle: 'dev' });
+    const contribution = buildSolidContribution({ project: 'tsconfig.owned.json' });
+    const plan = await contribution.impl.prepare([{ contribution: asShape(contribution), appId: 'admin', appRoot: fixturesDir }], { projectRoot: fixturesDir, lifecycle: 'dev' });
     const plugin = plan.createPlugin({ include: plan.claims, exclude: [] }) as {
       transform?: ((this: unknown, code: string, id: string, opts?: unknown) => unknown) | { handler: (this: unknown, code: string, id: string, opts?: unknown) => unknown };
     };

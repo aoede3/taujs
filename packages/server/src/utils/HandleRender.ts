@@ -22,6 +22,7 @@ import {
   applyViteTransform,
 } from './Templates';
 import { serializeInlineData } from './InlineData';
+import { assertRenderContract, declaredContractOf, isRendererContribution } from './RendererContract';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -191,6 +192,14 @@ export const handleRender = async (
         const entryServerFile = resolveEntryFile(clientRoot, entryServer);
         const entryServerPath = path.join(clientRoot, entryServerFile);
         const executedModule = await viteDevServer.ssrLoadModule(entryServerPath);
+
+        // Renderer v1: validate the dev-loaded module's identity against the app's renderer declaration
+        // BEFORE it is invoked for this request (prod modules are validated once at boot). A compiler-only
+        // renderer (Solid, expectsModule:false) ships no render module and is skipped.
+        const contribution = isRendererContribution(config.renderer) ? config.renderer : undefined;
+        if (contribution && contribution.expectsModule) {
+          assertRenderContract(executedModule, declaredContractOf(contribution), { phase: 'dev', appId: config.appId, clientRoot });
+        }
         renderModule = executedModule as RenderModule;
 
         const styles = await collectStyle(viteDevServer, [entryServerPath]);
@@ -213,6 +222,9 @@ export const handleRender = async (
           if (cspNonce) template = addNonceToInlineScripts(template, cspNonce);
         }
       } catch (error) {
+        // Preserve a render-contract validation AppError's migration guidance rather than masking it as a
+        // generic dev-asset failure.
+        if (AppError.isAppError(error)) throw error;
         throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServer, url } });
       }
     } else {

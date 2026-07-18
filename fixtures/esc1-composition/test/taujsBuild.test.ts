@@ -3,9 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { taujsBuild } from '@taujs/server/build';
-import { scopedPluginReact } from '@taujs/react/plugin';
-import { scopedPluginSolid } from '@taujs/solid/plugin';
-import { pluginVue } from '@taujs/vue/plugin';
+import { reactRenderer } from '@taujs/react/renderer';
+import { solidRenderer } from '@taujs/solid/renderer';
+import { vueRenderer } from '@taujs/vue/renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -52,8 +52,8 @@ function configFor(order: AppSpec[], projectRoot: string, clientBaseDir: string)
     apps: order.map((app) => {
       const rel = (f: string) => path.relative(projectRoot, path.join(app.entryPoint ? path.join(clientBaseDir, app.entryPoint) : clientBaseDir, f));
       const project = rel(`tsconfig.${app.framework}.json`);
-      const plugin = app.framework === 'react' ? scopedPluginReact({ project }) : scopedPluginSolid({ project });
-      return { appId: app.appId, entryPoint: app.entryPoint, plugins: [plugin] };
+      const renderer = app.framework === 'react' ? reactRenderer({ project }) : solidRenderer({ project });
+      return { appId: app.appId, entryPoint: app.entryPoint, renderer };
     }),
   };
 }
@@ -159,8 +159,8 @@ describe('ESC-1 real taujsBuild - per-app containment + correct compiler routing
   });
 });
 
-describe('ESC-1 real taujsBuild - Vue coexistence (raw plugin) alongside a managed compiler', () => {
-  it('a raw pluginVue() app coexists with a managed React app - both build, no false different-key hard error', async () => {
+describe('ESC-1 real taujsBuild - Vue coexistence (vueRenderer) alongside a managed compiler', () => {
+  it('a vueRenderer() app coexists with a managed React app - both build, no false different-key hard error', async () => {
     const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'esc1-vue-'));
     roots.push(projectRoot);
     const clientBaseDir = path.join(projectRoot, 'src', 'client');
@@ -173,7 +173,8 @@ describe('ESC-1 real taujsBuild - Vue coexistence (raw plugin) alongside a manag
     writeFileSync(path.join(clientBaseDir, 'index.html'), '<!doctype html><html><body><script type="module" src="./entry-client.tsx"></script></body></html>\n');
     writeFileSync(path.join(clientBaseDir, 'tsconfig.react.json'), JSON.stringify({ compilerOptions: { jsx: 'react-jsx' }, include: ['*.tsx'] }));
 
-    // Vue app (RAW pluginVue, compiles .vue - not part of the JSX collision surface, not tagged).
+    // Vue app (vueRenderer supplies pluginVue internally, compiles .vue - not part of the JSX collision
+    // surface, not a managed JSX compiler).
     const vueDir = path.join(clientBaseDir, 'shop');
     mkdirSync(vueDir, { recursive: true });
     writeFileSync(path.join(vueDir, 'entry-client.ts'), 'import App from "./App.vue";\nexport default App;\n');
@@ -183,12 +184,12 @@ describe('ESC-1 real taujsBuild - Vue coexistence (raw plugin) alongside a manag
 
     const config = {
       apps: [
-        { appId: 'web', entryPoint: '', plugins: [scopedPluginReact({ project: 'src/client/tsconfig.react.json' })] },
-        { appId: 'shop', entryPoint: 'shop', plugins: [pluginVue()] },
+        { appId: 'web', entryPoint: '', renderer: reactRenderer({ project: 'src/client/tsconfig.react.json' }) },
+        { appId: 'shop', entryPoint: 'shop', renderer: vueRenderer() },
       ],
     };
 
-    // No throw = the host does not mistake a raw Vue plugin for a different-key JSX compiler.
+    // No throw = the host does not mistake the Vue renderer's plugin pack for a different-key JSX compiler.
     await taujsBuild({ config: config as never, projectRoot, clientBaseDir, isSSRBuild: false, vite: { build: { rollupOptions: { external: EXTERNAL } }, logLevel: 'silent' } as never });
 
     expect(readEmitted(projectRoot, '')).toMatch(REACT_MARK);
@@ -228,8 +229,8 @@ describe('ESC-1 real taujsBuild - filtered build importing an absent-compiler fi
 
     const config = {
       apps: [
-        { appId: 'web', entryPoint: '', plugins: [scopedPluginReact({ project: 'src/client/tsconfig.react.json' })] },
-        { appId: 'admin', entryPoint: 'admin', plugins: [scopedPluginSolid({ project: 'src/client/tsconfig.solid.json' })] },
+        { appId: 'web', entryPoint: '', renderer: reactRenderer({ project: 'src/client/tsconfig.react.json' }) },
+        { appId: 'admin', entryPoint: 'admin', renderer: solidRenderer({ project: 'src/client/tsconfig.solid.json' }) },
       ],
     };
 
@@ -267,8 +268,8 @@ describe('ESC-1 real taujsBuild - fail-closed before Vite starts', () => {
 
     const config = {
       apps: [
-        { appId: 'web', entryPoint: '', plugins: [scopedPluginSolid({ project: 'src/client/tsconfig.web.json' })] },
-        { appId: 'admin', entryPoint: 'admin', plugins: [scopedPluginSolid({ project: 'src/client/admin/tsconfig.admin.json' })] },
+        { appId: 'web', entryPoint: '', renderer: solidRenderer({ project: 'src/client/tsconfig.web.json' }) },
+        { appId: 'admin', entryPoint: 'admin', renderer: solidRenderer({ project: 'src/client/admin/tsconfig.admin.json' }) },
       ],
     };
     await expect(

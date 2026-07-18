@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+import { testRenderer } from './support/renderer';
+
 import type { TaujsConfig } from '../Config';
 import type { FastifyPluginCallback } from 'fastify/types/plugin';
 
@@ -138,7 +140,7 @@ beforeEach(() => {
 
 const minimalConfig: TaujsConfig = {
   server: { host: 'unused' },
-  apps: [{ appId: 'a', entryPoint: 'e' }],
+  apps: [{ appId: 'a', entryPoint: 'e', renderer: testRenderer() }],
 };
 const dummyRegistry = {} as any;
 

@@ -2,11 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import os from 'node:os';
 import path from 'node:path';
 
-import { scopedPluginSolid } from '@taujs/solid/plugin';
+import { solidRenderer } from '@taujs/solid/renderer';
 import { createFilter } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { ManagedContributionShape } from '@taujs/server/config';
+import type { ManagedContributionShape, RendererContributionShape } from '@taujs/server/renderer';
 
 /**
  * ESC-1 classifier KILL TESTS (RFC 0006 checkpoint section 9; maintainer directive decisions.md
@@ -17,7 +17,9 @@ import type { ManagedContributionShape } from '@taujs/server/config';
  * machinery fires the REVISE tripwire). The assertions below encode the OBSERVED envelope.
  */
 
-const asShape = (contribution: unknown) => contribution as unknown as ManagedContributionShape;
+// renderer v1: the ESC-1 managed compiler contribution now rides inside the renderer contribution as
+// its `.compiler`. Reach the ManagedContributionShape (with `.impl.prepare`/...) through it.
+const managedOf = (renderer: unknown): ManagedContributionShape => (renderer as unknown as RendererContributionShape).compiler as ManagedContributionShape;
 
 const SOLID_EXPORTS = { '.': { solid: './src/index.jsx', default: './src/index.jsx' } };
 
@@ -76,7 +78,7 @@ afterAll(() => {
 });
 
 async function claims(): Promise<(id: string) => boolean> {
-  const contribution = asShape(scopedPluginSolid({ project: 'tsconfig.solid.json' }));
+  const contribution = managedOf(solidRenderer({ project: 'tsconfig.solid.json' }));
   const plan = await contribution.impl.prepare([{ contribution, appId: 'app', appRoot: root }], { projectRoot: root, lifecycle: 'build' });
   return createFilter(plan.claims, plan.exclude);
 }
@@ -126,7 +128,7 @@ describe('ESC-1 fix-3b - tsconfig node_modules exclude vs classifier (through re
       path.join(root, 'tsconfig.excl.json'),
       JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['src/**/*'], exclude: ['node_modules'] }),
     );
-    const contribution = asShape(scopedPluginSolid({ project: 'tsconfig.excl.json' }));
+    const contribution = managedOf(solidRenderer({ project: 'tsconfig.excl.json' }));
     await expect(contribution.impl.prepare([{ contribution, appId: 'app', appRoot: root }], { projectRoot: root, lifecycle: 'build' })).rejects.toThrow(
       /cancels the Solid node_modules package/,
     );

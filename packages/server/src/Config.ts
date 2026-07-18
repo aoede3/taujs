@@ -10,7 +10,7 @@ import type {
 } from './core/config/types';
 import type { CSPDirectives } from './security/CSP';
 import type { CSPViolationReport } from './security/CSPReporting';
-import type { TaujsManagedPluginContribution } from './utils/ManagedPlugins';
+import type { TaujsRendererContribution } from './utils/RendererContract';
 import type { TaujsViteOverride } from './ViteConfig';
 
 export type SecurityConfig = CoreSecurityConfig & {
@@ -27,11 +27,14 @@ export type SecurityConfig = CoreSecurityConfig & {
 };
 
 export type AppConfig = CoreAppConfig & {
-  // ESC-1 (RFC 0006): the per-app `plugins` array additionally carries opaque managed compiler
-  // contributions (`scopedPluginReact()`/`scopedPluginSolid()`) alongside ordinary Vite plugins. The
-  // host extracts the branded contributions BEFORE `composePlugins` (they never reach Vite as plugins);
-  // the Vite-free core (`core/config/types.ts` `plugins?: readonly unknown[]`) is untouched.
-  plugins?: (PluginOption | TaujsManagedPluginContribution)[];
+  // Renderer v1 (RFC 0006): every app declares a REQUIRED singular `renderer:` - an opaque branded
+  // contribution from `reactRenderer()`/`solidRenderer()`/`vueRenderer()`. It carries the framework's
+  // compiler (scoped ownership for React/Solid; a fresh plugin pack for Vue) and the render-module
+  // contract the host validates the entry-server against.
+  renderer: TaujsRendererContribution;
+  // Ordinary user Vite plugins ONLY. Framework compilers no longer ride here - they belong on `renderer:`;
+  // a managed/renderer contribution found in `plugins` is a hard configuration error.
+  plugins?: PluginOption[];
   routes?: readonly AppRoute[];
 };
 
@@ -74,33 +77,11 @@ export type { HeadAttributes, HeadDataOf, ServiceDataHandler } from './core/conf
 // resolves from the same place users import `defineConfig`.
 export type { TaujsOptimizeDeps, TaujsViteConfig, TaujsViteContext, TaujsViteOverride } from './ViteConfig';
 
-// ESC-1 (RFC 0006): the ONE new public concept - an opaque managed compiler contribution obtained from
-// a renderer factory (`scopedPluginReact()`/`scopedPluginSolid()`) and placed in an app's `plugins`.
-export type { TaujsManagedPluginContribution } from './utils/ManagedPlugins';
-
-// ESC-1 UNSTABLE FIRST-PARTY INTEGRATION CONTRACT (not semver-stable; may change with the brand
-// version). Only `TaujsManagedPluginContribution` above is a stable public type. The runtime
-// `MANAGED_CONTRIBUTION_BRAND` value and the types below are exported ONLY so the first-party renderer
-// packages (`@taujs/react` / `@taujs/solid`) can type-only-import the contract to implement
-// `prepare()`/`createPlugin()` - they never runtime-import `@taujs/server`. Application code must not
-// depend on these; they carry no compatibility guarantee.
-export { MANAGED_CONTRIBUTION_BRAND } from './utils/ManagedPlugins';
-export type {
-  CompilerImpl,
-  EffectiveScope,
-  ManagedContributionBrand,
-  ManagedContributionShape,
-  ManagedGroupMember,
-  OwnershipMatcher,
-  PrepareInput,
-  PreparedPlan,
-} from './utils/ManagedPlugins';
-
-// (The host pre-pass/composition RUNTIME functions - prepareOwnership / assembleManagedSources /
-// composePlugins - are deliberately NOT exported here: the reduced checkpoint permits only the managed
-// contribution as the new public concept, and "internal" comments do not stop a public entry from
-// becoming importable product API. First-party integration tests reach them via repo-relative
-// test-only imports of the source modules instead.)
+// Renderer v1: the ONE new public application concept - the opaque renderer contribution declared on
+// `AppConfig.renderer`. The renderer-AUTHOR contract (the internal shapes the first-party renderer
+// packages implement - CompilerImpl/PreparedPlan/ManagedContributionShape/the brands) lives on the
+// separate `@taujs/server/renderer` entry, NOT here; application code only ever sees this opaque type.
+export type { TaujsRendererContribution } from './utils/RendererContract';
 
 export { AppError } from './core/errors/AppError';
 

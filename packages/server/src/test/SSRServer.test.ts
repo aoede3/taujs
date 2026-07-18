@@ -158,6 +158,7 @@ import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
 import { composePlugins } from '../utils/VitePlugins';
 import { printVitePluginSummary } from '../Setup';
+import { testRenderer } from './support/renderer';
 
 describe('SSRServer', () => {
   let app: FastifyInstance;
@@ -190,7 +191,7 @@ describe('SSRServer', () => {
 
     await app.register(SSRServer, {
       alias: {},
-      configs: [{ appId: 'a', entryPoint: '.' }],
+      configs: [{ appId: 'a', entryPoint: '.', renderer: testRenderer() }],
       routes: [{ path: '/*' }],
       serviceRegistry: {},
       clientRoot: '/client',
@@ -323,7 +324,7 @@ describe('SSRServer', () => {
   it('does not require serviceRegistry option', async () => {
     await app.register(SSRServer, {
       alias: {},
-      configs: [{ appId: 'a', entryPoint: '.' }],
+      configs: [{ appId: 'a', entryPoint: '.', renderer: testRenderer() }],
       routes: [{ path: '/*' }],
       clientRoot: '/client',
       debug: false,

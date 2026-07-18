@@ -119,7 +119,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       // exercises the real ordering rather than a hand-rolled copy. A no-op when no managed contribution
       // is declared.
       const { plugins, ownership } = await assembleDevPluginChain({
-        apps: processedConfigs.map((c) => ({ appId: c.appId, appRoot: c.clientRoot, plugins: c.plugins })),
+        apps: processedConfigs.map((c) => ({ appId: c.appId, appRoot: c.clientRoot, plugins: c.plugins, renderer: c.renderer })),
         projectRoot: opts.projectRoot ?? process.cwd(),
         overridePlugins,
         onCollision: (c) => logger.warn({ plugin: c.name, sources: c.sources, winner: c.winner }, pluginCollisionMessage(c)),

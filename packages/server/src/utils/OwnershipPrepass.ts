@@ -1,6 +1,7 @@
 import { createFilter } from 'vite';
 
-import { assertOneImplPerKey, collectPluginNames, effectiveScopeFor, findTaggedRawCompilers, groupByKey, partitionAppPlugins } from './ManagedPlugins';
+import { assertOneImplPerKey, collectPluginNames, effectiveScopeFor, findTaggedRawCompilers, groupByKey, isManagedContribution, partitionAppPlugins } from './ManagedPlugins';
+import { isRendererContribution } from './RendererContract';
 import { composePlugins } from './VitePlugins';
 
 import type { PluginOption, Plugin } from 'vite';
@@ -25,12 +26,78 @@ import type { PluginCollision, PluginInput, PluginSource, ReservedPluginDrop } f
  * projects compose exactly as before.
  */
 
-/** One app's plugin declaration handed to phase 1 (the Vite-free core keeps `plugins` as `unknown[]`). */
+/** One app's declaration handed to phase 1 (the Vite-free core keeps `plugins`/`renderer` as `unknown`). */
 export type AppPluginInput = {
   appId: string;
   appRoot: string;
+  /** Ordinary user Vite plugins ONLY (renderer v1); a managed/renderer contribution here is a hard error. */
   plugins: ReadonlyArray<unknown> | undefined;
+  /** The app's opaque renderer contribution (`reactRenderer()`/`solidRenderer()`/`vueRenderer()`). */
+  renderer?: unknown;
 };
+
+/**
+ * Extract an app's RAW Vite plugins, rejecting any framework compiler/renderer contribution that leaked
+ * into `plugins` (renderer v1: those belong on the singular `renderer:` field). Reuses the ESC-1
+ * managed-contribution detector, adding renderer-contribution rejection.
+ */
+function extractRawPlugins(appId: string, plugins: ReadonlyArray<unknown> | undefined): PluginOption[] {
+  const { raw, managed } = partitionAppPlugins(appId, plugins);
+  if (managed.length > 0) {
+    throw new Error(
+      `[taujs] app "${appId}": a managed compiler contribution was found in \`plugins\`. Declare the framework on the app's \`renderer:\` field (reactRenderer()/solidRenderer()), not in \`plugins\` - which now holds ordinary Vite plugins only.`,
+    );
+  }
+  for (const entry of raw) {
+    if (isRendererContribution(entry)) {
+      throw new Error(`[taujs] app "${appId}": a renderer contribution was found in \`plugins\`. Declare it on the app's \`renderer:\` field, not in \`plugins\`.`);
+    }
+  }
+  return raw;
+}
+
+/** The single ESC-1 managed compiler contribution an app's renderer carries (React/Solid), or none (Vue). */
+function managedFromRenderer(appId: string, renderer: unknown): ManagedContributionShape | undefined {
+  if (renderer === undefined || renderer === null) return undefined; // required-ness is enforced at the type + render-module validation
+  if (!isRendererContribution(renderer)) {
+    throw new Error(`[taujs] app "${appId}": \`renderer:\` must be a contribution from reactRenderer()/solidRenderer()/vueRenderer().`);
+  }
+  if (!renderer.managedCompilation) return undefined;
+  const compiler = renderer.compiler;
+  if (!isManagedContribution(compiler)) {
+    throw new Error(`[taujs] app "${appId}": managed renderer "${renderer.key}" is missing its compiler contribution (internal error).`);
+  }
+  return compiler;
+}
+
+/** A non-managed renderer's ordinary framework plugin pack, built FRESH for this Vite environment (Vue). */
+function rendererEnvironmentPlugins(renderer: unknown, lifecycle: 'dev' | 'build'): PluginOption[] {
+  if (!isRendererContribution(renderer)) return [];
+  const make = renderer.createEnvironmentPlugins;
+  if (typeof make !== 'function') return [];
+  const produced = make(lifecycle);
+  return (Array.isArray(produced) ? produced : [produced]) as PluginOption[];
+}
+
+/**
+ * An app's full plugin list for ONE Vite environment: its raw plugins plus the fresh framework plugins its
+ * renderer supplies (Vue). A raw plugin that DUPLICATES a renderer-supplied one (e.g. a raw `pluginVue()`
+ * beside `vueRenderer()`) is a hard error - the renderer already provides it (design §2.4).
+ */
+export function appEnvironmentPlugins(appId: string, rawPlugins: readonly PluginOption[], renderer: unknown, lifecycle: 'dev' | 'build'): PluginOption[] {
+  const rendererPlugins = rendererEnvironmentPlugins(renderer, lifecycle);
+  if (rendererPlugins.length > 0) {
+    const rendererNames = new Set(collectPluginNames(rendererPlugins));
+    for (const name of collectPluginNames(rawPlugins)) {
+      if (rendererNames.has(name)) {
+        throw new Error(
+          `[taujs] app "${appId}": the raw Vite plugin "${name}" duplicates a plugin its renderer supplies. Remove it from \`plugins:\` - the renderer (e.g. vueRenderer()) already provides it.`,
+        );
+      }
+    }
+  }
+  return [...rawPlugins, ...rendererPlugins];
+}
 
 /** The global preparation product phase 2 consumes. */
 export type PreparedOwnership = {
@@ -55,12 +122,12 @@ export async function prepareOwnership(apps: ReadonlyArray<AppPluginInput>, inpu
   const members: ManagedGroupMember[] = [];
 
   for (const app of apps) {
-    const { raw, managed } = partitionAppPlugins(app.appId, app.plugins);
-    rawByApp.set(app.appId, raw);
-    keysByApp.set(app.appId, [...new Set(managed.map((contribution) => contribution.key))]);
-    for (const contribution of managed) {
-      members.push({ contribution, appId: app.appId, appRoot: app.appRoot });
-    }
+    // Renderer v1: `plugins` holds ordinary Vite plugins only (reject a leaked contribution); the managed
+    // compiler contribution is carried by the app's singular `renderer:` (React/Solid) - at most ONE.
+    rawByApp.set(app.appId, extractRawPlugins(app.appId, app.plugins));
+    const managed = managedFromRenderer(app.appId, app.renderer);
+    keysByApp.set(app.appId, managed ? [managed.key] : []);
+    if (managed) members.push({ contribution: managed, appId: app.appId, appRoot: app.appRoot });
   }
 
   const plans = new Map<string, PreparedPlan>();
@@ -164,17 +231,24 @@ export async function assembleDevPluginChain(opts: {
   const ownership = await prepareOwnership(opts.apps, { projectRoot: opts.projectRoot, lifecycle: 'dev' });
   const rawOf = (appId: string): PluginOption[] => ownership.rawByApp.get(appId) ?? [];
 
+  // Each app's plugins for the shared dev environment = its raw plugins + the FRESH framework plugins its
+  // renderer supplies (Vue's pluginVue pack). Constructed ONCE here (not per composePlugins pass).
+  const pluginsByApp = new Map<string, PluginOption[]>(
+    opts.apps.map((app) => [app.appId, appEnvironmentPlugins(app.appId, rawOf(app.appId), app.renderer, 'dev')]),
+  );
+  const pluginsFor = (appId: string): PluginOption[] => pluginsByApp.get(appId) ?? [];
+
   const managed = assembleManagedSources({
     prepared: ownership,
     keysToInstantiate: [...ownership.plans.keys()],
-    resolvedChain: [...opts.apps.flatMap((app) => rawOf(app.appId)), ...(opts.overridePlugins ? [opts.overridePlugins] : [])],
+    resolvedChain: [...opts.apps.flatMap((app) => pluginsFor(app.appId)), ...(opts.overridePlugins ? [opts.overridePlugins] : [])],
     env: 'dev',
   });
 
   const plugins = composePlugins({
     sources: [
       ...managed.hostSources,
-      ...opts.apps.map((app) => ({ source: app.appId, plugins: rawOf(app.appId) })),
+      ...opts.apps.map((app) => ({ source: app.appId, plugins: pluginsFor(app.appId) })),
       ...(opts.overridePlugins ? [{ source: 'config.vite', plugins: opts.overridePlugins }] : []),
     ],
     internal: [],
@@ -189,12 +263,12 @@ function failOnTaggedRawCompilers(prepared: PreparedOwnership, resolvedChain: Re
   const tagged = findTaggedRawCompilers(resolvedChain);
   if (tagged.length === 0) return;
   const first = tagged[0]!;
-  // Framework-neutral (checkpoint §4: no if(react)/if(solid) in the host) - derive the scoped factory
-  // name from the key generically rather than branching on literal framework keys.
-  const scoped = `scopedPlugin${first.key.charAt(0).toUpperCase()}${first.key.slice(1)}()`;
+  // Framework-neutral (no if(react)/if(solid) in the host) - derive the renderer factory name from the key
+  // generically rather than branching on literal framework keys.
+  const factory = `${first.key}Renderer()`;
   throw new Error(
     `[taujs:${env}] a raw JSX compiler (unscoped "${first.key}", plugin "${first.name}") is active alongside managed compiler ownership. ` +
-      `Raw pluginReact()/pluginSolid() compile chain-globally and contaminate other frameworks' files. Use the scoped equivalent (${scoped}).`,
+      `Raw pluginReact()/pluginSolid() compile chain-globally and contaminate other frameworks' files. Declare the framework on the app's \`renderer:\` field (${factory}) instead.`,
   );
 }
 

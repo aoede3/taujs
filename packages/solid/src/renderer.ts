@@ -10,16 +10,10 @@
  * Brand/version literals are reproduced BY VALUE (never runtime-importing `@taujs/server`); the type-only
  * imports keep them in sync with the host contract at compile time.
  */
-import { scopedPluginSolid } from './plugin.js';
+import { buildSolidContribution } from './compiler/solidCompiler.js';
 
-import type { ScopedPluginSolidOptions } from './plugin.js';
-import type {
-  ManagedContributionShape,
-  RenderContractVersion,
-  RendererContributionBrand,
-  RendererContributionShape,
-  TaujsRendererContribution,
-} from '@taujs/server/renderer';
+import type { SolidCompilerOptions } from './compiler/solidCompiler.js';
+import type { RenderContractVersion, RendererContributionBrand, RendererContributionShape, TaujsRendererContribution } from '@taujs/server/renderer';
 
 const RENDERER_BRAND: RendererContributionBrand = 'taujs.renderer-contribution/v1';
 const RENDER_CONTRACT_VERSION: RenderContractVersion = 'v1';
@@ -27,10 +21,10 @@ const SOLID_RENDERER_KEY = 'solid';
 
 /** Options for {@link solidRenderer}: a required tsconfig `project` plus Solid options (ownership
  * `include`/`exclude` are RESERVED - the host computes them from the project). */
-export type SolidRendererOptions = ScopedPluginSolidOptions;
+export type SolidRendererOptions = SolidCompilerOptions;
 
 export function solidRenderer(opts: SolidRendererOptions): TaujsRendererContribution {
-  const compiler = scopedPluginSolid(opts) as unknown as ManagedContributionShape;
+  const compiler = buildSolidContribution(opts);
   const contribution: RendererContributionShape = {
     brand: RENDERER_BRAND,
     key: SOLID_RENDERER_KEY,
