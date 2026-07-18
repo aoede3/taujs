@@ -21,6 +21,48 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
 
+  fixtures/esc1-composition:
+    devDependencies:
+      '@taujs/react':
+        specifier: workspace:*
+        version: link:../../packages/react
+      '@taujs/server':
+        specifier: workspace:*
+        version: link:../../packages/server
+      '@taujs/solid':
+        specifier: workspace:*
+        version: link:../../packages/solid
+      '@types/node':
+        specifier: ^24.0.7
+        version: 24.13.3
+      '@types/react':
+        specifier: ^19.2.8
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      '@vitejs/plugin-react':
+        specifier: ^5.0.0
+        version: 5.2.0(vite@7.3.6(@types/node@24.13.3)(tsx@4.23.0))
+      react:
+        specifier: ^19.2.3
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.2.3
+        version: 19.2.7(react@19.2.7)
+      solid-js:
+        specifier: ~1.9.14
+        version: 1.9.14
+      vite:
+        specifier: ^7.3.1
+        version: 7.3.6(@types/node@24.13.3)(tsx@4.23.0)
+      vite-plugin-solid:
+        specifier: ^2.11.12
+        version: 2.11.12(solid-js@1.9.14)(vite@7.3.6(@types/node@24.13.3)(tsx@4.23.0))
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.13.3)(@vitest/ui@3.2.7)(jsdom@25.0.1)(tsx@4.23.0)
+
   fixtures/playground:
     dependencies:
       '@taujs/react':
@@ -4563,7 +4605,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.17
       tinyrainbow: 2.0.0
-      vitest: 3.2.7(@types/node@20.19.43)(@vitest/ui@3.2.7)(jsdom@25.0.1)(tsx@4.23.0)
+      vitest: 3.2.7(@types/node@24.13.3)(@vitest/ui@3.2.7)(jsdom@25.0.1)(tsx@4.23.0)
 
   '@vitest/ui@4.1.10(vitest@4.1.10)':
     dependencies:
