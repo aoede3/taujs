@@ -210,6 +210,23 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
     expect(drive(diag, '/repo/react/App.tsx').error).not.toHaveBeenCalled();
   });
 
+  it('filtered build - a CLASSIFIER-owned node_modules file (claims but NO boundary) whose compiler is absent fails closed', () => {
+    // The classifier gives a package a claim but NO tsconfig boundary. In a filtered React build the Solid
+    // compiler is absent, so this file is compiled by nobody - it must NOT pass just because it lies in no
+    // boundary. (Regression for the boundary-less classifier claim variant.)
+    const PKG = /\/node_modules\/solid-lib\/.*\.jsx$/;
+    const globalPlans = new Map<string, PreparedPlan>([
+      ['react', { key: 'react', claims: [REACT], boundaries: [REACT], createPlugin: () => undefined }],
+      ['solid', { key: 'solid', claims: [PKG], boundaries: [], createPlugin: () => undefined }], // classifier claim, no boundary
+    ]);
+    const diag = createOwnershipDiagnostic(globalPlans, new Set(['react']), 'build:web');
+    const { error } = drive(diag, '/repo/node_modules/solid-lib/Widget.jsx');
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler here/);
+    // an unrelated node_modules JSX file that NO managed compiler claims is still ignored
+    expect(drive(diag, '/repo/node_modules/other-lib/x.jsx').error).not.toHaveBeenCalled();
+  });
+
   it('passes a singly-owned file and ignores files outside every boundary', () => {
     const diag = createOwnershipDiagnostic(plans, new Set(plans.keys()), 'dev');
     expect(drive(diag, '/repo/react/App.tsx').error).not.toHaveBeenCalled();

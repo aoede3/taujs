@@ -210,8 +210,12 @@ export function createOwnershipDiagnostic(plans: ReadonlyMap<string, PreparedPla
       const rawOwners = keys.filter((key) => rawFilter.get(key)!(canonical));
       if (effectiveOwners.length === 1 && rawOwners.length < 2) return null; // owned + unambiguous -> OK
 
+      // "Not ours" (ignore) only when NO compiler owns it here, NONE globally CLAIMS it, and it is in no
+      // boundary. A single global raw owner whose compiler is ABSENT here must ERROR regardless of
+      // boundary - classifier-owned node_modules files have claims but NO tsconfig boundary, so a `< 2`
+      // guard would silently pass one in a filtered build where its compiler was not instantiated.
       const inBoundary = keys.some((key) => boundaryFilter.get(key)!(canonical));
-      if (effectiveOwners.length === 0 && !inBoundary && rawOwners.length < 2) return null; // outside every boundary -> not ours
+      if (effectiveOwners.length === 0 && rawOwners.length === 0 && !inBoundary) return null; // genuinely outside managed ownership
 
       if (seen.has(canonical)) return null;
       seen.add(canonical);

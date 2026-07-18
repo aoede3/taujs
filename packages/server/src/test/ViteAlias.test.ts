@@ -29,6 +29,14 @@ vi.mock('vite', () => ({
   build: hoisted.buildMock,
 }));
 
+// taujsBuild.deleteDist() does a REAL `rm(<projectRoot>/dist)`; these tests pass projectRoot=process.cwd()
+// (packages/server), which would delete the package's own built dist that dependent packages
+// (fixtures/esc1-composition) resolve at test time. Stub `rm` only; keep the rest of fs/promises real.
+vi.mock('node:fs/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs/promises')>()),
+  rm: vi.fn(async () => {}),
+}));
+
 vi.mock('../logging/Logger', () => ({
   createLogger: hoisted.createLoggerMock,
 }));
