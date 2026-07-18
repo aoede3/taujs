@@ -78,10 +78,12 @@ export type { TaujsOptimizeDeps, TaujsViteConfig, TaujsViteContext, TaujsViteOve
 // a renderer factory (`scopedPluginReact()`/`scopedPluginSolid()`) and placed in an app's `plugins`.
 export type { TaujsManagedPluginContribution } from './utils/ManagedPlugins';
 
-// ESC-1 internal contract (NON-public, unstable, versioned by the brand): the shared types the
-// first-party renderer packages implement `prepare()`/`createPlugin()` against, and the literal brand
-// type they reproduce by value. Consumers never import these; they are exported so `@taujs/react` /
-// `@taujs/solid` can type-only-import the contract without a runtime dependency on `@taujs/server`.
+// ESC-1 UNSTABLE FIRST-PARTY INTEGRATION CONTRACT (not semver-stable; may change with the brand
+// version). Only `TaujsManagedPluginContribution` above is a stable public type. The runtime
+// `MANAGED_CONTRIBUTION_BRAND` value and the types below are exported ONLY so the first-party renderer
+// packages (`@taujs/react` / `@taujs/solid`) can type-only-import the contract to implement
+// `prepare()`/`createPlugin()` - they never runtime-import `@taujs/server`. Application code must not
+// depend on these; they carry no compatibility guarantee.
 export { MANAGED_CONTRIBUTION_BRAND } from './utils/ManagedPlugins';
 export type {
   CompilerImpl,
