@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { MANAGED_CONTRIBUTION_BRAND, UNSCOPED_COMPILER_TAG } from '../ManagedPlugins';
-import { assembleManagedSources, createOwnershipDiagnostic, prepareOwnership } from '../OwnershipPrepass';
+import { appEnvironmentPlugins, assembleManagedSources, createOwnershipDiagnostic, prepareOwnership } from '../OwnershipPrepass';
 import { rendererFromManaged } from '../../test/support/renderer';
 
 import type { CompilerImpl, ManagedContributionShape, PreparedPlan } from '../ManagedPlugins';
@@ -77,8 +77,10 @@ describe('prepareOwnership (phase 1)', () => {
     ).rejects.toThrow(/claimed by 2 different renderer implementations/);
   });
 
-  it('HARD errors on a branded contribution nested inside a sub-array', async () => {
-    await expect(prepareOwnership([app('a', [[contribution('solid', makeImpl('solid'))]])], INPUT)).rejects.toThrow(/must be a DIRECT entry/);
+  it('HARD errors on a branded contribution nested inside a plugins sub-array (directs to renderer:)', async () => {
+    await expect(prepareOwnership([app('a', [[contribution('solid', makeImpl('solid'))]])], INPUT)).rejects.toThrow(
+      /Declare the framework on the app's `renderer:` field/,
+    );
   });
 });
 
@@ -266,5 +268,48 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
     drive(diag, '/repo/shared/Widget.tsx', error);
     drive(diag, '/repo/shared/Widget.tsx', error);
     expect(error).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Renderer v1 guardrails: contributions belong on `renderer:` (not `plugins:`), a non-renderer `renderer:`
+// value is rejected, and a non-managed renderer (Vue) supplies fresh plugins independently of the
+// managed-active gate (a Vue-only project still gets pluginVue). These are the load-bearing renderer-v1
+// hard errors + supply path introduced on top of the ESC-1 baseline.
+describe('renderer v1 guardrails + non-managed (Vue) plugin supply', () => {
+  const RENDERER_BRAND = 'taujs.renderer-contribution/v1';
+  const vueLikeRenderer = (plugins: unknown[]) => ({
+    brand: RENDERER_BRAND,
+    key: 'vue',
+    contractVersion: 'v1',
+    managedCompilation: false,
+    expectsModule: true,
+    createEnvironmentPlugins: () => plugins,
+  });
+
+  it('rejects a managed compiler contribution placed DIRECTLY in plugins (belongs on renderer:)', async () => {
+    const managed = contribution('react', makeImpl('react'));
+    await expect(prepareOwnership([app('web', [managed])], INPUT)).rejects.toThrow(/managed compiler contribution was found in `plugins`/);
+  });
+
+  it('rejects a renderer contribution placed in plugins', async () => {
+    const renderer = rendererFromManaged(contribution('react', makeImpl('react')));
+    await expect(prepareOwnership([app('web', [renderer])], INPUT)).rejects.toThrow(/renderer contribution was found in `plugins`/);
+  });
+
+  it('rejects a `renderer:` value that is not a renderer contribution', async () => {
+    await expect(prepareOwnership([app('web', [], { not: 'a renderer' })], INPUT)).rejects.toThrow(/must be a contribution from reactRenderer/);
+  });
+
+  it("injects a non-managed renderer's fresh plugin pack even with NO managed ownership (not gated on active)", () => {
+    const vuePlugin = { name: 'vite:vue' };
+    const result = appEnvironmentPlugins('shop', [{ name: 'user-plugin' } as never], vueLikeRenderer([vuePlugin]), 'dev');
+    expect(result).toEqual([{ name: 'user-plugin' }, vuePlugin]);
+  });
+
+  it('hard-errors when a raw plugin duplicates a renderer-supplied one (raw pluginVue beside vueRenderer)', () => {
+    const vuePlugin = { name: 'vite:vue' };
+    expect(() => appEnvironmentPlugins('shop', [{ name: 'vite:vue' } as never], vueLikeRenderer([vuePlugin]), 'build')).toThrow(
+      /duplicates a plugin its renderer supplies/,
+    );
   });
 });

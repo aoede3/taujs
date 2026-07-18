@@ -188,7 +188,7 @@ export function assembleManagedSources(opts: {
   for (const name of collectPluginNames(resolvedChain)) {
     if (managedNameSet.has(name)) {
       throw new Error(
-        `[taujs:${env}] a raw Vite plugin named "${name}" collides with a managed compiler of the same name. Remove the raw compiler plugin - the managed contribution (scopedPluginReact/scopedPluginSolid) supplies it.`,
+        `[taujs:${env}] a raw Vite plugin named "${name}" collides with a managed compiler of the same name. Remove the raw compiler plugin from \`plugins:\` - the app's \`renderer:\` (reactRenderer()/solidRenderer()) already supplies the compiler.`,
       );
     }
   }

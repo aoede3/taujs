@@ -62,10 +62,11 @@ describe('partitionAppPlugins', () => {
     expect(result.raw).toEqual([pack]);
   });
 
-  it('HARD errors when a managed contribution is nested inside a sub-array (checkpoint §2 correction 6, matrix case 15)', () => {
+  it('HARD errors when a framework contribution is nested inside a plugins sub-array (checkpoint §2 correction 6, matrix case 15)', () => {
     const managed = makeContribution('solid', makeImpl('solid'));
-    expect(() => partitionAppPlugins('web', [[managed]])).toThrow(/must be a DIRECT entry/);
-    expect(() => partitionAppPlugins('web', [[{ name: 'x' }, [managed]]])).toThrow(/must be a DIRECT entry/);
+    // Renderer v1: contributions belong on `renderer:`; a nested one in `plugins` is directed there.
+    expect(() => partitionAppPlugins('web', [[managed]])).toThrow(/Declare the framework on the app's `renderer:` field/);
+    expect(() => partitionAppPlugins('web', [[{ name: 'x' }, [managed]]])).toThrow(/renderer:/);
   });
 
   it('tolerates an absent plugins array', () => {
