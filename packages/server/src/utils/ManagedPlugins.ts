@@ -93,11 +93,17 @@ export type PreparedPlan = {
    */
   exclude?: OwnershipMatcher[];
   /**
-   * Constructs a FRESH real Vite plugin for the given effective scope. Called afresh per `vite.build()`
-   * invocation and once per active renderer in dev - constructed plugins may carry lifecycle state and
-   * are never reused (checkpoint §6). The renderer folds its own options (e.g. `ssr`) in here.
+   * Constructs a FRESH real Vite plugin (a `PluginOption`) for the given effective scope. Called afresh
+   * per `vite.build()` invocation and once per active renderer in dev - constructed plugins may carry
+   * lifecycle state and are never reused (checkpoint §6). The renderer folds its own options (e.g. `ssr`)
+   * in here.
+   *
+   * Typed `unknown` deliberately: the renderer builds the plugin with ITS OWN Vite type instance, and
+   * under multiple `@types/node` versions in a workspace TypeScript treats `@taujs/react`'s `PluginOption`
+   * and `@taujs/server`'s as unrelated types (same runtime module, distinct type identities). The host
+   * casts the result to its own `PluginOption` at the one boundary where it feeds `composePlugins`.
    */
-  createPlugin: (scope: EffectiveScope) => PluginOption;
+  createPlugin: (scope: EffectiveScope) => unknown;
 };
 
 /**

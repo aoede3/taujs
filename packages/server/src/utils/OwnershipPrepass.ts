@@ -122,7 +122,9 @@ export function assembleManagedSources(opts: {
     const plan = prepared.plans.get(key);
     if (!plan) throw new Error(`[taujs:${env}] no prepared ownership plan for compiler key "${key}".`);
     const scope = effectiveScopeFor(key, prepared.plans);
-    const plugin = plan.createPlugin(scope);
+    // The renderer builds this with its own Vite type instance (see PreparedPlan.createPlugin); cast to
+    // the host's PluginOption at this one boundary before it enters composePlugins.
+    const plugin = plan.createPlugin(scope) as PluginOption;
     managedPlugins.push(plugin);
     for (const name of collectPluginNames(Array.isArray(plugin) ? plugin : [plugin])) managedNames.push(name);
   }
