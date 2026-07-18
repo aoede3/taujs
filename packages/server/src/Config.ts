@@ -96,6 +96,15 @@ export type {
   PreparedPlan,
 } from './utils/ManagedPlugins';
 
+// The host pre-pass + composition primitives (the SAME functions SSRServer/Build call), exported ONLY
+// so first-party integration tests can drive the REAL host wiring - prepareOwnership -> assembleManaged
+// Sources (ownership diagnostic + raw/managed collision) -> composePlugins - instead of hand-rolling it.
+// Internal and unstable; application code must not use them.
+export { assembleManagedSources, prepareOwnership } from './utils/OwnershipPrepass';
+export type { PreparedOwnership } from './utils/OwnershipPrepass';
+export { composePlugins } from './utils/VitePlugins';
+export type { PluginSource } from './utils/VitePlugins';
+
 export { AppError } from './core/errors/AppError';
 
 export function defineConfig<const C extends TaujsConfig>(config: C): C {

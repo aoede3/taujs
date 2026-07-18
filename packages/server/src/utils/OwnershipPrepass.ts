@@ -229,10 +229,11 @@ export function createOwnershipDiagnostic(plans: ReadonlyMap<string, PreparedPla
         );
       } else {
         this.error(
-          `[taujs:${env}] "${canonical}" lies within a framework compiler's declared boundary but is compiled by NO compiler here - ` +
-            `its project does not claim it, another project's claim excludes it, or the owning compiler is not built in this environment. ` +
-            `It would fall through to esbuild and fail at runtime (e.g. "React is not defined"). Assign it to exactly one compiler's tsconfig project ` +
-            `that is built here.`,
+          `[taujs:${env}] "${canonical}" is claimed by managed compiler ownership or lies within a declared compiler boundary, ` +
+            `but is compiled by NO compiler in this environment - its project does not claim it, another project's claim excludes it, ` +
+            `or the owning compiler (including a classifier-owned node_modules package, which has no boundary) is not built here. ` +
+            `It would fall through to esbuild and fail at runtime (e.g. "React is not defined"). Assign it to exactly one compiler's ` +
+            `tsconfig project that is built here.`,
         );
       }
       return null;

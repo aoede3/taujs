@@ -95,8 +95,10 @@ describe('ESC-1 classifier support envelope (vitefu-only kill tests)', () => {
     expect(owns(libFile('dup-solid', 'host-pkg', 'node_modules'))).toBe(false); // nested instance: the root-resolution limit
   });
 
-  it('records the envelope for a WORKSPACE-linked (symlinked) solid package - vitefu resolves it via the link', async () => {
-    if (!workspaceLinked) return; // sandbox forbade the symlink; nothing to record here
+  it('records the envelope for a WORKSPACE-linked (symlinked) solid package - vitefu resolves it via the link', async (ctx) => {
+    // Visibly SKIP (not silently pass) if the sandbox forbade the symlink - "not executed" must be
+    // distinguishable from "supported".
+    if (!workspaceLinked) return ctx.skip();
     const owns = await claims();
     // OBSERVED: a symlinked workspace package IS resolved by vitefu's findDepPkgJsonPath through the link,
     // and its REAL directory (packages/ws-solid) is claimed. Recorded, not engineered - no extra machinery.

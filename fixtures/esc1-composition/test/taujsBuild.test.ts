@@ -245,7 +245,7 @@ describe('ESC-1 real taujsBuild - filtered build importing an absent-compiler fi
       ).rejects.toThrow();
       // the diagnostic hard-errored on the classified Solid package file (compiled by no compiler here)
       const logged = errSpy.mock.calls.flat().map((a) => (a instanceof Error ? a.message : String(a))).join('\n');
-      expect(logged).toMatch(/compiled by NO compiler here/);
+      expect(logged).toMatch(/compiled by NO compiler in this environment/);
     } finally {
       errSpy.mockRestore();
       exitSpy.mockRestore();

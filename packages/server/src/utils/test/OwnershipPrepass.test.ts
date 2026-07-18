@@ -205,7 +205,7 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
     // a Solid file imported into the React-only build: no Solid compiler exists here -> must error, not pass
     const { error } = drive(diag, '/repo/solid/App.tsx');
     expect(error).toHaveBeenCalledTimes(1);
-    expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler here/);
+    expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler in this environment/);
     // a React file is compiled by the instantiated React compiler -> OK
     expect(drive(diag, '/repo/react/App.tsx').error).not.toHaveBeenCalled();
   });
@@ -222,7 +222,7 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
     const diag = createOwnershipDiagnostic(globalPlans, new Set(['react']), 'build:web');
     const { error } = drive(diag, '/repo/node_modules/solid-lib/Widget.jsx');
     expect(error).toHaveBeenCalledTimes(1);
-    expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler here/);
+    expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler in this environment/);
     // an unrelated node_modules JSX file that NO managed compiler claims is still ignored
     expect(drive(diag, '/repo/node_modules/other-lib/x.jsx').error).not.toHaveBeenCalled();
   });
