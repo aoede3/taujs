@@ -14,11 +14,21 @@ describe('parseTsconfigProject', () => {
     const project = path.join(fixturesDir, 'tsconfig.owned.json');
     const { include, exclude } = parseTsconfigProject(project);
     expect(include).toEqual([toFwd(path.join(fixturesDir, 'app/**/*.tsx')), toFwd(path.join(fixturesDir, 'shared/**/*'))]);
-    expect(exclude).toEqual([toFwd(path.join(fixturesDir, 'app/legacy/**/*'))]);
+    // a bare exclude directory expands to BOTH the literal and its subtree (file-or-directory, dot-safe)
+    expect(exclude).toEqual([toFwd(path.join(fixturesDir, 'app/legacy')), toFwd(path.join(fixturesDir, 'app/legacy/**/*'))]);
   });
 
   it('throws a clear error for an unreadable project', () => {
     expect(() => parseTsconfigProject(path.join(fixturesDir, 'does-not-exist.json'))).toThrow(/could not read tsconfig project/);
+  });
+
+  it('a `files`-only tsconfig (no include) claims ONLY the listed files, and always excludes outDir', () => {
+    const { include, exclude } = parseTsconfigProject(path.join(fixturesDir, 'tsconfig.files.json'));
+    // exact files, NOT a `**/*` glob over the whole directory
+    expect(include).toEqual([toFwd(path.join(fixturesDir, 'app/Only.tsx')), toFwd(path.join(fixturesDir, 'app/Also.tsx'))]);
+    // outDir is excluded (never re-compile emitted output), expanded literal + subtree
+    expect(exclude).toContain(toFwd(path.join(fixturesDir, 'out')));
+    expect(exclude).toContain(toFwd(path.join(fixturesDir, 'out/**/*')));
   });
 });
 

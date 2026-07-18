@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "outDir": "./out"
+  },
+  "files": ["app/Only.tsx", "app/Also.tsx"]
+}

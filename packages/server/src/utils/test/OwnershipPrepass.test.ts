@@ -143,7 +143,7 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
     const gapPlans = new Map<string, PreparedPlan>([['solid', { key: 'solid', claims: [SOLID], boundaries: [SOLID, SHARED], createPlugin: () => undefined }]]);
     const { error } = drive(createOwnershipDiagnostic(gapPlans, 'dev', vi.fn()), '/repo/shared/Orphan.tsx');
     expect(error).toHaveBeenCalledTimes(1);
-    expect(error.mock.calls[0]![0]).toMatch(/owned by NO compiler/);
+    expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler/);
   });
 
   it('subtracts the project exclude from ownership: a deliberately excluded file is neither owned nor flagged', () => {
@@ -169,7 +169,22 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
     // in boundary, not excluded, unclaimed -> hard error
     const { error } = drive(diag, '/repo/solid/Orphan.tsx');
     expect(error).toHaveBeenCalledTimes(1);
-    expect(error.mock.calls[0]![0]).toMatch(/owned by NO compiler/);
+    expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler/);
+  });
+
+  it('hard-errors on a cross-exclusion fallthrough - one project excludes a file another project claims (safeguard 2 completeness)', () => {
+    // react claims all of /shared but EXCLUDES Widget.tsx; solid ALSO claims /shared. Widget is excluded
+    // from react (own exclude) AND from solid (react's raw claim is solid's cross-key exclude), so NEITHER
+    // compiler compiles it. Using only claims-minus-OWN-exclude, the raw owner (solid, 1) would falsely
+    // read OK; the effective filter mirrors the real compilers and catches the fallthrough.
+    const WIDGET = /\/shared\/Widget\.tsx$/;
+    const crossPlans = new Map<string, PreparedPlan>([
+      ['react', { key: 'react', claims: [SHARED], boundaries: [SHARED], exclude: [WIDGET], createPlugin: () => undefined }],
+      ['solid', { key: 'solid', claims: [SHARED], boundaries: [SHARED], createPlugin: () => undefined }],
+    ]);
+    const { error } = drive(createOwnershipDiagnostic(crossPlans, 'dev', vi.fn()), '/repo/shared/Widget.tsx');
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler/);
   });
 
   it('passes a singly-owned file and ignores files outside every boundary', () => {

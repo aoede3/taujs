@@ -12,7 +12,8 @@ describe('parseTsconfigProject', () => {
   it('derives absolute include/exclude globs, normalising a bare directory to <dir>/**/*', () => {
     const { include, exclude } = parseTsconfigProject(path.join(fixturesDir, 'tsconfig.owned.json'));
     expect(include).toEqual([toFwd(path.join(fixturesDir, 'app/**/*.tsx')), toFwd(path.join(fixturesDir, 'shared/**/*'))]);
-    expect(exclude).toEqual([toFwd(path.join(fixturesDir, 'app/legacy/**/*'))]);
+    // a bare exclude directory expands to BOTH the literal and its subtree (file-or-directory, dot-safe)
+    expect(exclude).toEqual([toFwd(path.join(fixturesDir, 'app/legacy')), toFwd(path.join(fixturesDir, 'app/legacy/**/*'))]);
   });
 
   it('throws a clear error for an unreadable project', () => {

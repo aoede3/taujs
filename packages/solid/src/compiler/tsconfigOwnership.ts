@@ -33,6 +33,18 @@ const normaliseIncludeGlob = (glob: string): string => {
   return `${glob.replace(/\/+$/, '')}/**/*`;
 };
 
+/**
+ * TypeScript `exclude` semantics differ from `include`: an exclude entry is directory-recursive
+ * regardless of a dot in the name (e.g. `components.new/`), and a bare entry may be a FILE or a
+ * DIRECTORY. Emit BOTH the literal and the `<entry>/**\/*` subtree so createFilter subtracts either -
+ * the include-oriented `normaliseIncludeGlob` would wrongly treat a dotted directory as a file.
+ */
+const normaliseExcludeGlob = (glob: string): string[] => {
+  if (hasGlob(glob)) return [glob];
+  const trimmed = glob.replace(/\/+$/, '');
+  return [trimmed, `${trimmed}/**/*`];
+};
+
 /** The longest leading run of literal (glob-free) segments of an absolute glob - its base directory. */
 export const globBase = (absoluteGlob: string): string => {
   const segments = absoluteGlob.split('/');
@@ -64,11 +76,27 @@ export const parseTsconfigProject = (projectPath: string): { include: OwnershipM
   if (!parsed) throw new Error(`[taujs] could not read tsconfig project "${projectPath}".`);
 
   const dir = path.dirname(projectPath);
-  const rawInclude: string[] = Array.isArray(parsed.raw?.include) ? parsed.raw.include : ['**/*'];
-  const rawExclude: string[] = Array.isArray(parsed.raw?.exclude) ? parsed.raw.exclude : [];
+  const abs = (glob: string): OwnershipMatcher => toForwardSlash(path.resolve(dir, glob));
 
-  const include = rawInclude.map((glob) => toForwardSlash(path.resolve(dir, normaliseIncludeGlob(glob))));
-  const exclude = rawExclude.map((glob) => toForwardSlash(path.resolve(dir, normaliseIncludeGlob(glob))));
+  // Ownership set: explicit `include` globs; else the explicit `files` list (exact files, NOT a `**/*`
+  // glob - a `files`-only project claims ONLY the listed files); else TypeScript's implicit `**/*`.
+  const rawInclude: string[] = Array.isArray(parsed.raw?.include)
+    ? parsed.raw.include
+    : Array.isArray(parsed.raw?.files) && parsed.raw.files.length
+      ? parsed.raw.files
+      : ['**/*'];
+
+  // Exclusions: the project's own `exclude`, plus the compiled `outDir` (always excluded - never
+  // re-compile emitted output). TypeScript's implicit `node_modules` default is deliberately NOT added:
+  // the vitefu classifier owns SPECIFIC node_modules packages, and a single createFilter cannot express
+  // "exclude node_modules EXCEPT the classified packages" (exclude wins over include), so a blanket
+  // node_modules exclude would kill the classifier's claims. A scoped project include does not reach
+  // node_modules anyway.
+  const rawExclude: string[] = Array.isArray(parsed.raw?.exclude) ? parsed.raw.exclude : [];
+  const outDir = typeof parsed.options?.outDir === 'string' ? [parsed.options.outDir] : [];
+
+  const include = rawInclude.map((glob) => abs(normaliseIncludeGlob(glob)));
+  const exclude = [...rawExclude, ...outDir].flatMap(normaliseExcludeGlob).map(abs);
 
   return { include, exclude };
 };
