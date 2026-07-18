@@ -2,25 +2,31 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import os from 'node:os';
 import path from 'node:path';
 
-import { assembleManagedSources, composePlugins, prepareOwnership } from '@taujs/server/config';
 import { scopedPluginReact } from '@taujs/react/plugin';
 import { scopedPluginSolid } from '@taujs/solid/plugin';
 import { createServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+// TEST-ONLY host-internal import via a Vitest alias (see vitest.config.ts -> @taujs/server-internal/*).
+// assembleDevPluginChain is the SAME dev composition SSRServer's dev branch runs; the fixture drives it
+// (rather than a hand-rolled copy) so the evidence exercises the real §5 ordering. It is NOT part of
+// @taujs/server's public API - the alias exists only while the repo's own fixtures run.
+import { assembleDevPluginChain } from '@taujs/server-internal/ownership';
+
 import type { ManagedContributionShape } from '@taujs/server/config';
 import type { Plugin, ViteDevServer } from 'vite';
 
 /**
- * ESC-1 real SHARED-DEV evidence (RFC 0006 §11), through the REAL τjs host pre-pass - NOT a hand-rolled
- * scope. This drives the SAME functions SSRServer's dev branch calls:
+ * ESC-1 real SHARED-DEV evidence (RFC 0006 §11), through the REAL τjs host composition - NOT a
+ * hand-rolled scope. It drives `assembleDevPluginChain`, the SINGLE function SSRServer's dev branch also
+ * calls, which internally runs:
  *   prepareOwnership()  (partition + group + assert-one-impl + renderer prepare over ALL apps)
  *   -> assembleManagedSources()  (fail-closed ownership diagnostic + raw/managed collision + fresh compilers)
- *   -> composePlugins()  (the §5 composition rule)
- *   -> Vite createServer  (the dev server; SSRServer wraps this via setupDevServer)
- * then exercises a real dev server: transformRequest, a file created AFTER startup, and a real
- * EDIT -> Vite watcher invalidation -> re-transform cycle. The browser/WebSocket HMR PUSH is S0-D2; this
- * proves the module invalidation/re-transform path.
+ *   -> composePlugins()  (the §5 composition rule, in the ONE dev source order)
+ * The composed plugins then drive Vite createServer (the dev server SSRServer wraps via setupDevServer),
+ * and the test exercises transformRequest, a file created AFTER startup, and a real EDIT -> Vite watcher
+ * invalidation -> re-transform cycle. The browser/WebSocket HMR PUSH is S0-D2; this proves the module
+ * invalidation/re-transform path.
  */
 
 const asShape = (contribution: unknown) => contribution as unknown as ManagedContributionShape;
@@ -56,24 +62,17 @@ beforeAll(async () => {
   const reactC = asShape(scopedPluginReact({ project: 'tsconfig.react.json' }));
   const solidC = asShape(scopedPluginSolid({ project: 'tsconfig.solid.json' }));
 
-  // --- THE REAL taujs HOST PRE-PASS (identical to SSRServer's dev branch) ---
-  const ownership = await prepareOwnership(
-    [
+  // --- THE REAL taujs DEV COMPOSITION - the SAME assembleDevPluginChain SSRServer's dev branch runs, so
+  // the fixture cannot drift from the host's §5 source ordering (host managed sources -> app raw sources
+  // -> config.vite). No prepareOwnership/assembleManagedSources/composePlugins order is re-stated here. ---
+  const { plugins } = await assembleDevPluginChain({
+    apps: [
       { appId: 'web', appRoot: path.join(root, 'src-react'), plugins: [reactC] },
       { appId: 'admin', appRoot: path.join(root, 'src-solid'), plugins: [solidC] },
     ],
-    { projectRoot: root, lifecycle: 'dev' },
-  );
-  const managed = assembleManagedSources({ prepared: ownership, keysToInstantiate: [...ownership.plans.keys()], resolvedChain: [], env: 'dev' });
-  const composed = composePlugins({
-    sources: [
-      ...managed.hostSources,
-      { source: 'web', plugins: ownership.rawByApp.get('web') ?? [] },
-      { source: 'admin', plugins: ownership.rawByApp.get('admin') ?? [] },
-    ],
-    internal: [],
+    projectRoot: root,
   });
-  // --------------------------------------------------------------------------
+  // ----------------------------------------------------------------------------------------------------
 
   server = await createServer({
     root,
@@ -81,7 +80,7 @@ beforeAll(async () => {
     logLevel: 'silent',
     server: { middlewareMode: true, hmr: false, watch: { usePolling: true, interval: 40 } },
     optimizeDeps: { noDiscovery: true, include: [] },
-    plugins: composed as Plugin[],
+    plugins: plugins as Plugin[],
   });
 });
 
@@ -112,18 +111,26 @@ describe('ESC-1 real shared dev server through the taujs host pre-pass', () => {
     const before = await codeOf('/src-solid/App.tsx');
     expect(before).toContain('solid-original');
 
-    // observe the REAL watcher, then edit the file
+    // observe the REAL watcher, then edit the file. The timeout REJECTS (the evidence claims the watcher
+    // event was observed), and the listener is removed on either outcome.
+    const appTsx = path.join(root, 'src-solid', 'App.tsx');
+    const onChange = (file: string): void => {
+      if (file === appTsx) changeResolve();
+    };
+    let changeResolve: () => void = () => {};
     const changed = new Promise<void>((resolve) => {
-      const onChange = (file: string) => {
-        if (file === path.join(root, 'src-solid', 'App.tsx')) {
-          server.watcher.off('change', onChange);
-          resolve();
-        }
-      };
-      server.watcher.on('change', onChange);
+      changeResolve = resolve;
     });
-    writeFileSync(path.join(root, 'src-solid', 'App.tsx'), solidApp('solid-edited'));
-    await Promise.race([changed, new Promise<void>((r) => setTimeout(r, 3000))]);
+    server.watcher.on('change', onChange);
+    writeFileSync(appTsx, solidApp('solid-edited'));
+    try {
+      await Promise.race([
+        changed,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Vite watcher "change" for App.tsx timed out')), 3000)),
+      ]);
+    } finally {
+      server.watcher.off('change', onChange);
+    }
 
     // poll until the invalidation has re-transformed to the edited content
     let after = '';

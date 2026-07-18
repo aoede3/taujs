@@ -1,10 +1,11 @@
 import { createFilter } from 'vite';
 
 import { assertOneImplPerKey, collectPluginNames, effectiveScopeFor, findTaggedRawCompilers, groupByKey, partitionAppPlugins } from './ManagedPlugins';
+import { composePlugins } from './VitePlugins';
 
 import type { PluginOption, Plugin } from 'vite';
 import type { ManagedContributionShape, ManagedGroupMember, OwnershipMatcher, PrepareInput, PreparedPlan } from './ManagedPlugins';
-import type { PluginSource } from './VitePlugins';
+import type { PluginCollision, PluginInput, PluginSource, ReservedPluginDrop } from './VitePlugins';
 
 /**
  * ESC-1 - the renderer-neutral host pre-pass (RFC 0006 / `docs/solid` ESC-1 reduced checkpoint §4-§6).
@@ -135,6 +136,53 @@ export function assembleManagedSources(opts: {
   const hostSources: PluginSource[] = [{ source: 'taujs:ownership-diagnostic', plugins: [diagnostic] }];
   if (managedPlugins.length) hostSources.push({ source: 'taujs:managed-compilers', plugins: managedPlugins });
   return { hostSources };
+}
+
+/**
+ * ESC-1 dev composition - the SINGLE ordering that both the shared dev server (SSRServer) and
+ * first-party integration tests drive, so neither hand-rolls (and neither can drift from) the §5 order.
+ * Runs phase 1 ({@link prepareOwnership}) over ALL apps, then phase 2 ({@link assembleManagedSources})
+ * for the one shared dev environment that instantiates EVERY active key, then {@link composePlugins}
+ * with the RFC 0005 §5 dev order: host-owned managed sources first (diagnostic, then the managed
+ * compilers - all `enforce:'pre'`, so the diagnostic runs first inside the pre tier), then each app as a
+ * labelled source of its RAW plugins (managed contributions already extracted), then the resolved
+ * `config.vite` override source. `internal` is empty here (the dev debug plugin is pinned last inside
+ * setupDevServer).
+ *
+ * NOT part of `@taujs/server`'s public API - the reduced checkpoint admits only the managed contribution
+ * as the new public concept. It is host-internal; integration tests reach it through a repo-relative /
+ * Vitest-aliased import of THIS source module, never through the published package entry.
+ */
+export async function assembleDevPluginChain(opts: {
+  apps: ReadonlyArray<AppPluginInput>;
+  projectRoot: string;
+  /** The resolved `config.vite` plugins (VS4), composed after the app sources; omitted when absent. */
+  overridePlugins?: PluginInput;
+  onCollision?: (collision: PluginCollision) => void;
+  onReservedPrefix?: (drop: ReservedPluginDrop) => void;
+}): Promise<{ plugins: Plugin[]; ownership: PreparedOwnership }> {
+  const ownership = await prepareOwnership(opts.apps, { projectRoot: opts.projectRoot, lifecycle: 'dev' });
+  const rawOf = (appId: string): PluginOption[] => ownership.rawByApp.get(appId) ?? [];
+
+  const managed = assembleManagedSources({
+    prepared: ownership,
+    keysToInstantiate: [...ownership.plans.keys()],
+    resolvedChain: [...opts.apps.flatMap((app) => rawOf(app.appId)), ...(opts.overridePlugins ? [opts.overridePlugins] : [])],
+    env: 'dev',
+  });
+
+  const plugins = composePlugins({
+    sources: [
+      ...managed.hostSources,
+      ...opts.apps.map((app) => ({ source: app.appId, plugins: rawOf(app.appId) })),
+      ...(opts.overridePlugins ? [{ source: 'config.vite', plugins: opts.overridePlugins }] : []),
+    ],
+    internal: [],
+    onCollision: opts.onCollision,
+    onReservedPrefix: opts.onReservedPrefix,
+  });
+
+  return { plugins, ownership };
 }
 
 function failOnTaggedRawCompilers(prepared: PreparedOwnership, resolvedChain: ReadonlyArray<unknown>, env: string): void {

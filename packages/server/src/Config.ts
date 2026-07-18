@@ -96,14 +96,11 @@ export type {
   PreparedPlan,
 } from './utils/ManagedPlugins';
 
-// The host pre-pass + composition primitives (the SAME functions SSRServer/Build call), exported ONLY
-// so first-party integration tests can drive the REAL host wiring - prepareOwnership -> assembleManaged
-// Sources (ownership diagnostic + raw/managed collision) -> composePlugins - instead of hand-rolling it.
-// Internal and unstable; application code must not use them.
-export { assembleManagedSources, prepareOwnership } from './utils/OwnershipPrepass';
-export type { PreparedOwnership } from './utils/OwnershipPrepass';
-export { composePlugins } from './utils/VitePlugins';
-export type { PluginSource } from './utils/VitePlugins';
+// (The host pre-pass/composition RUNTIME functions - prepareOwnership / assembleManagedSources /
+// composePlugins - are deliberately NOT exported here: the reduced checkpoint permits only the managed
+// contribution as the new public concept, and "internal" comments do not stop a public entry from
+// becoming importable product API. First-party integration tests reach them via repo-relative
+// test-only imports of the source modules instead.)
 
 export { AppError } from './core/errors/AppError';
 

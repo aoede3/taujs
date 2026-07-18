@@ -1,6 +1,6 @@
 import type { PluginOption, Plugin } from 'vite';
 
-type PluginInput = PluginOption | PluginOption[] | readonly PluginOption[] | undefined;
+export type PluginInput = PluginOption | PluginOption[] | readonly PluginOption[] | undefined;
 
 /**
  * The reserved framework plugin-name prefix (RFC 0005 §5). A USER plugin whose `name` starts with
