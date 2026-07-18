@@ -37,12 +37,17 @@ beforeAll(() => {
   // (deps a nested-only solid lib).
   writeFileSync(
     path.join(root, 'package.json'),
-    JSON.stringify({ name: 'classifier-root', private: true, dependencies: { 'direct-solid': '*', 'mid-pkg': '*', 'host-pkg': '*' } }),
+    JSON.stringify({ name: 'classifier-root', private: true, dependencies: { 'direct-solid': '*', 'mid-pkg': '*', 'host-pkg': '*', 'dup-solid': '*' } }),
   );
   const nm = path.join(root, 'node_modules');
 
   // (a) direct solid dependency, root-visible
   writePkg(path.join(nm, 'direct-solid'), 'direct-solid', { exports: SOLID_EXPORTS });
+
+  // (d) MULTIPLE INSTANCES of one package name at different depths: a root-visible copy and a copy
+  //     nested under host-pkg. vitefu resolves the root-visible instance from the project root.
+  writePkg(path.join(nm, 'dup-solid'), 'dup-solid', { exports: SOLID_EXPORTS });
+  writePkg(path.join(nm, 'host-pkg', 'node_modules', 'dup-solid'), 'dup-solid', { exports: SOLID_EXPORTS });
 
   // (b) transitive solid dependency HOISTED to the root (npm/pnpm-hoist style): mid-pkg depends on it,
   //     hoisted-solid sits at the root node_modules.
@@ -73,6 +78,12 @@ describe('ESC-1 classifier support envelope (vitefu-only kill tests)', () => {
     expect(owns(libFile('direct-solid'))).toBe(true);
   });
 
+  it('records the envelope for MULTIPLE INSTANCES - the root-visible instance is claimed, the nested one is not', async () => {
+    const owns = await claims();
+    expect(owns(libFile('dup-solid'))).toBe(true); // root-visible instance: exact vitefu provenance
+    expect(owns(libFile('dup-solid', 'host-pkg', 'node_modules'))).toBe(false); // nested instance: the root-resolution limit
+  });
+
   it('records the envelope - transitive-hoisted and nested-only are NOT claimed (documented limitation, not force-fixed)', async () => {
     const owns = await claims();
 
@@ -85,5 +96,18 @@ describe('ESC-1 classifier support envelope (vitefu-only kill tests)', () => {
     // is the signal to re-examine, not to hand-implement resolution.
     expect(owns(libFile('hoisted-solid'))).toBe(false); // transitive (hoisted) - UNSUPPORTED by the primitives
     expect(owns(libFile('nested-solid', 'host-pkg', 'node_modules'))).toBe(false); // nested-only - the root-resolution limit
+  });
+});
+
+describe('ESC-1 fix-3b - tsconfig node_modules exclude vs classifier (through real prepare)', () => {
+  it('rejects a Solid tsconfig that excludes node_modules while the classifier owns a node_modules Solid package', async () => {
+    writeFileSync(
+      path.join(root, 'tsconfig.excl.json'),
+      JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['src/**/*'], exclude: ['node_modules'] }),
+    );
+    const contribution = asShape(scopedPluginSolid({ project: 'tsconfig.excl.json' }));
+    await expect(contribution.impl.prepare([{ contribution, appId: 'app', appRoot: root }], { projectRoot: root, lifecycle: 'build' })).rejects.toThrow(
+      /cancels the Solid node_modules package/,
+    );
   });
 });
