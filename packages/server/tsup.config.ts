@@ -3,8 +3,9 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   clean: true,
   dts: true,
-  // Build.ts is a real entry: the "./build" exports subpath points at dist/Build.js.
-  entryPoints: ['src/index.ts', 'src/Config.ts', 'src/Build.ts'],
+  // Build.ts / Config.ts / Renderer.ts are real entries: the "./build" / "./config" / "./renderer"
+  // exports subpaths point at dist/Build.js / dist/Config.js / dist/Renderer.js.
+  entryPoints: ['src/index.ts', 'src/Config.ts', 'src/Build.ts', 'src/Renderer.ts'],
   external: ['@types/node', 'fastify', 'node:fs/promises', 'node:path', 'node:url', 'node:stream', 'vite'],
   format: ['esm'],
   outDir: 'dist',

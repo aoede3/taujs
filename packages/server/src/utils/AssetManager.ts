@@ -34,6 +34,9 @@ export const processConfigs = <P = unknown>(configs: readonly Config<P>[], baseC
       htmlTemplate: config.htmlTemplate || templateDefaults.defaultHtmlTemplate,
       appId: config.appId,
       plugins: config.plugins ?? [],
+      // Renderer v1: forward the app's opaque contribution unchanged (no default) so the pre-pass and
+      // render-module identity validation can read it off ProcessedConfig.
+      renderer: config.renderer,
     };
   }) as ProcessedConfig<P>[];
 };

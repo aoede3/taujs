@@ -169,6 +169,9 @@ export type Config<P = unknown> = {
   entryServer?: string;
   htmlTemplate?: string;
   plugins?: readonly P[];
+  // Renderer v1: the app's opaque renderer contribution, carried as a single scalar (NOT the plugin `P`
+  // array generic). The host reads it structurally in the pre-pass + at render-module load.
+  renderer?: unknown;
 };
 
 export type ProcessedConfig<P = unknown> = {
@@ -179,4 +182,5 @@ export type ProcessedConfig<P = unknown> = {
   entryServer: string;
   htmlTemplate: string;
   plugins?: readonly P[];
+  renderer?: unknown;
 };

@@ -180,6 +180,10 @@ export type CoreAppConfig = {
   appId: string;
   entryPoint: string;
   plugins?: readonly unknown[];
+  // Renderer v1 (RFC 0006): the app's opaque branded renderer contribution. `unknown` here keeps the
+  // Vite-free core dependency-free (the required, branded shape is enforced on the public `AppConfig`);
+  // it is carried through extract/process so the host pre-pass + identity validation can read it.
+  renderer?: unknown;
   routes?: readonly AppRoute[];
 };
 

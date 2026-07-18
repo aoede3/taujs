@@ -35,6 +35,10 @@
       "types": "./dist/Build.d.ts",
       "import": "./dist/Build.js"
     },
+    "./renderer": {
+      "types": "./dist/Renderer.d.ts",
+      "import": "./dist/Renderer.js"
+    },
     "./config": {
       "types": "./dist/Config.d.ts",
       "import": "./dist/Config.js"
