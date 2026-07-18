@@ -17,6 +17,15 @@ import type { OwnershipMatcher } from './tsconfigOwnership.js';
  * requirement carried by the matrix - `findDepPkgJsonPath` resolves from the project root, so a
  * root-visible instance is matched; if exact per-instance provenance ever needs recreating resolution,
  * that is a REVISE, not a silent widening.
+ *
+ * PROPORTIONALITY TRIPWIRE - DO NOT BREACH (maintainer directive, decisions.md 2026-07-18): this stays
+ * vitefu-ONLY. The matrix's nested / transitive / workspace / multiple-instance cases are KILL TESTS
+ * that reveal the honest support envelope - they are NOT licence to make every layout green by any
+ * means. Never add manual dependency traversal, a resolver, module-graph reconstruction, resolver
+ * caches, or package-manager-specific logic here. Supported = layouts for which vitefu gives exact
+ * package-directory provenance; unsupported = layouts requiring τjs to reconstruct resolution (record
+ * as a documented limitation; the first case that would need bespoke provenance machinery fires the
+ * REVISE tripwire and returns for a supported-scope ruling).
  */
 
 const toForwardSlash = (p: string): string => p.replace(/\\/g, '/');
