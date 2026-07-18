@@ -123,7 +123,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         keysToInstantiate: [...ownership.plans.keys()],
         resolvedChain: [...processedConfigs.flatMap((c) => rawOf(c.appId)), ...(overridePlugins ? [overridePlugins] : [])],
         env: 'dev',
-        warn: (message) => logger.warn(message),
       });
 
       // RFC 0005 §5 (VS6): ONE composition rule for the shared dev server. Host-owned managed sources

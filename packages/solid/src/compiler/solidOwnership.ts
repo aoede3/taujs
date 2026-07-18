@@ -1,7 +1,7 @@
 import { classifySolidPackages } from './solidClassifier.js';
-import { dedupeMatchers, deriveBoundaries, mergeCompilerOptions, parseTsconfigProject, resolveProjectPath } from './tsconfigOwnership.js';
+import { assertNoExclusionConflicts, dedupeMatchers, deriveBoundaries, mergeCompilerOptions, parseTsconfigProject, resolveProjectPath } from './tsconfigOwnership.js';
 
-import type { OwnershipMatcher } from './tsconfigOwnership.js';
+import type { OwnershipMatcher, ProjectOwnership } from './tsconfigOwnership.js';
 import type { ManagedGroupMember, PrepareInput } from '@taujs/server/config';
 
 /**
@@ -22,26 +22,27 @@ export type SolidOwnership = {
 export const computeSolidOwnership = async (group: ReadonlyArray<ManagedGroupMember>, input: PrepareInput): Promise<SolidOwnership> => {
   const options = mergeCompilerOptions('Solid', group.map((member) => (member.contribution.options ?? {}) as Record<string, unknown>));
 
-  const claims: OwnershipMatcher[] = [];
+  const projects: ProjectOwnership[] = [];
   const boundaries: OwnershipMatcher[] = [];
-  const exclude: OwnershipMatcher[] = [];
 
   for (const member of group) {
     const projectPath = resolveProjectPath(member.contribution.project, input.projectRoot);
-    const { include, exclude: projectExclude } = parseTsconfigProject(projectPath);
-    claims.push(...include);
+    const { include, exclude } = parseTsconfigProject(projectPath);
+    projects.push({ project: projectPath, include, exclude });
     boundaries.push(...deriveBoundaries(include));
-    exclude.push(...projectExclude);
   }
 
   // Solid libraries in node_modules ship JSX and must be compiled: exact package-directory matchers.
   const packageClaims = await classifySolidPackages(input.projectRoot);
-  claims.push(...packageClaims);
+
+  // Reject a project excluding what another project (or the classifier's packages) claims - one project's
+  // exclude must not silently cancel another's ownership in the merged filter.
+  assertNoExclusionConflicts('Solid', projects, packageClaims);
 
   return {
-    claims: dedupeMatchers(claims),
+    claims: dedupeMatchers([...projects.flatMap((p) => p.include), ...packageClaims]),
     boundaries: dedupeMatchers(boundaries),
-    exclude: dedupeMatchers(exclude),
+    exclude: dedupeMatchers(projects.flatMap((p) => p.exclude)),
     options,
   };
 };

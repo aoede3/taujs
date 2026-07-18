@@ -152,6 +152,56 @@ export const mergeCompilerOptions = (label: string, optionSets: ReadonlyArray<Re
   return { ...first };
 };
 
+const withTrailingSlash = (p: string): string => (p.endsWith('/') ? p : `${p}/`);
+const pathAncestorOrEqual = (ancestor: string, descendant: string): boolean => ancestor === descendant || descendant.startsWith(withTrailingSlash(ancestor));
+
+const firstOverlap = (excludeGlobs: OwnershipMatcher[], claimGlobs: OwnershipMatcher[]): { exclude: string; claim: string } | undefined => {
+  for (const ex of excludeGlobs) {
+    if (typeof ex !== 'string') continue;
+    const exBase = globBase(ex);
+    for (const claim of claimGlobs) {
+      if (typeof claim !== 'string') continue;
+      const claimBase = globBase(claim);
+      if (pathAncestorOrEqual(exBase, claimBase) || pathAncestorOrEqual(claimBase, exBase)) return { exclude: ex, claim };
+    }
+  }
+  return undefined;
+};
+
+/** One compiler project's own include/exclude, retained so exclusion PROVENANCE can be checked. */
+export type ProjectOwnership = { project: string; include: OwnershipMatcher[]; exclude: OwnershipMatcher[] };
+
+/**
+ * A managed compiler merges all same-key projects' claims AND excludes into ONE createFilter (a single
+ * include/exclude pair cannot express a union of per-project owned sets). So one project's exclude would
+ * silently cancel another project's claim - or a tsconfig `exclude` would cancel the classifier's
+ * node_modules package claims. Rather than reproduce resolver machinery, REJECT such overlaps before Vite
+ * starts (checkpoint §3 provenance; maintainer ruling 2026-07-18): each project's exclude may only touch
+ * its OWN claims. Overlap is judged by directory ancestry of the glob bases.
+ */
+export const assertNoExclusionConflicts = (label: string, projects: ReadonlyArray<ProjectOwnership>, classifierClaims: OwnershipMatcher[]): void => {
+  for (const p of projects) {
+    for (const q of projects) {
+      if (q === p) continue;
+      const hit = firstOverlap(p.exclude, q.include);
+      if (hit) {
+        throw new Error(
+          `[taujs] a ${label} project excludes "${hit.exclude}", which cancels another ${label} project's claim "${hit.claim}". ` +
+            `A managed compiler merges every same-key project's claims and excludes into one filter, so one project's exclude must not remove another project's owned files. ` +
+            `Give the ${label} projects disjoint membership - do not exclude a directory another ${label} project includes.`,
+        );
+      }
+    }
+    const pkgHit = firstOverlap(p.exclude, classifierClaims);
+    if (pkgHit) {
+      throw new Error(
+        `[taujs] a ${label} project excludes "${pkgHit.exclude}", which cancels the ${label} node_modules package "${pkgHit.claim}" the classifier owns. ` +
+          `Remove that exclude - ${label} node_modules packages are compiled via the classifier, not the tsconfig source globs.`,
+      );
+    }
+  }
+};
+
 /** Deduplicate matchers, preserving order; RegExp identity by source+flags, strings by value. */
 export const dedupeMatchers = (matchers: OwnershipMatcher[]): OwnershipMatcher[] => {
   const seen = new Set<string>();

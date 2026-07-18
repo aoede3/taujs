@@ -393,7 +393,6 @@ export async function taujsBuild({
       keysToInstantiate: ownership.keysByApp.get(appId) ?? [],
       resolvedChain: pluginSources.flatMap((s) => (Array.isArray(s.plugins) ? s.plugins : s.plugins == null ? [] : [s.plugins])),
       env: `build:${entryPoint}`,
-      warn: (message) => console.warn(message),
     });
 
     // VS6 (RFC 0005 §5): composeViteConfig appends plugins naively per layer for the legacy

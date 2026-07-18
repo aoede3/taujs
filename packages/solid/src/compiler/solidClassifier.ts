@@ -46,7 +46,10 @@ const containsSolidCondition = (fields: unknown): boolean => {
 
 /**
  * Classify the project's dependencies and return exact package-directory ownership matchers for every
- * package that declares a `solid` export condition. Returns [] when there are no resolvable deps.
+ * package that declares a `solid` export condition. Classification FAILURE is never swallowed silently:
+ * a swallowed failure would skip raw-JSX Solid dependencies and reproduce exactly the undiagnosed
+ * fallthrough ESC-1 exists to prevent, so it is surfaced as an actionable warning (the ownership plan
+ * still builds from the tsconfig claims).
  */
 export const classifySolidPackages = async (projectRoot: string): Promise<OwnershipMatcher[]> => {
   let crawl: Awaited<ReturnType<typeof crawlFrameworkPkgs>>;
@@ -56,7 +59,11 @@ export const classifySolidPackages = async (projectRoot: string): Promise<Owners
       isBuild: false,
       isFrameworkPkgByJson: (pkgJson) => containsSolidCondition((pkgJson as { exports?: unknown }).exports ?? {}),
     });
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[taujs] Solid node_modules classification failed for "${projectRoot}"; raw-JSX Solid dependencies may be skipped and fail at runtime. ` +
+        `Cause: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return [];
   }
 
@@ -67,7 +74,12 @@ export const classifySolidPackages = async (projectRoot: string): Promise<Owners
   const matchers: OwnershipMatcher[] = [];
   for (const dep of classified) {
     const pkgJsonPath = await findDepPkgJsonPath(dep, projectRoot);
-    if (!pkgJsonPath) continue;
+    if (!pkgJsonPath) {
+      console.warn(
+        `[taujs] classified Solid package "${dep}" but could not resolve its directory from "${projectRoot}"; it will be skipped (its raw Solid JSX may fail at runtime).`,
+      );
+      continue;
+    }
     matchers.push(`${toForwardSlash(path.dirname(pkgJsonPath))}/${PKG_GLOB}`);
   }
   return matchers;

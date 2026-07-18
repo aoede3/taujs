@@ -319,25 +319,10 @@ export function collectPluginNames(chain: ReadonlyArray<unknown> | undefined): s
   return names;
 }
 
-/** Which declared region a resolved id falls in, from the renderer-supplied boundaries (checkpoint §5). */
-export type OwnershipRegion = 'expected-framework' | 'expected-generic' | 'outside';
-/** The severity the ownership diagnostic reports for one resolved id. */
-export type OwnershipSeverity = 'ok' | 'error' | 'warning' | 'ignore';
-
-/**
- * The fail-closed ownership severity table (checkpoint §5). Owners are DISTINCT keys (same-key merge has
- * already collapsed duplicate keys to one owner):
- *   - exactly 1 owner            -> OK (that compiler transforms it)
- *   - >= 2 different-key owners   -> HARD ERROR (the double-claim / excluded-from-both hazard)
- *   - 0 owners, expected-framework boundary -> HARD ERROR (the "React is not defined" mechanism)
- *   - 0 owners, expected-generic boundary   -> WARNING
- *   - 0 owners, outside all boundaries      -> ignored (Vite/esbuild's concern)
- */
-export function classifyOwnership(ownerKeys: readonly string[], region: OwnershipRegion): OwnershipSeverity {
-  const owners = new Set(ownerKeys);
-  if (owners.size === 1) return 'ok';
-  if (owners.size >= 2) return 'error';
-  if (region === 'expected-framework') return 'error';
-  if (region === 'expected-generic') return 'warning';
-  return 'ignore';
-}
+// NOTE: the ESC-1 diagnostic does NOT use a generic zero-owner WARNING tier. The checkpoint §5 table
+// listed an "expected-generic boundary -> WARNING" row for a host-declared project boundary with no
+// compiler, but ESC-1 has no host-declared generic boundaries (every boundary is renderer-supplied for a
+// key that HAS a compiler), so that row is never reachable. The severity logic (owned / double-claimed /
+// zero-owner-in-a-framework-boundary -> hard error, else ignore) is inlined in `createOwnershipDiagnostic`
+// and mirrors each compiler's real effective scope; a standalone `classifyOwnership` table would only
+// re-encode a case that cannot occur.

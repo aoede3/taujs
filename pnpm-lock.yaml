@@ -320,6 +320,9 @@ importers:
 
   packages/solid:
     dependencies:
+      picomatch:
+        specifier: ^2.3.1
+        version: 2.3.2
       vitefu:
         specifier: ^1.1.1
         version: 1.1.3(vite@7.3.6(@types/node@24.13.3)(tsx@4.23.0))
@@ -330,6 +333,9 @@ importers:
       '@types/node':
         specifier: ^24.0.7
         version: 24.13.3
+      '@types/picomatch':
+        specifier: ^2.3.3
+        version: 2.3.4
       solid-js:
         specifier: ~1.9.14
         version: 1.9.14
@@ -1314,6 +1320,9 @@ packages:
 
   '@types/node@24.13.3':
     resolution: {integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==}
+
+  '@types/picomatch@2.3.4':
+    resolution: {integrity: sha512-0so8lU8O5zatZS/2Fi4zrwks+vZv7e0dygrgEZXljODXBig97l4cPQD+9LabXfGJOWwoRkTVz6Q4edZvD12UOA==}
 
   '@types/prompts@2.4.9':
     resolution: {integrity: sha512-qTxFi6Buiu8+50/+3DGIWLHM6QuWsEKugJnnP6iv2Mc4ncxE4A/OJkjuVOA+5X0X1S/nq5VJRa8Lu+nwcvbrKA==}
@@ -4419,6 +4428,8 @@ snapshots:
   '@types/node@24.13.3':
     dependencies:
       undici-types: 7.18.2
+
+  '@types/picomatch@2.3.4': {}
 
   '@types/prompts@2.4.9':
     dependencies:

@@ -76,6 +76,41 @@ describe('ESC-1 matrix coverage (Solid)', () => {
     expect(plan.claims).toContain(toFwd(path.join(fixturesDir, 'app2/**/*.tsx')));
   });
 
+  it('case §8 - the REAL scoped Solid plugin transforms a query-suffixed id (HMR ?t / dep ?v), not only the bare path', async () => {
+    const contribution = asShape(scopedPluginSolid({ project: 'tsconfig.owned.json' }));
+    const plan = await contribution.impl.prepare([{ contribution, appId: 'admin', appRoot: fixturesDir }], { projectRoot: fixturesDir, lifecycle: 'dev' });
+    const plugin = plan.createPlugin({ include: plan.claims, exclude: [] }) as {
+      transform?: ((this: unknown, code: string, id: string, opts?: unknown) => unknown) | { handler: (this: unknown, code: string, id: string, opts?: unknown) => unknown };
+    };
+    const t = plugin.transform;
+    const handler = typeof t === 'function' ? t : t?.handler;
+    expect(typeof handler).toBe('function');
+
+    const source = 'export default function C() {\n  return <div>hi</div>;\n}\n';
+    const ctx = {
+      error(e: unknown) {
+        throw e instanceof Error ? e : new Error(String(e));
+      },
+    };
+    const ownedId = toFwd(path.join(fixturesDir, 'app', 'Q.tsx'));
+    const run = async (id: string) => {
+      const out = await handler!.call(ctx, source, id, { ssr: false });
+      return typeof out === 'string' ? out : ((out as { code?: string } | null | undefined)?.code ?? null);
+    };
+
+    const bare = await run(ownedId); // control - bare path compiles
+    const withTimestamp = await run(`${ownedId}?t=123`); // HMR
+    const withVersion = await run(`${ownedId}?v=abc`); // dep hash
+    const skipped = await run(toFwd(path.join(fixturesDir, 'other', 'Nope.tsx'))); // not owned -> skipped
+
+    expect(bare).toBeTruthy();
+    expect(withTimestamp).toBeTruthy(); // the fix: query-suffixed ids are still compiled
+    expect(withVersion).toBeTruthy();
+    expect(skipped).toBeNull();
+    // and the query variant produced real Solid output, not passthrough
+    expect(withTimestamp).toMatch(/solid-js\/web|_tmpl\$|createComponent/);
+  });
+
   it('case 18 - the built plugin bundle carries NO runtime @taujs/server import (raw pluginSolid stays portable)', async () => {
     const { readFile } = await import('node:fs/promises');
     const dist = fileURLToPath(new URL('../../dist/plugin.js', import.meta.url));

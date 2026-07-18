@@ -35,11 +35,13 @@
     "dist"
   ],
   "dependencies": {
+    "picomatch": "^2.3.1",
     "vitefu": "^1.1.1"
   },
   "devDependencies": {
     "@taujs/server": "workspace:*",
     "@types/node": "^24.0.7",
+    "@types/picomatch": "^2.3.3",
     "solid-js": "~1.9.14",
     "tsup": "^8.2.4",
     "typescript": "^5.5.4",

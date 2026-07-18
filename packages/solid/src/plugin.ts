@@ -15,12 +15,31 @@
  *
  * This package is the ESC-1 COMPILER surface only; the Solid renderer lands post-GO (S1).
  */
+import picomatch from 'picomatch';
 import solid from 'vite-plugin-solid';
 
 import type { Plugin, PluginOption } from 'vite';
-import type { CompilerImpl, ManagedContributionBrand, PreparedPlan, TaujsManagedPluginContribution } from '@taujs/server/config';
+import type { CompilerImpl, EffectiveScope, ManagedContributionBrand, PreparedPlan, TaujsManagedPluginContribution } from '@taujs/server/config';
 
 type SolidOptions = NonNullable<Parameters<typeof solid>[0]>;
+
+// vite-plugin-solid filters the RAW module id (query included) with a createFilter captured at
+// construction (dist/esm/index.mjs: `if (!filter(id)) return null`), UNLIKE @vitejs/plugin-react which
+// strips the query first (`id.split('?')`). So a scoped `.tsx` include would miss `App.tsx?t=...` (HMR)
+// or `App.tsx?v=...` (deps) and Solid would silently skip the file. Convert our matchers to
+// query-tolerant RegExps for the ACTUAL plugin filter (checkpoint §8); the host diagnostic already
+// canonicalises the query away, so the two agree. React needs no equivalent.
+const QUERY_TAIL = '(?:\\?[^?]*)?';
+function toQueryTolerantMatchers(matchers: EffectiveScope['include']): RegExp[] {
+  const out: RegExp[] = [];
+  for (const matcher of matchers) {
+    const base = typeof matcher === 'string' ? picomatch.makeRe(matcher, { dot: true }) : matcher;
+    if (!base) continue;
+    const source = base.source.endsWith('$') ? `${base.source.slice(0, -1)}${QUERY_TAIL}$` : `${base.source}${QUERY_TAIL}`;
+    out.push(new RegExp(source, base.flags));
+  }
+  return out;
+}
 
 // Reproduced BY VALUE (never imported at runtime) so raw wrappers stay `@taujs/server`-free; the
 // type-only `ManagedContributionBrand` makes a host-side brand bump fail this assignment at compile time.
@@ -72,7 +91,8 @@ const solidCompilerImpl: CompilerImpl = {
       exclude,
       // Fresh per call (checkpoint section 6). The renderer folds its OWN exclude in; the host supplies
       // the cross-key exclusions via `scope.exclude`. A managed compiler is NOT tagged.
-      createPlugin: (scope): PluginOption => solid({ ...(options as SolidOptions), include: scope.include, exclude: [...exclude, ...scope.exclude] }),
+      createPlugin: (scope): PluginOption =>
+        solid({ ...(options as SolidOptions), include: toQueryTolerantMatchers(scope.include), exclude: toQueryTolerantMatchers([...exclude, ...scope.exclude]) }),
     } satisfies PreparedPlan;
   },
 };

@@ -1,6 +1,6 @@
-import { dedupeMatchers, deriveBoundaries, mergeCompilerOptions, parseTsconfigProject, resolveProjectPath } from './tsconfigOwnership.js';
+import { assertNoExclusionConflicts, dedupeMatchers, deriveBoundaries, mergeCompilerOptions, parseTsconfigProject, resolveProjectPath } from './tsconfigOwnership.js';
 
-import type { OwnershipMatcher } from './tsconfigOwnership.js';
+import type { OwnershipMatcher, ProjectOwnership } from './tsconfigOwnership.js';
 import type { ManagedGroupMember, PrepareInput } from '@taujs/server/config';
 
 /**
@@ -23,22 +23,24 @@ export type ReactOwnership = {
 export const computeReactOwnership = (group: ReadonlyArray<ManagedGroupMember>, input: PrepareInput): ReactOwnership => {
   const options = mergeCompilerOptions('React', group.map((member) => (member.contribution.options ?? {}) as Record<string, unknown>));
 
-  const claims: OwnershipMatcher[] = [];
+  const projects: ProjectOwnership[] = [];
   const boundaries: OwnershipMatcher[] = [];
-  const exclude: OwnershipMatcher[] = [];
 
   for (const member of group) {
     const projectPath = resolveProjectPath(member.contribution.project, input.projectRoot);
-    const { include, exclude: projectExclude } = parseTsconfigProject(projectPath);
-    claims.push(...include);
+    const { include, exclude } = parseTsconfigProject(projectPath);
+    projects.push({ project: projectPath, include, exclude });
     boundaries.push(...deriveBoundaries(include));
-    exclude.push(...projectExclude);
   }
 
+  // React claims no node_modules packages (libraries ship precompiled), so classifierClaims is empty;
+  // still reject a project excluding what another React project claims (silent same-key false-green).
+  assertNoExclusionConflicts('React', projects, []);
+
   return {
-    claims: dedupeMatchers(claims),
+    claims: dedupeMatchers(projects.flatMap((p) => p.include)),
     boundaries: dedupeMatchers(boundaries),
-    exclude: dedupeMatchers(exclude),
+    exclude: dedupeMatchers(projects.flatMap((p) => p.exclude)),
     options,
   };
 };

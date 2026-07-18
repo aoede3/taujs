@@ -1,17 +1,9 @@
 import { createFilter } from 'vite';
 
-import {
-  assertOneImplPerKey,
-  classifyOwnership,
-  collectPluginNames,
-  effectiveScopeFor,
-  findTaggedRawCompilers,
-  groupByKey,
-  partitionAppPlugins,
-} from './ManagedPlugins';
+import { assertOneImplPerKey, collectPluginNames, effectiveScopeFor, findTaggedRawCompilers, groupByKey, partitionAppPlugins } from './ManagedPlugins';
 
 import type { PluginOption, Plugin } from 'vite';
-import type { ManagedContributionShape, ManagedGroupMember, OwnershipMatcher, OwnershipRegion, OwnershipSeverity, PrepareInput, PreparedPlan } from './ManagedPlugins';
+import type { ManagedContributionShape, ManagedGroupMember, OwnershipMatcher, PrepareInput, PreparedPlan } from './ManagedPlugins';
 import type { PluginSource } from './VitePlugins';
 
 /**
@@ -96,19 +88,11 @@ export function assembleManagedSources(opts: {
   resolvedChain: ReadonlyArray<unknown>;
   /** Environment label surfaced in errors (`'dev'` / `'build:<entry>'`). */
   env: string;
-  /** Non-throwing warning sink (dev logger / build console). */
-  warn: (message: string) => void;
 }): { hostSources: PluginSource[] } {
-  const { prepared, keysToInstantiate, resolvedChain, env, warn } = opts;
+  const { prepared, keysToInstantiate, resolvedChain, env } = opts;
 
-  // No managed ownership anywhere -> nothing to add; existing projects are untouched.
-  if (!prepared.active || keysToInstantiate.length === 0) {
-    // Still enforce the different-key hard error if a tagged raw compiler coexists with managed
-    // ownership declared elsewhere (dev shares one chain; a filtered build without this app's key does
-    // not, and correctly does not fail here).
-    if (prepared.active) failOnTaggedRawCompilers(prepared, resolvedChain, env);
-    return { hostSources: [] };
-  }
+  // No managed ownership ANYWHERE -> nothing to add; existing single-framework projects are untouched.
+  if (!prepared.active) return { hostSources: [] };
 
   // §2 blocking-gap rule: any tagged unscoped raw JSX compiler alongside managed ownership is a hard
   // error, key- and name-independent (a chain-global raw React compiler contaminates Solid TSX while
@@ -141,14 +125,16 @@ export function assembleManagedSources(opts: {
     }
   }
 
-  const diagnostic = createOwnershipDiagnostic(prepared.plans, env, warn);
+  // The diagnostic evaluates ownership over the GLOBAL plans but counts as EFFECTIVE owners only the
+  // compilers instantiated in THIS environment (a globally-claimed key whose compiler is absent here -
+  // e.g. a filtered build - owns nothing here, so an imported file it would have compiled must fail
+  // closed, not fall through). Installed whenever managed ownership is active, even with zero managed
+  // compilers in this environment.
+  const diagnostic = createOwnershipDiagnostic(prepared.plans, new Set(keysToInstantiate), env);
 
-  return {
-    hostSources: [
-      { source: 'taujs:ownership-diagnostic', plugins: [diagnostic] },
-      { source: 'taujs:managed-compilers', plugins: managedPlugins },
-    ],
-  };
+  const hostSources: PluginSource[] = [{ source: 'taujs:ownership-diagnostic', plugins: [diagnostic] }];
+  if (managedPlugins.length) hostSources.push({ source: 'taujs:managed-compilers', plugins: managedPlugins });
+  return { hostSources };
 }
 
 function failOnTaggedRawCompilers(prepared: PreparedOwnership, resolvedChain: ReadonlyArray<unknown>, env: string): void {
@@ -177,23 +163,27 @@ const JSX_ID = /\.[jt]sx$/;
 /**
  * The fail-closed ownership diagnostic (safeguard 2, checkpoint §5). Host-owned, `enforce:'pre'`,
  * transforms NOTHING - it evaluates the renderer-supplied claim/boundary matchers per resolved JSX/TSX
- * id and hard-errors (or warns) on ambiguous ownership before esbuild can silently swallow it. Dedup is
- * per environment, keyed by canonical id + severity.
+ * id and hard-errors on ambiguous ownership before esbuild can silently swallow it. Dedup is per
+ * environment, keyed by canonical id.
+ *
+ * `instantiatedKeys` = the compilers actually constructed in THIS environment. Ownership is evaluated
+ * over the GLOBAL plans (all apps) for cross-key exclusion and boundaries, but a file counts as
+ * effectively OWNED only if a compiler that exists HERE compiles it: a filtered build that imports a
+ * file some absent app's compiler would own must fail closed, not fall through.
  */
-export function createOwnershipDiagnostic(plans: ReadonlyMap<string, PreparedPlan>, env: string, warn: (message: string) => void): Plugin {
+export function createOwnershipDiagnostic(plans: ReadonlyMap<string, PreparedPlan>, instantiatedKeys: ReadonlySet<string>, env: string): Plugin {
   const keys = [...plans.keys()];
   const noneMatch = (): boolean => false;
   const filterOrNever = (include: OwnershipMatcher[], exclude: OwnershipMatcher[]): ((id: string) => boolean) =>
     include.length ? createFilter(include, exclude.length ? exclude : undefined) : noneMatch;
 
-  // Two filters per key, so the diagnostic mirrors what the COMPILER actually does:
-  //  - rawFilter = claims minus the project's OWN exclude ("who intends to own it") - drives the clear
-  //    double-claim message.
-  //  - effectiveFilter = claims minus own exclude minus ALL OTHER keys' claims (the exact effective scope
-  //    the host hands the compiler via createPlugin). A file no effectiveFilter matches is compiled by
-  //    NOBODY - the fallthrough safeguard 2 must catch, whether the cause is a genuine gap or a
-  //    cross-exclusion (a file one project excludes while another project claims it).
-  //  - boundaryFilter = the expected-owner region minus own exclude (deliberate exclusions fall outside).
+  // Per key, mirroring what the real compiler does:
+  //  - rawFilter = claims minus the project's OWN exclude ("who intends to own it"), over ALL keys -
+  //    drives the clear global double-claim message (a config error in any environment).
+  //  - effectiveFilter = claims minus own exclude minus ALL OTHER keys' claims (the exact scope the host
+  //    hands the compiler). Counted as an OWNER only for keys instantiated here.
+  //  - boundaryFilter = the expected-owner region minus own exclude, over ALL keys (a file in an absent
+  //    app's boundary is still "expected somewhere", so importing it here is a fail-closed error).
   const rawFilter = new Map<string, (id: string) => boolean>();
   const effectiveFilter = new Map<string, (id: string) => boolean>();
   const boundaryFilter = new Map<string, (id: string) => boolean>();
@@ -214,42 +204,33 @@ export function createOwnershipDiagnostic(plans: ReadonlyMap<string, PreparedPla
       const canonical = canonicaliseId(id);
       if (!canonical || !JSX_ID.test(canonical)) return null;
 
-      // effectiveOwners is 0 or 1 (two keys cannot both effectively own a file - each excludes the
-      // other's claims). rawOwners >= 2 is the doubly-CLAIMED case (both intend to own it; both compilers
-      // then exclude it).
-      const effectiveOwners = keys.filter((key) => effectiveFilter.get(key)!(canonical));
+      // Effective owners are restricted to compilers instantiated HERE (0 or 1). rawOwners is global
+      // (double-claim = a config error regardless of which app is building).
+      const effectiveOwners = keys.filter((key) => instantiatedKeys.has(key) && effectiveFilter.get(key)!(canonical));
       const rawOwners = keys.filter((key) => rawFilter.get(key)!(canonical));
-      const doubleClaimed = rawOwners.length >= 2;
+      if (effectiveOwners.length === 1 && rawOwners.length < 2) return null; // owned + unambiguous -> OK
 
-      let region: OwnershipRegion = 'outside';
-      if (effectiveOwners.length === 0) {
-        region = keys.some((key) => boundaryFilter.get(key)!(canonical)) ? 'expected-framework' : 'outside';
-      }
+      const inBoundary = keys.some((key) => boundaryFilter.get(key)!(canonical));
+      if (effectiveOwners.length === 0 && !inBoundary && rawOwners.length < 2) return null; // outside every boundary -> not ours
 
-      const severity: OwnershipSeverity = doubleClaimed ? 'error' : classifyOwnership(effectiveOwners, region);
-      if (severity === 'ok' || severity === 'ignore') return null;
+      if (seen.has(canonical)) return null;
+      seen.add(canonical);
 
-      const dedupeKey = `${severity}:${canonical}`;
-      if (seen.has(dedupeKey)) return null;
-      seen.add(dedupeKey);
-
-      if (severity === 'error') {
-        if (doubleClaimed) {
-          this.error(
-            `[taujs:${env}] "${canonical}" is claimed by more than one framework compiler (${rawOwners.join(', ')}). ` +
-              `A doubly-claimed file is excluded from every compiler and fails at runtime. Assign it to exactly one compiler's tsconfig project.`,
-          );
-        } else {
-          this.error(
-            `[taujs:${env}] "${canonical}" lies within a framework compiler's declared boundary but is compiled by NO compiler - ` +
-              `its project does not claim it, or another project's claim excludes it. It would fall through to esbuild and fail at runtime ` +
-              `(e.g. "React is not defined"). Assign it to exactly one compiler's tsconfig project.`,
-          );
-        }
+      // `this.error` throws in real Vite/Rollup; the if/else keeps exactly one call for a non-throwing
+      // test spy. Double-claim gets the more specific message (it is also compiled by nobody).
+      if (rawOwners.length >= 2) {
+        this.error(
+          `[taujs:${env}] "${canonical}" is claimed by more than one framework compiler (${rawOwners.join(', ')}). ` +
+            `A doubly-claimed file is excluded from every compiler and fails at runtime. Assign it to exactly one compiler's tsconfig project.`,
+        );
       } else {
-        warn(`[taujs:${env}] "${canonical}" lies within a declared project boundary with no compiler; esbuild will handle it.`);
+        this.error(
+          `[taujs:${env}] "${canonical}" lies within a framework compiler's declared boundary but is compiled by NO compiler here - ` +
+            `its project does not claim it, another project's claim excludes it, or the owning compiler is not built in this environment. ` +
+            `It would fall through to esbuild and fail at runtime (e.g. "React is not defined"). Assign it to exactly one compiler's tsconfig project ` +
+            `that is built here.`,
+        );
       }
-
       return null;
     },
   };

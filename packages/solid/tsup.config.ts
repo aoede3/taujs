@@ -8,7 +8,7 @@ export default defineConfig({
   clean: true,
   dts: true,
   entryPoints: ['src/**/*.ts', '!src/**/test/**', '!src/**/*.d.ts'],
-  external: ['node:fs', 'node:fs/promises', 'node:path', 'node:url', 'vite', 'vite-plugin-solid', 'solid-js', 'typescript', 'vitefu'],
+  external: ['node:fs', 'node:fs/promises', 'node:path', 'node:url', 'vite', 'vite-plugin-solid', 'solid-js', 'typescript', 'vitefu', 'picomatch'],
   format: ['esm'],
   outDir: 'dist',
   platform: 'node',

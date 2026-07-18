@@ -2,13 +2,19 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 
-import { MANAGED_CONTRIBUTION_BRAND } from '@taujs/server/config';
 import { scopedPluginReact } from '@taujs/react/plugin';
 import { scopedPluginSolid } from '@taujs/solid/plugin';
 import { build, createFilter } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { EffectiveScope, ManagedContributionShape } from '@taujs/server/config';
+
+// The brand LITERAL asserted by value (not imported at runtime): keeping this fixture runtime-decoupled
+// from @taujs/server means a server unit test that clears packages/server/dist mid-run cannot break it.
+// Cross-package brand agreement is already enforced at COMPILE time - each renderer's plugin.ts declares
+// `const MANAGED_BRAND: ManagedContributionBrand = 'taujs.managed-plugin-contribution/v1'`, which fails
+// typecheck if the literal diverges from @taujs/server's ManagedContributionBrand type.
+const MANAGED_CONTRIBUTION_BRAND = 'taujs.managed-plugin-contribution/v1';
 
 /**
  * ESC-1 acceptance matrix - real-Vite composition proof (RFC 0006 checkpoint section 11, cases 3 + 12).

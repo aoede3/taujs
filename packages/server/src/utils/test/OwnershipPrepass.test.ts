@@ -83,13 +83,21 @@ const prepareSync = async (apps: Parameters<typeof prepareOwnership>[0]): Promis
 describe('assembleManagedSources (phase 2)', () => {
   it('returns no host sources when ownership is inactive', async () => {
     const prepared = await prepareSync([app('web', [{ name: 'x' }])]);
-    const { hostSources } = assembleManagedSources({ prepared, keysToInstantiate: [], resolvedChain: [{ name: 'x' }], env: 'dev', warn: vi.fn() });
+    const { hostSources } = assembleManagedSources({ prepared, keysToInstantiate: [], resolvedChain: [{ name: 'x' }], env: 'dev' });
     expect(hostSources).toEqual([]);
+  });
+
+  it('installs the diagnostic even with ZERO instantiated keys when ownership is active (filtered build fail-closed, finding 1)', async () => {
+    // another app declares managed ownership, but THIS environment instantiates nothing
+    const prepared = await prepareSync([app('admin', [contribution('solid', makeImpl('solid'))])]);
+    const { hostSources } = assembleManagedSources({ prepared, keysToInstantiate: [], resolvedChain: [], env: 'build:web' });
+    expect(hostSources).toHaveLength(1);
+    expect(hostSources[0]!.source).toBe('taujs:ownership-diagnostic');
   });
 
   it('prepends the diagnostic FIRST, then the managed compilers (constructed for keysToInstantiate only)', async () => {
     const prepared = await prepareSync([app('web', [contribution('react', makeImpl('react'))]), app('admin', [contribution('solid', makeImpl('solid'))])]);
-    const { hostSources } = assembleManagedSources({ prepared, keysToInstantiate: ['react'], resolvedChain: [], env: 'build:web', warn: vi.fn() });
+    const { hostSources } = assembleManagedSources({ prepared, keysToInstantiate: ['react'], resolvedChain: [], env: 'build:web' });
     expect(hostSources[0]!.source).toBe('taujs:ownership-diagnostic');
     expect(hostSources[1]!.source).toBe('taujs:managed-compilers');
     const diagnostic = (hostSources[0]!.plugins as { name: string }[])[0]!;
@@ -101,14 +109,14 @@ describe('assembleManagedSources (phase 2)', () => {
   it('HARD errors on a tagged unscoped raw JSX compiler alongside managed ownership, directing to the scoped equivalent', async () => {
     const prepared = await prepareSync([app('admin', [contribution('solid', makeImpl('solid'))])]);
     expect(() =>
-      assembleManagedSources({ prepared, keysToInstantiate: ['solid'], resolvedChain: [taggedRawCompiler('react', 'vite:react-babel')], env: 'dev', warn: vi.fn() }),
+      assembleManagedSources({ prepared, keysToInstantiate: ['solid'], resolvedChain: [taggedRawCompiler('react', 'vite:react-babel')], env: 'dev' }),
     ).toThrow(/scopedPluginReact\(\)/);
   });
 
   it('HARD errors on a raw plugin whose NAME collides with a managed compiler (secondary net)', async () => {
     const prepared = await prepareSync([app('web', [contribution('react', makeImpl('react', { createPlugin: () => ({ name: 'vite:react-babel' }) }))])]);
     expect(() =>
-      assembleManagedSources({ prepared, keysToInstantiate: ['react'], resolvedChain: [{ name: 'vite:react-babel' }], env: 'dev', warn: vi.fn() }),
+      assembleManagedSources({ prepared, keysToInstantiate: ['react'], resolvedChain: [{ name: 'vite:react-babel' }], env: 'dev' }),
     ).toThrow(/collides with a managed compiler/);
   });
 });
@@ -133,7 +141,7 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
       ['react', { key: 'react', claims: [SHARED], boundaries: [SHARED], createPlugin: () => undefined }],
       ['solid', { key: 'solid', claims: [SHARED], boundaries: [SHARED], createPlugin: () => undefined }],
     ]);
-    const { error } = drive(createOwnershipDiagnostic(bothPlans, 'dev', vi.fn()), '/repo/shared/Widget.tsx');
+    const { error } = drive(createOwnershipDiagnostic(bothPlans, new Set(bothPlans.keys()), 'dev'), '/repo/shared/Widget.tsx');
     expect(error).toHaveBeenCalledTimes(1);
     expect(error.mock.calls[0]![0]).toMatch(/claimed by more than one framework compiler/);
   });
@@ -141,7 +149,7 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
   it('hard-errors on a zero-owner file inside a framework boundary', () => {
     // boundary includes it, but no claim does
     const gapPlans = new Map<string, PreparedPlan>([['solid', { key: 'solid', claims: [SOLID], boundaries: [SOLID, SHARED], createPlugin: () => undefined }]]);
-    const { error } = drive(createOwnershipDiagnostic(gapPlans, 'dev', vi.fn()), '/repo/shared/Orphan.tsx');
+    const { error } = drive(createOwnershipDiagnostic(gapPlans, new Set(gapPlans.keys()), 'dev'), '/repo/shared/Orphan.tsx');
     expect(error).toHaveBeenCalledTimes(1);
     expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler/);
   });
@@ -151,7 +159,7 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
     const excludePlans = new Map<string, PreparedPlan>([
       ['solid', { key: 'solid', claims: [SOLID], boundaries: [SOLID], exclude: [/\/solid\/legacy\//], createPlugin: () => undefined }],
     ]);
-    const diag = createOwnershipDiagnostic(excludePlans, 'dev', vi.fn());
+    const diag = createOwnershipDiagnostic(excludePlans, new Set(excludePlans.keys()), 'dev');
     // an excluded file is OUTSIDE the boundary too -> ignored, not a zero-owner error
     expect(drive(diag, '/repo/solid/legacy/Old.tsx').error).not.toHaveBeenCalled();
     // a normal owned file is still fine
@@ -163,7 +171,7 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
       // claims only /solid/src; boundary covers all of /solid; excludes /solid/legacy
       ['solid', { key: 'solid', claims: [/\/solid\/src\/.*\.tsx$/], boundaries: [SOLID], exclude: [/\/solid\/legacy\//], createPlugin: () => undefined }],
     ]);
-    const diag = createOwnershipDiagnostic(gapPlans, 'dev', vi.fn());
+    const diag = createOwnershipDiagnostic(gapPlans, new Set(gapPlans.keys()), 'dev');
     // deliberately excluded -> ignored
     expect(drive(diag, '/repo/solid/legacy/Old.tsx').error).not.toHaveBeenCalled();
     // in boundary, not excluded, unclaimed -> hard error
@@ -182,20 +190,35 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
       ['react', { key: 'react', claims: [SHARED], boundaries: [SHARED], exclude: [WIDGET], createPlugin: () => undefined }],
       ['solid', { key: 'solid', claims: [SHARED], boundaries: [SHARED], createPlugin: () => undefined }],
     ]);
-    const { error } = drive(createOwnershipDiagnostic(crossPlans, 'dev', vi.fn()), '/repo/shared/Widget.tsx');
+    const { error } = drive(createOwnershipDiagnostic(crossPlans, new Set(crossPlans.keys()), 'dev'), '/repo/shared/Widget.tsx');
     expect(error).toHaveBeenCalledTimes(1);
     expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler/);
   });
 
+  it('filtered build - a file owned by a globally-prepared but NON-instantiated compiler fails closed (finding 1)', () => {
+    // Global plan has react + solid, but THIS environment instantiates only react (a filtered build).
+    const globalPlans = new Map<string, PreparedPlan>([
+      ['react', { key: 'react', claims: [REACT], boundaries: [REACT], createPlugin: () => undefined }],
+      ['solid', { key: 'solid', claims: [SOLID], boundaries: [SOLID], createPlugin: () => undefined }],
+    ]);
+    const diag = createOwnershipDiagnostic(globalPlans, new Set(['react']), 'build:web');
+    // a Solid file imported into the React-only build: no Solid compiler exists here -> must error, not pass
+    const { error } = drive(diag, '/repo/solid/App.tsx');
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]![0]).toMatch(/compiled by NO compiler here/);
+    // a React file is compiled by the instantiated React compiler -> OK
+    expect(drive(diag, '/repo/react/App.tsx').error).not.toHaveBeenCalled();
+  });
+
   it('passes a singly-owned file and ignores files outside every boundary', () => {
-    const diag = createOwnershipDiagnostic(plans, 'dev', vi.fn());
+    const diag = createOwnershipDiagnostic(plans, new Set(plans.keys()), 'dev');
     expect(drive(diag, '/repo/react/App.tsx').error).not.toHaveBeenCalled();
     expect(drive(diag, '/repo/solid/App.tsx').error).not.toHaveBeenCalled();
     expect(drive(diag, '/repo/elsewhere/Thing.tsx').error).not.toHaveBeenCalled();
   });
 
   it('only inspects JSX/TSX ids and skips virtual/null-byte ids', () => {
-    const diag = createOwnershipDiagnostic(plans, 'dev', vi.fn());
+    const diag = createOwnershipDiagnostic(plans, new Set(plans.keys()), 'dev');
     expect(drive(diag, '/repo/shared/util.ts').error).not.toHaveBeenCalled();
     expect(drive(diag, '\0virtual:/repo/shared/Widget.tsx').error).not.toHaveBeenCalled();
   });
@@ -205,7 +228,7 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
       ['react', { key: 'react', claims: [SHARED], boundaries: [SHARED], createPlugin: () => undefined }],
       ['solid', { key: 'solid', claims: [SHARED], boundaries: [SHARED], createPlugin: () => undefined }],
     ]);
-    const { error } = drive(createOwnershipDiagnostic(bothPlans, 'dev', vi.fn()), '/repo/shared/Widget.tsx?v=123');
+    const { error } = drive(createOwnershipDiagnostic(bothPlans, new Set(bothPlans.keys()), 'dev'), '/repo/shared/Widget.tsx?v=123');
     expect(error).toHaveBeenCalledTimes(1);
   });
 
@@ -214,7 +237,7 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
       ['react', { key: 'react', claims: [SHARED], boundaries: [SHARED], createPlugin: () => undefined }],
       ['solid', { key: 'solid', claims: [SHARED], boundaries: [SHARED], createPlugin: () => undefined }],
     ]);
-    const diag = createOwnershipDiagnostic(bothPlans, 'dev', vi.fn());
+    const diag = createOwnershipDiagnostic(bothPlans, new Set(bothPlans.keys()), 'dev');
     const error = vi.fn();
     drive(diag, '/repo/shared/Widget.tsx', error);
     drive(diag, '/repo/shared/Widget.tsx', error);

@@ -4,7 +4,16 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { dedupeMatchers, deepEqual, deriveBoundaries, globBase, mergeCompilerOptions, parseTsconfigProject, resolveProjectPath } from '../tsconfigOwnership.js';
+import {
+  assertNoExclusionConflicts,
+  dedupeMatchers,
+  deepEqual,
+  deriveBoundaries,
+  globBase,
+  mergeCompilerOptions,
+  parseTsconfigProject,
+  resolveProjectPath,
+} from '../tsconfigOwnership.js';
 
 const fixturesDir = path.dirname(fileURLToPath(new URL('./fixtures/tsconfig.owned.json', import.meta.url)));
 const toFwd = (p: string) => p.replace(/\\/g, '/');
@@ -75,6 +84,25 @@ describe('deepEqual', () => {
     expect(deepEqual({ a: [1, { b: 2 }], f: fn }, { a: [1, { b: 2 }], f: fn })).toBe(true);
     expect(deepEqual({ a: [1, { b: 2 }] }, { a: [1, { b: 3 }] })).toBe(false);
     expect(deepEqual({ f: () => {} }, { f: () => {} })).toBe(false);
+  });
+});
+
+describe('assertNoExclusionConflicts (same-key exclusion provenance, finding 3)', () => {
+  const proj = (project: string, include: string[], exclude: string[] = []) => ({ project, include, exclude });
+
+  it('rejects a project excluding a directory another same-key project claims (3a)', () => {
+    const projects = [proj('/a/tsconfig.json', ['/repo/appA/**/*.tsx'], ['/repo/shared', '/repo/shared/**/*']), proj('/b/tsconfig.json', ['/repo/shared/**/*'])];
+    expect(() => assertNoExclusionConflicts('Solid', projects, [])).toThrow(/cancels another Solid project's claim/);
+  });
+
+  it('rejects a tsconfig exclude that cancels a classifier package claim (3b: node_modules exclude vs classified Solid dep)', () => {
+    const projects = [proj('/a/tsconfig.json', ['/repo/src/**/*'], ['/repo/node_modules', '/repo/node_modules/**/*'])];
+    expect(() => assertNoExclusionConflicts('Solid', projects, ['/repo/node_modules/solid-lib/**/*.jsx'])).toThrow(/cancels the Solid node_modules package/);
+  });
+
+  it('allows a project excluding its OWN sub-directory while a disjoint project claims elsewhere', () => {
+    const projects = [proj('/a', ['/repo/appA/**/*.tsx'], ['/repo/appA/legacy', '/repo/appA/legacy/**/*']), proj('/b', ['/repo/appB/**/*.tsx'])];
+    expect(() => assertNoExclusionConflicts('Solid', projects, ['/repo/node_modules/solid-lib/**/*.jsx'])).not.toThrow();
   });
 });
 

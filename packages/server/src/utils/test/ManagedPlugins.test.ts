@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  assertOneImplPerKey,
-  classifyOwnership,
-  effectiveScopeFor,
-  groupByKey,
-  isManagedContribution,
-  MANAGED_CONTRIBUTION_BRAND,
-  partitionAppPlugins,
-} from '../ManagedPlugins';
+import { assertOneImplPerKey, effectiveScopeFor, groupByKey, isManagedContribution, MANAGED_CONTRIBUTION_BRAND, partitionAppPlugins } from '../ManagedPlugins';
 
 import type { CompilerImpl, ManagedContributionShape, ManagedGroupMember, PreparedPlan } from '../ManagedPlugins';
 
@@ -130,25 +122,5 @@ describe('effectiveScopeFor (set algebra)', () => {
 
   it('throws for an unknown key', () => {
     expect(() => effectiveScopeFor('vue', new Map())).toThrow(/no prepared plan/);
-  });
-});
-
-describe('classifyOwnership (fail-closed severity table, checkpoint §5)', () => {
-  it('exactly one owner is OK in any region', () => {
-    expect(classifyOwnership(['solid'], 'expected-framework')).toBe('ok');
-    expect(classifyOwnership(['solid'], 'outside')).toBe('ok');
-    // same-key duplicates collapse to one owner
-    expect(classifyOwnership(['solid', 'solid'], 'expected-framework')).toBe('ok');
-  });
-
-  it('two or more different-key owners is a HARD error anywhere (the double-claim hazard)', () => {
-    expect(classifyOwnership(['solid', 'react'], 'outside')).toBe('error');
-    expect(classifyOwnership(['solid', 'react'], 'expected-generic')).toBe('error');
-  });
-
-  it('zero owners escalates by region', () => {
-    expect(classifyOwnership([], 'expected-framework')).toBe('error');
-    expect(classifyOwnership([], 'expected-generic')).toBe('warning');
-    expect(classifyOwnership([], 'outside')).toBe('ignore');
   });
 });
