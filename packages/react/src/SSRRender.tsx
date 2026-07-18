@@ -21,6 +21,7 @@ import { createUILogger } from './utils/Logger.js';
 import type { LoggerLike } from './utils/Logger.js';
 
 import { createStreamController, startShellTimer, wireWritableGuards } from './utils/Streaming.js';
+import { brandRenderFunctions, REACT_RENDERER_KEY } from './renderContract.js';
 
 /**
  * R1-01: structured, NON-FATAL render-error observation.
@@ -655,5 +656,8 @@ export function createRenderer<
     };
   };
 
-  return { renderSSR, renderStream };
+  // Renderer v1: stamp the render-module identity brand on BOTH functions (function-level so it survives
+  // the scaffold's `export const { renderSSR, renderStream } = createRenderer(...)` destructure). The host
+  // validates it against the app's `renderer: reactRenderer(...)` declaration before invoking either.
+  return brandRenderFunctions({ renderSSR, renderStream }, REACT_RENDERER_KEY);
 }

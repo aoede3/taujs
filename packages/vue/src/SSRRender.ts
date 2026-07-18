@@ -9,6 +9,7 @@ import type { Writable } from 'node:stream';
 import type { LoggerLike } from './utils/Logger.js';
 
 import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming.js';
+import { brandRenderFunctions, VUE_RENDERER_KEY } from './renderContract.js';
 
 export type RenderCallbacks<T> = {
   /**
@@ -490,5 +491,7 @@ export function createRenderer<
     };
   };
 
-  return { renderSSR, renderStream };
+  // Renderer v1: brand BOTH functions (function-level, survives the entry-server destructure); the host
+  // validates it against the app's `renderer: vueRenderer()` declaration before invoking either.
+  return brandRenderFunctions({ renderSSR, renderStream }, VUE_RENDERER_KEY);
 }
