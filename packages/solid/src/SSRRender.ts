@@ -1,8 +1,9 @@
-import { renderToStream, renderToStringAsync } from 'solid-js/web';
+import { generateHydrationScript, renderToStream, renderToStringAsync } from 'solid-js/web';
 
 import { createSSRStore, provideSSRStore } from './SSRDataStore.js';
 import { detachStore, getStoreReadiness, getStoreState } from './internal.js';
 import { brandRenderFunctions, SOLID_RENDERER_KEY } from './renderContract.js';
+import { escapeHtml } from './utils/Html.js';
 import { createUILogger } from './utils/Logger.js';
 import { createStreamController, startTimer, wireWritableGuards } from './utils/Streaming.js';
 
@@ -80,6 +81,40 @@ export type SSROptions = {
 const NOOP = () => {};
 
 /**
+ * Design 4 (R1). `shouldHydrate` is the host-RESOLVED policy (`attr.hydrate !== false`), delivered
+ * symmetrically on both paths in `RenderOptions`. The renderer EXECUTES that policy and never
+ * infers another one - in particular it never derives hydration intent from `bootstrapModules`.
+ *
+ * An older host that omits the field is treated as hydrating, which is the historical behaviour.
+ */
+const resolveShouldHydrate = (opts?: RenderOptions): boolean => opts?.shouldHydrate !== false;
+
+/**
+ * Solid's hydration bootstrap, nonced. This defines `_$HY`, which Solid's emitted resource and
+ * `$df` patch scripts REFERENCE but never define, and which the client `hydrate()` dereferences
+ * unguarded (`solid-js/web/dist/web.js:350`). It is returned through the adapter's existing
+ * `headContent` result - there is no new public option, no nonce field on `HeadContext` and no
+ * host document context.
+ */
+/*
+ * `solid-js/web` has TWO declaration files: the SERVER one takes `{ nonce?, eventNames? }`
+ * (`web/types/server.d.ts:67`), the CLIENT one takes no arguments (`web/types/client.d.ts:84`).
+ * Under this package's tsconfig the CLIENT types resolve, while the runtime here is unambiguously
+ * the SERVER build. This single narrowly-scoped alias states the signature that is actually
+ * executed - verified against the pinned tuple, which emits `<script nonce="...">` for the nonced
+ * form. It is the ONLY cast in this module and it exists to fix a types/runtime mismatch, not to
+ * paper over a shape the runtime does not have.
+ */
+const generateHydrationScriptServer = generateHydrationScript as unknown as (options?: { nonce?: string; eventNames?: string[] }) => string;
+
+const hydrationBootstrap = (cspNonce?: string): string =>
+  cspNonce ? generateHydrationScriptServer({ nonce: cspNonce }) : generateHydrationScriptServer();
+
+/** The host client entry, for the STREAMING path only (on `ssr` the host emits it itself). */
+const clientEntryScript = (src: string, cspNonce?: string): string =>
+  `<script type="module" src="${escapeHtml(src)}"${cspNonce ? ` nonce="${escapeHtml(cspNonce)}"` : ''} async></script>`;
+
+/**
  * Normalise the host's `initialData` into the store's `T | Promise<T>` seed.
  *
  * The lazy thunk is invoked EXACTLY ONCE, here, inside the caller's guarded path - and a
@@ -149,7 +184,19 @@ export function createRenderer<
     // renderer instantiated with non-default generics stays assignable to the host contract under
     // strictFunctionTypes; route-config inference is the type authority, as for the body data.
     const store = createSSRStore<Record<string, unknown>>(initialDataResolved);
-    const head = headContent({ data: initialDataResolved as T, headData: opts?.headData as H | undefined, meta, routeContext });
+    const shouldHydrate = resolveShouldHydrate(opts);
+    const cspNonce = opts?.cspNonce;
+
+    // Design 4, cells 1-2. `ssr + true`: Solid's bootstrap goes out exactly once through
+    // headContent, and `nonce` is passed to the render so Solid's own resource scripts are nonced.
+    // `ssr + false`: `noScripts: true` on the fully resolved string path - the output is static
+    // markup with no `$R`, `_$HY` or `$df` at all. That is why the bootstrap is unnecessary there,
+    // and it is also why the SSR path must never emit orphaned `_$HY.r` writes.
+    //
+    // `noScripts` is correct HERE and forbidden for streaming, where it would suppress the
+    // deferred patches the response depends on.
+    const head = headContent({ data: initialDataResolved as T, headData: opts?.headData as H | undefined, meta, routeContext }) +
+      (shouldHydrate ? hydrationBootstrap(cspNonce) : '');
 
     // M1: the SSR single-promise path uses the SAME holder design as streaming. Its timeout is a
     // retention class of its own (S0-B2 R-C), so detachment must happen on every exit - including
@@ -168,9 +215,7 @@ export function createRenderer<
       // BEFORE a promise exists. So this must be inside try/catch, not merely `.catch`-ed.
       const rendered = renderToStringAsync(
         () => provideSSRStore(store, () => appComponent({ location, routeContext })),
-        // `renderId` scopes Solid's markers/data. Hydration/CSP policy (the design 4 truth table,
-        // incl. `nonce` and `noScripts`) is slice 4 and is deliberately NOT implemented here.
-        { renderId } as never,
+        (shouldHydrate ? { renderId, nonce: cspNonce } : { renderId, noScripts: true }) as never,
       ) as Promise<string>;
 
       // Solid exposes no way to cancel an in-flight render, so an abandoned one runs to completion
@@ -244,6 +289,8 @@ export function createRenderer<
     };
     const { log, warn, error } = createUILogger(opts?.logger ?? logger, { debugCategory: 'ssr', context: { scope: 'solid-streaming' } });
     const routeContext = opts?.routeContext as R | undefined;
+    const shouldHydrate = resolveShouldHydrate(opts);
+    const cspNonce = opts?.cspNonce;
 
     const controller = createStreamController(sink, { log, warn, error });
 
@@ -387,6 +434,19 @@ export function createRenderer<
           }
 
           try {
+            // The host has ALREADY gated `bootstrapModules` on its own `shouldHydrate`
+            // (HandleRender.ts:663 passes `undefined` when false). Re-checking the ruled policy
+            // here is deliberate defence in depth, not a second source of truth: the renderer
+            // executes the host-resolved policy and must not emit a client entry the policy
+            // forbids, whichever way the host wired it.
+            if (shouldHydrate && bootstrapModules) sink.write(clientEntryScript(bootstrapModules, cspNonce));
+          } catch (bootstrapErr) {
+            failFatal(bootstrapErr);
+
+            return;
+          }
+
+          try {
             if (!sink.writableEnded && !sink.destroyed) sink.end();
           } catch (endErr) {
             failFatal(endErr);
@@ -434,9 +494,15 @@ export function createRenderer<
       // pre-shell - a synchronous root throw, or an R3 serialisation failure that fires before
       // `onCompleteShell`, would both arrive with the response already committed. It is invoked
       // from `onCompleteShell` below, immediately BEFORE the shell is marked committed.
+      // Design 4, cells 3-4. BOTH streaming cells retain Solid's bootstrap and its resource/patch
+      // scripts, all nonced: under `hydrate:false` the deferred `$df` patches still need `_$HY`, so
+      // suppressing them would break the response itself. What `hydrate:false` removes is the HOST
+      // CLIENT ENTRY - so application hydration never runs, and its beacon is therefore absent.
+      // `noScripts` is deliberately NEVER used on this path.
       let head: string;
       try {
-        head = headContent({ data: store.data() as T, headData: opts?.headData as H | undefined, meta, routeContext });
+        head =
+          headContent({ data: store.data() as T, headData: opts?.headData as H | undefined, meta, routeContext }) + hydrationBootstrap(cspNonce);
       } catch (headErr) {
         failFatal(headErr);
 
@@ -456,6 +522,7 @@ export function createRenderer<
         // (solid-js/web/dist/server.js:693,709) and would silently break the shell latch below.
         stream = renderToStream(() => provideSSRStore(store, () => appComponent({ location, routeContext })), {
           renderId,
+          nonce: cspNonce,
           onCompleteShell() {
             if (controller.terminated) return;
             stopShellTimer();
@@ -520,8 +587,6 @@ export function createRenderer<
         failFatal(outer);
       }
     });
-
-    void bootstrapModules; // slice 4 (hydration/CSP) owns bootstrap emission.
 
     return {
       abort: () => controller.benignAbort('Manual abort'),

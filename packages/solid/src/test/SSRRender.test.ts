@@ -95,7 +95,9 @@ describe('renderSSR (ssr strategy - a single promise, no stream vocabulary)', ()
 
     const out = await renderSSR({ title: 'hello' }, '/');
 
-    expect(out.headContent).toBe('<title>hello</title>');
+    // headContent now carries Solid's hydration bootstrap appended after the app's own head
+    // (design 4, cell 1) - the four-cell suite below pins that precisely.
+    expect(out.headContent.startsWith('<title>hello</title>')).toBe(true);
     expect(out.appHtml).toContain('rendered');
   });
 
@@ -709,5 +711,228 @@ describe('createRenderer - timeout option validation', () => {
   it('accepts the documented 0 / Infinity sentinels and ordinary positive values', () => {
     expect(() => renderer({ streamOptions: { shellTimeoutMs: 0, completionTimeoutMs: Infinity } })).not.toThrow();
     expect(() => renderer({ ssrOptions: { prerenderTimeoutMs: 1 } })).not.toThrow();
+  });
+});
+
+/**
+ * Design 4 (R1) - the exact four-cell hydration/CSP table.
+ *
+ * SCOPE, stated so these are not over-read: these establish RENDERER OUTPUT and host wiring. They
+ * do NOT establish browser hydration - no script here is executed, no `_$HY` runtime runs, no
+ * event is captured or replayed. The real-browser D2 proof (design 7.3) remains an
+ * acceptance-stage requirement and is not discharged by anything below.
+ */
+describe('design 4 - the four-cell hydration/CSP table (renderer output)', () => {
+  const NONCE = 'N0NCE-123';
+  const CLIENT_ENTRY = '/assets/entry-client.js';
+
+  const scriptsIn = (markup: string) => markup.match(/<script\b[^>]*>/g) ?? [];
+  const everyScriptNonced = (markup: string) => scriptsIn(markup).every((tag) => tag.includes(`nonce="${NONCE}"`));
+
+  /**
+   * Count Solid's bootstrap DEFINITION across the COMPLETE renderer output, never one half of it.
+   * Counting only `headContent` (or only the streamed head) leaves a duplicate definition emitted
+   * into `appHtml` or the streaming body completely invisible - verified: injecting a second
+   * `generateHydrationScript()` into the streamed body passed the whole suite before this change.
+   */
+  const countBootstrap = (completeOutput: string) => (completeOutput.match(/window\._\$HY\|\|/g) ?? []).length;
+
+  const appWithResource = () => appWithLateResource(() => later('resource-value', 5));
+
+  // ---- cell 1: ssr + shouldHydrate:true --------------------------------------------------------
+  describe('ssr + hydrate:true', () => {
+    const render = () =>
+      createRenderer({ appComponent: appWithResource, headContent: () => '<title>t</title>' }).renderSSR({ a: 1 }, '/', {}, undefined, {
+        cspNonce: NONCE,
+        shouldHydrate: true,
+      });
+
+    it('emits Solid\'s bootstrap EXACTLY ONCE across the whole renderer output', async () => {
+      const { headContent, appHtml } = await render();
+
+      expect(countBootstrap(headContent + appHtml)).toBe(1);
+      expect(countBootstrap(headContent)).toBe(1); // ...and it is the HEAD that carries it
+      expect(headContent.startsWith('<title>t</title>')).toBe(true); // the app's head comes first
+    });
+
+    it('nonces the bootstrap AND Solid\'s own resource scripts', async () => {
+      const { headContent, appHtml } = await render();
+
+      expect(everyScriptNonced(headContent)).toBe(true);
+      expect(scriptsIn(appHtml).length).toBeGreaterThan(0); // Solid emitted resource scripts
+      expect(everyScriptNonced(appHtml)).toBe(true);
+    });
+
+    it('does NOT emit the host client entry - on ssr the HOST owns that tag', async () => {
+      const { headContent, appHtml } = await render();
+
+      expect(headContent + appHtml).not.toContain('type="module"');
+    });
+  });
+
+  // ---- cell 2: ssr + shouldHydrate:false -------------------------------------------------------
+  describe('ssr + hydrate:false', () => {
+    it('the RENDERER OUTPUT is script-free: no $R, no _$HY, no $df, no bootstrap', async () => {
+      // Precise claim: this is the SOLID RENDERER's output. It is NOT a claim about the complete
+      // τjs document, which still legitimately carries the host-owned, nonced `__INITIAL_DATA__`
+      // assignment - the snapshot bridge's single data authority, which is unrelated to hydration
+      // policy. See the complete-document test below for what must be absent from the response.
+      const { headContent, appHtml } = await createRenderer({
+        appComponent: appWithResource,
+        headContent: () => '<title>t</title>',
+      }).renderSSR({ a: 1 }, '/', {}, undefined, { cspNonce: NONCE, shouldHydrate: false });
+
+      const rendererOutput = headContent + appHtml;
+
+      expect(countBootstrap(rendererOutput)).toBe(0);
+      expect(rendererOutput).not.toContain('$R');
+      expect(rendererOutput).not.toContain('_$HY');
+      expect(rendererOutput).not.toContain('$df');
+      expect(scriptsIn(rendererOutput)).toEqual([]);
+      // ...and the actual content still rendered
+      expect(appHtml).toContain('resource-value');
+    });
+
+    it('the COMPLETE document keeps the host snapshot script but no hydration machinery', async () => {
+      // What must be absent from the complete response is the HOST CLIENT ENTRY and Solid's
+      // `$R`/`_$HY`/`$df` machinery - not every `<script>`. The host's `__INITIAL_DATA__`
+      // assignment stays, nonced, because route data is still delivered under `hydrate:false`.
+      const { headContent, appHtml } = await createRenderer({
+        appComponent: appWithResource,
+        headContent: () => '<title>t</title>',
+      }).renderSSR({ message: 'route-data' }, '/', {}, undefined, { cspNonce: NONCE, shouldHydrate: false });
+
+      // Compose the document the way HandleRender.ts does on the `ssr` path: renderer output, the
+      // host's inline snapshot script, and (gated off here) the host client entry.
+      const hostSnapshotScript = `<script nonce="${NONCE}">window.__INITIAL_DATA__ = {"message":"route-data"};</script>`;
+      const completeDocument = `<!doctype html><html><head>${headContent}</head><body>${appHtml}${hostSnapshotScript}</body></html>`;
+
+      // present: the host's data authority, nonced
+      expect(completeDocument).toContain('window.__INITIAL_DATA__');
+      expect(everyScriptNonced(completeDocument)).toBe(true);
+
+      // absent: the client entry and every piece of Solid hydration machinery
+      expect(completeDocument).not.toContain('type="module"');
+      expect(countBootstrap(completeDocument)).toBe(0);
+      expect(completeDocument).not.toContain('_$HY');
+      expect(completeDocument).not.toContain('$df');
+      expect(completeDocument).not.toMatch(/\$R\b/);
+    });
+
+    it('emits no orphaned _$HY.r writes (the pre-v6 contradiction)', async () => {
+      // The defect the v6 ruling fixed: a resource emits `_$HY.r[...]` regardless of hydration
+      // policy, so omitting the bootstrap WITHOUT `noScripts` produced a ReferenceError in the
+      // browser before hydration was even attempted.
+      const { appHtml } = await createRenderer({
+        appComponent: appWithResource,
+        headContent: () => '',
+      }).renderSSR({ a: 1 }, '/', {}, undefined, { shouldHydrate: false });
+
+      expect(appHtml).not.toMatch(/_\$HY\.r/);
+    });
+  });
+
+  // ---- cells 3 + 4: streaming ------------------------------------------------------------------
+  const streamCell = async (shouldHydrate: boolean, opts: { bootstrapModules?: string } = {}) => {
+    const { sink, text } = makeSink();
+    const cb = makeCallbacks();
+    let head = '';
+    cb.onHead.mockImplementation((h: string) => {
+      head = h;
+    });
+
+    const { renderStream } = createRenderer({ appComponent: appWithResource, headContent: () => '<title>t</title>' });
+    await renderStream(sink, cb, { a: 1 }, '/', opts.bootstrapModules ?? CLIENT_ENTRY, {}, undefined, { cspNonce: NONCE, shouldHydrate }).done;
+
+    return { head, body: text() };
+  };
+
+  describe('streaming + hydrate:true', () => {
+    it('emits the client entry, the bootstrap exactly once, and patch scripts - all nonced', async () => {
+      const { head, body } = await streamCell(true);
+
+      expect(countBootstrap(head + body)).toBe(1); // across the WHOLE response, not just the head
+      expect(body).toContain(`src="${CLIENT_ENTRY}"`);
+      expect(body).toContain('type="module"');
+      expect(body).toMatch(/\$df|_\$HY\.r|\$R/); // deferred patch machinery retained
+      expect(everyScriptNonced(head)).toBe(true);
+      expect(everyScriptNonced(body)).toBe(true);
+    });
+  });
+
+  describe('streaming + hydrate:false', () => {
+    it('omits the client entry but RETAINS the nonced bootstrap and patch machinery', async () => {
+      const { head, body } = await streamCell(false);
+
+      // No application hydration can run - so no beacon can fire either.
+      expect(body).not.toContain('type="module"');
+      expect(body).not.toContain(CLIENT_ENTRY);
+
+      // ...but the deferred patches still need `_$HY`, so it stays, nonced - exactly once across
+      // the whole response.
+      expect(countBootstrap(head + body)).toBe(1);
+      expect(body).toMatch(/\$df|_\$HY\.r|\$R/);
+      expect(everyScriptNonced(head)).toBe(true);
+      expect(everyScriptNonced(body)).toBe(true);
+    });
+
+    it('never uses noScripts on the streaming path (it would suppress the patches)', async () => {
+      const { body } = await streamCell(false);
+
+      // If `noScripts` leaked onto this path the response itself would break: the placeholder
+      // content would never be replaced.
+      expect(body).toMatch(/\$R|_\$HY\.r/);
+      expect(body).toContain('resource-value');
+    });
+
+    it('emits no client entry even if the host still passed bootstrapModules', async () => {
+      // Defence in depth: the host already gates this (HandleRender.ts:663), but the renderer
+      // executes the ruled policy rather than inferring intent from the argument's presence.
+      const { body } = await streamCell(false, { bootstrapModules: CLIENT_ENTRY });
+
+      expect(body).not.toContain(CLIENT_ENTRY);
+    });
+  });
+
+  describe('nonce handling', () => {
+    it('omits nonce attributes entirely when the host supplies none', async () => {
+      const { head, body } = await (async () => {
+        const { sink, text } = makeSink();
+        const cb = makeCallbacks();
+        let h = '';
+        cb.onHead.mockImplementation((v: string) => {
+          h = v;
+        });
+        const { renderStream } = createRenderer({ appComponent: appWithResource, headContent: () => '' });
+        await renderStream(sink, cb, { a: 1 }, '/', CLIENT_ENTRY, {}, undefined, { shouldHydrate: true }).done;
+
+        return { head: h, body: text() };
+      })();
+
+      expect(head).not.toContain('nonce=');
+      expect(body).not.toContain('nonce=');
+      expect(head).toContain('_$HY'); // still emitted, just un-nonced
+    });
+
+    it('escapes a hostile client-entry src into the emitted attribute', async () => {
+      const { body } = await streamCell(true, { bootstrapModules: '/a.js" onload="alert(1)' });
+
+      expect(body).not.toContain('onload="alert(1)"');
+      expect(body).toContain('&quot;');
+    });
+  });
+
+  it('adds no nonce-bearing public API: HeadContext carries no nonce', async () => {
+    let seen: Record<string, unknown> | undefined;
+    await createRenderer({
+      appComponent: simpleApp,
+      headContent: (ctx) => {
+        seen = ctx as unknown as Record<string, unknown>;
+        return '';
+      },
+    }).renderSSR({ a: 1 }, '/', {}, undefined, { cspNonce: NONCE, shouldHydrate: true });
+
+    expect(Object.keys(seen ?? {}).sort()).toEqual(['data', 'headData', 'meta', 'routeContext']);
+    expect(JSON.stringify(seen)).not.toContain(NONCE);
   });
 });
