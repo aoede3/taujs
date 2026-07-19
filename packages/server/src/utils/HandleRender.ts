@@ -22,7 +22,7 @@ import {
   applyViteTransform,
 } from './Templates';
 import { serializeInlineData } from './InlineData';
-import { assertRenderContract, declaredContractOf, isRendererContribution } from './RendererContract';
+import { assertRenderContract, declaredContractOf, requireRendererContribution } from './RendererContract';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -201,10 +201,7 @@ export const handleRender = async (
         // Renderer v1: validate the dev-loaded module's identity against the app's renderer declaration
         // BEFORE it is invoked for this request (prod modules are validated once at boot). `renderer:` is
         // required and every renderer ships a render module - a missing/invalid one hard-errors here.
-        const contribution = isRendererContribution(config.renderer) ? config.renderer : undefined;
-        if (!contribution) {
-          throw AppError.internal(`[taujs] app "${config.appId}" must declare a valid renderer: reactRenderer()/vueRenderer(). \`renderer:\` is required.`);
-        }
+        const contribution = requireRendererContribution(config.appId, config.renderer);
         assertRenderContract(executedModule, declaredContractOf(contribution), { phase: 'dev', appId: config.appId, clientRoot });
         renderModule = executedModule as RenderModule;
 

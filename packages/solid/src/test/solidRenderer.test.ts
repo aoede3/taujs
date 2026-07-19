@@ -43,7 +43,7 @@ describe('buildSolidContribution (the managed compiler contribution solidRendere
   });
 });
 
-describe('solidRenderer (the public renderer contribution - COMPILER ONLY, no render module in v1)', () => {
+describe('solidRenderer (INTERNAL, test/integration only - Solid is not a public renderer; COMPILER ONLY)', () => {
   it('wraps the Solid managed compiler contribution with managedCompilation', () => {
     const contribution = solidRenderer({ project: './tsconfig.solid.json', ssr: true }) as unknown as RendererContributionShape;
     expect(contribution.brand).toBe(RENDERER_CONTRIBUTION_BRAND);

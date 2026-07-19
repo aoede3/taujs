@@ -7,7 +7,7 @@ import { AppError } from '../core/errors/AppError';
 import { resolveLogs } from '../core/logging/resolve';
 import { isDevelopment } from '../System';
 import { resolveEntryFile } from './Entry';
-import { assertRenderContract, declaredContractOf, isRendererContribution } from './RendererContract';
+import { assertRenderContract, declaredContractOf, requireRendererContribution } from './RendererContract';
 import { getCssLinks, renderPreloadLinks } from './Templates';
 
 import type { Logs } from '../core/logging/types';
@@ -144,12 +144,7 @@ export const loadAssets = async (
       // Renderer v1: every app MUST declare a valid renderer contribution (fail-closed at boot - the outer
       // catch rethrows in production). Every renderer ships a render module the host validates; there is
       // no compiler-only/incomplete-renderer mode.
-      const contribution = isRendererContribution(config.renderer) ? config.renderer : undefined;
-      if (!contribution) {
-        throw AppError.internal(
-          `[taujs] app "${config.appId}" (${clientRoot}) must declare a valid renderer: reactRenderer()/vueRenderer(). \`renderer:\` is required.`,
-        );
-      }
+      const contribution = requireRendererContribution(config.appId, config.renderer);
 
       const renderModulePath = path.join(ssrDistPath, `${entryServer}.js`);
       const moduleUrl = pathToFileURL(renderModulePath).href;

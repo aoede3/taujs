@@ -27,7 +27,6 @@ removed) and the host-resolved `shouldHydrate`, delivered on both rendering stra
 Migration:
 - Replace `plugins: [pluginReact()]`/`plugins: [pluginVue()]`-style framework wiring with
   `renderer: reactRenderer({ project: './tsconfig.json' })` / `renderer: vueRenderer()`.
-- `scopedPluginReact()` is removed; use `reactRenderer()`.
 - Raw `pluginReact()`/`pluginVue()` remain exported and portable for plain-Vite/standalone use.
 - Entry-server files are unchanged: `createRenderer(...)` now brands its returned functions
   so the host can validate framework identity.

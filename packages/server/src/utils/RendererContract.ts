@@ -94,6 +94,20 @@ export function declaredContractOf(contribution: RendererContributionShape): Dec
 }
 
 /**
+ * The SINGLE required-renderer assertion, shared by shared-dev preparation, production render-module
+ * loading and development render-module loading. `renderer:` is required at runtime: an absent or invalid
+ * contribution is a hard error here with ONE consistent message (not repeated per call site).
+ */
+export function requireRendererContribution(appId: string, renderer: unknown): RendererContributionShape {
+  if (!isRendererContribution(renderer)) {
+    throw AppError.internal(
+      `[taujs] app "${appId}" must declare a valid renderer: reactRenderer()/vueRenderer(). \`renderer:\` is required (found ${renderer === undefined ? 'none' : 'an invalid value'}).`,
+    );
+  }
+  return renderer;
+}
+
+/**
  * The well-known tag key each render function is branded with. A GLOBAL symbol so the framework packages
  * reproduce it BY VALUE (`Symbol.for(...)`) without runtime-importing `@taujs/server`, exactly like ESC-1's
  * `UNSCOPED_COMPILER_TAG`. Valued with the function's {@link DeclaredRenderContract}.

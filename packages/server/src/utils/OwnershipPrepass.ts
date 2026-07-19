@@ -1,7 +1,7 @@
 import { createFilter } from 'vite';
 
 import { assertOneImplPerKey, collectPluginNames, effectiveScopeFor, findTaggedRawCompilers, groupByKey, isManagedContribution, partitionAppPlugins } from './ManagedPlugins';
-import { isRendererContribution } from './RendererContract';
+import { isRendererContribution, requireRendererContribution } from './RendererContract';
 import { composePlugins } from './VitePlugins';
 
 import type { PluginOption, Plugin } from 'vite';
@@ -62,15 +62,11 @@ function extractRawPlugins(appId: string, plugins: ReadonlyArray<unknown> | unde
  * prod boot path enforces the same in AssetManager).
  */
 function managedFromRenderer(appId: string, renderer: unknown): ManagedContributionShape | undefined {
-  if (!isRendererContribution(renderer)) {
-    throw new Error(
-      `[taujs] app "${appId}" must declare a valid renderer: reactRenderer()/vueRenderer(). \`renderer:\` is required (found ${renderer === undefined ? 'none' : 'an invalid value'}).`,
-    );
-  }
-  if (!renderer.managedCompilation) return undefined;
-  const compiler = renderer.compiler;
+  const contribution = requireRendererContribution(appId, renderer);
+  if (!contribution.managedCompilation) return undefined;
+  const compiler = contribution.compiler;
   if (!isManagedContribution(compiler)) {
-    throw new Error(`[taujs] app "${appId}": managed renderer "${renderer.key}" is missing its compiler contribution (internal error).`);
+    throw new Error(`[taujs] app "${appId}": managed renderer "${contribution.key}" is missing its compiler contribution (internal error).`);
   }
   return compiler;
 }
