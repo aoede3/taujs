@@ -26,10 +26,38 @@ const PACKAGE_MANAGERS = {
 
 const FRAMEWORKS: readonly Framework[] = ['react', 'vue', 'solid'];
 
-function parseArgs(): { projectName?: string; framework?: string } {
+/** Derived from the existing install-command map, so the two can never disagree. */
+export type PackageManager = keyof typeof PACKAGE_MANAGERS;
+const PACKAGE_MANAGER_NAMES = Object.keys(PACKAGE_MANAGERS) as PackageManager[];
+
+/**
+ * The non-interactive interface, frozen:
+ *
+ *   create-taujs my-app --framework solid --package-manager pnpm --no-install
+ *
+ * Supply all four and the CLI never needs a TTY, so CI, scripts and coding agents can drive it.
+ * OMITTED options keep today's prompts, and an explicit option suppresses ONLY its own prompt -
+ * interactive DX is unchanged.
+ *
+ * There is deliberately no `--yes`: its defaults, and in particular whether it would install from
+ * the network, would be ambiguous. Each choice is stated explicitly instead.
+ */
+type ParsedArgs = {
+  projectName?: string;
+  framework?: string;
+  packageManager?: string;
+  install?: boolean;
+  /** Both `--install` and `--no-install` were passed - rejected before anything is created. */
+  installConflict: boolean;
+};
+
+function parseArgs(): ParsedArgs {
   const rawArgs = process.argv.slice(2);
   let projectName: string | undefined;
   let framework: string | undefined;
+  let packageManager: string | undefined;
+  let sawInstall = false;
+  let sawNoInstall = false;
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i]!;
@@ -41,13 +69,39 @@ function parseArgs(): { projectName?: string; framework?: string } {
       framework = arg.slice('--framework='.length);
       continue;
     }
+    if (arg === '--package-manager') {
+      packageManager = rawArgs[++i];
+      continue;
+    }
+    if (arg.startsWith('--package-manager=')) {
+      packageManager = arg.slice('--package-manager='.length);
+      continue;
+    }
+    if (arg === '--install') {
+      sawInstall = true;
+      continue;
+    }
+    if (arg === '--no-install') {
+      sawNoInstall = true;
+      continue;
+    }
     if (!arg.startsWith('-') && !projectName) {
       projectName = arg;
       continue;
     }
   }
 
-  return { projectName, framework };
+  return {
+    projectName,
+    framework,
+    packageManager,
+    install: sawInstall && !sawNoInstall ? true : sawNoInstall && !sawInstall ? false : undefined,
+    installConflict: sawInstall && sawNoInstall,
+  };
+}
+
+function validatePackageManager(value: string): true | string {
+  return (PACKAGE_MANAGER_NAMES as readonly string[]).includes(value) ? true : `Package manager must be one of: ${PACKAGE_MANAGER_NAMES.join(', ')}`;
 }
 
 function validateProjectName(value: string): true | string {
@@ -65,7 +119,22 @@ function validateFramework(value: string): true | string {
 async function main() {
   console.log(pc.cyan('\nWelcome to τjs (taujs)\n'));
 
-  const { projectName: argName, framework: argFramework } = parseArgs();
+  const { projectName: argName, framework: argFramework, packageManager: argPackageManager, install: argInstall, installConflict } = parseArgs();
+
+  // Every argument failure is reported BEFORE the target directory is created, so a rejected
+  // invocation leaves nothing behind on disk.
+  if (installConflict) {
+    console.log(pc.red('\n✖ --install and --no-install are mutually exclusive'));
+    process.exit(1);
+  }
+
+  if (argPackageManager) {
+    const res = validatePackageManager(argPackageManager);
+    if (res !== true) {
+      console.log(pc.red(`\n✖ Invalid package manager "${argPackageManager}": ${res}`));
+      process.exit(1);
+    }
+  }
 
   if (argName) {
     const res = validateProjectName(argName);
@@ -103,7 +172,7 @@ async function main() {
       initial: 0,
     },
     {
-      type: 'select',
+      type: argPackageManager ? null : 'select',
       name: 'packageManager',
       message: 'Package manager:',
       choices: [
@@ -114,7 +183,7 @@ async function main() {
       initial: 0,
     },
     {
-      type: 'confirm',
+      type: argInstall === undefined ? 'confirm' : null,
       name: 'installDeps',
       message: 'Install dependencies now?',
       initial: true,
@@ -150,8 +219,8 @@ async function main() {
 
   const config: ProjectConfig = {
     projectName,
-    packageManager: answers.packageManager,
-    installDeps: answers.installDeps,
+    packageManager: (argPackageManager ?? answers.packageManager) as PackageManager,
+    installDeps: argInstall ?? answers.installDeps,
     framework,
   };
 

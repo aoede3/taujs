@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -197,5 +197,106 @@ describe('create-taujs - Solid generation (through the package export)', () => {
         expect(read('taujs.config.ts')).toContain(framework === 'vue' ? 'vueRenderer(' : 'reactRenderer(');
       }
     }
+  });
+});
+
+describe('create-taujs CLI - the frozen non-interactive interface', () => {
+  const run = (args: string[], cwd: string) => {
+    try {
+      const stdout = execFileSync(process.execPath, [CLI, ...args], { cwd, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
+
+      return { code: 0, stdout };
+    } catch (e) {
+      const err = e as { status?: number; stdout?: string };
+
+      return { code: err.status ?? 1, stdout: String(err.stdout ?? '') };
+    }
+  };
+
+  const scratch = () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'taujs-flags-'));
+
+    return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  };
+
+  it('generates with NO TTY when name, framework, package manager and install choice are all supplied', () => {
+    const { dir, cleanup } = scratch();
+    try {
+      // stdin is 'ignore' - there is no TTY and nothing to read. This is the CI/agent contract.
+      const { code } = run(['my-app', '--framework', 'solid', '--package-manager', 'pnpm', '--no-install'], dir);
+
+      expect(code).toBe(0);
+      expect(existsSync(path.join(dir, 'my-app', 'taujs.config.ts'))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects --install together with --no-install, BEFORE creating anything', () => {
+    const { dir, cleanup } = scratch();
+    try {
+      const { code, stdout } = run(['my-app', '--framework', 'solid', '--package-manager', 'npm', '--install', '--no-install'], dir);
+
+      expect(code).toBe(1);
+      expect(stdout).toContain('--install and --no-install are mutually exclusive');
+      expect(existsSync(path.join(dir, 'my-app')), 'a rejected invocation must leave nothing on disk').toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an invalid package manager, BEFORE creating anything', () => {
+    const { dir, cleanup } = scratch();
+    try {
+      const { code, stdout } = run(['my-app', '--framework', 'solid', '--package-manager', 'bun', '--no-install'], dir);
+
+      expect(code).toBe(1);
+      expect(stdout).toContain('Invalid package manager "bun"');
+      expect(stdout).toContain('npm, pnpm, yarn');
+      expect(existsSync(path.join(dir, 'my-app'))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('accepts each valid package manager', () => {
+    for (const pm of ['npm', 'pnpm', 'yarn']) {
+      const { dir, cleanup } = scratch();
+      try {
+        expect(run(['my-app', '--framework', 'solid', '--package-manager', pm, '--no-install'], dir).code, `--package-manager ${pm}`).toBe(0);
+      } finally {
+        cleanup();
+      }
+    }
+  });
+
+  it('OMITTED options still prompt - interactive DX is unchanged', () => {
+    const { dir, cleanup } = scratch();
+    try {
+      // No --package-manager: the prompt is reached (and, with no TTY, the run stops there).
+      expect(run(['my-app', '--framework', 'solid', '--no-install'], dir).stdout).toContain('Package manager:');
+      // No install flag: that prompt is reached instead.
+      expect(run(['my-app', '--framework', 'solid', '--package-manager', 'npm'], dir).stdout).toContain('Install dependencies now?');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('an explicit option suppresses ONLY its own prompt', () => {
+    const { dir, cleanup } = scratch();
+    try {
+      const { stdout } = run(['my-app', '--framework', 'solid', '--package-manager', 'npm', '--no-install'], dir);
+
+      expect(stdout).not.toContain('Package manager:');
+      expect(stdout).not.toContain('Install dependencies now?');
+      expect(stdout).not.toContain('Framework:');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('there is no --yes flag', () => {
+    // Deliberate: its defaults, and whether it would install from the network, would be ambiguous.
+    expect(readFileSync(fileURLToPath(new URL('../index.ts', import.meta.url)), 'utf8')).not.toContain("'--yes'");
   });
 });
