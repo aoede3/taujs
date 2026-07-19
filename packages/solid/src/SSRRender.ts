@@ -4,6 +4,7 @@ import { createSSRStore, provideSSRStore } from './SSRDataStore.js';
 import { detachStore, getStoreReadiness, getStoreState } from './internal.js';
 import { brandRenderFunctions, SOLID_RENDERER_KEY } from './renderContract.js';
 import { escapeHtml } from './utils/Html.js';
+import { SanitisedErrorPlugin } from './utils/SanitiseError.js';
 import { createUILogger } from './utils/Logger.js';
 import { createStreamController, startTimer, wireWritableGuards } from './utils/Streaming.js';
 
@@ -215,7 +216,12 @@ export function createRenderer<
       // BEFORE a promise exists. So this must be inside try/catch, not merely `.catch`-ed.
       const rendered = renderToStringAsync(
         () => provideSSRStore(store, () => appComponent({ location, routeContext })),
-        (shouldHydrate ? { renderId, nonce: cspNonce } : { renderId, noScripts: true }) as never,
+        // The sanitiser is installed FIRST and is non-disableable (design 5). Under
+        // `noScripts` nothing is serialised at all, but it is still installed - the policy is not
+        // conditional on the hydration cell.
+        (shouldHydrate
+          ? { renderId, nonce: cspNonce, plugins: [SanitisedErrorPlugin] }
+          : { renderId, noScripts: true, plugins: [SanitisedErrorPlugin] }) as never,
       ) as Promise<string>;
 
       // Solid exposes no way to cancel an in-flight render, so an abandoned one runs to completion
@@ -523,6 +529,9 @@ export function createRenderer<
         stream = renderToStream(() => provideSSRStore(store, () => appComponent({ location, routeContext })), {
           renderId,
           nonce: cspNonce,
+          // FIRST in the chain, non-disableable (design 5). Solid prepends custom plugins
+          // (web/dist/server.js:151), so this pre-empts seroval's built-in Error node.
+          plugins: [SanitisedErrorPlugin],
           onCompleteShell() {
             if (controller.terminated) return;
             stopShellTimer();
