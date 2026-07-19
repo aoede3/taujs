@@ -1,7 +1,7 @@
 /**
  * Internal (NOT a public `@taujs/solid` entry): the Solid managed compiler contribution + shared plugin
- * helpers. `solidRenderer()` (the public `@taujs/solid/renderer`) builds its contribution here; the raw
- * portable `pluginSolid()` (`@taujs/solid/plugin`) reuses the tag helper.
+ * helpers. The INTERNAL `solidRenderer()` (test/integration only - Solid is not yet a public renderer)
+ * builds its contribution here; the raw portable `pluginSolid()` (`@taujs/solid/plugin`) reuses the tag helper.
  *
  * `@taujs/server` is a TYPE-ONLY reference - the managed brand is a dependency-free literal reproduced by
  * value, so the raw `pluginSolid()` still works in a plain Vite project with no `@taujs/server` present.

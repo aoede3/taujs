@@ -32,7 +32,7 @@ export type AppPluginInput = {
   appRoot: string;
   /** Ordinary user Vite plugins ONLY (renderer v1); a managed/renderer contribution here is a hard error. */
   plugins: ReadonlyArray<unknown> | undefined;
-  /** The app's opaque renderer contribution (`reactRenderer()`/`solidRenderer()`/`vueRenderer()`). */
+  /** The app's opaque renderer contribution (`reactRenderer()`/`vueRenderer()`). */
   renderer?: unknown;
 };
 
@@ -45,7 +45,7 @@ function extractRawPlugins(appId: string, plugins: ReadonlyArray<unknown> | unde
   const { raw, managed } = partitionAppPlugins(appId, plugins);
   if (managed.length > 0) {
     throw new Error(
-      `[taujs] app "${appId}": a managed compiler contribution was found in \`plugins\`. Declare the framework on the app's \`renderer:\` field (reactRenderer()/solidRenderer()), not in \`plugins\` - which now holds ordinary Vite plugins only.`,
+      `[taujs] app "${appId}": a managed compiler contribution was found in \`plugins\`. Declare the framework on the app's \`renderer:\` field (reactRenderer()/vueRenderer()), not in \`plugins\` - which now holds ordinary Vite plugins only.`,
     );
   }
   for (const entry of raw) {
@@ -56,11 +56,16 @@ function extractRawPlugins(appId: string, plugins: ReadonlyArray<unknown> | unde
   return raw;
 }
 
-/** The single ESC-1 managed compiler contribution an app's renderer carries (React/Solid), or none (Vue). */
+/**
+ * The single ESC-1 managed compiler contribution an app's renderer carries (a JSX renderer), or none (Vue).
+ * `renderer:` is REQUIRED: an absent or invalid contribution is a hard error here (dev boot + build; the
+ * prod boot path enforces the same in AssetManager).
+ */
 function managedFromRenderer(appId: string, renderer: unknown): ManagedContributionShape | undefined {
-  if (renderer === undefined || renderer === null) return undefined; // required-ness is enforced at the type + render-module validation
   if (!isRendererContribution(renderer)) {
-    throw new Error(`[taujs] app "${appId}": \`renderer:\` must be a contribution from reactRenderer()/solidRenderer()/vueRenderer().`);
+    throw new Error(
+      `[taujs] app "${appId}" must declare a valid renderer: reactRenderer()/vueRenderer(). \`renderer:\` is required (found ${renderer === undefined ? 'none' : 'an invalid value'}).`,
+    );
   }
   if (!renderer.managedCompilation) return undefined;
   const compiler = renderer.compiler;
@@ -188,7 +193,7 @@ export function assembleManagedSources(opts: {
   for (const name of collectPluginNames(resolvedChain)) {
     if (managedNameSet.has(name)) {
       throw new Error(
-        `[taujs:${env}] a raw Vite plugin named "${name}" collides with a managed compiler of the same name. Remove the raw compiler plugin from \`plugins:\` - the app's \`renderer:\` (reactRenderer()/solidRenderer()) already supplies the compiler.`,
+        `[taujs:${env}] a raw Vite plugin named "${name}" collides with a managed compiler of the same name. Remove the raw compiler plugin from \`plugins:\` - the app's \`renderer:\` (reactRenderer()/vueRenderer()) already supplies the compiler.`,
       );
     }
   }

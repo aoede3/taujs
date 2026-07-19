@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { taujsBuild } from '@taujs/server/build';
 import { reactRenderer } from '@taujs/react/renderer';
-import { solidRenderer } from '@taujs/solid/renderer';
+import { solidRenderer } from '@taujs/solid-internal/renderer';
 import { vueRenderer } from '@taujs/vue/renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -275,5 +275,22 @@ describe('ESC-1 real taujsBuild - fail-closed before Vite starts', () => {
     await expect(
       taujsBuild({ config: config as never, projectRoot, clientBaseDir, isSSRBuild: false, vite: { logLevel: 'silent' } as never }),
     ).rejects.toThrow(/cancels another Solid project's claim/);
+  });
+
+  it('rejects an app that omits `renderer:` entirely (renderer v1: `renderer:` is required, through the real host build path)', async () => {
+    // A scaffolded React app whose build config declares NO `renderer:` - the host pre-pass hard-errors
+    // fail-closed inside prepareOwnership, before any vite.build runs.
+    const order: AppSpec[] = [{ appId: 'web', entryPoint: '', framework: 'react' }];
+    const { projectRoot, clientBaseDir } = scaffold(order);
+    const config = { apps: [{ appId: 'web', entryPoint: '' }] };
+    await expect(
+      taujsBuild({
+        config: config as never,
+        projectRoot,
+        clientBaseDir,
+        isSSRBuild: false,
+        vite: { build: { rollupOptions: { external: EXTERNAL } }, logLevel: 'silent' } as never,
+      }),
+    ).rejects.toThrow(/must declare a valid renderer/);
   });
 });

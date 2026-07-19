@@ -5,8 +5,8 @@ import type { OwnershipMatcher, ProjectOwnership } from './tsconfigOwnership.js'
 import type { ManagedGroupMember, PrepareInput } from '@taujs/server/renderer';
 
 /**
- * ESC-1 - Solid ownership computation (RFC 0006). Turns a same-key group of `scopedPluginSolid()`
- * contributions into the plan data the host needs: the union of each app's tsconfig `include` claims
+ * ESC-1 - Solid ownership computation (RFC 0006). Turns a same-key group of the internal Solid managed
+ * compiler contributions into the plan data the host needs: the union of each app's tsconfig `include` claims
  * PLUS the exact node_modules Solid-package directories (vitefu classifier), expected-owner boundaries,
  * the projects' own `exclude`, and the deterministically-merged Solid options. Loaded lazily by
  * `prepare()` so `typescript`/`vitefu` never load for a raw `pluginSolid()` user.

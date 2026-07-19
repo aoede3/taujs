@@ -44,14 +44,12 @@ describe('buildSolidContribution (the managed compiler contribution solidRendere
 });
 
 describe('solidRenderer (the public renderer contribution - COMPILER ONLY, no render module in v1)', () => {
-  it('wraps the Solid managed compiler contribution with managedCompilation, expectsModule:false', () => {
+  it('wraps the Solid managed compiler contribution with managedCompilation', () => {
     const contribution = solidRenderer({ project: './tsconfig.solid.json', ssr: true }) as unknown as RendererContributionShape;
     expect(contribution.brand).toBe(RENDERER_CONTRIBUTION_BRAND);
     expect(contribution.key).toBe('solid');
     expect(contribution.contractVersion).toBe('v1');
     expect(contribution.managedCompilation).toBe(true);
-    // The Solid render module lands post-GATE; the host skips render-module load/validation for it.
-    expect(contribution.expectsModule).toBe(false);
     expect(contribution.compiler?.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
     expect(contribution.compiler?.key).toBe('solid');
   });

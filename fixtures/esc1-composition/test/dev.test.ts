@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { reactRenderer } from '@taujs/react/renderer';
-import { solidRenderer } from '@taujs/solid/renderer';
+import { solidRenderer } from '@taujs/solid-internal/renderer';
 import { createServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 

@@ -10,6 +10,8 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { testRenderer } from './support/renderer';
+
 const MARKER_PLUGIN_NAME = 'vs1-marker-plugin';
 
 const VITE_CONFIG_SOURCE = `export default { plugins: [{ name: '${MARKER_PLUGIN_NAME}' }] };\n`;
@@ -177,6 +179,7 @@ describe('VS1 - build closes config-file discovery', () => {
         entryServer: 'entry-server',
         htmlTemplate: 'index.html',
         plugins: [],
+        renderer: testRenderer(),
       },
       clientBaseDir,
     );
@@ -212,6 +215,7 @@ describe('VS1 - build closes config-file discovery', () => {
         entryServer: 'entry-server',
         htmlTemplate: 'index.html',
         plugins: [],
+        renderer: testRenderer(),
       },
       clientBaseDir,
     );

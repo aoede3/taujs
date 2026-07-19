@@ -11,6 +11,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { resolveDevViteConfig } from '../utils/ViteMergeEngine';
+import { testRenderer } from './support/renderer';
 import type { TaujsViteConfig, TaujsViteContext, TaujsViteOverride } from '../ViteConfig';
 
 const hoisted = vi.hoisted(() => ({
@@ -102,6 +103,7 @@ async function runBuild(viteOverride?: TaujsViteOverride) {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     },
   ];
   vi.mocked(setup.extractBuildConfigs).mockReturnValue(apps as any);

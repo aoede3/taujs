@@ -161,6 +161,11 @@ export const handleRender = async (
       params,
     };
 
+    // ESC-2: the host-resolved hydration policy, computed ONCE and passed on BOTH render strategies (in
+    // opts.shouldHydrate). It also drives the host's operative hydration mechanism (the SSR bootstrap tag /
+    // the stream bootstrapModules gate) - one host-side source of truth.
+    const shouldHydrate = attr?.hydrate !== false;
+
     const config = processedConfigs.find((c) => c.appId === appId);
     if (!config) {
       throw AppError.internal('No configuration found for the request', {
@@ -194,12 +199,13 @@ export const handleRender = async (
         const executedModule = await viteDevServer.ssrLoadModule(entryServerPath);
 
         // Renderer v1: validate the dev-loaded module's identity against the app's renderer declaration
-        // BEFORE it is invoked for this request (prod modules are validated once at boot). A compiler-only
-        // renderer (Solid, expectsModule:false) ships no render module and is skipped.
+        // BEFORE it is invoked for this request (prod modules are validated once at boot). `renderer:` is
+        // required and every renderer ships a render module - a missing/invalid one hard-errors here.
         const contribution = isRendererContribution(config.renderer) ? config.renderer : undefined;
-        if (contribution && contribution.expectsModule) {
-          assertRenderContract(executedModule, declaredContractOf(contribution), { phase: 'dev', appId: config.appId, clientRoot });
+        if (!contribution) {
+          throw AppError.internal(`[taujs] app "${config.appId}" must declare a valid renderer: reactRenderer()/vueRenderer(). \`renderer:\` is required.`);
         }
+        assertRenderContract(executedModule, declaredContractOf(contribution), { phase: 'dev', appId: config.appId, clientRoot });
         renderModule = executedModule as RenderModule;
 
         const styles = await collectStyle(viteDevServer, [entryServerPath]);
@@ -367,6 +373,9 @@ export const handleRender = async (
           logger: reqLogger,
           routeContext,
           ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}),
+          // ESC-2: cspNonce + shouldHydrate are delivered on BOTH strategies (symmetric RenderOptions).
+          ...(cspNonce ? { cspNonce } : {}),
+          shouldHydrate,
         });
         headContent = res.headContent;
         appHtml = res.appHtml;
@@ -410,7 +419,6 @@ export const handleRender = async (
       if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
       if (manifest && cssLink) aggregateHeadContent += cssLink;
 
-      const shouldHydrate = attr?.hydrate !== false;
       const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
       // R0-04: single serialization boundary. On the SSR path a failure is inside the request
       // try/catch, so throw into the existing 500 machinery (valid-data output is unchanged).
@@ -498,8 +506,6 @@ export const handleRender = async (
       });
 
       ctx.signal = ac.signal; // R1-01: propagate into the data context before renderStream fetches it
-
-      const shouldHydrate = attr?.hydrate !== false;
 
       const writable = new PassThrough();
       writable.on('error', (err) => {

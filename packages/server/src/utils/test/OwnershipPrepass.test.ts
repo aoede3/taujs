@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { MANAGED_CONTRIBUTION_BRAND, UNSCOPED_COMPILER_TAG } from '../ManagedPlugins';
 import { appEnvironmentPlugins, assembleManagedSources, createOwnershipDiagnostic, prepareOwnership } from '../OwnershipPrepass';
-import { rendererFromManaged } from '../../test/support/renderer';
+import { rendererFromManaged, testRenderer } from '../../test/support/renderer';
 
 import type { CompilerImpl, ManagedContributionShape, PreparedPlan } from '../ManagedPlugins';
 import type { PreparedOwnership } from '../OwnershipPrepass';
@@ -40,8 +40,10 @@ const taggedRawCompiler = (key: string, name: string) => {
 
 describe('prepareOwnership (phase 1)', () => {
   it('is a complete no-op when no app declares a managed contribution', async () => {
+    // Every app still declares a VALID (but non-managed) renderer - `renderer:` is required, but a
+    // non-managed one contributes no managed ownership, so active stays false with no plans.
     const raw = [{ name: 'x' }];
-    const prepared = await prepareOwnership([app('web', raw), app('admin', undefined)], INPUT);
+    const prepared = await prepareOwnership([app('web', raw, testRenderer()), app('admin', undefined, testRenderer())], INPUT);
     expect(prepared.active).toBe(false);
     expect(prepared.plans.size).toBe(0);
     expect(prepared.rawByApp.get('web')).toEqual(raw);
@@ -82,13 +84,18 @@ describe('prepareOwnership (phase 1)', () => {
       /Declare the framework on the app's `renderer:` field/,
     );
   });
+
+  it('rejects an app that declares NO renderer (renderer v1: `renderer:` is required - dev/build boot)', async () => {
+    // `app('x', [])` supplies valid empty plugins but no renderer; the prepass hard-errors fail-closed.
+    await expect(prepareOwnership([app('x', [])], INPUT)).rejects.toThrow(/must declare a valid renderer/);
+  });
 });
 
 const prepareSync = async (apps: Parameters<typeof prepareOwnership>[0]): Promise<PreparedOwnership> => prepareOwnership(apps, INPUT);
 
 describe('assembleManagedSources (phase 2)', () => {
   it('returns no host sources when ownership is inactive', async () => {
-    const prepared = await prepareSync([app('web', [{ name: 'x' }])]);
+    const prepared = await prepareSync([app('web', [{ name: 'x' }], testRenderer())]);
     const { hostSources } = assembleManagedSources({ prepared, keysToInstantiate: [], resolvedChain: [{ name: 'x' }], env: 'dev' });
     expect(hostSources).toEqual([]);
   });
@@ -282,7 +289,6 @@ describe('renderer v1 guardrails + non-managed (Vue) plugin supply', () => {
     key: 'vue',
     contractVersion: 'v1',
     managedCompilation: false,
-    expectsModule: true,
     createEnvironmentPlugins: () => plugins,
   });
 
@@ -297,7 +303,7 @@ describe('renderer v1 guardrails + non-managed (Vue) plugin supply', () => {
   });
 
   it('rejects a `renderer:` value that is not a renderer contribution', async () => {
-    await expect(prepareOwnership([app('web', [], { not: 'a renderer' })], INPUT)).rejects.toThrow(/must be a contribution from reactRenderer/);
+    await expect(prepareOwnership([app('web', [], { not: 'a renderer' })], INPUT)).rejects.toThrow(/must declare a valid renderer/);
   });
 
   it("injects a non-managed renderer's fresh plugin pack even with NO managed ownership (not gated on active)", () => {

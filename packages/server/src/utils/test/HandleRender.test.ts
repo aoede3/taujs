@@ -9,6 +9,7 @@ import * as Templates from '../Templates';
 import * as Telemetry from '../Telemetry';
 import { handleRender } from '../HandleRender';
 import { createLogger } from '../../logging/Logger';
+import { testRenderer, brandedRenderModule } from '../../test/support/renderer';
 
 import type { Mock } from 'vitest';
 
@@ -216,6 +217,9 @@ describe('handleRender', () => {
         appId: 'test-app',
         clientRoot: '/test/client',
         entryServer: 'entry-server.tsx',
+        // Renderer v1: `renderer:` is required; the dev path validates the loaded module against it (key
+        // 'test' - dev render-module doubles are branded via brandedRenderModule('test', ...)).
+        renderer: testRenderer(),
       },
     ];
 
@@ -751,7 +755,7 @@ describe('handleRender', () => {
 
       const renderSSR = vi.fn().mockRejectedValue(new Error('boom'));
       const viteDevServer = {
-        ssrLoadModule: vi.fn().mockResolvedValue({ renderSSR }),
+        ssrLoadModule: vi.fn().mockResolvedValue(brandedRenderModule('test', { renderSSR })),
         transformIndexHtml: vi.fn().mockResolvedValue('<html><head></head><body></body></html>'),
       } as any;
 
@@ -855,7 +859,7 @@ describe('handleRender', () => {
         throw 'aborted'; // string, no .message -> exercises the "?? err" reason extraction
       });
       const viteDevServer = {
-        ssrLoadModule: vi.fn().mockResolvedValue({ renderSSR }),
+        ssrLoadModule: vi.fn().mockResolvedValue(brandedRenderModule('test', { renderSSR })),
         transformIndexHtml: vi.fn().mockResolvedValue('<html><head></head><body></body></html>'),
       } as any;
 
@@ -888,7 +892,7 @@ describe('handleRender', () => {
 
       const renderSSR = vi.fn().mockRejectedValue(undefined); // triggers ?? ''
       const viteDevServer = {
-        ssrLoadModule: vi.fn().mockResolvedValue({ renderSSR }),
+        ssrLoadModule: vi.fn().mockResolvedValue(brandedRenderModule('test', { renderSSR })),
         transformIndexHtml: vi.fn().mockResolvedValue('<html><head></head><body></body></html>'),
       } as any;
 
@@ -1059,6 +1063,67 @@ describe('handleRender', () => {
       );
     });
 
+    // ESC-2: cspNonce + shouldHydrate are the symmetric RenderOptions - computed ONCE by the host and
+    // delivered in `opts` on BOTH strategies (renderSSR opts index 4, renderStream opts index 7).
+    it('ESC-2 symmetry (SSR): renderSSR opts carry cspNonce + shouldHydrate', async () => {
+      (mockReq as any).cspNonce = 'esc2-nonce';
+
+      const mockRoute = createMockRouteMatch({ render: 'ssr' }); // hydrate defaults to true
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
+
+      const mockRenderModule = {
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }),
+      };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // renderSSR(data, url, meta, signal, opts) - opts is the 5th arg (index 4).
+      const opts = (mockRenderModule.renderSSR as Mock).mock.calls[0]![4];
+      expect(opts).toEqual(expect.objectContaining({ cspNonce: 'esc2-nonce', shouldHydrate: true }));
+    });
+
+    it('ESC-2 symmetry (streaming): renderStream opts carry cspNonce + shouldHydrate', async () => {
+      (mockReq as any).cspNonce = 'esc2-nonce';
+
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        writable.on = vi.fn((event: string, handler: any) => {
+          if (event === 'finish') handler();
+        });
+        callbacks.onHead?.('<title>Stream</title>');
+        callbacks.onShellReady?.();
+        callbacks.onAllReady?.({});
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // renderStream opts is index 7 (positional cspNonce removed in ESC-2).
+      const opts = (mockRenderStream.mock.calls[0] as any[])[7];
+      expect(opts).toEqual(expect.objectContaining({ cspNonce: 'esc2-nonce', shouldHydrate: true }));
+    });
+
     it('should unsubscribe aborted listener on reply finish in streaming mode', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
@@ -1127,9 +1192,9 @@ describe('handleRender', () => {
         afterBody: '</body></html>',
       });
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }),
-      });
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(
+        brandedRenderModule('test', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) }),
+      );
 
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
@@ -1158,9 +1223,9 @@ describe('handleRender', () => {
         afterBody: '</body></html>',
       });
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }),
-      });
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(
+        brandedRenderModule('test', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) }),
+      );
 
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
@@ -2121,13 +2186,15 @@ describe('handleRender', () => {
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>');
       vi.mocked(Templates.extractHeadInner).mockReturnValue('<script type="module" src="/@vite/client"></script>');
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderStream: vi.fn((writable: any, callbacks: any) => {
-          callbacks.onHead?.('<title>X</title>');
-          writable.emit('finish');
-          return { abort: vi.fn(), done: Promise.resolve() };
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(
+        brandedRenderModule('test', {
+          renderStream: vi.fn((writable: any, callbacks: any) => {
+            callbacks.onHead?.('<title>X</title>');
+            writable.emit('finish');
+            return { abort: vi.fn(), done: Promise.resolve() };
+          }),
         }),
-      });
+      );
 
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
@@ -2159,13 +2226,15 @@ describe('handleRender', () => {
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>');
       vi.mocked(Templates.extractHeadInner).mockReturnValue('<script type="module" src="/@vite/client"></script>');
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderStream: vi.fn((writable: any, callbacks: any) => {
-          callbacks.onHead?.('<title>X</title>');
-          writable.emit('finish');
-          return { abort: vi.fn(), done: Promise.resolve() };
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(
+        brandedRenderModule('test', {
+          renderStream: vi.fn((writable: any, callbacks: any) => {
+            callbacks.onHead?.('<title>X</title>');
+            writable.emit('finish');
+            return { abort: vi.fn(), done: Promise.resolve() };
+          }),
         }),
-      });
+      );
 
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
@@ -2270,7 +2339,7 @@ describe('handleRender', () => {
         }),
       };
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mockRenderModule);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html>transformed</html>');
 
       vi.mocked(Templates.collectStyle).mockResolvedValue('.dev { color: red; }');
@@ -2304,7 +2373,7 @@ describe('handleRender', () => {
         }),
       };
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mockRenderModule);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
       mockViteDevServer.transformIndexHtml.mockImplementation((_url: any, html: any) => {
         expect(html).not.toContain('/@vite/client');
         return Promise.resolve(html);
@@ -2339,7 +2408,7 @@ describe('handleRender', () => {
         }),
       };
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mockRenderModule);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
       mockViteDevServer.transformIndexHtml.mockImplementation((_url: any, html: any) => {
         expect(html).not.toContain('.old { color: blue; }');
         return Promise.resolve(html);
@@ -2428,7 +2497,7 @@ describe('handleRender', () => {
         }),
       };
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mockRenderModule);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
       vi.mocked(Templates.collectStyle).mockResolvedValue('.dev-style { display:block }');
 
       // Assert the <style> tag carries the nonce after collectStyle runs
@@ -2462,7 +2531,7 @@ describe('handleRender', () => {
       });
 
       const mod = { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) };
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mod);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mod));
 
       // non-empty styles so the injected tag is visible
       vi.mocked(Templates.collectStyle).mockResolvedValue('.x{y:z}');
@@ -2514,9 +2583,7 @@ describe('handleRender', () => {
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderStream: mockRenderStream,
-      });
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', { renderStream: mockRenderStream }));
 
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});

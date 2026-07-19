@@ -76,7 +76,6 @@ describe('isRendererContribution + declaredContractOf', () => {
     key: 'react',
     contractVersion: 'v1',
     managedCompilation: true,
-    expectsModule: true,
   };
 
   it('recognises a structurally valid renderer contribution', () => {

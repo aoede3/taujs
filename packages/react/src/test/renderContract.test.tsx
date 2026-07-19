@@ -34,7 +34,6 @@ describe('render-contract branding (runtime half of the paired contract)', () =>
     const brand = readBrand(makeModule().renderSSR) as { key: string; contractVersion: string };
     expect(brand.key).toBe(contribution.key);
     expect(brand.contractVersion).toBe(contribution.contractVersion);
-    expect(contribution.expectsModule).toBe(true); // React ships a render module the host validates
   });
 
   it('the brand is non-enumerable (invisible to spreads/serialisation)', () => {

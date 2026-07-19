@@ -26,7 +26,6 @@ export function vueRenderer(opts?: VueRendererOptions): TaujsRendererContributio
     key: VUE_RENDERER_KEY,
     contractVersion: RENDER_CONTRACT_VERSION,
     managedCompilation: false,
-    expectsModule: true,
     createEnvironmentPlugins: () => pluginVue(opts),
   };
   return contribution as unknown as TaujsRendererContribution;

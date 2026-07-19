@@ -1,40 +1,26 @@
 /**
- * `@taujs/server/renderer` - the versioned renderer-AUTHOR contract (register Q5, deliberately minimal).
+ * `@taujs/server/renderer` - the renderer-AUTHOR contract (TYPE-ONLY).
  *
- * The three first-party renderer packages (`@taujs/react`, `@taujs/solid`, `@taujs/vue`) type-only-import
- * this contract to build their `reactRenderer()`/`solidRenderer()`/`vueRenderer()` factories and to brand
- * their `createRenderer` render functions. They reproduce the brand/version LITERALS by value (never
- * runtime-importing `@taujs/server`), so the type-only imports keep them in sync at compile time without a
- * runtime dependency - exactly the ESC-1 discipline.
- *
- * The application-facing surface stays on `@taujs/server/config`, which exports only the opaque
- * {@link TaujsRendererContribution}. This entry is NOT for application code.
+ * HONEST SCOPE: this is a real public package entry. Renderer v1 shrinks the APPLICATION DX to one concept
+ * (`renderer:`), but it does NOT shrink this author-facing surface: a first-party renderer package needs
+ * these types to build a factory and to implement its managed compiler. This entry therefore re-exports the
+ * ESC-1 compiler-author types (CompilerImpl / PreparedPlan / ManagedContributionShape / the versioned
+ * brands) alongside the renderer-contribution contract. Every export is TYPE-ONLY; renderers reproduce the
+ * brand/version LITERALS by value (never runtime-importing `@taujs/server`), so this adds no runtime
+ * dependency. NOT for application code - which only ever sees the opaque `TaujsRendererContribution` from
+ * `@taujs/server/config`.
  */
 
-// The renderer contribution contract (config-time declaration half).
-export type {
-  DeclaredRenderContract,
-  RenderContractVersion,
-  RendererContributionBrand,
-  RendererContributionShape,
-  TaujsRendererContribution,
-} from './utils/RendererContract';
-export { RENDER_CONTRACT_TAG, RENDER_CONTRACT_VERSION, RENDERER_CONTRIBUTION_BRAND } from './utils/RendererContract';
+// The renderer-contribution contract (the config-time declaration half).
+export type { RenderContractVersion, RendererContributionBrand, RendererContributionShape, TaujsRendererContribution } from './utils/RendererContract';
 
-// The ESC-1 managed compiler-author contract the React/Solid factories implement (a renderer with
-// `managedCompilation: true` nests a `ManagedContributionShape` as its `compiler`). Kept here rather than
-// on the application-facing `/config` entry - only renderer authors need it.
+// The ESC-1 managed compiler-author contract a JSX renderer (managedCompilation:true) implements.
 export type {
   CompilerImpl,
   EffectiveScope,
   ManagedContributionBrand,
   ManagedContributionShape,
   ManagedGroupMember,
-  OwnershipMatcher,
   PrepareInput,
   PreparedPlan,
 } from './utils/ManagedPlugins';
-
-// The named render-options bag + render-module contract types (the runtime half) live on the package root
-// (`@taujs/server`) alongside RenderModule/RenderSSR/RenderStream; re-exported here for renderer authors.
-export type { RenderModule, RenderOptions, RenderSSR, RenderStream, RenderStreamHandle, RendererLogger } from './types';

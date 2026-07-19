@@ -762,10 +762,12 @@ describe('SSRServer', () => {
           appId: 'app-a',
           entryPoint: '.',
           plugins: [pluginArrayOption, namedPlugin, unnamedObject, pluginFn, falsyPlugin, nullPlugin],
+          renderer: testRenderer(),
         },
         {
           appId: 'app-b',
           entryPoint: '.',
+          renderer: testRenderer(),
         },
       ],
     } as any);
@@ -829,7 +831,7 @@ describe('SSRServer', () => {
       clientRoot: '/client',
       routes: [],
       debug: false,
-      configs: [{ appId: 'app-a', entryPoint: '.', plugins: [{ name: 'app-plugin' }] }],
+      configs: [{ appId: 'app-a', entryPoint: '.', plugins: [{ name: 'app-plugin' }], renderer: testRenderer() }],
       taujsConfig: { apps: [], vite: viteFn },
     } as any);
 

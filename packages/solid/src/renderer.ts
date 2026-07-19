@@ -1,14 +1,17 @@
 /**
- * `@taujs/solid/renderer` - the `solidRenderer()` factory (renderer v1, RFC 0006 / renderer design v5).
+ * INTERNAL - NOT a public `@taujs/solid` entry, and NOT part of renderer v1.
  *
- * SCOPE: this is the FOUNDATION only. The Solid SSR render module (renderSSR/renderStream) is NOT built yet
- * (it lands after S0-GATE); `@taujs/solid` stays private. So solidRenderer carries ONLY the ESC-1 Solid
- * managed compiler contribution (scoped JSX ownership - it coexists safely with React on one Vite server)
- * plus the declaration, and sets `expectsModule: false` so the host does NOT try to load/validate a Solid
- * render module. A Solid app is therefore declarable + compilable now, servable once the renderer lands.
+ * Solid is not a τjs renderer yet: it has no `createRenderer`, no SSR/streaming/hydration, no branded
+ * render module. Until it satisfies the COMPLETE renderer contract there is deliberately no user-facing
+ * `solidRenderer()` - not in package exports, scaffolding, changesets or migration docs, and no suggestion
+ * a user can create a τjs Solid app.
  *
- * Brand/version literals are reproduced BY VALUE (never runtime-importing `@taujs/server`); the type-only
- * imports keep them in sync with the host contract at compile time.
+ * This factory exists ONLY so first-party INTERNAL integration fixtures can exercise the host's
+ * framework-neutral ownership pre-pass and prove React and Solid COMPILATION coexist on one Vite server. It
+ * wraps the ESC-1 Solid managed compiler contribution as a renderer contribution (managedCompilation:true);
+ * it supplies NO render module, so any attempt to SERVE such an app fails render-module validation - which
+ * is the honest, uniform contract (there is no `expectsModule`/incomplete-renderer escape hatch). The
+ * fixtures reach this module through a test-only Vitest alias, never a published entry.
  */
 import { buildSolidContribution } from './compiler/solidCompiler.js';
 
@@ -19,10 +22,11 @@ const RENDERER_BRAND: RendererContributionBrand = 'taujs.renderer-contribution/v
 const RENDER_CONTRACT_VERSION: RenderContractVersion = 'v1';
 const SOLID_RENDERER_KEY = 'solid';
 
-/** Options for {@link solidRenderer}: a required tsconfig `project` plus Solid options (ownership
- * `include`/`exclude` are RESERVED - the host computes them from the project). */
+/** Options for the internal Solid compiler contribution: a required tsconfig `project` plus Solid options
+ * (ownership `include`/`exclude` are RESERVED - the host computes them from the project). */
 export type SolidRendererOptions = SolidCompilerOptions;
 
+/** INTERNAL (test/integration only): the Solid managed compiler contribution as a renderer contribution. */
 export function solidRenderer(opts: SolidRendererOptions): TaujsRendererContribution {
   const compiler = buildSolidContribution(opts);
   const contribution: RendererContributionShape = {
@@ -30,8 +34,6 @@ export function solidRenderer(opts: SolidRendererOptions): TaujsRendererContribu
     key: SOLID_RENDERER_KEY,
     contractVersion: RENDER_CONTRACT_VERSION,
     managedCompilation: true,
-    // The Solid render module does not exist yet (post-GATE); the host skips render-module load/validation.
-    expectsModule: false,
     compiler,
   };
   return contribution as unknown as TaujsRendererContribution;

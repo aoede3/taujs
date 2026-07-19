@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import os from 'node:os';
 import path from 'node:path';
 
-import { solidRenderer } from '@taujs/solid/renderer';
+import { solidRenderer } from '@taujs/solid-internal/renderer';
 import { createFilter } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 

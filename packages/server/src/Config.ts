@@ -28,9 +28,9 @@ export type SecurityConfig = CoreSecurityConfig & {
 
 export type AppConfig = CoreAppConfig & {
   // Renderer v1 (RFC 0006): every app declares a REQUIRED singular `renderer:` - an opaque branded
-  // contribution from `reactRenderer()`/`solidRenderer()`/`vueRenderer()`. It carries the framework's
-  // compiler (scoped ownership for React/Solid; a fresh plugin pack for Vue) and the render-module
-  // contract the host validates the entry-server against.
+  // contribution from `reactRenderer()` or `vueRenderer()`. It carries the framework's compiler (scoped
+  // JSX ownership for React; a fresh plugin pack for Vue) and the render-module contract the host validates
+  // the entry-server against.
   renderer: TaujsRendererContribution;
   // Ordinary user Vite plugins ONLY. Framework compilers no longer ride here - they belong on `renderer:`;
   // a managed/renderer contribution found in `plugins` is a hard configuration error.

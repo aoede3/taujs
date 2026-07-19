@@ -51,6 +51,7 @@ let resolveAppFilter: typeof import('../Build').resolveAppFilter;
 import { build } from 'vite';
 import { extractBuildConfigs } from '../core/config/Setup';
 import { processConfigs } from '../utils/AssetManager';
+import { testRenderer } from './support/renderer';
 
 import type { RollupOutput } from 'rollup';
 import { type ViteConfigOverride, type ViteBuildContext, resolveEntryFile, normalisePlugins } from '../Build';
@@ -119,6 +120,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -651,6 +653,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -749,6 +752,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -779,6 +783,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -1276,6 +1281,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -1558,6 +1564,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -1645,6 +1652,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -1738,6 +1746,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -1901,6 +1910,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -2025,6 +2035,7 @@ describe('Build.ts - Full Coverage', () => {
         entryClient: 'entry-client',
         entryServer: 'entry-server',
         htmlTemplate: 'index.html',
+        renderer: testRenderer(),
       };
       vi.mocked(processConfigs).mockReturnValue([minimalAppConfig] as any);
 
@@ -2183,6 +2194,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [{ name: 'framework-plugin' }],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -2343,6 +2355,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     beforeEach(() => {
@@ -2760,6 +2773,7 @@ describe('Build.ts - Full Coverage', () => {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     };
 
     const mockProjectRoot = '/project';
@@ -2919,6 +2933,7 @@ describe('Build.ts - Full Coverage', () => {
           entryServer: 'entry-server',
           htmlTemplate: 'index.html',
           plugins: [],
+          renderer: testRenderer(),
         },
       ];
 

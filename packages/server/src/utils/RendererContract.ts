@@ -6,12 +6,12 @@ import type { RenderModule } from '../types';
 /**
  * Renderer v1 (RFC 0006 / `docs/solid` renderer design v5) - the renderer CONTRIBUTION contract.
  *
- * A renderer factory (`reactRenderer()`/`solidRenderer()`/`vueRenderer()`) returns ONE opaque branded
- * contribution declared on an app's REQUIRED singular `renderer:`. It is the paired contract's config-time
- * DECLARATION half: it names the framework identity + render-module contract version the host validates
- * the loaded {@link RenderModule} against (the runtime half), and carries EITHER a managed compiler
- * contribution (React/Solid - scoped ownership, reusing the ESC-1 machinery unchanged) OR a
- * fresh-per-environment raw plugin pack (Vue - its ordinary `.vue` compiler, NO ownership machinery).
+ * A renderer factory (`reactRenderer()`/`vueRenderer()`) returns ONE opaque branded contribution declared
+ * on an app's REQUIRED singular `renderer:`. It is the paired contract's config-time DECLARATION half: it
+ * names the framework identity + render-module contract version the host validates the loaded
+ * {@link RenderModule} against (the runtime half), and carries EITHER a managed compiler contribution (a
+ * JSX renderer - scoped ownership, reusing the ESC-1 machinery unchanged) OR a fresh-per-environment raw
+ * plugin pack (Vue - its ordinary `.vue` compiler, NO ownership machinery).
  *
  * Framework knowledge stays in the renderer packages; the host is NEUTRAL (aggregation + validation only,
  * no `if (react)`/`if (vue)` branch). Runtime-Vite-free (only `import type` from vite downstream) so it can
@@ -57,13 +57,7 @@ export type RendererContributionShape = {
    * unscoped Vite plugin (Vue) - they carry {@link RendererContributionShape.createEnvironmentPlugins}.
    */
   readonly managedCompilation: boolean;
-  /**
-   * True when the app ships a runtime render module (`renderSSR`/`renderStream`) the host loads + validates
-   * (React/Vue). False for a compiler-only renderer whose render module does not exist yet (Solid v1): the
-   * host skips render-module loading/validation for that app.
-   */
-  readonly expectsModule: boolean;
-  /** The ESC-1 managed compiler contribution - present IFF `managedCompilation` (React/Solid). */
+  /** The ESC-1 managed compiler contribution - present IFF `managedCompilation` (a JSX renderer). */
   readonly compiler?: ManagedContributionShape;
   /**
    * A non-managed renderer's ordinary framework Vite plugin(s), built FRESH per environment (Vue's
@@ -76,8 +70,9 @@ export type RendererContributionShape = {
 declare const RENDERER_OPAQUE: unique symbol;
 /**
  * The ONE new public concept: an opaque renderer contribution obtained ONLY from a renderer factory
- * (`reactRenderer()`/`solidRenderer()`/`vueRenderer()`) and declared on an app's required singular
- * `renderer:`. Application code never constructs or introspects it.
+ * (`reactRenderer()`/`vueRenderer()`) and declared on an app's required singular `renderer:`. Application
+ * code never constructs or introspects it. Every renderer supplies a runtime render module the host
+ * validates - there is no compiler-only/incomplete-renderer mode.
  */
 export type TaujsRendererContribution = { readonly [RENDERER_OPAQUE]: true };
 
@@ -89,8 +84,7 @@ export function isRendererContribution(value: unknown): value is RendererContrib
     v.brand === RENDERER_CONTRIBUTION_BRAND &&
     typeof v.key === 'string' &&
     typeof v.contractVersion === 'string' &&
-    typeof v.managedCompilation === 'boolean' &&
-    typeof v.expectsModule === 'boolean'
+    typeof v.managedCompilation === 'boolean'
   );
 }
 

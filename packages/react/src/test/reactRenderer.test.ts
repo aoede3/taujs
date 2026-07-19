@@ -56,7 +56,6 @@ describe('reactRenderer (the public renderer contribution)', () => {
     expect(contribution.key).toBe('react');
     expect(contribution.contractVersion).toBe('v1');
     expect(contribution.managedCompilation).toBe(true);
-    expect(contribution.expectsModule).toBe(true);
     expect(contribution.compiler?.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
     expect(contribution.compiler?.key).toBe('react');
   });

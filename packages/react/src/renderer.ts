@@ -29,7 +29,6 @@ export function reactRenderer(opts: ReactRendererOptions): TaujsRendererContribu
     key: REACT_RENDERER_KEY,
     contractVersion: RENDER_CONTRACT_VERSION,
     managedCompilation: true,
-    expectsModule: true,
     compiler,
   };
   return contribution as unknown as TaujsRendererContribution;
