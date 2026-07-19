@@ -9,7 +9,7 @@ import prompts from 'prompts';
 
 import { generateClaudeMd, generateMcpJson } from './mcp';
 
-export type Framework = 'react' | 'vue';
+export type Framework = 'react' | 'vue' | 'solid';
 
 export type ProjectConfig = {
   projectName: string;
@@ -24,7 +24,7 @@ const PACKAGE_MANAGERS = {
   yarn: 'yarn install',
 } as const;
 
-const FRAMEWORKS: readonly Framework[] = ['react', 'vue'];
+const FRAMEWORKS: readonly Framework[] = ['react', 'vue', 'solid'];
 
 function parseArgs(): { projectName?: string; framework?: string } {
   const rawArgs = process.argv.slice(2);
@@ -98,6 +98,7 @@ async function main() {
       choices: [
         { title: 'React', value: 'react' },
         { title: 'Vue', value: 'vue' },
+        { title: 'Solid', value: 'solid' },
       ],
       initial: 0,
     },
@@ -242,10 +243,22 @@ export function planFiles(config: ProjectConfig): FileEntry[] {
     { path: 'src/server/services/example.service.ts', content: generateExampleService() },
     { path: 'src/server/types.d.ts', content: generateServiceTypesAugmentation() },
     { path: 'src/client/public/favicon.svg', content: generateFavicon() },
+    // Solid's managed compiler owns a DISJOINT tsconfig project: it must claim the client TSX and
+    // nothing else. Pointing it at the root tsconfig would make it claim `src/server/**` too, which
+    // is not Solid TSX and is compiled by the server toolchain.
+    ...(framework === 'solid' ? [{ path: 'tsconfig.solid.json', json: generateSolidCompilerTsConfig() } as FileEntry] : []),
   ];
 
   const client: FileEntry[] =
-    framework === 'vue'
+    framework === 'solid'
+      ? [
+          { path: 'src/client/App.tsx', content: generateAppComponentSolid() },
+          { path: 'src/client/renderId.ts', content: generateSolidRenderId() },
+          { path: 'src/client/entry-client.tsx', content: generateEntryClientSolid() },
+          { path: 'src/client/entry-server.tsx', content: generateEntryServerSolid() },
+          { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
+        ]
+      : framework === 'vue'
       ? [
           { path: 'src/client/App.vue', content: generateAppVue() },
           { path: 'src/client/HomePage.vue', content: generateHomePageVue() },
@@ -314,6 +327,43 @@ function generatePackageJson(projectName: string, framework: Framework) {
     };
   }
 
+  if (framework === 'solid') {
+    return {
+      name: projectName,
+      version: '0.1.0',
+      private: true,
+      type: 'module',
+      scripts: {
+        dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
+        'build:client': 'tsx build.ts',
+        'build:entry-server': 'cross-env BUILD_MODE=ssr tsx build.ts',
+        'build:server':
+          'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
+        build:
+          'tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
+        start: 'cross-env NODE_ENV=production node dist/server/index.js',
+        lint: 'tsc --noEmit',
+      },
+      dependencies: {
+        '@taujs/server': 'latest',
+        '@taujs/solid': 'latest',
+        fastify: '^5.2.0',
+        'solid-js': '^1.9.0',
+      },
+      devDependencies: {
+        '@taujs/mcp': 'latest',
+        '@types/node': '^22.10.5',
+        'cross-env': '^7.0.3',
+        tsx: '^4.19.3',
+        typescript: '^5.7.3',
+        vite: '^7.1.11',
+        // The managed compiler instantiates this internally with `ssr: true` forced; the app never
+        // adds it to `plugins` itself.
+        'vite-plugin-solid': '^2.11.0',
+      },
+    };
+  }
+
   return {
     name: projectName,
     version: '0.1.0',
@@ -370,8 +420,10 @@ function generateTsConfig(framework: Framework) {
       target: 'ES2022',
       module: 'ESNext',
       lib: ['ES2022', 'DOM', 'DOM.Iterable'],
-      // Vue SFCs are typed by vue-tsc; React needs the automatic JSX runtime.
+      // Vue SFCs are typed by vue-tsc; React needs the automatic JSX runtime; Solid PRESERVES JSX
+      // for its own Babel transform and types it through `solid-js`.
       ...(framework === 'react' ? { jsx: 'react-jsx' } : {}),
+      ...(framework === 'solid' ? { jsx: 'preserve', jsxImportSource: 'solid-js' } : {}),
       moduleResolution: 'bundler',
       resolveJsonModule: true,
       allowImportingTsExtensions: true,
@@ -402,9 +454,20 @@ function generateTaujsConfig(framework: Framework) {
   // Renderer v1: every app declares a REQUIRED singular `renderer:`. Vue supplies its compiler internally
   // (no plugins entry); React declares its ownership tsconfig `project` (the root tsconfig covers src/**).
   const rendererImport =
-    framework === 'vue' ? `\nimport { vueRenderer } from '@taujs/vue/renderer';` : `\nimport { reactRenderer } from '@taujs/react/renderer';`;
+    framework === 'vue'
+      ? `\nimport { vueRenderer } from '@taujs/vue/renderer';`
+      : framework === 'solid'
+        ? `\nimport { solidRenderer } from '@taujs/solid/renderer';`
+        : `\nimport { reactRenderer } from '@taujs/react/renderer';`;
+  // Solid declares the DISJOINT ownership project, never a raw managed compiler plugin: the
+  // renderer supplies `vite-plugin-solid` internally with `ssr: true` forced, and there is no
+  // option to override the transform mode.
   const rendererLine =
-    framework === 'vue' ? `\n      renderer: vueRenderer(),` : `\n      renderer: reactRenderer({ project: './tsconfig.json' }),`;
+    framework === 'vue'
+      ? `\n      renderer: vueRenderer(),`
+      : framework === 'solid'
+        ? `\n      renderer: solidRenderer({ project: './tsconfig.solid.json' }),`
+        : `\n      renderer: reactRenderer({ project: './tsconfig.json' }),`;
   return `import { defineConfig } from '@taujs/server/config';${rendererImport}
 
 export default defineConfig({
@@ -1111,6 +1174,91 @@ export const { renderSSR, renderStream } = createRenderer({
     }">
   \`,
   enableDebug: process.env.NODE_ENV === "development",
+});
+`;
+}
+
+function generateSolidCompilerTsConfig() {
+  // The Solid managed compiler's DISJOINT ownership project. It claims the client TSX and nothing
+  // else - deliberately not the root tsconfig, which also covers `src/server/**` and
+  // `taujs.config.ts`. `jsx: 'preserve'` hands JSX to Solid's Babel transform rather than
+  // TypeScript's.
+  return {
+    compilerOptions: {
+      jsx: 'preserve',
+      jsxImportSource: 'solid-js',
+    },
+    include: ['src/client/**/*.tsx'],
+  };
+}
+
+function generateSolidRenderId() {
+  return `/**
+ * The renderId is a SHARED constant: the server renders Solid's markers and serialised data under
+ * this namespace, and the client must hydrate under the SAME one. It is imported by BOTH entries
+ * on purpose - a literal duplicated in two files is a hydration bug waiting to happen.
+ */
+export const RENDER_ID = 'app';
+`;
+}
+
+function generateAppComponentSolid() {
+  return `import { Show } from 'solid-js';
+import { useSSRStore } from '@taujs/solid';
+
+type RouteData = { message?: string };
+
+export function App() {
+  // Route data arrives through the store, which the renderer provides. On the server it is already
+  // committed before the render begins; on the client it is seeded from window.__INITIAL_DATA__.
+  const store = useSSRStore<RouteData>();
+
+  return (
+    <main>
+      <h1>τjs + Solid</h1>
+      <Show when={store.data().message} fallback={<p>No route data.</p>}>
+        <p>{store.data().message}</p>
+      </Show>
+    </main>
+  );
+}
+`;
+}
+
+function generateEntryClientSolid() {
+  return `import { hydrateApp } from '@taujs/solid';
+
+import { App } from './App';
+import { RENDER_ID } from './renderId';
+
+hydrateApp({
+  app: () => <App />,
+  renderId: RENDER_ID,
+  rootElementId: 'root',
+  onHydrationError: (error) => {
+    console.error('Hydration failed:', error);
+  },
+});
+`;
+}
+
+function generateEntryServerSolid() {
+  return `import { createRenderer } from '@taujs/solid';
+
+import { App } from './App';
+import { RENDER_ID } from './renderId';
+
+export const { renderSSR, renderStream } = createRenderer({
+  appComponent: () => <App />,
+  renderId: RENDER_ID,
+  headContent: ({ data, meta }) => \`
+    <title>\${meta?.title || "τjs - Composing systems, not just apps"}</title>
+    <meta name="description" content="\${
+      meta?.description ||
+      data?.message ||
+      "τjs - Composing systems, not just apps"
+    }">
+  \`,
 });
 `;
 }
