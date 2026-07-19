@@ -2648,6 +2648,88 @@ describe('handleRender', () => {
     });
   });
 
+  // ESC-3 response-path leg. InlineData.test.ts proves the serializer in isolation; these prove the
+  // fix survives the REAL response path on BOTH render modes, by evaluating the exact
+  // `window.__INITIAL_DATA__ = <js>` expression a browser would receive.
+  describe('__proto__ is inert end-to-end through the response path (ESC-3)', () => {
+    const PAYLOAD = { ['__proto__']: { polluted: 'YES' }, ok: 1, nested: { ['__proto__']: { deep: true } } };
+
+    // The SSR script ends `= <js>;</script>`; the streaming one continues
+    // `= <js>; window.dispatchEvent(...)</script>`. Stop at whichever terminator comes first so the
+    // captured expression is exactly the serialized value.
+    const evaluateEmitted = (script: string) => {
+      const match = /window\.__INITIAL_DATA__ = ([\s\S]*?);(?: window\.dispatchEvent|<\/script>)/.exec(script);
+      expect(match, `no __INITIAL_DATA__ assignment found in: ${script}`).toBeTruthy();
+      return new Function(`return (${match![1]});`)() as Record<string, unknown>;
+    };
+
+    const assertInert = (value: Record<string, unknown>) => {
+      expect(Object.prototype.hasOwnProperty.call(value, '__proto__')).toBe(true);
+      expect(value['__proto__']).toEqual({ polluted: 'YES' });
+      expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
+
+      const nested = value.nested as Record<string, unknown>;
+      expect(Object.prototype.hasOwnProperty.call(nested, '__proto__')).toBe(true);
+      expect(Object.getPrototypeOf(nested)).toBe(Object.prototype);
+
+      // the GLOBAL prototype is never polluted, at any depth
+      expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+      expect(({} as { deep?: unknown }).deep).toBeUndefined();
+    };
+
+    it('ssr: the emitted assignment round-trips __proto__ as an own property', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      mockMaps.renderModules.set('/test/client', {
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '<title>T</title>', appHtml: '<div>T</div>' }),
+      });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue(PAYLOAD);
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // HandleRender passes the body (including the initial-data script) as rebuildTemplate's 3rd arg.
+      const body = String(vi.mocked(Templates.rebuildTemplate).mock.calls.at(-1)?.[2] ?? '');
+      assertInert(evaluateEmitted(body));
+    });
+
+    it('streaming: the emitted assignment round-trips __proto__ as an own property', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue(PAYLOAD);
+
+      mockMaps.renderModules.set('/test/client', {
+        renderStream: vi.fn((writable, callbacks) => {
+          writable.on = vi.fn((event: string, handler: any) => {
+            if (event === 'finish') handler();
+          });
+          callbacks.onHead?.('<title>Stream</title>');
+          callbacks.onAllReady?.(PAYLOAD);
+          return { abort: vi.fn(), done: Promise.resolve() };
+        }),
+      });
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      const scriptWrite = String(mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0] ?? '');
+      assertInert(evaluateEmitted(scriptWrite));
+    });
+  });
+
   describe('Initial data handling', () => {
     it('should build initial data input successfully', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' }, 'test-app', { id: '123' });

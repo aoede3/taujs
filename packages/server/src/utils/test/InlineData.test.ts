@@ -52,23 +52,105 @@ describe('serializeInlineData (R0-04)', () => {
     }
   });
 
-  it('a "__proto__" key sets the emitted object literal\'s prototype (SEC4 — no GLOBAL pollution; documented fidelity drift)', () => {
-    const payload = { ['__proto__']: { polluted: true }, ok: 1 };
-    const r = serializeInlineData(payload);
+  // ESC-3: a `__proto__` key used to set the emitted literal's PROTOTYPE (Annex B.3.1) rather than
+  // round-tripping as an own property — semantic drift between the server and client values. Ruled
+  // a FIX by ESC-0. These evaluate the SAME expression the page emits
+  // (`window.__INITIAL_DATA__ = <js>`), never `JSON.parse` directly, so the assertion is about what
+  // a browser actually gets.
+  describe('__proto__ round-trips as an own data property (ESC-3)', () => {
+    const evaluate = (js: string) => new Function(`return (${js});`)() as Record<string, unknown>;
 
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.js).toContain('__proto__');
-      // The page emits `window.__INITIAL_DATA__ = <js>` as a JS OBJECT LITERAL — evaluate THAT
-      // form, not JSON.parse. A quoted "__proto__": key sets the prototype (Annex B.3.1).
-      const evaluated = new Function(`return (${r.js});`)() as Record<string, unknown>;
+    it('top-level: own property, prototype untouched, global unpolluted', () => {
+      const payload = { ['__proto__']: { polluted: true }, ok: 1 };
+      const r = serializeInlineData(payload);
 
-      expect(Object.prototype.hasOwnProperty.call(evaluated, '__proto__')).toBe(false); // NOT an own property
-      expect((evaluated as { polluted?: unknown }).polluted).toBe(true); // reachable via the prototype
-      expect(Object.getPrototypeOf(evaluated)).toMatchObject({ polluted: true });
-      // the GLOBAL prototype is never polluted
-      expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
-    }
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+
+      expect(r.js.startsWith('JSON.parse(')).toBe(true); // a __proto__ KEY selects the fallback form
+
+      const evaluated = evaluate(r.js);
+
+      expect(Object.prototype.hasOwnProperty.call(evaluated, '__proto__')).toBe(true); // OWN property now
+      expect(evaluated['__proto__']).toEqual({ polluted: true }); // the DATA round-trips
+      expect(Object.getPrototypeOf(evaluated)).toBe(Object.prototype); // prototype untouched
+      expect(Object.keys(evaluated)).toEqual(['__proto__', 'ok']); // key order preserved
+      expect(({} as { polluted?: unknown }).polluted).toBeUndefined(); // global never polluted
+    });
+
+    it('NESTED occurrences round-trip identically at every depth', () => {
+      const payload = { a: { b: { ['__proto__']: { deep: 1 } } }, list: [{ ['__proto__']: { inArray: true } }] };
+      const r = serializeInlineData(payload);
+
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+
+      const evaluated = evaluate(r.js) as unknown as { a: { b: Record<string, unknown> }; list: Array<Record<string, unknown>> };
+
+      expect(Object.prototype.hasOwnProperty.call(evaluated.a.b, '__proto__')).toBe(true);
+      expect(evaluated.a.b['__proto__']).toEqual({ deep: 1 });
+      expect(Object.getPrototypeOf(evaluated.a.b)).toBe(Object.prototype);
+
+      const first = evaluated.list[0];
+      expect(first).toBeDefined();
+      expect(Object.prototype.hasOwnProperty.call(first, '__proto__')).toBe(true);
+      expect(first!['__proto__']).toEqual({ inArray: true });
+      expect(Object.getPrototypeOf(first)).toBe(Object.prototype);
+
+      expect(({} as { deep?: unknown }).deep).toBeUndefined();
+    });
+
+    it('the emitted value is deep-equal to the server value (no shape drift)', () => {
+      const payload = { ['__proto__']: { a: 1 }, keep: 'x', nested: { ['__proto__']: { b: 2 } } };
+      const r = serializeInlineData(payload);
+
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+
+      // JSON.parse of the server's own JSON is the reference client value.
+      expect(evaluate(r.js)).toEqual(JSON.parse(JSON.stringify(payload)));
+    });
+
+    it('breakout stays impossible in the JSON.parse form', () => {
+      const payload = { ['__proto__']: { x: '</script><script>alert(1)</script>' }, s: '<!--' };
+      const r = serializeInlineData(payload);
+
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+
+      expect(r.js).not.toContain('</script'); // every `<` escaped
+      expect(r.js).not.toContain('<script');
+      expect(r.js).not.toContain('<!--');
+      // and the value still survives the escape intact
+      expect((evaluate(r.js)['__proto__'] as { x: string }).x).toBe('</script><script>alert(1)</script>');
+    });
+
+    // The trigger is a substring test for the QUOTED token `"__proto__"`, so its only false
+    // positive is a string value EXACTLY equal to `__proto__`. These two tests pin both sides of
+    // that boundary, and each asserts WHICH form was selected — without that assertion a test can
+    // pass down the wrong branch and prove nothing.
+    it('a string value exactly "__proto__" selects the JSON.parse form (harmless false positive)', () => {
+      const payload = { note: '__proto__' };
+      const r = serializeInlineData(payload);
+
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+
+      expect(r.js.startsWith('JSON.parse(')).toBe(true); // the fallback really was selected
+      expect(evaluate(r.js)).toEqual(payload); // and it is semantically identical, which is the point
+    });
+
+    it('a string that merely MENTIONS __proto__ does NOT trigger the fallback, and stays byte-identical', () => {
+      const payload = { note: 'the __proto__ key is special' };
+      const r = serializeInlineData(payload);
+
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+
+      expect(r.js.startsWith('JSON.parse(')).toBe(false); // no quote adjacent to the token
+      expect(r.js).toBe(legacy(payload)); // ordinary payload: unchanged output
+      expect(evaluate(r.js)).toEqual(payload);
+    });
   });
 
   it('nested undefined/function/symbol follow standard JSON semantics (omitted / null), not rejection (crash-safety, not contract enforcement)', () => {
