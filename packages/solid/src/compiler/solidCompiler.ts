@@ -12,7 +12,6 @@ import solid from 'vite-plugin-solid';
 import type { PluginOption } from 'vite';
 import type { CompilerImpl, EffectiveScope, ManagedContributionBrand, ManagedContributionShape, PreparedPlan } from '@taujs/server/renderer';
 
-type SolidOptions = NonNullable<Parameters<typeof solid>[0]>;
 
 // vite-plugin-solid filters the RAW module id (query included) with a createFilter captured at
 // construction (dist/esm/index.mjs: `if (!filter(id)) return null`), UNLIKE @vitejs/plugin-react which
@@ -56,9 +55,16 @@ export function tagUnscopedCompiler<T>(value: T, key: string): T {
   return value;
 }
 
-/** Options for {@link buildSolidContribution}: a required tsconfig `project`, plus Solid options; the
- * ownership filters (`include`/`exclude`) are RESERVED - the host computes them from the project. */
-export type SolidCompilerOptions = { project: string } & Omit<SolidOptions, 'include' | 'exclude'>;
+/**
+ * Options for {@link buildSolidContribution}: a required tsconfig `project`, and NOTHING else.
+ *
+ * The managed compiler deliberately carries no Solid option bag. `solidRenderer()` exposes only
+ * `{ project }`, so an internal bag could never be populated through the public API - it existed
+ * only as a hidden escape hatch, and a hidden escape hatch around a compiler whose transform mode
+ * is forced is exactly the shape that hides defects. Raw `pluginSolid()` at `@taujs/solid/plugin`
+ * retains the full portable Vite option surface for anyone who needs it.
+ */
+export type SolidCompilerOptions = { project: string };
 
 // Module-local object => REFERENCE identity (safeguard 1): every contribution from THIS installed
 // @taujs/solid copy shares it; a second installed copy yields a distinct object, so the host detects
@@ -68,7 +74,7 @@ const solidCompilerImpl: CompilerImpl = {
   prepare: async (group, input) => {
     // Lazy so `typescript`/`vitefu` never load for a raw `pluginSolid()` user.
     const { computeSolidOwnership } = await import('./solidOwnership.js');
-    const { claims, boundaries, exclude, options } = await computeSolidOwnership(group, input);
+    const { claims, boundaries, exclude } = await computeSolidOwnership(group, input);
 
     return {
       key: SOLID_KEY,
@@ -77,18 +83,41 @@ const solidCompilerImpl: CompilerImpl = {
       exclude,
       // Fresh per call (checkpoint §6). The renderer folds its OWN exclude in; the host supplies the
       // cross-key exclusions via `scope.exclude`. A managed compiler is NOT tagged.
+      /**
+       * `ssr: true` is UNCONDITIONAL and is the whole point of the managed compiler.
+       *
+       * It does not mean "always emit SSR output". It tells vite-plugin-solid to select output per
+       * transform: Solid SSR output for SSR transforms, and HYDRATABLE DOM output for browser
+       * transforms. Without it every transform emits non-hydratable DOM output - including the
+       * server graph, where Solid's DOM runtime functions are `notSup` throw-stubs, so the first
+       * SSR render dies with "Client-only API called on the server side".
+       *
+       * This was asserted by the design and by `solidRenderer()`'s own documentation but was NEVER
+       * actually supplied here; no test drove a real SSR transform through a managed plugin, so
+       * nothing caught it until a generated app was booted end to end.
+       */
       createPlugin: (scope): PluginOption =>
-        solid({ ...(options as SolidOptions), include: toQueryTolerantMatchers(scope.include), exclude: toQueryTolerantMatchers([...exclude, ...scope.exclude]) }),
+        solid({
+          ssr: true,
+          include: toQueryTolerantMatchers(scope.include),
+          exclude: toQueryTolerantMatchers([...exclude, ...scope.exclude]),
+        }),
     } satisfies PreparedPlan;
   },
 };
 
 /** Build the Solid managed compiler contribution `solidRenderer()` carries (ESC-1 shape). */
 export function buildSolidContribution(opts: SolidCompilerOptions): ManagedContributionShape {
-  const { project, ...solidOptions } = opts;
+  const { project, ...rest } = opts;
   if (!project) throw new Error('[taujs] solidRenderer requires a `project` tsconfig path.');
-  if ('include' in solidOptions || 'exclude' in solidOptions) {
-    throw new Error('[taujs] solidRenderer does not accept `include`/`exclude` - ownership is computed from the tsconfig `project`.');
+  // `{ project }` is the entire surface. Anything else - including the previously-tolerated
+  // `include`/`exclude` and any vite-plugin-solid option - is rejected rather than silently
+  // dropped, so a caller is told their intent is not supported instead of it vanishing.
+  const unsupported = Object.keys(rest);
+  if (unsupported.length > 0) {
+    throw new Error(
+      `[taujs] solidRenderer accepts only \`project\` (received: ${unsupported.join(', ')}). Ownership is computed from the tsconfig project, and the transform mode is fixed. Use pluginSolid() from '@taujs/solid/plugin' for raw Vite options.`,
+    );
   }
 
   return {
@@ -96,6 +125,6 @@ export function buildSolidContribution(opts: SolidCompilerOptions): ManagedContr
     key: SOLID_KEY,
     impl: solidCompilerImpl,
     project,
-    options: solidOptions,
+    options: {},
   };
 }

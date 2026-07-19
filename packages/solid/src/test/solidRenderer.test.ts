@@ -22,24 +22,35 @@ const asShape = (contribution: unknown) => contribution as unknown as ManagedCon
 
 describe('buildSolidContribution (the managed compiler contribution solidRenderer carries)', () => {
   it('returns a branded managed contribution with the solid key, project pointer, and impl reference', () => {
-    const contribution = buildSolidContribution({ project: './tsconfig.solid.json', ssr: true });
+    const contribution = buildSolidContribution({ project: './tsconfig.solid.json' });
     expect(contribution.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
     expect(contribution.key).toBe('solid');
     expect(contribution.project).toBe('./tsconfig.solid.json');
     expect(contribution.impl.key).toBe('solid');
-    expect(contribution.options).toEqual({ ssr: true });
+    // The managed compiler carries NO option bag. `ssr: true` is applied unconditionally at plugin
+    // construction, not passed through from the caller - a caller-supplied bag was a hidden escape
+    // hatch that also disguised the fact that `ssr: true` was never actually supplied.
+    expect(contribution.options).toEqual({});
   });
 
   it('shares ONE impl reference across contributions (safeguard 1: reference identity)', () => {
     expect(buildSolidContribution({ project: './a.json' }).impl).toBe(buildSolidContribution({ project: './b.json' }).impl);
   });
 
-  it('rejects a missing project and the reserved include/exclude options', () => {
+  it('rejects a missing project, and every option other than `project`', () => {
     expect(() => buildSolidContribution({ project: '' })).toThrow(/requires a `project`/);
-    // @ts-expect-error include is reserved
-    expect(() => buildSolidContribution({ project: './t.json', include: ['x'] })).toThrow(/does not accept `include`/);
+
+    // `{ project }` is the ENTIRE surface. Anything else is rejected rather than silently dropped,
+    // so a caller is told their intent is unsupported instead of it vanishing - and the message
+    // points at the raw plugin, which is where arbitrary Vite options legitimately belong.
+    // @ts-expect-error include is reserved - ownership comes from the tsconfig project
+    expect(() => buildSolidContribution({ project: './t.json', include: ['x'] })).toThrow(/accepts only `project`.*include/s);
     // @ts-expect-error exclude is reserved
-    expect(() => buildSolidContribution({ project: './t.json', exclude: ['x'] })).toThrow(/does not accept/);
+    expect(() => buildSolidContribution({ project: './t.json', exclude: ['x'] })).toThrow(/accepts only `project`/);
+    // @ts-expect-error the transform mode is fixed; there is no user-facing ssr option
+    expect(() => buildSolidContribution({ project: './t.json', ssr: false })).toThrow(/transform mode is fixed/);
+    // @ts-expect-error babel is a raw-plugin concern
+    expect(() => buildSolidContribution({ project: './t.json', babel: {} })).toThrow(/pluginSolid\(\)/);
   });
 });
 
