@@ -15,7 +15,6 @@ export default defineConfig({
       '@taujs/server-internal/ownership': resolve(here, '../../packages/server/src/utils/OwnershipPrepass.ts'),
       // Renderer v1: solidRenderer() is INTERNAL (no public `@taujs/solid/renderer` export); the fixtures
       // reach the internal factory directly so the composition/build matrix can still exercise Solid.
-      '@taujs/solid-internal/renderer': resolve(here, '../../packages/solid/src/renderer.ts'),
     },
   },
   test: {

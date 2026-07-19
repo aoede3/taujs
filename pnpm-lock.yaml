@@ -342,6 +342,9 @@ importers:
         specifier: ^1.1.1
         version: 1.1.3(vite@7.3.6(@types/node@24.13.3)(tsx@4.23.0))
     devDependencies:
+      '@arethetypeswrong/cli':
+        specifier: ^0.18.4
+        version: 0.18.4
       '@taujs/server':
         specifier: workspace:*
         version: link:../server

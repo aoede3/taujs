@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { taujsBuild } from '@taujs/server/build';
 import { reactRenderer } from '@taujs/react/renderer';
-import { solidRenderer } from '@taujs/solid-internal/renderer';
+import { solidRenderer } from '@taujs/solid/renderer';
 import { vueRenderer } from '@taujs/vue/renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

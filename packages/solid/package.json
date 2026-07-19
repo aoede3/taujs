@@ -25,6 +25,14 @@
   ],
   "type": "module",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer.d.ts",
+      "import": "./dist/renderer.js"
+    },
     "./plugin": {
       "types": "./dist/plugin.d.ts",
       "import": "./dist/plugin.js"
@@ -40,6 +48,7 @@
     "vitefu": "^1.1.1"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.4",
     "@taujs/server": "workspace:*",
     "@types/node": "^24.0.7",
     "@types/picomatch": "^2.3.3",
@@ -57,9 +66,6 @@
     "vite-plugin-solid": "^2.11.0"
   },
   "peerDependenciesMeta": {
-    "solid-js": {
-      "optional": true
-    },
     "typescript": {
       "optional": true
     },
@@ -75,7 +81,8 @@
     "typecheck": "tsc",
     "test": "vitest run",
     "format": "prettier --write .",
-    "check-format": "prettier --check ."
+    "check-format": "prettier --check .",
+    "check-exports": "attw --pack . --profile esm-only"
   },
   "sideEffects": false
 }

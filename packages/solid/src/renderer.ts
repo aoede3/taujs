@@ -1,17 +1,17 @@
 /**
- * INTERNAL - NOT a public `@taujs/solid` entry, and NOT part of renderer v1.
+ * `@taujs/solid/renderer` - the application-facing renderer contribution.
  *
- * Solid is not a τjs renderer yet: it has no `createRenderer`, no SSR/streaming/hydration, no branded
- * render module. Until it satisfies the COMPLETE renderer contract there is deliberately no user-facing
- * `solidRenderer()` - not in package exports, scaffolding, changesets or migration docs, and no suggestion
- * a user can create a τjs Solid app.
+ * This subpath exposes EXACTLY `solidRenderer({ project })` and nothing else. It is separate from
+ * the root entry on purpose: it reaches the managed compiler, which pulls the OPTIONAL
+ * `vite`/`vite-plugin-solid`/`typescript` peers, and a client bundle that imports `@taujs/solid`
+ * must never drag those into its graph. Do not re-export it from the root for convenience - that
+ * decision is frozen and any change returns for a DX ruling with packed-consumer evidence.
  *
- * This factory exists ONLY so first-party INTERNAL integration fixtures can exercise the host's
- * framework-neutral ownership pre-pass and prove React and Solid COMPILATION coexist on one Vite server. It
- * wraps the ESC-1 Solid managed compiler contribution as a renderer contribution (managedCompilation:true);
- * it supplies NO render module, so any attempt to SERVE such an app fails render-module validation - which
- * is the honest, uniform contract (there is no `expectsModule`/incomplete-renderer escape hatch). The
- * fixtures reach this module through a test-only Vitest alias, never a published entry.
+ * Managed compilation ALWAYS forces `vite-plugin-solid`'s `ssr: true` internally (verified against
+ * the pinned plugin: `ssr:true` enables hydratable transforms, and false/absent produces
+ * non-hydratable DOM output that is invalid for a τjs renderer). `ssr`, `babel`, `include`,
+ * `exclude` and every other advanced plugin option are NOT renderer-v1 DX; raw `pluginSolid()` at
+ * `@taujs/solid/plugin` remains the portable escape hatch for plain Vite.
  */
 import { buildSolidContribution } from './compiler/solidCompiler.js';
 
@@ -24,11 +24,14 @@ import type { RendererContributionBrand, RendererContributionShape, TaujsRendere
 // module's brand also uses. Two copies could disagree and the host would reject the module.
 const RENDERER_BRAND: RendererContributionBrand = 'taujs.renderer-contribution/v1';
 
-/** Options for the internal Solid compiler contribution: a required tsconfig `project` plus Solid options
- * (ownership `include`/`exclude` are RESERVED - the host computes them from the project). */
-export type SolidRendererOptions = SolidCompilerOptions;
+/**
+ * The renderer's ENTIRE option surface (design 1.5, frozen): a single required tsconfig `project`
+ * that defines the app's ownership boundary. Ownership `include`/`exclude` are RESERVED - the host
+ * computes them from the project - and no transform-mode option is offered.
+ */
+export type SolidRendererOptions = { project: string };
 
-/** INTERNAL (test/integration only): the Solid managed compiler contribution as a renderer contribution. */
+/** Declare an app as a Solid app. Pass it to `renderer:` in the τjs config. */
 export function solidRenderer(opts: SolidRendererOptions): TaujsRendererContribution {
   const compiler = buildSolidContribution(opts);
   const contribution: RendererContributionShape = {

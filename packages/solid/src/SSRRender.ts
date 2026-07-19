@@ -67,6 +67,32 @@ export type InitialDataInput = Record<string, unknown> | Promise<Record<string, 
 
 export type RenderStreamHandle = { abort(): void; done: Promise<void> };
 
+/**
+ * The frozen public shapes of the two render functions (design 1.5). They are STRUCTURAL mirrors of
+ * the host contract, not imports from it: `@taujs/solid` carries no runtime `@taujs/server`
+ * dependency, so a standalone consumer stays host-free. `contract.test-d.ts` (acceptance leg 7.5)
+ * proves the IMPLEMENTATION's inferred output satisfies the host contract with zero casts - these
+ * aliases are for consumers, and are deliberately not used to annotate the implementation.
+ */
+export type RenderSSRFn = (
+  initialDataResolved: Record<string, unknown>,
+  location: string,
+  meta?: Record<string, unknown>,
+  signal?: AbortSignal,
+  opts?: RenderOptions,
+) => Promise<{ headContent: string; appHtml: string }>;
+
+export type RenderStreamFn = (
+  sink: Writable,
+  callbacks: RenderCallbacks,
+  initialData: InitialDataInput,
+  location: string,
+  bootstrapModules?: string,
+  meta?: Record<string, unknown>,
+  signal?: AbortSignal,
+  opts?: RenderOptions,
+) => RenderStreamHandle;
+
 export type StreamOptions = {
   /** Bound on shell readiness (default 10_000). */
   shellTimeoutMs?: number;
