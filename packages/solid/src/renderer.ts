@@ -15,12 +15,14 @@
  */
 import { buildSolidContribution } from './compiler/solidCompiler.js';
 
-import type { SolidCompilerOptions } from './compiler/solidCompiler.js';
-import type { RenderContractVersion, RendererContributionBrand, RendererContributionShape, TaujsRendererContribution } from '@taujs/server/renderer';
+import { RENDER_CONTRACT_VERSION, SOLID_RENDERER_KEY } from './renderContract.js';
 
+import type { SolidCompilerOptions } from './compiler/solidCompiler.js';
+import type { RendererContributionBrand, RendererContributionShape, TaujsRendererContribution } from '@taujs/server/renderer';
+
+// Single source of truth for the key + contract version: `renderContract.ts`, which the render
+// module's brand also uses. Two copies could disagree and the host would reject the module.
 const RENDERER_BRAND: RendererContributionBrand = 'taujs.renderer-contribution/v1';
-const RENDER_CONTRACT_VERSION: RenderContractVersion = 'v1';
-const SOLID_RENDERER_KEY = 'solid';
 
 /** Options for the internal Solid compiler contribution: a required tsconfig `project` plus Solid options
  * (ownership `include`/`exclude` are RESERVED - the host computes them from the project). */
