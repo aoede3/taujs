@@ -1,0 +1,847 @@
+---
+title: Solid
+description: taujs/solid reference
+---
+
+import { LinkButton, Aside } from "@astrojs/starlight/components";
+
+# @taujs/solid
+
+**Solid SSR (Server-Side Rendering) with Streaming Support**
+
+A lightweight, Solid SSR library with streaming capabilities, built for modern TypeScript applications. Designed as part of the taujs (τjs) ecosystem but fully standalone and runtime-agnostic.
+
+<LinkButton
+  href="https://github.com/aoede3/taujs"
+  icon="external"
+  iconPlacement="start"
+  target="\_blank"
+>
+  τjs @taujs/solid
+</LinkButton>
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Installation](#installation)
+- [Core Concepts](#core-concepts)
+- [Consuming SSR data](#consuming-ssr-data)
+  - [Route data (the store)](#route-data-the-store)
+  - [App-owned async (Suspense + createResource)](#app-owned-async-suspense--createresource)
+- [API Reference](#api-reference)
+  - [Server-side rendering](#server-side-rendering)
+  - [Client-side hydration](#client-side-hydration)
+  - [Data store](#data-store)
+  - [Managed compilation](#managed-compilation)
+  - [Vite plugin](#vite-plugin)
+- [The snapshot data bridge](#the-snapshot-data-bridge)
+- [Hydration and CSP](#hydration-and-csp)
+- [Error handling and the sanitiser](#error-handling-and-the-sanitiser)
+- [Known limitations](#known-limitations)
+- [Usage in the taujs ecosystem](#usage-in-the-taujs-ecosystem)
+- [Standalone usage](#standalone-usage)
+- [TypeScript support](#typescript-support)
+- [Best practices](#best-practices)
+
+---
+
+## Overview
+
+`@taujs/solid` provides:
+
+- **Streaming SSR** with Solid's `renderToStream`, including deferred patches for app-owned async work
+- **Static SSR** with `renderToStringAsync` for the request-first `ssr` strategy
+- **Automatic hydration** with built-in data synchronisation and a CSR fallback
+- **Solid-native data store** built on a signal `Accessor`, provided through Solid context
+- **Managed compilation** - `@taujs/solid/renderer` owns `vite-plugin-solid` internally with `ssr: true` forced, so an app never lists the compiler plugin itself
+- **A fixed-identity error sanitiser** - a post-shell resource rejection reaches the client redacted, never leaking server detail through the error channel
+- **Runtime agnostic** - works with Node.js, Fastify, Express, or any HTTP server
+
+`@taujs/solid` mirrors the *contract and capability* of `@taujs/react` and `@taujs/vue` - the same render surface, the same server behaviour, the same hydration beacon events - but it is Solid-native. Route data flows through a signal store you read like any other Solid accessor, and app-owned async uses Solid's own `createResource` + `<Suspense>` rather than a bespoke composable. The public author surface is deliberately small; where it diverges from the other renderers the divergence is called out in place.
+
+---
+
+## Installation
+
+```bash
+npm install @taujs/solid solid-js
+```
+
+<Aside type="caution" title="Peer rule">
+`solid-js` is a **required** peer. `vite`, `vite-plugin-solid` and `typescript` are **optional** peers - you only need them when you consume `@taujs/solid/renderer` (the managed compiler) or `@taujs/solid/plugin`. The runtime author surface at `@taujs/solid` (`createRenderer`, `hydrateApp`, the store, `escapeHtml`) pulls in none of them, so a client bundle that imports only that entry stays free of the compiler toolchain.
+</Aside>
+
+Recommended dependency ranges:
+
+```json
+{
+  "dependencies": {
+    "@taujs/solid": "latest",
+    "solid-js": "^1.9.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vite": "^7.0.0",
+    "vite-plugin-solid": "^2.11.0"
+  }
+}
+```
+
+---
+
+## Core Concepts
+
+### 1. SSR data store
+
+The `SSRStore` is a type-safe container that synchronises data between server and client. It is deliberately minimal - a Solid signal `Accessor` plus a setter - so components read it exactly the way they read any other Solid signal:
+
+```typescript
+import type { Accessor } from "solid-js";
+
+type SSRStore<T> = {
+  /** Read the current data. A Solid Accessor, so reads are reactive. */
+  data: Accessor<T>;
+  /** Replace the data (used by the client seed and by recovery paths). */
+  setData(value: T): void;
+};
+```
+
+There is no `status`, `ready` or `getSnapshot` surface here as in `@taujs/vue` - Solid's own reactivity and `<Suspense>` cover those needs. For route data on an `ssr` route the store is already committed before your component renders, so `store.data()` returns the value synchronously.
+
+### 2. Renderer pattern
+
+`createRenderer` builds a reusable renderer from your root component and configuration, returning both a static and a streaming render method:
+
+```typescript
+const { renderSSR, renderStream } = createRenderer({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${escapeHtml(String(data.title))}</title>`,
+  renderId: "my-app",
+  streamOptions: { shellTimeoutMs: 10000, completionTimeoutMs: 30000 },
+});
+```
+
+### 3. Hydration strategy
+
+Client-side hydration automatically:
+
+- Detects SSR data from `window.__INITIAL_DATA__`
+- Creates a synchronised store and provides it to your tree
+- Hydrates the Solid tree with `hydrate(...)` under the shared `renderId`
+- Falls back to a fresh CSR mount if no SSR data exists
+
+### 4. Managed compilation
+
+Solid is a compiled framework: its JSX must be transformed by `vite-plugin-solid`, and SSR needs that transform in `ssr: true` mode. Rather than making every app wire the plugin (and risk the client and server halves disagreeing), `@taujs/solid/renderer` exposes `solidRenderer({ project })`, which owns the plugin internally with `ssr: true` forced and scopes it to a disjoint tsconfig. You register the renderer, not a plugin. See [Managed compilation](#managed-compilation).
+
+---
+
+## Consuming SSR data
+
+There are two distinct kinds of data, and they use different mechanisms. Getting this split right is the single most important thing to understand about `@taujs/solid`.
+
+### Route data (the store)
+
+**Route data** is the payload the server resolves for a route (`attr.data`). It reaches your component through the store the renderer provides. On the server the snapshot bridge commits it before the render begins; on the client `hydrateApp` seeds it from `window.__INITIAL_DATA__`. Either way you read it like any other accessor:
+
+```tsx
+import { Show } from "solid-js";
+import { useSSRStore } from "@taujs/solid";
+
+type RouteData = { title?: string; message?: string; items?: string[] };
+
+function Page() {
+  const store = useSSRStore<RouteData>();
+
+  return (
+    <main>
+      <Show when={store.data().message} fallback={<p>No route data.</p>}>
+        <p>{store.data().message}</p>
+      </Show>
+    </main>
+  );
+}
+```
+
+Because route data is already committed on the `ssr` strategy, no `<Suspense>` is needed to read it - `store.data()` is populated synchronously in the server-rendered HTML.
+
+### App-owned async (Suspense + createResource)
+
+**App-owned async** is work your component starts itself - a `createResource` that fetches or computes after the shell. This is what Solid's deferred patch channel exists for, and on a `streaming` route it is what actually streams:
+
+```tsx
+import { createResource, Suspense } from "solid-js";
+
+function DeferredNote() {
+  const [note] = createResource(async () => {
+    const res = await fetch("/api/note");
+    return (await res.json()).text as string;
+  });
+
+  return <p>{note()}</p>;
+}
+
+// ...rendered under a boundary:
+<Suspense fallback={<p>loading…</p>}>
+  <DeferredNote />
+</Suspense>;
+```
+
+<Aside type="caution" title="Route data does not stream">
+Under the snapshot bridge, route data travels in `window.__INITIAL_DATA__` and is **never** streamed through Solid's `$df` patch channel (see [The snapshot data bridge](#the-snapshot-data-bridge)). A `streaming` route whose page reads only route data therefore emits no deferred-patch machinery - there is nothing to defer. Streaming is only observable end to end when the application itself owns some async work, so put slow work in an app-owned `createResource` under `<Suspense>`.
+</Aside>
+
+---
+
+## API Reference
+
+### Server-side rendering
+
+#### `createRenderer<T, R, H>(options)`
+
+Creates a renderer instance with streaming and static SSR capabilities.
+
+**Type signature:**
+
+```typescript
+import type { JSX } from "solid-js";
+
+function createRenderer<
+  T extends Record<string, unknown> = Record<string, unknown>,
+  R = unknown,
+  H extends Record<string, unknown> = Record<string, unknown>
+>(options: {
+  appComponent: (props: { location: string; routeContext?: R }) => JSX.Element;
+  headContent: (ctx: HeadContext<T, R, H>) => string;
+  renderId?: string;
+  streamOptions?: StreamOptions;
+  ssrOptions?: SSROptions;
+  logger?: SolidLogger;
+}): {
+  // The RETURNED functions' host-facing parameters are deliberately BROAD (a renderer must stay
+  // assignable to @taujs/server's renderer-agnostic contracts regardless of your generics):
+  // T, R and H apply INSIDE your callbacks (appComponent, headContent), not at this boundary.
+  renderSSR: (
+    initialDataResolved: Record<string, unknown>,
+    location: string,
+    meta?: Record<string, unknown>,
+    signal?: AbortSignal,
+    opts?: RenderOptions
+  ) => Promise<{ headContent: string; appHtml: string }>;
+  renderStream: (
+    sink: Writable,
+    callbacks: RenderCallbacks<T>,
+    initialData:
+      | Record<string, unknown>
+      | Promise<Record<string, unknown>>
+      | (() => Promise<Record<string, unknown>>),
+    location: string,
+    bootstrapModules?: string,
+    meta?: Record<string, unknown>,
+    signal?: AbortSignal,
+    opts?: RenderOptions
+  ) => { abort: () => void; done: Promise<void> };
+};
+```
+
+> **Typing model:** the generics narrow your OWN code - `appComponent` receives `routeContext` as
+> `R`, `headContent` receives `data: T` and `headData?: H`. The returned render functions accept
+> broad records at the host boundary, so standalone callers do not get compile-time narrowing on
+> the values they pass in; the route config (with `@taujs/server`) or your own call-site discipline
+> is the type authority for those.
+
+**Parameters:**
+
+- `appComponent`: Your Solid root. A function that receives `{ location, routeContext? }` and returns a `JSX.Element`.
+- `headContent`: Generates the HTML head from `{ data, headData?, meta, routeContext? }`. It returns **raw** head HTML, so escape every interpolated value with `escapeHtml`. **Note:** in streaming mode the route-data snapshot is usually still pending when the head is built - guard optional `data` fields, lean on `meta`/`routeContext`, or declare `attr.head` on the route so the host resolves DYNAMIC head data before the render and passes it as `headData` (typed by the third generic `H`). `headData` is `undefined` when the route declares no `attr.head` and when the head loader degraded (deadline expiry, or an `optional` loader failure) - always handle it. **The renderer appends Solid's hydration bootstrap to your head result itself; your `headContent` must not emit it.**
+- `renderId`: A stable namespace for Solid's hydration markers and the serialised data. It must be the **same** value you pass to `hydrateApp` (see [Client-side hydration](#client-side-hydration)). Keep it in one shared constant imported by both entries.
+- `streamOptions.shellTimeoutMs`: Shell-readiness watchdog in ms (default `10000`).
+- `streamOptions.completionTimeoutMs`: Bound on the whole `renderStream` lifecycle in ms (default `30000`). Every terminal clears it.
+- `ssrOptions.prerenderTimeoutMs`: Bound on the `ssr` strategy's single render promise in ms (default `10000`).
+- `logger`: Custom logger implementation (`SolidLogger`).
+
+<Aside type="note" title="Timeout values are validated at the factory">
+`shellTimeoutMs`, `completionTimeoutMs` and `prerenderTimeoutMs` must each be a positive finite number of milliseconds, or one of the sentinels `0` or `Infinity`. Any other value (a negative number, `NaN`, a stray string from untyped JS) throws a `TypeError` from `createRenderer` rather than silently disabling the watchdog.
+</Aside>
+
+**Returns** an object with two rendering methods: `renderSSR` (static, returns `{ headContent, appHtml }`) and `renderStream` (streaming, pipes to a writable).
+
+The `HeadContext`, `RenderCallbacks`, `RenderOptions`, `StreamOptions` and `SSROptions` types:
+
+```typescript
+type HeadContext<
+  T extends Record<string, unknown> = Record<string, unknown>,
+  R = unknown,
+  H extends Record<string, unknown> = Record<string, unknown>
+> = {
+  data: T;
+  headData?: H; // the route's attr.head payload, resolved by the host before the render
+  meta: Record<string, unknown>;
+  routeContext?: R;
+};
+
+type RenderCallbacks<T = unknown> = {
+  /** Receives the head string; the server writes it into <head>. Return value is ignored. */
+  onHead?: (headContent: string) => void;
+  onShellReady?: () => void;
+  onAllReady?: (initialData: T) => void;
+  onError?: (error: unknown) => void;
+  /** Present for contract compatibility with @taujs/react. Solid v1 never calls it. */
+  onRenderError?: (info: RenderErrorInfo) => void;
+};
+
+type RenderOptions = {
+  logger?: SolidLogger;
+  routeContext?: unknown;
+  headData?: Record<string, unknown>;
+  cspNonce?: string;
+  shouldHydrate?: boolean;
+};
+
+type StreamOptions = {
+  shellTimeoutMs?: number; // default 10000
+  completionTimeoutMs?: number; // default 30000
+};
+
+type SSROptions = {
+  prerenderTimeoutMs?: number; // default 10000
+};
+```
+
+<Aside type="note" title="cspNonce lives in opts, not a positional argument">
+Unlike `@taujs/vue`, whose `renderStream` takes `cspNonce` as a positional parameter, `@taujs/solid` carries it on the final `opts` object (`RenderOptions.cspNonce`) for both `renderSSR` and `renderStream`. When present it nonces the hydration bootstrap and every resource script the renderer emits. See [Hydration and CSP](#hydration-and-csp).
+</Aside>
+
+#### Route-aware rendering with `routeContext`
+
+`@taujs/solid` knows nothing about your router, but it can carry route information from the server into both your Solid tree (`appComponent`) and your head generator (`headContent`) through the generic `R` and a `routeContext` value passed per request on the final `opts` argument:
+
+```tsx
+type RouteContext = { name: "home" | "article"; params: Record<string, string> };
+type PageData = { title: string };
+
+const { renderSSR } = createRenderer<PageData, RouteContext>({
+  appComponent: ({ location, routeContext }) => <App location={location} route={routeContext} />,
+  headContent: ({ data, meta, routeContext }) => {
+    const base = data.title ?? (meta.title as string | undefined) ?? "My App";
+    const suffix = routeContext?.name === "article" ? " · Article" : "";
+    return `<title>${escapeHtml(base)}${suffix}</title>`;
+  },
+});
+```
+
+<Aside type="caution" title="routeContext is server-only">
+`routeContext` is never serialised to the client. Rendering visible content from it would hydration-mismatch by construction. Use it for head generation and server-side branching only; anything the client must also see belongs in the SSR data payload.
+</Aside>
+
+#### `renderSSR()`
+
+Renders the application to a string for the `ssr` strategy. The host resolves route data **before** calling it, so the store is already committed when your component reads it. Returns `{ headContent, appHtml }`.
+
+```tsx
+const { renderSSR } = createRenderer<{ msg: string }>({
+  appComponent: () => <App />,
+  headContent: ({ data }) => `<title>${escapeHtml(data?.msg ?? "no-data")}</title>`,
+});
+
+const { headContent, appHtml } = await renderSSR(
+  { msg: "hello" },
+  "/",
+  { requestId: "123" } // meta
+);
+```
+
+#### `renderStream()`
+
+Streams the application with Solid's `renderToStream`. When `bootstrapModules` is provided, the renderer emits the client bootstrap `<script type="module" … async>` tag before ending the stream, so a streamed route hydrates. A `cspNonce` on `opts` is applied to that tag.
+
+```tsx
+const { done, abort } = renderStream(
+  res, // Node.js Writable
+  {
+    onHead: (head) => {
+      // Server writes `head` into <head>; the renderer never writes head bytes.
+    },
+    onShellReady: () => {
+      // Fires when the shell is ready.
+    },
+    onAllReady: (data) => {
+      // Fires once BOTH latches close: route data is ready AND Solid has completed.
+    },
+    onError: (err) => {
+      console.error("Stream error:", err);
+    },
+  },
+  { msg: "hello" }, // initialData: a record, a promise of one, or a lazy factory
+  "/streaming", // location
+  "/assets/entry-client.js", // bootstrapModules
+  { requestId: "123" }, // meta
+  undefined, // signal
+  { cspNonce: "nonce-abc123" } // opts (RenderOptions)
+);
+
+await done;
+```
+
+##### Streaming semantics
+
+`onAllReady` is **two-latch**: it fires once *and only once*, after the route data is ready **and** Solid has finished rendering. A fatal, incomplete delivery calls neither `onAllReady` nor `onShellReady`, so it never seeds a truncated document. The resolved route data is delivered to `onAllReady` and serialised into `window.__INITIAL_DATA__`.
+
+- `shellTimeoutMs` bounds shell readiness; `completionTimeoutMs` bounds the whole lifecycle and is cleared by every terminal (normal completion, abort, or fatal).
+- App-owned `createResource` work under `<Suspense>` streams as Solid `$df` deferred patches once it settles; route data does not (see [The snapshot data bridge](#the-snapshot-data-bridge)).
+
+**Cancellation and lifecycle.** `renderStream` accepts an `AbortSignal` (a triggered signal is a benign cancel) and returns `{ abort, done }`: `abort()` performs a manual benign abort, and `done` resolves on normal completion or rejects on a fatal error. Client disconnects are classified benign and never surface as fatal errors. Every terminal releases the renderer's request-scoped state exactly once.
+
+---
+
+### Client-side hydration
+
+#### `hydrateApp(options)`
+
+Hydrates a server-rendered Solid application on the client, or mounts a fresh CSR app if no SSR data is present.
+
+**Type signature:**
+
+```typescript
+import type { JSX } from "solid-js";
+
+function hydrateApp(options: {
+  /** Your root, receiving { location }. */
+  app: (props: { location: string }) => JSX.Element;
+  /** Must match the renderId the SERVER rendered with. */
+  renderId?: string;
+  rootElementId?: string; // default 'root'
+  onHydrationError?: (error: unknown) => void;
+}): void;
+```
+
+<Aside type="note" title="The hydrate surface is intentionally small">
+`@taujs/react` and `@taujs/vue` carry `logger`, `enableDebug`, `dataKey`, `onStart` and `onSuccess` on their hydrate options. `@taujs/solid` deliberately does **not** inherit them by analogy - the four members above are the whole frozen surface. Adding any of the others would be a public-API change, not a convenience.
+</Aside>
+
+**Example:**
+
+```tsx
+// entry-client.tsx
+import { hydrateApp } from "@taujs/solid";
+import { App } from "./App";
+import { RENDER_ID } from "./renderId";
+
+hydrateApp({
+  app: ({ location }) => <App location={location} />,
+  renderId: RENDER_ID,
+  rootElementId: "root",
+  onHydrationError: (error) => {
+    console.error("Hydration failed:", error);
+  },
+});
+```
+
+**Behaviour:**
+
+- If `window.__INITIAL_DATA__` exists: hydrates the SSR markup with `hydrate(...)` under `renderId`, seeding the store from the payload.
+- If `window.__INITIAL_DATA__` is missing: clears any stale markup and mounts a fresh CSR app. **No hydration callbacks or beacon events fire** - a CSR mount is not a hydration.
+- Automatically handles `DOMContentLoaded` timing.
+- Provides the store to your tree on both the hydrate and CSR paths.
+
+<Aside type="caution" title="A hydration failure reports and stops - it does not silently remount">
+On a hydration error `hydrateApp` routes the error to `onHydrationError` and stops. It deliberately does **not** silently remount as CSR: a silent remount hides a real server/client divergence behind a page that looks fine, and destroys the server-rendered markup that would have shown the mismatch.
+</Aside>
+
+**Devtools beacon (dev-only).** On the hydrate path, `hydrateApp` emits `hydration:start`, `hydration:success` and `hydration:error` to `window.__TAUJS_DEVTOOLS_HOOK__` around the work. The hook is only ever set by the server-injected dev script, is absent in production, and emission can never throw into hydration. The CSR-fallback path emits nothing.
+
+**HTML template requirements.** Your server-rendered HTML must include the root element, the initial-data script and the client bundle. With `@taujs/server` these are assembled for you; standalone you provide them yourself:
+
+```html
+<main id="root"><!-- SSR content here --></main>
+<script>
+  window.__INITIAL_DATA__ = { message: "Hello" };
+</script>
+<script type="module" src="/assets/entry-client.js"></script>
+```
+
+---
+
+### Data store
+
+#### `createSSRStore<T>(seed)`
+
+Creates a store for SSR data. Accepts synchronous data, a promise, or a lazy promise factory:
+
+```typescript
+import { createSSRStore } from "@taujs/solid";
+
+const store1 = createSSRStore({ a: 1 }); // committed immediately
+const store2 = createSSRStore(Promise.resolve({ b: 2 })); // commits when it settles
+const store3 = createSSRStore(() => Promise.resolve({ c: 3 })); // lazy factory
+```
+
+Inside components you rarely call `createSSRStore` directly - `@taujs/server` and `hydrateApp` create and provide the store for you. You consume it with `useSSRStore`.
+
+#### `useSSRStore<T>()`
+
+Returns the **store** (`SSRStore<T>`), whose `data` is a Solid `Accessor<T>`:
+
+```tsx
+import { useSSRStore } from "@taujs/solid";
+
+function Component() {
+  const store = useSSRStore<{ user: string }>();
+  return <p>{store.data().user}</p>; // reactive read
+}
+```
+
+It must be called inside a component rendered by the τjs Solid renderer; otherwise it throws `"taujs: useSSRStore must be called inside a component rendered by the τjs Solid renderer"`.
+
+---
+
+### Managed compilation
+
+Solid's JSX must be compiled by `vite-plugin-solid`, and SSR needs that transform in `ssr: true` mode. `@taujs/solid/renderer` handles this so your app never wires the plugin - and so the client and server halves can never disagree on transform mode.
+
+#### `solidRenderer({ project })`
+
+```typescript
+type SolidRendererOptions = { project: string };
+
+function solidRenderer(opts: SolidRendererOptions): TaujsRendererContribution;
+```
+
+- `project`: path to a **disjoint** tsconfig that claims only your Solid client TSX. Scoping the compiler to that project keeps it from claiming the server tree. It is the entire option surface - `ssr: true` is forced internally and there is no transform-mode option to get wrong.
+
+You register it per app in `taujs.config.ts` under `renderer` (not in a `plugins` array):
+
+```typescript
+import { defineConfig } from "@taujs/server/config";
+import { solidRenderer } from "@taujs/solid/renderer";
+
+export default defineConfig({
+  apps: [
+    {
+      appId: "main",
+      entryPoint: "",
+      renderer: solidRenderer({ project: "./tsconfig.solid.json" }),
+      routes: [
+        /* ... */
+      ],
+    },
+  ],
+});
+```
+
+<Aside type="caution" title="Root vs subpath split">
+`solidRenderer` is exported **only** from `@taujs/solid/renderer`, never from the root `@taujs/solid`. That split is deliberate: exposing it from the root "for convenience" would pull the optional compiler and Vite peers into the module graph of every client bundle that imports the runtime surface. Import the runtime API from `@taujs/solid` and the compiler from `@taujs/solid/renderer`.
+</Aside>
+
+---
+
+### Vite plugin
+
+#### `pluginSolid(options?)`
+
+A thin passthrough over `vite-plugin-solid`, for standalone Vite setups or manual wiring. Options are forwarded verbatim. Within the τjs ecosystem prefer `solidRenderer` (above), which manages the plugin for you.
+
+```typescript
+function pluginSolid(opts?: Parameters<typeof solid>[0]): PluginOption;
+```
+
+```typescript
+// vite.config.ts (standalone)
+import { defineConfig } from "vite";
+import { pluginSolid } from "@taujs/solid/plugin";
+
+export default defineConfig({
+  plugins: [pluginSolid({ ssr: true })],
+});
+```
+
+---
+
+## The snapshot data bridge
+
+`window.__INITIAL_DATA__` is the **single authority** for route data. The server commits the resolved route data into the store before rendering and serialises the same payload into `__INITIAL_DATA__`; the client seeds the store from it during hydration. Route data therefore never travels through Solid's `$df` deferred-patch channel, on any strategy.
+
+The practical consequences:
+
+- **`ssr` routes:** the store is committed before render, so `store.data()` is populated in the server HTML with no `<Suspense>` needed for route data.
+- **`streaming` routes:** route data is already in `__INITIAL_DATA__`, so a page that reads only route data streams no deferred patches. To exercise streaming you need app-owned async (`createResource` under `<Suspense>`) - that, and only that, flows as `$df` patches.
+- **The client never re-runs your route loader.** It hydrates from the snapshot; there is exactly one route-data seed per navigation.
+
+For data that changes *after* the initial render, call your own `/api/*` endpoints from the client with a library such as TanStack Solid Query - τjs keeps SSR request-first and adds no client data channel.
+
+---
+
+## Hydration and CSP
+
+Whether a route hydrates is the host-resolved policy `attr.hydrate` (defaulting to `true`). Combined with the strategy, that yields four cells:
+
+| Strategy    | `hydrate` | Client entry | Solid bootstrap / `_$HY` | Deferred `$df` patches |
+| ----------- | --------- | ------------ | ------------------------ | ---------------------- |
+| `ssr`       | `true`    | emitted      | one nonced bootstrap     | as produced            |
+| `ssr`       | `false`   | none         | none (`noScripts`)       | none                   |
+| `streaming` | `true`    | emitted      | one nonced bootstrap     | as produced            |
+| `streaming` | `false`   | none         | **retained**             | **retained**           |
+
+The streaming + `hydrate: false` cell is the subtle one: no application hydration runs (no client entry), but the Solid bootstrap and patch machinery are **retained**, because the deferred `$df` patches still need `_$HY` to exist to attach to. The `ssr` + `hydrate: false` cell is fully static: `noScripts` means no `$R`, `_$HY` or `$df` at all.
+
+**CSP.** When you pass `cspNonce` (via `RenderOptions.cspNonce`), the renderer stamps it on the hydration bootstrap and every resource script it emits. With `@taujs/server` the per-request nonce is supplied for you and every inline script it emits carries it, so an enforced `script-src` policy with no `'unsafe-inline'` passes with zero violations.
+
+---
+
+## Error handling and the sanitiser
+
+A route loader that rejects **before** the shell is a pre-shell fatal: it aborts the render and routes to `onError`, and never seeds a truncated document.
+
+An **app-owned** resource that rejects **after** the shell is different - Solid renders it into the client `ErrorBoundary`. `@taujs/solid` sanitises that error before it crosses to the client: the value delivered through the error channel has a **fixed identity** - name `Error`, message `[redacted]` - and carries no message, stack, `cause` or custom property from the server. A secret injected into any of those fields on the server never reaches the browser.
+
+```tsx
+import { ErrorBoundary, Suspense } from "solid-js";
+
+<ErrorBoundary fallback={(error) => <p>{`${error.name}: ${error.message}`}</p>}>
+  <Suspense fallback={<p>loading…</p>}>
+    <RejectingNote />
+  </Suspense>
+</ErrorBoundary>;
+// The boundary renders "Error: [redacted]" - never the server-side detail.
+```
+
+The sanitiser is a fixed-identity redactor only. It generates no callbacks, logging, tracing or provenance detection - confidentiality is the whole of its job.
+
+`__proto__` in a route-data payload is handled safely end to end: it arrives as an **own** property of `__INITIAL_DATA__` with `Object.prototype` left untouched, so a malicious key cannot pollute the global prototype.
+
+---
+
+## Known limitations
+
+<Aside type="caution" title="Pre-hydration interactions may be lost (solid-js 1.9.x)">
+An interaction that happens **before hydration completes** - for example a click on a server-rendered button while the client bundle is still loading - may be lost on the pinned Solid version. Solid's hydration bootstrap captures the event into a queue, but its later replay walks the captured event's `composedPath()`, which is empty for an already-dispatched event, so no handler is invoked. The event is consumed without effect and the interaction does not take.
+
+This is an upstream `solid-js` limitation, not a τjs behaviour, and it is verified against the pinned runtime with a no-τjs control. It is recorded here as a caveat; a future Solid release that fixes event replay lifts it with no `@taujs/solid` change. If early interactivity matters for a view, keep its critical controls small so the client bundle hydrates quickly, or defer showing them until hydration completes.
+</Aside>
+
+---
+
+## Usage in the taujs ecosystem
+
+With `@taujs/server`, you don't call the render functions directly. You define rendering once in `entry-server`, hydration once in `entry-client`, register `solidRenderer` per app, and declare routes and data in `taujs.config.ts`; the server orchestrates everything.
+
+**taujs.config.ts** - register `solidRenderer({ project })` per app and declare each route's strategy:
+
+```typescript
+import { defineConfig } from "@taujs/server/config";
+import { solidRenderer } from "@taujs/solid/renderer";
+
+export default defineConfig({
+  server: { port: 5173, host: "localhost", hmrPort: 5174 },
+  apps: [
+    {
+      appId: "main",
+      entryPoint: "",
+      renderer: solidRenderer({ project: "./tsconfig.solid.json" }),
+      routes: [
+        {
+          path: "/",
+          attr: {
+            render: "ssr",
+            hydrate: true,
+            // Standard SSR: data resolves before the first byte, so the store is
+            // already committed when the component reads it.
+            data: async (params, ctx) => ctx.call("content", "home"),
+          },
+        },
+        {
+          path: "/streaming",
+          attr: {
+            render: "streaming",
+            hydrate: true,
+            data: async (params, ctx) => ctx.call("content", "streaming"),
+            // meta recommended for streaming routes for SEO/social and render timing
+            meta: {
+              title: "τjs - Streaming",
+              description: "Streaming SSR route (deferred patches complete after the shell).",
+            },
+          },
+        },
+      ],
+    },
+  ],
+});
+```
+
+<Aside type="note" title="Rendering strategies">
+`render` is either `'ssr'` or `'streaming'`. A route not declared in `taujs.config.ts` stays client-rendered - that is the fallthrough model, not a per-route render value. When `render` is omitted the server defaults to `ssr`.
+</Aside>
+
+**renderId.ts** - one shared constant, imported by both entries so the two can never drift:
+
+```typescript
+export const RENDER_ID = "main";
+```
+
+**entry-server.tsx** - the renderer `@taujs/server` calls internally:
+
+```tsx
+import { createRenderer, escapeHtml } from "@taujs/solid";
+import { App, type RouteData } from "./App";
+import { RENDER_ID } from "./renderId";
+
+type HeadData = { ogTitle?: string; ogDescription?: string };
+
+export const { renderSSR, renderStream } = createRenderer<RouteData, unknown, HeadData>({
+  appComponent: ({ location }) => <App location={location} />,
+  renderId: RENDER_ID,
+  headContent: ({ data, headData, meta }) => `
+    <title>${escapeHtml(headData?.ogTitle ?? data?.title ?? (meta as { title?: string })?.title ?? "τjs Solid")}</title>
+    ${headData?.ogDescription ? `<meta name="description" content="${escapeHtml(headData.ogDescription)}">` : ""}
+  `,
+});
+```
+
+**entry-client.tsx** - hydration entry, under the SAME `renderId`:
+
+```tsx
+import { hydrateApp } from "@taujs/solid";
+import { App } from "./App";
+import { RENDER_ID } from "./renderId";
+
+hydrateApp({
+  app: ({ location }) => <App location={location} />,
+  renderId: RENDER_ID,
+  rootElementId: "root",
+});
+```
+
+**App.tsx** - the root receives `location` from the server and reads route data from the store:
+
+```tsx
+import { Show, Suspense, createResource } from "solid-js";
+import { useSSRStore } from "@taujs/solid";
+
+export type RouteData = { title?: string; message?: string; items?: string[] };
+
+function DeferredNote() {
+  const [note] = createResource(async () => {
+    const res = await fetch("/api/note");
+    return (await res.json()).text as string;
+  });
+  return <p>{note()}</p>;
+}
+
+export function App(props: { location: string }) {
+  const store = useSSRStore<RouteData>();
+
+  return (
+    <main id="app">
+      <p>{props.location}</p>
+      <Show when={store.data().message} fallback={<p>No route data.</p>}>
+        <p>{store.data().message}</p>
+      </Show>
+      <Suspense fallback={<p>loading…</p>}>
+        <DeferredNote />
+      </Suspense>
+    </main>
+  );
+}
+```
+
+That is the complete request flow: the server matches a route, runs its `data` loader, calls `renderSSR` / `renderStream`, assembles the HTML with your head and the `__INITIAL_DATA__` payload, and your `entry-client.tsx` hydrates it. You never inject `__INITIAL_DATA__` or manage the template yourself.
+
+---
+
+## Standalone usage
+
+Outside `@taujs/server`, `createRenderer` and `hydrateApp` are framework-agnostic. The server plumbing - Express, Hono, native Node HTTP, backpressure, CSP nonces, `AbortSignal` - is identical to `@taujs/react`; see the [React reference](/renderers/react/#standalone-usage) for those framework-specific server walkthroughs. The only Solid-specific differences are:
+
+- You must compile the client and server with `vite-plugin-solid` (`ssr: true` for the server build). Use `@taujs/solid/plugin`'s `pluginSolid` for that, or the managed `solidRenderer` when running under τjs.
+- `appComponent` / `app` are Solid components, and data is read from the store accessor.
+- `cspNonce` is passed on the `opts` object, not positionally.
+
+Static SSR (no streaming), for edge runtimes or simple cases - `renderSSR` returns the head and app HTML; assemble the document and inject `window.__INITIAL_DATA__` yourself:
+
+```tsx
+import { createRenderer, escapeHtml } from "@taujs/solid";
+import { App } from "./App";
+
+const { renderSSR } = createRenderer<{ message: string }>({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${escapeHtml(data?.message ?? "App")}</title>`,
+});
+
+const data = { message: "Hello World" };
+const { headContent, appHtml } = await renderSSR(data, "/");
+// Build: <head>${headContent}</head>, <main id="root">${appHtml}</main>,
+// a <script>window.__INITIAL_DATA__=…</script>, and the entry-client module tag.
+```
+
+---
+
+## TypeScript support
+
+The package is written in TypeScript with full type definitions included.
+
+### Typed data contracts
+
+Type the payload once and thread it through the renderer and the store:
+
+```tsx
+interface PageData {
+  message: string;
+  user: { id: string; name: string };
+}
+
+const { renderSSR, renderStream } = createRenderer<PageData>({
+  appComponent: ({ location }) => <App location={location} />,
+  headContent: ({ data }) => `<title>${escapeHtml(data?.message ?? "App")}</title>`,
+});
+```
+
+```tsx
+import { useSSRStore } from "@taujs/solid";
+
+function Component() {
+  const store = useSSRStore<PageData>(); // store.data() is PageData
+  return <p>{store.data().user.name}</p>;
+}
+```
+
+### Logger types
+
+`ServerLogger`, `UILogger` and the union `SolidLogger` describe the accepted logger shapes; pass one to `createRenderer` (or per call via `opts.logger`):
+
+```typescript
+import type { ServerLogger } from "@taujs/solid";
+
+const logger: ServerLogger = {
+  info: (meta, message) => console.log(message, meta),
+  warn: (meta, message) => console.warn(message, meta),
+  error: (meta, message) => console.error(message, meta),
+};
+```
+
+---
+
+## Best practices
+
+1. **Know your two data kinds.** Route data comes from the store (`store.data()`) and is committed before render; app-owned async uses `createResource` under `<Suspense>`. Only the latter streams.
+2. **Streamed routes need app-owned async to stream.** Route data is already in `__INITIAL_DATA__`, so put slow work in a `createResource` under `<Suspense>` if you want deferred patches.
+3. **Share one `renderId`.** Keep it in a single constant imported by `entry-server` and `entry-client`; a drift between the two is a hydration bug.
+4. **Head data: `meta` for static, `attr.head` for dynamic.** In streaming mode the route-data snapshot is usually pending when the head is built - guard optional `data` fields, and escape every interpolated value with `escapeHtml`. The renderer appends the hydration bootstrap itself; do not emit it from `headContent`.
+5. **Let the managed compiler own the plugin.** Register `solidRenderer({ project })` and point `project` at a disjoint tsconfig; do not add `vite-plugin-solid` to your app yourself under τjs.
+6. **Handle CSR fallback.** Provide `onHydrationError`; remember the CSR path (no `__INITIAL_DATA__`) emits no hydration callbacks or beacon by design, and a hydration failure reports and stops rather than silently remounting.
+7. **Keep secrets out of resource errors regardless.** The sanitiser redacts post-shell rejections to a fixed identity, but treat that as defence in depth, not licence to put secrets in an error `cause`.
+8. **Client-side updates after SSR are userland.** For data that changes after the initial render, call your own `/api/*` endpoints with a client library such as TanStack Solid Query - τjs keeps SSR request-first and does not add a client data channel.
+
+---
+
+## Related packages
+
+- `@taujs/server` - Fastify-based server with SSR orchestration, routing and data loading.
+- `@taujs/react` - the React renderer; shares this package's contract and streaming semantics.
+- `@taujs/vue` - the Vue renderer; shares this package's contract and streaming semantics.
+
+---
+
+## License
+
+MIT
