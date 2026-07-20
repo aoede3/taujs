@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.9",
+    "playwright-core": "1.44.1",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
     "vite": "^7.1.11",

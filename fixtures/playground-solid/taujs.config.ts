@@ -16,6 +16,20 @@ export default defineConfig({
     host: 'localhost',
     hmrPort: 5374,
   },
+  // An ENFORCED CSP (not report-only), so the browser acceptance runs against a real policy rather
+  // than merely observing nonce attributes. `script-src` carries no 'unsafe-inline', so any inline
+  // script the renderer emits WITHOUT the request nonce is blocked by the browser and raises a
+  // securitypolicyviolation - which is exactly what the browser suite asserts never happens.
+  security: {
+    csp: {
+      defaultMode: 'merge',
+      directives: {
+        'default-src': ["'self'"],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'img-src': ["'self'", 'data:'],
+      },
+    },
+  },
   apps: [
     {
       appId: 'playground-solid',
@@ -54,6 +68,27 @@ export default defineConfig({
             // patches require `_$HY` to exist.
             hydrate: false,
             data: serviceData('content', 'streaming'),
+          },
+        },
+        {
+          // Browser leg: an app-owned resource REJECTS post-shell. The client must receive the
+          // SANITISED error - fixed identity, no server detail - through real execution.
+          path: '/reject',
+          attr: {
+            render: 'streaming',
+            meta: { title: 'τjs Solid playground - rejected resource' },
+            hydrate: true,
+            data: serviceData('content', 'home'),
+          },
+        },
+        {
+          // Browser leg: route data carrying a `__proto__` key, to prove ESC-3 end to end - it must
+          // arrive as an OWN property with `Object.prototype` untouched.
+          path: '/proto',
+          attr: {
+            render: 'ssr',
+            hydrate: true,
+            data: serviceData('content', 'protoPayload'),
           },
         },
         {

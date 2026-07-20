@@ -8,6 +8,15 @@ export const contentService = defineService({
     items: ['snapshot data bridge', 'fixed-identity error sanitiser', 'nonced hydration bootstrap'],
   }),
 
+  // ESC-3 end-to-end payload: a `__proto__` key in ROUTE DATA. The host serialiser must emit this
+  // so the browser receives it as an ordinary OWN property, with the global prototype untouched.
+  protoPayload: async (_params: {}) => ({
+    title: 'τjs Solid playground',
+    message: 'Hello from τjs - proto payload.',
+    items: ['snapshot data bridge'],
+    ['__proto__']: { polluted: 'YES' },
+  }),
+
   streaming: async (_params: {}) => {
     // A deliberate delay so the streaming route visibly blocks at the async boundary. Under the
     // snapshot bridge the adapter gates the render on route readiness, so this delays the SHELL -
