@@ -245,26 +245,30 @@ describe('slice 7 group C - real browser (production build, enforced CSP)', () =
   });
 
   /**
-   * KNOWN GAP, returned for a ruling rather than faked or quietly deleted.
+   * UPSTREAM LIMITATION at solid-js 1.9.14 - established by a vanilla control, not by inference.
    *
-   * Capture works (the test above proves it) and hydration works (the test before it proves a
-   * fresh click increments). What does NOT happen is REPLAY of the captured event.
+   * Capture works (asserted above) and hydration works (asserted before it), but the queued event
+   * is never REPLAYED. Two earlier diagnoses of mine were wrong and are corrected here:
    *
-   * Established against the pinned solid-js 1.9.14, by reading the shipped build:
-   *   - `hydrate()` moves `_$HY.events` onto `sharedConfig.events` and then replays nothing.
-   *   - `runHydrationEvents()` is exported from `solid-js/web` but is NEVER CALLED anywhere inside
-   *     solid-js, so replay is the framework's responsibility. `hydrateApp` now calls it - a
-   *     necessary fix that was simply missing.
-   *   - It is still not sufficient: `runHydrationEvents` bails on `if (!completed.has(el)) return`,
-   *     and `completed` is only populated by `getNextElement` for template roots ADOPTED from the
-   *     hydration registry. The captured click target is not in that set, so the queue is dropped.
+   *   1. "runHydrationEvents is never called, so the framework must call it." FALSE. The Solid
+   *      COMPILER injects `_$runHydrationEvents()` directly into any component with an event
+   *      handler, immediately after `_$getNextElement` adopts the node and `$$click` is attached.
+   *      I had only read the solid-js RUNTIME, never the compiled component output. A call added
+   *      to `hydrateApp` on that basis was unjustified and has been REVERTED.
+   *   2. "The node must have been replaced during hydration." FALSE. Retaining the original button
+   *      across the delayed entry shows `sameNode: true`, `isConnected: true` and an unchanged
+   *      `data-hk` - the server node is adopted, not replaced.
    *
-   * Going further means reverse-engineering Solid's adoption/registry internals, which the standing
-   * tripwires forbid ("patching or forking Solid internals") and which is architectural rather than
-   * a narrow defect fix. Skipped with the diagnosis attached so the gap stays visible; if Solid or
-   * τjs later closes it, un-skipping is the check.
+   * The decisive evidence is a MINIMAL NON-τjs CONTROL: plain `vite-plugin-solid({ ssr: true })`,
+   * plain `generateHydrationScript()`, plain `hydrate()`, the same delayed-entry sequence, and no
+   * τjs in the graph at all. It behaves identically - `queued pre-hydration: 1`, after hydration
+   * `count: 0`, fresh click `count: 1`. So replay is not a τjs integration defect. The control
+   * script is retained at `docs/solid/vanilla-replay-control.mjs`.
+   *
+   * Skipped rather than deleted or asserted-as-correct, so the gap stays visible: if a Solid
+   * upgrade closes it, un-skipping is the check.
    */
-  it.skip('replays the captured click once hydration runs (see KNOWN GAP above)', async () => {
+  it.skip('replays the captured click once hydration runs (UPSTREAM - see above)', async () => {
     const { page } = await openPage();
     try {
       let releaseEntry: (() => void) | undefined;

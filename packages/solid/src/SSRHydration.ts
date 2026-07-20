@@ -1,4 +1,4 @@
-import { hydrate, render, runHydrationEvents } from 'solid-js/web';
+import { hydrate, render } from 'solid-js/web';
 
 import { createSSRStore, provideSSRStore } from './SSRDataStore.js';
 
@@ -80,16 +80,6 @@ export function hydrateApp({ app, renderId, rootElementId = 'root', onHydrationE
     try {
       const store = createSSRStore(initialData);
       hydrate(() => provideSSRStore(store, () => app({ location })), rootElement, renderId ? { renderId } : undefined);
-
-      // Replay the events Solid's hydration bootstrap captured BEFORE the app became interactive.
-      //
-      // The bootstrap installs document-level `click`/`input` listeners and queues matching events
-      // into `_$HY.events`; `hydrate()` moves that queue onto `sharedConfig.events` - and then
-      // nothing replays it. `runHydrationEvents` is exported from `solid-js/web` but is never
-      // called anywhere inside solid-js (verified against the pinned build), so replay is the
-      // FRAMEWORK's responsibility. Without this call every interaction a user makes during the
-      // hydration gap is silently dropped, which is precisely the gap capture exists to close.
-      runHydrationEvents();
 
       emitBeacon('hydration:success');
     } catch (error) {
