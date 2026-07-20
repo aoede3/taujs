@@ -45,6 +45,18 @@ export default defineConfig({
           },
         },
         {
+          path: '/streaming-no-hydrate',
+          attr: {
+            render: 'streaming',
+            meta: { title: 'τjs Solid playground - streaming, no hydrate' },
+            // Design 4, cell 4: no host client entry, so application hydration never runs - but
+            // the Solid bootstrap and patch machinery are RETAINED, because the deferred `$df`
+            // patches require `_$HY` to exist.
+            hydrate: false,
+            data: serviceData('content', 'streaming'),
+          },
+        },
+        {
           path: '/no-hydrate',
           attr: {
             render: 'ssr',
