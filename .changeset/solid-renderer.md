@@ -1,6 +1,6 @@
 ---
 '@taujs/solid': minor
-'@taujs/create-taujs': patch
+'@taujs/create-taujs': minor
 ---
 
 Solid is now a full τjs renderer
