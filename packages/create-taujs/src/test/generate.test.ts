@@ -18,8 +18,19 @@ const fileMap = (framework: Framework): Record<string, string> => {
 };
 
 describe('planFiles — React golden', () => {
-  // The full React output is proven byte-identical to the pre-V2-02 generator (diff -r).
-  // This snapshot freezes it so any future accidental drift is flagged.
+  // This snapshot freezes the React output so accidental drift is flagged.
+  //
+  // It is NO LONGER byte-identical to the pre-V2-02 generator, deliberately. Two proven defects
+  // were corrected across react, vue AND solid (2026-07-20), and byte identity to a known-broken
+  // baseline is not a property worth preserving:
+  //   1. `src/server/types.d.ts` now IMPORTS '@taujs/server/config' before augmenting it. Without
+  //      that import the block was an AMBIENT MODULE DECLARATION replacing the real module, so
+  //      `defineConfig`/`defineService`/`defineServiceRegistry` reported TS2305 and route `data`
+  //      callbacks fell to implicit `any` - no generated project of any framework typechecked.
+  //   2. `esbuild` is now a declared devDependency; `build:server` shells out to its binary and
+  //      failed with "esbuild: command not found".
+  // Both were found by the end-to-end lifecycle gate, and both are asserted per-framework in
+  // cli-solid.test.ts rather than resting on this snapshot alone.
   it('React file set + contents are frozen', () => {
     expect(fileMap('react')).toMatchSnapshot();
   });

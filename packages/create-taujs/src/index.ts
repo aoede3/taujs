@@ -367,12 +367,12 @@ function generatePackageJson(projectName: string, framework: Framework) {
       type: 'module',
       scripts: {
         dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
-        'build:client': 'tsx build.ts',
-        'build:entry-server': 'cross-env BUILD_MODE=ssr tsx build.ts',
+        'build:client': 'cross-env NODE_ENV=production tsx build.ts',
+        'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
         'build:server':
           'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
         build:
-          'tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
+          'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
         start: 'cross-env NODE_ENV=production node dist/server/index.js',
         lint: 'vue-tsc --noEmit',
       },
@@ -388,6 +388,9 @@ function generatePackageJson(projectName: string, framework: Framework) {
         '@types/node': '^22.10.5',
         '@vitejs/plugin-vue': '^6.0.0',
         'cross-env': '^7.0.3',
+        // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
+        // of the generated project - it is not inherited from vite's own copy.
+        esbuild: '^0.25.0',
         tsx: '^4.19.3',
         typescript: '^5.7.3',
         vite: '^7.1.11',
@@ -404,12 +407,12 @@ function generatePackageJson(projectName: string, framework: Framework) {
       type: 'module',
       scripts: {
         dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
-        'build:client': 'tsx build.ts',
-        'build:entry-server': 'cross-env BUILD_MODE=ssr tsx build.ts',
+        'build:client': 'cross-env NODE_ENV=production tsx build.ts',
+        'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
         'build:server':
           'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
         build:
-          'tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
+          'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
         start: 'cross-env NODE_ENV=production node dist/server/index.js',
         lint: 'tsc --noEmit',
       },
@@ -423,6 +426,9 @@ function generatePackageJson(projectName: string, framework: Framework) {
         '@taujs/mcp': 'latest',
         '@types/node': '^22.10.5',
         'cross-env': '^7.0.3',
+        // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
+        // of the generated project - it is not inherited from vite's own copy.
+        esbuild: '^0.25.0',
         tsx: '^4.19.3',
         typescript: '^5.7.3',
         vite: '^7.1.11',
@@ -440,12 +446,12 @@ function generatePackageJson(projectName: string, framework: Framework) {
     type: 'module',
     scripts: {
       dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
-      'build:client': 'tsx build.ts',
-      'build:entry-server': 'cross-env BUILD_MODE=ssr tsx build.ts',
+      'build:client': 'cross-env NODE_ENV=production tsx build.ts',
+      'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
       'build:server':
         'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
       build:
-        'tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
+        'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
       start: 'cross-env NODE_ENV=production node dist/server/index.js',
       lint: 'tsc --noEmit',
     },
@@ -463,6 +469,9 @@ function generatePackageJson(projectName: string, framework: Framework) {
       '@types/react-dom': '^19.0.2',
       '@vitejs/plugin-react': '^4.6.0',
       'cross-env': '^7.0.3',
+      // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
+      // of the generated project - it is not inherited from vite's own copy.
+      esbuild: '^0.25.0',
       tsx: '^4.19.3',
       typescript: '^5.7.3',
       vite: '^7.1.11',
@@ -1367,7 +1376,15 @@ export type ServiceRegistry = typeof serviceRegistry;
 }
 
 function generateServiceTypesAugmentation() {
-  return `declare module '@taujs/server/config' {
+  // The leading import is REQUIRED, not stylistic. Without it TypeScript treats the block as an
+  // AMBIENT MODULE DECLARATION that REPLACES '@taujs/server/config' wholesale - so every real
+  // export disappears and `defineConfig` / `defineService` / `defineServiceRegistry` all report
+  // TS2305 "has no exported member", which in turn drops the route `data` callbacks to implicit
+  // `any` (TS7006). Importing the module first makes this a module AUGMENTATION, which extends the
+  // real one instead of shadowing it.
+  return `import '@taujs/server/config';
+
+declare module '@taujs/server/config' {
   interface ServiceContext {
     tenantId?: string;
   }

@@ -300,3 +300,51 @@ describe('create-taujs CLI - the frozen non-interactive interface', () => {
     expect(readFileSync(fileURLToPath(new URL('../index.ts', import.meta.url)), 'utf8')).not.toContain("'--yes'");
   });
 });
+
+describe('scaffolder baseline corrections - asserted for EVERY framework', () => {
+  const frameworks: Framework[] = ['react', 'vue', 'solid'];
+
+  for (const framework of frameworks) {
+    it(`${framework}: types.d.ts AUGMENTS @taujs/server/config rather than shadowing it`, () => {
+      const { read } = generate(framework);
+      const augmentation = read('src/server/types.d.ts');
+
+      // Without the leading import, `declare module` is an AMBIENT MODULE DECLARATION that
+      // REPLACES the real module - erasing `defineConfig`/`defineService`/`defineServiceRegistry`
+      // (TS2305) and dropping route `data` callbacks to implicit `any` (TS7006). No generated
+      // project of any framework typechecked before this.
+      expect(augmentation.startsWith("import '@taujs/server/config';")).toBe(true);
+      expect(augmentation).toContain("declare module '@taujs/server/config'");
+      // the import must precede the declaration, or it is still ambient
+      expect(augmentation.indexOf("import '@taujs/server/config';")).toBeLessThan(augmentation.indexOf('declare module'));
+    });
+
+    it(`${framework}: declares esbuild, which build:server invokes directly`, () => {
+      const { read } = generate(framework);
+      const pkg = JSON.parse(read('package.json')) as { devDependencies: Record<string, string>; scripts: Record<string, string> };
+
+      // The script shells out to the esbuild BINARY; it is not inherited from vite's own copy, so
+      // every generated project failed `build:server` with "esbuild: command not found".
+      expect(pkg.scripts['build:server']).toContain('esbuild ');
+      expect(pkg.devDependencies.esbuild, 'build:server invokes esbuild but it is not declared').toBeTruthy();
+    });
+  }
+});
+
+describe('scaffolder baseline - the Vite builds pin NODE_ENV', () => {
+  for (const framework of ['react', 'vue', 'solid'] as Framework[]) {
+    it(`${framework}: build:client and build:entry-server force NODE_ENV=production`, () => {
+      const { read } = generate(framework);
+      const scripts = (JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts;
+
+      // Without this, bundle mode follows whatever NODE_ENV the caller happens to have. CI commonly
+      // sets NODE_ENV=test, and vitest does - which baked React's DEV JSX runtime into the
+      // PRODUCTION SSR bundle and crashed the production server with
+      // "TypeError: jsxDEV is not a function". Measured: 40 `jsxDEV` references under
+      // NODE_ENV=test, zero once pinned.
+      expect(scripts['build:client']).toContain('NODE_ENV=production');
+      expect(scripts['build:entry-server']).toContain('NODE_ENV=production');
+      expect(scripts.build).toContain('NODE_ENV=production');
+    });
+  }
+});
