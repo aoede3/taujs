@@ -245,26 +245,23 @@ describe('slice 7 group C - real browser (production build, enforced CSP)', () =
   });
 
   /**
-   * UPSTREAM LIMITATION at solid-js 1.9.14 - established by a vanilla control, not by inference.
+   * UPSTREAM LIMITATION at solid-js 1.9.14 - grounded in the pinned runtime, not inference.
    *
-   * Capture works (asserted above) and hydration works (asserted before it), but the queued event
-   * is never REPLAYED. Two earlier diagnoses of mine were wrong and are corrected here:
+   * Capture works (asserted above) and hydration works, but the queued click never moves the
+   * counter. The mechanism is asserted by the "adopts the server node..." test below and traced to
+   * `eventHandler` (solid-js/web web.js:509-524): replay walks the captured event's `composedPath()`,
+   * which is `[]` for an already-dispatched Event, so its loop runs zero times and calls no handler.
+   * The event is still consumed - `runHydrationEvents` (web.js:411-416) drains it once the node is
+   * `completed` - which is why the queue empties yet nothing fires.
    *
-   *   1. "runHydrationEvents is never called, so the framework must call it." FALSE. The Solid
-   *      COMPILER injects `_$runHydrationEvents()` directly into any component with an event
-   *      handler, immediately after `_$getNextElement` adopts the node and `$$click` is attached.
-   *      I had only read the solid-js RUNTIME, never the compiled component output. A call added
-   *      to `hydrateApp` on that basis was unjustified and has been REVERTED.
-   *   2. "The node must have been replaced during hydration." FALSE. Retaining the original button
-   *      across the delayed entry shows `sameNode: true`, `isConnected: true` and an unchanged
-   *      `data-hk` - the server node is adopted, not replaced.
+   * Earlier diagnoses of mine were wrong and are corrected there: it is NOT that `runHydrationEvents`
+   * is never called (the compiler injects it), NOT that the node is replaced (it is adopted), and
+   * NOT that the node was never completed (a drained queue proves it was).
    *
-   * The decisive evidence is a MINIMAL NON-τjs CONTROL: plain `vite-plugin-solid({ ssr: true })`,
-   * plain `generateHydrationScript()`, plain `hydrate()`, the same delayed-entry sequence, and no
-   * τjs in the graph at all. It behaves identically - `queued pre-hydration: 1`, after hydration
-   * `count: 0`, fresh click `count: 1`. So replay is not a τjs integration defect. That control is
-   * a TRACKED, CI-run expected-failure test at `test/vanilla-control.test.ts`; it turns red the day
-   * a Solid upgrade makes replay work, which is the signal to re-enable this assertion.
+   * The minimal non-τjs control at `test/vanilla-control.test.ts` reproduces the identical path with
+   * no τjs in the graph, so this is not a τjs integration defect. That control is a TRACKED, CI-run
+   * expected-failure test; it turns red the day a Solid upgrade makes replay work, which is the
+   * signal to re-enable this assertion.
    *
    * Skipped rather than deleted or asserted-as-correct, so the gap stays visible: if a Solid
    * upgrade closes it, un-skipping is the check.
@@ -291,13 +288,29 @@ describe('slice 7 group C - real browser (production build, enforced CSP)', () =
   });
 
   /**
-   * The ACTIVE evidence behind the upstream attribution (design step 2). The skipped test above
-   * records that replay does not fire; THIS test proves WHY it is not a τjs defect - the server
-   * node is ADOPTED, not replaced - by asserting the identity result rather than leaving it in a
-   * throwaway probe. If this ever failed, the upstream story would collapse and the gap would be a
-   * τjs render-tree/hydration-key mismatch after all.
+   * The ACTIVE evidence behind the upstream attribution, grounded in the pinned solid-js 1.9.14
+   * runtime rather than inference. It records the observable sequence and then names the mechanism:
+   *
+   *   queued event  ->  same adopted node & key  ->  queue DRAINED  ->  count stays 0
+   *
+   * Why the drained event fires no handler is NOT "the node was never completed" - the runtime
+   * disproves that. `runHydrationEvents` (solid-js/web web.js:411-416) only `events.shift()` a
+   * queued entry AFTER `completed.has(el)` is true; a drained queue therefore PROVES the button was
+   * completed. The real cause is in `eventHandler` (web.js:509-524): replay walks `e.composedPath()`
+   * and iterates `for (i = 0; i < path.length - 2; i++)`. The captured event was already dispatched
+   * when it was stored (the bootstrap's document listener pushes the live Event, server.js:625), and
+   * a dispatched Event's `composedPath()` is `[]` per the DOM spec - so the loop bound is `-2`, the
+   * body never runs, and no handler is invoked even though the event is consumed.
+   *
+   * `_$HY.completed` is a WeakSet (server.js:625), so it is deliberately NOT asserted by membership:
+   * a WeakSet is not enumerable and `instanceof Set` is always false. The empty `composedPath()` of
+   * the retained event is the assertable mechanism instead.
+   *
+   * The minimal non-τjs control at `test/vanilla-control.test.ts` reproduces this exact path -
+   * adopted node, drained queue, empty composedPath, count 0 - with no τjs in the graph, which is
+   * what makes the attribution upstream rather than a τjs render-tree/hydration-key defect.
    */
-  it('adopts the server node during hydration: identity, key and drained queue (upstream evidence)', async () => {
+  it('adopts the server node and drains the captured event without replay (upstream mechanism)', async () => {
     const { page, faults } = await openPage();
     try {
       // Same delayed-entry sequence as the capture test - hold the client entry so a click lands
@@ -327,13 +340,27 @@ describe('slice 7 group C - real browser (production build, enforced CSP)', () =
       expect(before.key, 'the server button carried no hydration key').toBeTruthy();
       expect(before.text).toContain('count: 0');
 
-      // Land a click while the app is still inert; it is queued, not handled.
+      // Land a click while the app is still inert; it is captured into `_$HY.events`, not handled.
+      // Retain the exact Event object the bootstrap stored so its composedPath can be read later.
       await page.click('#counter');
-      const queued = await page.evaluate(() => (window as unknown as { _$HY?: { events?: unknown[] } })._$HY?.events?.length ?? 0);
-      expect(queued, 'the pre-hydration click was not captured').toBe(1);
+      const captured = await page.evaluate(() => {
+        const w = window as unknown as { __origButton?: Element; __capturedEvent?: Event; _$HY?: { events?: [Element, Event][] } };
+        const entry = w._$HY?.events?.[0];
+        w.__capturedEvent = entry?.[1];
+
+        return {
+          queued: w._$HY?.events?.length ?? 0,
+          capturedElementIsButton: entry?.[0] === w.__origButton,
+          // Already empty here: `page.click` has completed dispatch, and a dispatched Event reports
+          // an empty composedPath. This is the value the replay loop will later see.
+          composedPathLen: entry?.[1]?.composedPath?.().length,
+        };
+      });
+      expect(captured.queued, 'the pre-hydration click was not captured').toBe(1);
+      expect(captured.capturedElementIsButton, 'the captured event was not keyed to the button').toBe(true);
 
       // Release the entry and let hydration run. The queue draining from 1 back to empty is the
-      // NON-MUTATING "hydration ran" signal: unlike a confirming click it cannot perturb the node
+      // NON-MUTATING "replay ran" signal: unlike a confirming click it cannot perturb the node
       // identity the assertions below turn on.
       releaseEntry!();
       const deadline = Date.now() + 15_000;
@@ -349,42 +376,32 @@ describe('slice 7 group C - real browser (production build, enforced CSP)', () =
       }
       expect(drained, 'hydration never drained the captured event queue within 15s').toBe(true);
 
-      const identity = await page.evaluate(() => {
-        const w = window as unknown as {
-          __origButton: Element;
-          __origKey: string | null;
-          _$HY?: { events?: unknown[] | null; completed?: unknown };
-        };
+      const observed = await page.evaluate(() => {
+        const w = window as unknown as { __origButton: Element; __origKey: string | null; __capturedEvent?: Event };
         const orig = w.__origButton;
         const current = document.querySelector('#counter');
-        const hy = w._$HY;
-        const completed = hy?.completed;
 
         return {
           sameNode: orig === current,
           connected: orig.isConnected,
           keyUnchanged: orig.getAttribute('data-hk') === w.__origKey && current?.getAttribute('data-hk') === w.__origKey,
-          completedHasOriginal: completed instanceof Set ? completed.has(orig) : false,
-          completedShape: completed instanceof Set ? `Set(${completed.size})` : String(completed),
-          queueState: hy?.events == null ? 'drained' : `queued:${hy.events.length}`,
+          retainedComposedPathLen: w.__capturedEvent?.composedPath?.().length ?? -1,
+          count: current?.textContent?.trim() ?? '',
         };
       });
 
-      // The load-bearing facts: the pre-rendered node is the SAME node, still in the document, with
-      // an unchanged hydration key. Together these rule out DOM replacement and a key mismatch, so
-      // the missing replay cannot be a τjs render-tree defect.
-      expect(identity.sameNode, 'the server node was REPLACED during hydration - a τjs render-tree mismatch, not upstream').toBe(true);
-      expect(identity.connected, 'the adopted node was detached from the document').toBe(true);
-      expect(identity.keyUnchanged, 'the hydration key changed across hydration - a server/client key mismatch').toBe(true);
+      // The pre-rendered node is the SAME node, still in the document, with an unchanged hydration
+      // key - ruling out DOM replacement and a key mismatch, so the missing replay is not a τjs
+      // render-tree defect.
+      expect(observed.sameNode, 'the server node was REPLACED during hydration - a τjs render-tree mismatch, not upstream').toBe(true);
+      expect(observed.connected, 'the adopted node was detached from the document').toBe(true);
+      expect(observed.keyUnchanged, 'the hydration key changed across hydration - a server/client key mismatch').toBe(true);
 
-      // The two observations that pin WHY the replay is invisible: hydration cleanup drained the
-      // queue, yet the original node was never recorded as completed, so nothing dispatched the
-      // queued event to it. Both are current solid-js 1.9.14 behaviour; if an upgrade changes
-      // either, these fail and force this evidence to be revisited with the expected-fail control.
-      expect(identity.queueState, `queue not drained: ${identity.queueState}`).toBe('drained');
-      expect(identity.completedHasOriginal, `the original node WAS marked completed (${identity.completedShape}) - the replay path changed upstream`).toBe(
-        false,
-      );
+      // THE MECHANISM: the retained event's composedPath is empty, which is exactly why the drained
+      // event drives `eventHandler`'s `for (i = 0; i < path.length - 2; i++)` zero times and invokes
+      // no handler - so the queue drains (the node WAS completed) yet the count never moves.
+      expect(observed.retainedComposedPathLen, 'the replayed event still had a composedPath - the upstream cause has changed').toBe(0);
+      expect(observed.count, 'the queued click somehow replayed - upstream replay may now work; revisit the vanilla control').toBe('count: 0');
 
       // Independent confirmation that hydration truly completed rather than merely draining: a
       // FRESH click is now handled and moves the counter the replay could not.

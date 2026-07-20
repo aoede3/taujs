@@ -17,6 +17,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * at all - plain `vite-plugin-solid({ ssr: true })`, plain `generateHydrationScript()`, plain
  * `hydrate()` - and drives it through the identical delayed-entry sequence the playground uses.
  *
+ * It reproduces the SAME runtime path the playground reaches: the pre-hydration click is captured,
+ * the server node is adopted (same node, unchanged key), the queue drains once the node is
+ * `completed`, the retained event's `composedPath()` is empty, and the count never moves. Because a
+ * no-τjs app reaches that identical state, the missing replay is an upstream solid-js 1.9.14 limit,
+ * not a τjs defect. (The root cause is in `eventHandler`, solid-js/web web.js:509-524: replay walks
+ * an already-dispatched event's empty `composedPath()`, so its loop runs zero times.)
+ *
  * Why it lives here as a real test rather than as a throwaway script under the local docs area:
  * an attribution that survives only as prose is not evidence. Retained and executed, it also
  * becomes a TRIPWIRE. `replays a pre-hydration click` is marked `it.fails`: it asserts the desired
@@ -26,9 +33,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * skipped replay assertion in `browser.test.ts`, and drop the upstream caveat.
  *
  * The `.fails` test alone could be masked by a harness or hydration flake (any throw reads as the
- * expected failure). The sibling `captures ... and hydrates` test is the guard: it asserts, as an
- * ordinary green test in the SAME served app, that capture and hydration both work. A real
- * breakage turns THAT red, so the pair cannot silently rot.
+ * expected failure). The sibling `reproduces the playground path` test is the guard: it asserts, as
+ * an ordinary green test in the SAME served app, the full mechanism plus that hydration works. A
+ * real breakage turns THAT red, so the pair cannot silently rot.
  */
 const CONTROL_ROOT = fileURLToPath(new URL('./vanilla-control', import.meta.url));
 const BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(homedir(), '.cache', 'ms-playwright');
@@ -47,17 +54,23 @@ const openPage = async (): Promise<Page> => {
   return context.newPage();
 };
 
-/** Poll (no `waitForFunction`, to keep parity with the CSP-constrained playground suite) until the
- *  entry sets `__controlHydrated`. Vanilla Solid leaves its `_$HY` queue populated after hydration,
- *  so unlike the playground there is no non-mutating internal state to watch; the entry flag is the
- *  signal, set on the line after `hydrate()` where the replay decision is already final. */
-const waitHydrated = async (page: Page, timeoutMs = 15_000) => {
+/** Poll (no `waitForFunction`, for parity with the CSP-constrained playground suite) until Solid's
+ *  captured-event queue drains - the non-mutating "replay ran" signal. Once the adopted node is
+ *  `completed`, `runHydrationEvents` shifts the queued entry and nulls `_$HY.events`
+ *  (solid-js/web web.js:411-420); the corrected symmetric render (see beforeAll) makes this control
+ *  reach the exact same state the playground does. */
+const waitDrained = async (page: Page, timeoutMs = 15_000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await page.evaluate(() => (window as unknown as { __controlHydrated?: boolean }).__controlHydrated === true)) return;
+    const drained = await page.evaluate(() => {
+      const q = (window as unknown as { _$HY?: { events?: unknown[] } })._$HY?.events;
+
+      return q == null || q.length === 0;
+    });
+    if (drained) return;
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error(`the vanilla control never signalled hydration within ${timeoutMs}ms`);
+  throw new Error(`the vanilla control never drained its captured event within ${timeoutMs}ms`);
 };
 
 const waitForText = async (page: Page, selector: string, needle: string, timeoutMs = 15_000) => {
@@ -71,9 +84,12 @@ const waitForText = async (page: Page, selector: string, needle: string, timeout
   throw new Error(`"${needle}" never appeared in ${selector} within ${timeoutMs}ms (last: "${last}")`);
 };
 
-/** Hold the client entry, load the shell, land a click while the app is still inert, then release.
- *  Returns once the entry is released and the control has signalled that hydration has run. */
-const runDelayedEntry = async (page: Page): Promise<{ queued: number }> => {
+type Capture = { queued: number; capturedElementIsButton: boolean; capturedComposedPathLen: number };
+
+/** Hold the client entry, load the shell, stash the original button + the captured Event on
+ *  `window`, land a click while the app is still inert, then release and wait for the replay to run
+ *  (queue drained). Returns the capture snapshot for the caller to assert against. */
+const runDelayedEntry = async (page: Page): Promise<Capture> => {
   let releaseEntry: (() => void) | undefined;
   const entryHeld = new Promise<void>((resolve) => (releaseEntry = resolve));
   await page.route('**/entry.js', async (route) => {
@@ -87,13 +103,32 @@ const runDelayedEntry = async (page: Page): Promise<{ queued: number }> => {
   await page.waitForSelector('#counter');
   expect((await page.textContent('#counter'))?.trim()).toBe('count: 0');
 
+  await page.evaluate(() => {
+    const w = window as unknown as { __origButton?: Element | null; __origKey?: string | null };
+    const button = document.querySelector('#counter');
+    w.__origButton = button;
+    w.__origKey = button?.getAttribute('data-hk') ?? null;
+  });
+
+  // Land the click and retain the exact Event the bootstrap stored, so its composedPath can be read
+  // after hydration. Dispatch is already complete here, so the stored event's composedPath is empty.
   await page.click('#counter');
-  const queued = await page.evaluate(() => (window as unknown as { _$HY?: { events?: unknown[] } })._$HY?.events?.length ?? 0);
+  const capture = await page.evaluate<Capture>(() => {
+    const w = window as unknown as { __origButton?: Element; __capturedEvent?: Event; _$HY?: { events?: [Element, Event][] } };
+    const entry = w._$HY?.events?.[0];
+    w.__capturedEvent = entry?.[1];
+
+    return {
+      queued: w._$HY?.events?.length ?? 0,
+      capturedElementIsButton: entry?.[0] === w.__origButton,
+      capturedComposedPathLen: entry?.[1]?.composedPath?.().length ?? -1,
+    };
+  });
 
   releaseEntry!();
-  await waitHydrated(page);
+  await waitDrained(page);
 
-  return { queued };
+  return capture;
 };
 
 describe('vanilla Solid replay control (no τjs) - the upstream tripwire', () => {
@@ -169,15 +204,43 @@ describe('vanilla Solid replay control (no τjs) - the upstream tripwire', () =>
     outDir = undefined;
   });
 
-  it('captures a pre-hydration click and hydrates (the harness is sound)', async () => {
+  it('reproduces the playground path: adopted node, drained event, empty composedPath, no replay', async () => {
     const page = await openPage();
     try {
-      const { queued } = await runDelayedEntry(page);
+      const capture = await runDelayedEntry(page);
 
-      // Capture works with NO τjs: the bootstrap's document-level listener queued the click.
-      expect(queued, 'the pre-hydration click was not captured even in vanilla Solid').toBe(1);
+      // Capture works with NO τjs: the bootstrap queued the click against the button, and the stored
+      // Event already reports an empty composedPath because dispatch has completed.
+      expect(capture.queued, 'the pre-hydration click was not captured even in vanilla Solid').toBe(1);
+      expect(capture.capturedElementIsButton, 'the captured event was not keyed to the button').toBe(true);
+      expect(capture.capturedComposedPathLen, 'a dispatched event should report an empty composedPath').toBe(0);
 
-      // Hydration works: a FRESH click is handled and moves the counter.
+      const observed = await page.evaluate(() => {
+        const w = window as unknown as { __origButton: Element; __origKey: string | null; __capturedEvent?: Event };
+        const orig = w.__origButton;
+        const current = document.querySelector('#counter');
+
+        return {
+          sameNode: orig === current,
+          connected: orig.isConnected,
+          keyUnchanged: orig.getAttribute('data-hk') === w.__origKey && current?.getAttribute('data-hk') === w.__origKey,
+          retainedComposedPathLen: w.__capturedEvent?.composedPath?.().length ?? -1,
+          count: current?.textContent?.trim() ?? '',
+        };
+      });
+
+      // Same adopted node and key as the playground - no τjs render-tree is involved at all.
+      expect(observed.sameNode, 'the server node was replaced during hydration').toBe(true);
+      expect(observed.connected, 'the adopted node was detached from the document').toBe(true);
+      expect(observed.keyUnchanged, 'the hydration key changed across hydration').toBe(true);
+
+      // Same MECHANISM as the playground: the queue drained (the node was completed), the retained
+      // event's composedPath is empty, and the count never moved. This is what makes the attribution
+      // upstream - a no-τjs app reaches the identical drained-event/empty-composedPath/count-0 state.
+      expect(observed.retainedComposedPathLen, 'the replayed event still had a composedPath - upstream cause changed').toBe(0);
+      expect(observed.count, 'the queued click somehow replayed in vanilla Solid - upstream replay may now work').toBe('count: 0');
+
+      // Hydration itself works: a FRESH click is handled and moves the counter.
       await page.click('#counter');
       await waitForText(page, '#counter', 'count: 1');
     } finally {
@@ -186,17 +249,17 @@ describe('vanilla Solid replay control (no τjs) - the upstream tripwire', () =>
   });
 
   // EXPECTED FAILURE. Asserts the DESIRED behaviour - the queued click replays after `hydrate()`,
-  // so the counter reads `count: 1` with no fresh click. solid-js 1.9.14 does not replay it, so
-  // this throws and `it.fails` keeps it green. When an upgrade fixes replay it passes, vitest
-  // flags the unexpected pass RED, and that is the trigger to remove `.fails` and re-enable the
-  // skipped `replays the captured click` assertion in browser.test.ts.
+  // so the counter reads `count: 1` with no fresh click. solid-js 1.9.14 drains the event without
+  // firing it (empty composedPath), so this throws and `it.fails` keeps it green. When an upgrade
+  // fixes replay it passes, vitest flags the unexpected pass RED, and that is the trigger to remove
+  // `.fails` and re-enable the skipped `replays the captured click` assertion in browser.test.ts.
   it.fails('replays a pre-hydration click once hydration runs [expected-fail: upstream gap at solid-js 1.9.14]', async () => {
     const page = await openPage();
     try {
       await runDelayedEntry(page);
 
-      // Read once hydration has signalled: the replay outcome is final at that point. Today this is
-      // `count: 0` (no replay), so the assertion below throws - the expected failure.
+      // Read once the queue has drained: the replay outcome is final. Today this is `count: 0`, so
+      // the assertion below throws - the expected failure.
       expect((await page.textContent('#counter'))?.trim()).toBe('count: 1');
     } finally {
       await page.context().close();
