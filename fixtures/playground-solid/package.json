@@ -1,0 +1,24 @@
+{
+  "name": "playground-solid",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_ENV=development tsx watch --ignore vite.config.ts --tsconfig ./src/server/tsconfig.json ./src/server/index.ts",
+    "build": "NODE_ENV=production tsx build.ts && NODE_ENV=production BUILD_MODE=ssr tsx build.ts",
+    "start": "NODE_ENV=production tsx ./src/server/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@taujs/server": "workspace:*",
+    "@taujs/solid": "workspace:*",
+    "fastify": "^5.8.5",
+    "solid-js": "^1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vite": "^7.1.11",
+    "vite-plugin-solid": "^2.11.0"
+  }
+}
