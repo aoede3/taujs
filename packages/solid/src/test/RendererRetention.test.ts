@@ -111,6 +111,13 @@ describe('7.3 forced-GC: a renderer terminal releases the route payload', () => 
 
     expect(started.ref.deref(), 'the control payload was collected with no terminal reached - the probe proves nothing').toBeDefined();
     expect(started.handle).toBeDefined();
+
+    // Retention is proven; now REACH a terminal so nothing outlives the test. A never-settling
+    // render leaves the shell and completion watchdogs armed (up to shellTimeoutMs / completionTimeoutMs),
+    // and `done` never resolves. `abort()` runs the controller's cleanup - both timers cleared,
+    // the store detached, `done` resolved - so no watchdog, timer or rejection leaks past here.
+    started.handle.abort();
+    await started.handle.done.catch(() => {});
   });
 
   gcIt('STREAMING: the payload is collectable once the stream completes', async () => {
