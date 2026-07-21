@@ -519,7 +519,7 @@ hydrateApp({
 **Behaviour:**
 
 - If `window[dataKey]` exists: hydrates the SSR markup with `createSSRApp(...).mount(rootEl)`.
-- If `window[dataKey]` is missing: clears any stale markup and mounts a fresh CSR app. **No hydration callbacks or beacon events fire** - a CSR mount is not a hydration.
+- If `window[dataKey]` is missing: clears any stale markup and mounts a fresh CSR app. **No hydration beacon events and no `onStart` fire** - a CSR mount is not a hydration. A successful CSR mount still calls `onSuccess(app)` (the committed root); a failed one calls `onHydrationError`.
 - Automatically handles `DOMContentLoaded` timing.
 - Wraps your app in `SSRStoreProvider` on both the hydrate and CSR paths.
 
@@ -1027,7 +1027,7 @@ const setupApp = (app) => {
 3. **Head data: `meta` for static, `attr.head` for dynamic.** In streaming mode the data snapshot is usually pending when the head is built - guard optional `data` fields. Static values belong in `meta`; DYNAMIC head values belong in an `attr.head` loader, which the host resolves before the render and delivers as `headData` (handle `undefined` - it degrades on deadline or `optional` failure).
 4. **Share one `setupApp` across server and client.** Keep it synchronous, DOM-free and idempotent so the identical function runs on both sides; seed Pinia/state from SSR data rather than adding a serialisation channel.
 5. **Match `@vue/server-renderer` to `vue`.** Pin both to the same version.
-6. **Handle CSR fallback.** Provide `onHydrationError` so a hydration failure degrades gracefully; remember the CSR path emits no hydration callbacks by design.
+6. **Handle CSR fallback.** Provide `onHydrationError` so a hydration failure degrades gracefully; the CSR path emits no hydration beacons or `onStart`, but a successful CSR mount does call `onSuccess(app)`.
 7. **Reserve teleports for `ssr` routes.** `<Teleport>` targets outside the app root are only captured by `renderSSR`.
 8. **Client-side updates after SSR are userland.** For data that changes after the initial render, call your own `/api/*` endpoints with a client library such as TanStack Query or SWR - τjs keeps SSR request-first and does not add a client data channel.
 
