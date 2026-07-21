@@ -1,7 +1,7 @@
 {
   "name": "playground",
   "private": true,
-  "version": "0.0.6",
+  "version": "0.0.7",
   "type": "module",
   "description": "τjs introspection fixture playground — the app the whole effort drives against (P0B-05)",
   "scripts": {

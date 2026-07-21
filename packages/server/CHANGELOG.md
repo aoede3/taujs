@@ -1,5 +1,70 @@
 # @taujs/server
 
+## 0.13.0
+
+### Minor Changes
+
+- [#28](https://github.com/aoede3/taujs/pull/28) [`c61c3c1`](https://github.com/aoede3/taujs/commit/c61c3c1a54f44b977725f858e2b88e684d6d3ab9) Thanks [@aoede3](https://github.com/aoede3)! - Renderer v1: declare an app's framework with a required singular `renderer:`
+
+  **BREAKING CHANGE.** Existing apps must migrate (see Migration below): every app now needs a
+  `renderer:` field, and any direct `renderStream` caller must move `cspNonce` from the removed
+  positional argument onto `opts`. The bump is `minor` because these packages are pre-1.0, where a
+  minor is the semver-correct level for a breaking change; it is nonetheless breaking for consumers.
+
+  Every app now declares a REQUIRED singular `renderer:` - an opaque contribution from
+  `reactRenderer({ project })` (`@taujs/react/renderer`) or `vueRenderer()`
+  (`@taujs/vue/renderer`). `renderer:` is required at runtime: an app without a valid
+  renderer fails at boot and build. The `plugins` array returns to meaning ordinary Vite
+  plugins only.
+
+  React is a JSX renderer with scoped compiler ownership (the host computes each framework's
+  scope after seeing all apps and constructs a correctly-scoped compiler, with a fail-closed
+  ownership diagnostic); Vue supplies its `pluginVue` pack fresh per environment without
+  ownership machinery. Every declared renderer ships a render module that is
+  identity-validated against its declaration (both `renderSSR` and `renderStream` are
+  brand-checked - at boot in production, after `ssrLoadModule` in development) with a hard
+  error and migration guidance on a mismatch. There is no incomplete-renderer mode.
+
+  The shared render-options bag is now a named `RenderOptions` on both `renderSSR` and
+  `renderStream`, carrying `cspNonce` (authoritative; the positional stream argument is
+  removed) and the host-resolved `shouldHydrate`, delivered on both rendering strategies.
+
+  Migration:
+
+  - Replace `plugins: [pluginReact()]`/`plugins: [pluginVue()]`-style framework wiring with
+    `renderer: reactRenderer({ project: './tsconfig.json' })` / `renderer: vueRenderer()`.
+  - Raw `pluginReact()`/`pluginVue()` remain exported and portable for plain-Vite/standalone use.
+  - Entry-server files are unchanged: `createRenderer(...)` now brands its returned functions
+    so the host can validate framework identity.
+  - If you consume `renderStream` directly, pass `cspNonce` via `opts.cspNonce` instead of the
+    removed positional argument.
+
+### Patch Changes
+
+- [#28](https://github.com/aoede3/taujs/pull/28) [`d734dc7`](https://github.com/aoede3/taujs/commit/d734dc7cafaa132e7156dd183b6f403dfc3f3bd0) Thanks [@aoede3](https://github.com/aoede3)! - Fix: `__proto__` in route data now round-trips as an ordinary own property
+
+  Route data is injected into the page as `window.__INITIAL_DATA__ = <value>`. That value was
+  always emitted as a JavaScript object literal, and in an object literal a quoted `"__proto__":`
+  key SETS THE CREATED OBJECT'S PROTOTYPE (ES Annex B.3.1) rather than adding an own property. So a
+  route that legitimately returned a `__proto__` key produced a client value whose shape differed
+  from the server's: the key was an own property on the server and landed on the prototype in the
+  browser, at any depth.
+
+  This was never global prototype pollution - `Object.prototype` was untouched, and it remains
+  untouched - but it was silent semantic drift in the single shared serialisation boundary, and
+  "the global prototype was not polluted" is not the same guarantee as "the client received the
+  value the server sent".
+
+  Now, when a payload contains a `__proto__` key at any depth, the value is emitted as
+  `JSON.parse("…")`. `JSON.parse` creates the key as an ordinary own data property at every depth,
+  the object's prototype stays `Object.prototype`, and the global prototype is still untouched.
+  Breakout escaping is unchanged in both forms.
+
+  Every other payload keeps the object-literal form and is byte-identical to before, so ordinary
+  responses and cached pages see no difference. The one exception is a string value exactly equal to
+  `"__proto__"`, which also selects the `JSON.parse` form: the two forms are semantically identical,
+  so this costs a few bytes and changes nothing observable.
+
 ## 0.12.0
 
 ### Minor Changes
