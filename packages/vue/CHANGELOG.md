@@ -1,5 +1,36 @@
 # @taujs/vue
 
+## 0.5.1
+
+### Patch Changes
+
+- [#31](https://github.com/aoede3/taujs/pull/31) [`8b00a97`](https://github.com/aoede3/taujs/commit/8b00a976e9f77ccd8db27d98ac0e4c1faf1483d2) Thanks [@aoede3](https://github.com/aoede3)! - Debug hydration logging no longer includes the route-data payload or the store object
+
+  `hydrateApp`'s `enableDebug` logging previously emitted `Initial data loaded: <payload>` and
+  `Store created: <store>`. A supplied logger may forward to a server sink (for example Pino), so
+  those lines could disclose request data. They are removed - only lifecycle messages
+  (started/succeeded/failed) are logged now, aligning `@taujs/react` and `@taujs/vue` with
+  `@taujs/solid`, which never logged the payload.
+
+- [#31](https://github.com/aoede3/taujs/pull/31) [`d2abc7d`](https://github.com/aoede3/taujs/commit/d2abc7db344facfb19e7c89c9fe8ac52189a97ff) Thanks [@aoede3](https://github.com/aoede3)! - `hydrateApp` now calls `onSuccess` after a successful CSR-fallback mount
+
+  Previously `onSuccess` fired only on the hydrate path; a successful client-side render fallback (no
+  SSR snapshot) established the application root but never reported it. It now calls `onSuccess(app)`
+  exactly once after a successful `app.mount(...)` on the CSR path, matching `@taujs/react`, whose
+  `onSuccess` already observes both hydrate and CSR root establishment. The CSR path still emits no
+  hydration beacon and no `onStart` (a CSR mount is not a hydration), and the observer stays isolated:
+  a throw is logged and the mounted app remains.
+
+- [#31](https://github.com/aoede3/taujs/pull/31) [`8b00a97`](https://github.com/aoede3/taujs/commit/8b00a976e9f77ccd8db27d98ac0e4c1faf1483d2) Thanks [@aoede3](https://github.com/aoede3)! - `hydrateApp` no longer reverses a settled hydration success
+
+  Vue emitted `hydration:success` / `onSuccess` immediately after `mount()` but kept its
+  error-attribution phase open until the next tick, so an error surfaced through
+  `app.config.errorHandler` in that window could still emit `hydration:error` and call
+  `onHydrationError` for an already-successful hydration. A single-settlement guard now marks the
+  attempt settled **before** emitting success, so any subsequent error in that window is log-only - it
+  never emits a second beacon or reverses the success. Exactly one of `onSuccess` | `onHydrationError`
+  settles per call.
+
 ## 0.5.0
 
 ### Minor Changes
