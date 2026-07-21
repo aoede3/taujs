@@ -19,6 +19,7 @@ import fastifyLogo from "../../assets/fastify.svg";
 import viteLogo from "../../assets/vite.svg";
 import reactLogo from "../../assets/react.svg";
 import vueLogo from "../../assets/vue.svg";
+import solidLogo from "../../assets/solid.svg";
 
 <div className="container__logos">
   <a
@@ -53,17 +54,25 @@ import vueLogo from "../../assets/vue.svg";
   >
     <img src={vueLogo.src} className="logo" alt="Vue logo" />
   </a>
+  <a
+    href="https://www.solidjs.com/"
+    target="_blank"
+    title="Solid: Simple and performant reactivity for building user interfaces"
+    rel="noreferrer"
+  >
+    <img src={solidLogo.src} className="logo" alt="Solid logo" />
+  </a>
 </div>
 
-τjs is an orchestration layer built on Fastify, Vite, and React / Vue. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
+τjs is an orchestration layer built on Fastify, Vite, and React / Vue / Solid. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
 
 ## Leverage every ecosystem
 
-τjs orchestrates Fastify, Vite, React, and Vue rather than wrapping them behind its own abstractions, so each ecosystem stays fully open to you:
+τjs orchestrates Fastify, Vite, React / Vue / Solid rather than wrapping them behind its own abstractions, so each ecosystem stays fully open to you:
 
 - **Fastify** - register plugins, hooks, and decorators on the server instance as you would in any Fastify app
 - **Vite** - use standard Vite plugins directly through τjs's declared plugin channels; the configuration fields τjs owns are documented and protected
-- **React / Vue** - bring the component libraries, tooling, and patterns of whichever framework each app uses
+- **React / Vue / Solid** - bring the component libraries, tooling, and patterns of whichever framework each app uses
 
 There is no parallel plugin system to learn and no fork to track - when the underlying ecosystems move, τjs moves with them.
 
