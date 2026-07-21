@@ -1,5 +1,17 @@
 # @taujs/react
 
+## 0.5.1
+
+### Patch Changes
+
+- [#31](https://github.com/aoede3/taujs/pull/31) [`8b00a97`](https://github.com/aoede3/taujs/commit/8b00a976e9f77ccd8db27d98ac0e4c1faf1483d2) Thanks [@aoede3](https://github.com/aoede3)! - Debug hydration logging no longer includes the route-data payload or the store object
+
+  `hydrateApp`'s `enableDebug` logging previously emitted `Initial data loaded: <payload>` and
+  `Store created: <store>`. A supplied logger may forward to a server sink (for example Pino), so
+  those lines could disclose request data. They are removed - only lifecycle messages
+  (started/succeeded/failed) are logged now, aligning `@taujs/react` and `@taujs/vue` with
+  `@taujs/solid`, which never logged the payload.
+
 ## 0.5.0
 
 ### Minor Changes
