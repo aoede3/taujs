@@ -45,8 +45,9 @@ export type HydrateAppOptions<T> = {
 /**
  * Vue client bootstrap. Contract-parity with taujs/react, with documented Vue-native
  * divergences:
- * - If window[dataKey] is missing, mount CSR (and clear existing DOM) — no hydration
- *   events are emitted (a CSR mount is not a hydration).
+ * - If window[dataKey] is missing, mount CSR (and clear existing DOM) — no beacon events
+ *   or `onStart` are emitted (a CSR mount is not a hydration), but a successful CSR root
+ *   reports `onSuccess(app)` and a failed one `onHydrationError` (react parity).
  * - Otherwise, hydrate SSR markup, emitting `hydration:start|success|error` to the
  *   dev-only `window.__TAUJS_DEVTOOLS_HOOK__` around the user callbacks.
  *
@@ -114,6 +115,12 @@ export function hydrateApp<T>({
       // back to CSR.
       setupApp?.(app);
       app.mount(rootEl);
+
+      // A successful CSR root establishment reports onSuccess exactly once (react parity). The CSR
+      // path still emits NO beacon and NO onStart - a CSR mount is not a hydration. Isolated: an
+      // observer throw is swallowed and the mounted app remains.
+      if (enableDebug) log('CSR mount succeeded');
+      runObserver('onSuccess', () => onSuccess?.(app));
     } catch (err) {
       // R2: a throwing setupApp/mount is an application error — route to onHydrationError
       // (the only client error channel). The CSR path emits NO beacon events: a CSR mount is

@@ -40,9 +40,11 @@ describe('hydrateApp — mount paths', () => {
     expect(onSuccess).toHaveBeenCalledTimes(1);
   });
 
-  it('mounts CSR (fresh) when SSR data is absent — clears stale markup, no hydration callbacks', () => {
+  it('mounts CSR (fresh) when SSR data is absent - clears stale markup, calls onSuccess once, no onStart or beacon (Slice B)', () => {
     setRoot('<div>stale</div>');
     setData(undefined);
+    const events: string[] = [];
+    (window as any).__TAUJS_DEVTOOLS_HOOK__ = { emit: (ev: string) => events.push(ev) };
     const onStart = vi.fn();
     const onSuccess = vi.fn();
 
@@ -50,8 +52,32 @@ describe('hydrateApp — mount paths', () => {
 
     const root = document.getElementById('root')!;
     expect(root.textContent).toBe('app');
+    // Slice B: a successful CSR root establishment reports onSuccess (react parity), receiving the App.
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(onSuccess.mock.calls[0]![0]).toBeDefined();
+    // ...but the CSR path still emits no onStart and no hydration beacon (a CSR mount is not a hydration).
     expect(onStart).not.toHaveBeenCalled();
-    expect(onSuccess).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it('a throwing CSR onSuccess is isolated and the mounted app remains (Slice B)', () => {
+    setRoot('<div>stale</div>');
+    setData(undefined);
+    const onHydrationError = vi.fn();
+
+    expect(() =>
+      hydrateApp({
+        appComponent: CleanApp,
+        onSuccess: () => {
+          throw new Error('csr onSuccess boom');
+        },
+        onHydrationError,
+      }),
+    ).not.toThrow();
+
+    const root = document.getElementById('root')!;
+    expect(root.textContent).toBe('app'); // the app stayed mounted
+    expect(onHydrationError).not.toHaveBeenCalled(); // a callback throw is not a bootstrap failure
   });
 
   it('logs and does not mount when the root element is missing', () => {
