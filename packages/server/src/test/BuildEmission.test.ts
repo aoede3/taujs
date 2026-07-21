@@ -5,6 +5,8 @@ import path from 'node:path';
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+import { testRenderer } from './support/renderer';
+
 vi.mock('vite', () => ({
   build: vi.fn(async () => ({})),
 }));
@@ -17,6 +19,7 @@ const appConfig = {
   entryServer: 'entry-server',
   htmlTemplate: 'index.html',
   plugins: [],
+  renderer: testRenderer(),
 };
 
 vi.mock('../utils/AssetManager', () => ({

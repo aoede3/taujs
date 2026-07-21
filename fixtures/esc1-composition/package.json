@@ -1,0 +1,29 @@
+{
+  "name": "esc1-composition",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ESC-1 acceptance matrix - real-Vite composition proof (React + Solid compile together, no contamination)",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@taujs/react": "workspace:*",
+    "@taujs/server": "workspace:*",
+    "@taujs/solid": "workspace:*",
+    "@taujs/vue": "workspace:*",
+    "@types/node": "^24.0.7",
+    "@types/react": "^19.2.8",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "@vue/server-renderer": "^3.5.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "solid-js": "~1.9.14",
+    "vite": "^7.3.1",
+    "vite-plugin-solid": "^2.11.12",
+    "vitest": "^3.2.4",
+    "vue": "^3.5.0"
+  }
+}

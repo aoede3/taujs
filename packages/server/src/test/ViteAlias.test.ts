@@ -9,6 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { layerAlias, normaliseDeclarativeAlias } from '../utils/ViteAlias';
+import { testRenderer } from './support/renderer';
 
 const hoisted = vi.hoisted(() => ({
   createServerMock: vi.fn(),
@@ -27,6 +28,14 @@ const hoisted = vi.hoisted(() => ({
 vi.mock('vite', () => ({
   createServer: hoisted.createServerMock,
   build: hoisted.buildMock,
+}));
+
+// taujsBuild.deleteDist() does a REAL `rm(<projectRoot>/dist)`; these tests pass projectRoot=process.cwd()
+// (packages/server), which would delete the package's own built dist that dependent packages
+// (fixtures/esc1-composition) resolve at test time. Stub `rm` only; keep the rest of fs/promises real.
+vi.mock('node:fs/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs/promises')>()),
+  rm: vi.fn(async () => {}),
 }));
 
 vi.mock('../logging/Logger', () => ({
@@ -185,6 +194,7 @@ describe('VS5 - hard gate 4: declarative alias resolves identically in dev and b
         entryServer: 'entry-server',
         htmlTemplate: 'index.html',
         plugins: [],
+        renderer: testRenderer(),
       },
       {
         appId: 'admin',
@@ -194,6 +204,7 @@ describe('VS5 - hard gate 4: declarative alias resolves identically in dev and b
         entryServer: 'entry-server',
         htmlTemplate: 'index.html',
         plugins: [],
+        renderer: testRenderer(),
       },
     ];
     const buildAliases = await runBuildApps(apps, { apps: [], alias: relativeAlias });
@@ -231,6 +242,7 @@ describe('VS5 - hard gate 4: declarative alias resolves identically in dev and b
         entryServer: 'entry-server',
         htmlTemplate: 'index.html',
         plugins: [],
+        renderer: testRenderer(),
       },
     ];
     const buildAliases = await runBuildApps(apps, { apps: [], alias: { '@mono': './src/components' } }, monorepoAppRoot);
@@ -255,6 +267,7 @@ describe('VS5 - hard gate 4: declarative alias resolves identically in dev and b
         entryServer: 'entry-server',
         htmlTemplate: 'index.html',
         plugins: [],
+        renderer: testRenderer(),
       },
     ];
     const buildAliases = await runBuildApps(apps, { apps: [], alias: absoluteAlias });
@@ -285,6 +298,7 @@ describe('VS5 - hard gate 4: declarative alias resolves identically in dev and b
         entryServer: 'entry-server',
         htmlTemplate: 'index.html',
         plugins: [],
+        renderer: testRenderer(),
       },
     ];
     vi.mocked(setup.extractBuildConfigs).mockReturnValue(apps as any);
@@ -312,6 +326,7 @@ describe('VS5 - smuggled resolve.alias still warns via the legacy taujsBuild vit
         entryServer: 'entry-server',
         htmlTemplate: 'index.html',
         plugins: [],
+        renderer: testRenderer(),
       },
     ];
     const setup = await import('../core/config/Setup');

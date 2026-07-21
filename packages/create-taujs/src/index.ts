@@ -9,7 +9,7 @@ import prompts from 'prompts';
 
 import { generateClaudeMd, generateMcpJson } from './mcp';
 
-export type Framework = 'react' | 'vue';
+export type Framework = 'react' | 'vue' | 'solid';
 
 export type ProjectConfig = {
   projectName: string;
@@ -24,12 +24,40 @@ const PACKAGE_MANAGERS = {
   yarn: 'yarn install',
 } as const;
 
-const FRAMEWORKS: readonly Framework[] = ['react', 'vue'];
+const FRAMEWORKS: readonly Framework[] = ['react', 'vue', 'solid'];
 
-function parseArgs(): { projectName?: string; framework?: string } {
+/** Derived from the existing install-command map, so the two can never disagree. */
+export type PackageManager = keyof typeof PACKAGE_MANAGERS;
+const PACKAGE_MANAGER_NAMES = Object.keys(PACKAGE_MANAGERS) as PackageManager[];
+
+/**
+ * The non-interactive interface, frozen:
+ *
+ *   create-taujs my-app --framework solid --package-manager pnpm --no-install
+ *
+ * Supply all four and the CLI never needs a TTY, so CI, scripts and coding agents can drive it.
+ * OMITTED options keep today's prompts, and an explicit option suppresses ONLY its own prompt -
+ * interactive DX is unchanged.
+ *
+ * There is deliberately no `--yes`: its defaults, and in particular whether it would install from
+ * the network, would be ambiguous. Each choice is stated explicitly instead.
+ */
+type ParsedArgs = {
+  projectName?: string;
+  framework?: string;
+  packageManager?: string;
+  install?: boolean;
+  /** Both `--install` and `--no-install` were passed - rejected before anything is created. */
+  installConflict: boolean;
+};
+
+function parseArgs(): ParsedArgs {
   const rawArgs = process.argv.slice(2);
   let projectName: string | undefined;
   let framework: string | undefined;
+  let packageManager: string | undefined;
+  let sawInstall = false;
+  let sawNoInstall = false;
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i]!;
@@ -41,13 +69,39 @@ function parseArgs(): { projectName?: string; framework?: string } {
       framework = arg.slice('--framework='.length);
       continue;
     }
+    if (arg === '--package-manager') {
+      packageManager = rawArgs[++i];
+      continue;
+    }
+    if (arg.startsWith('--package-manager=')) {
+      packageManager = arg.slice('--package-manager='.length);
+      continue;
+    }
+    if (arg === '--install') {
+      sawInstall = true;
+      continue;
+    }
+    if (arg === '--no-install') {
+      sawNoInstall = true;
+      continue;
+    }
     if (!arg.startsWith('-') && !projectName) {
       projectName = arg;
       continue;
     }
   }
 
-  return { projectName, framework };
+  return {
+    projectName,
+    framework,
+    packageManager,
+    install: sawInstall && !sawNoInstall ? true : sawNoInstall && !sawInstall ? false : undefined,
+    installConflict: sawInstall && sawNoInstall,
+  };
+}
+
+function validatePackageManager(value: string): true | string {
+  return (PACKAGE_MANAGER_NAMES as readonly string[]).includes(value) ? true : `Package manager must be one of: ${PACKAGE_MANAGER_NAMES.join(', ')}`;
 }
 
 function validateProjectName(value: string): true | string {
@@ -65,7 +119,22 @@ function validateFramework(value: string): true | string {
 async function main() {
   console.log(pc.cyan('\nWelcome to τjs (taujs)\n'));
 
-  const { projectName: argName, framework: argFramework } = parseArgs();
+  const { projectName: argName, framework: argFramework, packageManager: argPackageManager, install: argInstall, installConflict } = parseArgs();
+
+  // Every argument failure is reported BEFORE the target directory is created, so a rejected
+  // invocation leaves nothing behind on disk.
+  if (installConflict) {
+    console.log(pc.red('\n✖ --install and --no-install are mutually exclusive'));
+    process.exit(1);
+  }
+
+  if (argPackageManager) {
+    const res = validatePackageManager(argPackageManager);
+    if (res !== true) {
+      console.log(pc.red(`\n✖ Invalid package manager "${argPackageManager}": ${res}`));
+      process.exit(1);
+    }
+  }
 
   if (argName) {
     const res = validateProjectName(argName);
@@ -98,11 +167,12 @@ async function main() {
       choices: [
         { title: 'React', value: 'react' },
         { title: 'Vue', value: 'vue' },
+        { title: 'Solid', value: 'solid' },
       ],
       initial: 0,
     },
     {
-      type: 'select',
+      type: argPackageManager ? null : 'select',
       name: 'packageManager',
       message: 'Package manager:',
       choices: [
@@ -113,7 +183,7 @@ async function main() {
       initial: 0,
     },
     {
-      type: 'confirm',
+      type: argInstall === undefined ? 'confirm' : null,
       name: 'installDeps',
       message: 'Install dependencies now?',
       initial: true,
@@ -149,8 +219,8 @@ async function main() {
 
   const config: ProjectConfig = {
     projectName,
-    packageManager: answers.packageManager,
-    installDeps: answers.installDeps,
+    packageManager: (argPackageManager ?? answers.packageManager) as PackageManager,
+    installDeps: argInstall ?? answers.installDeps,
     framework,
   };
 
@@ -242,24 +312,36 @@ export function planFiles(config: ProjectConfig): FileEntry[] {
     { path: 'src/server/services/example.service.ts', content: generateExampleService() },
     { path: 'src/server/types.d.ts', content: generateServiceTypesAugmentation() },
     { path: 'src/client/public/favicon.svg', content: generateFavicon() },
+    // Solid's managed compiler owns a DISJOINT tsconfig project: it must claim the client TSX and
+    // nothing else. Pointing it at the root tsconfig would make it claim `src/server/**` too, which
+    // is not Solid TSX and is compiled by the server toolchain.
+    ...(framework === 'solid' ? [{ path: 'tsconfig.solid.json', json: generateSolidCompilerTsConfig() } as FileEntry] : []),
   ];
 
   const client: FileEntry[] =
-    framework === 'vue'
+    framework === 'solid'
       ? [
-          { path: 'src/client/App.vue', content: generateAppVue() },
-          { path: 'src/client/HomePage.vue', content: generateHomePageVue() },
-          { path: 'src/client/StreamingPage.vue', content: generateStreamingPageVue() },
-          { path: 'src/client/entry-client.ts', content: generateEntryClientVue() },
-          { path: 'src/client/entry-server.ts', content: generateEntryServerVue() },
-          { path: 'src/client/vite-env.d.ts', content: generateViteEnvVue() },
-        ]
-      : [
-          { path: 'src/client/App.tsx', content: generateAppComponent() },
-          { path: 'src/client/entry-client.tsx', content: generateEntryClient() },
-          { path: 'src/client/entry-server.tsx', content: generateEntryServer() },
+          { path: 'src/client/App.tsx', content: generateAppComponentSolid() },
+          { path: 'src/client/renderId.ts', content: generateSolidRenderId() },
+          { path: 'src/client/entry-client.tsx', content: generateEntryClientSolid() },
+          { path: 'src/client/entry-server.tsx', content: generateEntryServerSolid() },
           { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
-        ];
+        ]
+      : framework === 'vue'
+        ? [
+            { path: 'src/client/App.vue', content: generateAppVue() },
+            { path: 'src/client/HomePage.vue', content: generateHomePageVue() },
+            { path: 'src/client/StreamingPage.vue', content: generateStreamingPageVue() },
+            { path: 'src/client/entry-client.ts', content: generateEntryClientVue() },
+            { path: 'src/client/entry-server.ts', content: generateEntryServerVue() },
+            { path: 'src/client/vite-env.d.ts', content: generateViteEnvVue() },
+          ]
+        : [
+            { path: 'src/client/App.tsx', content: generateAppComponent() },
+            { path: 'src/client/entry-client.tsx', content: generateEntryClient() },
+            { path: 'src/client/entry-server.tsx', content: generateEntryServer() },
+            { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
+          ];
 
   return [...shared, ...client];
 }
@@ -285,12 +367,12 @@ function generatePackageJson(projectName: string, framework: Framework) {
       type: 'module',
       scripts: {
         dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
-        'build:client': 'tsx build.ts',
-        'build:entry-server': 'cross-env BUILD_MODE=ssr tsx build.ts',
+        'build:client': 'cross-env NODE_ENV=production tsx build.ts',
+        'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
         'build:server':
           'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
         build:
-          'tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
+          'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
         start: 'cross-env NODE_ENV=production node dist/server/index.js',
         lint: 'vue-tsc --noEmit',
       },
@@ -306,10 +388,53 @@ function generatePackageJson(projectName: string, framework: Framework) {
         '@types/node': '^22.10.5',
         '@vitejs/plugin-vue': '^6.0.0',
         'cross-env': '^7.0.3',
+        // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
+        // of the generated project - it is not inherited from vite's own copy.
+        esbuild: '^0.25.0',
         tsx: '^4.19.3',
         typescript: '^5.7.3',
         vite: '^7.1.11',
         'vue-tsc': '^2.1.10',
+      },
+    };
+  }
+
+  if (framework === 'solid') {
+    return {
+      name: projectName,
+      version: '0.1.0',
+      private: true,
+      type: 'module',
+      scripts: {
+        dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
+        'build:client': 'cross-env NODE_ENV=production tsx build.ts',
+        'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
+        'build:server':
+          'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
+        build:
+          'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
+        start: 'cross-env NODE_ENV=production node dist/server/index.js',
+        lint: 'tsc --noEmit',
+      },
+      dependencies: {
+        '@taujs/server': 'latest',
+        '@taujs/solid': 'latest',
+        fastify: '^5.2.0',
+        'solid-js': '^1.9.0',
+      },
+      devDependencies: {
+        '@taujs/mcp': 'latest',
+        '@types/node': '^22.10.5',
+        'cross-env': '^7.0.3',
+        // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
+        // of the generated project - it is not inherited from vite's own copy.
+        esbuild: '^0.25.0',
+        tsx: '^4.19.3',
+        typescript: '^5.7.3',
+        vite: '^7.1.11',
+        // The managed compiler instantiates this internally with `ssr: true` forced; the app never
+        // adds it to `plugins` itself.
+        'vite-plugin-solid': '^2.11.0',
       },
     };
   }
@@ -321,12 +446,12 @@ function generatePackageJson(projectName: string, framework: Framework) {
     type: 'module',
     scripts: {
       dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
-      'build:client': 'tsx build.ts',
-      'build:entry-server': 'cross-env BUILD_MODE=ssr tsx build.ts',
+      'build:client': 'cross-env NODE_ENV=production tsx build.ts',
+      'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
       'build:server':
         'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
       build:
-        'tsx build.ts && cross-env BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
+        'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
       start: 'cross-env NODE_ENV=production node dist/server/index.js',
       lint: 'tsc --noEmit',
     },
@@ -344,6 +469,9 @@ function generatePackageJson(projectName: string, framework: Framework) {
       '@types/react-dom': '^19.0.2',
       '@vitejs/plugin-react': '^4.6.0',
       'cross-env': '^7.0.3',
+      // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
+      // of the generated project - it is not inherited from vite's own copy.
+      esbuild: '^0.25.0',
       tsx: '^4.19.3',
       typescript: '^5.7.3',
       vite: '^7.1.11',
@@ -370,8 +498,10 @@ function generateTsConfig(framework: Framework) {
       target: 'ES2022',
       module: 'ESNext',
       lib: ['ES2022', 'DOM', 'DOM.Iterable'],
-      // Vue SFCs are typed by vue-tsc; React needs the automatic JSX runtime.
+      // Vue SFCs are typed by vue-tsc; React needs the automatic JSX runtime; Solid PRESERVES JSX
+      // for its own Babel transform and types it through `solid-js`.
       ...(framework === 'react' ? { jsx: 'react-jsx' } : {}),
+      ...(framework === 'solid' ? { jsx: 'preserve', jsxImportSource: 'solid-js' } : {}),
       moduleResolution: 'bundler',
       resolveJsonModule: true,
       allowImportingTsExtensions: true,
@@ -399,9 +529,24 @@ function generateServerTsConfig() {
 }
 
 function generateTaujsConfig(framework: Framework) {
-  const pluginImport = framework === 'vue' ? `\nimport { pluginVue } from '@taujs/vue/plugin';` : '';
-  const pluginsLine = framework === 'vue' ? `\n      plugins: [pluginVue()],` : '';
-  return `import { defineConfig } from '@taujs/server/config';${pluginImport}
+  // Renderer v1: every app declares a REQUIRED singular `renderer:`. Vue supplies its compiler internally
+  // (no plugins entry); React declares its ownership tsconfig `project` (the root tsconfig covers src/**).
+  const rendererImport =
+    framework === 'vue'
+      ? `\nimport { vueRenderer } from '@taujs/vue/renderer';`
+      : framework === 'solid'
+        ? `\nimport { solidRenderer } from '@taujs/solid/renderer';`
+        : `\nimport { reactRenderer } from '@taujs/react/renderer';`;
+  // Solid declares the DISJOINT ownership project, never a raw managed compiler plugin: the
+  // renderer supplies `vite-plugin-solid` internally with `ssr: true` forced, and there is no
+  // option to override the transform mode.
+  const rendererLine =
+    framework === 'vue'
+      ? `\n      renderer: vueRenderer(),`
+      : framework === 'solid'
+        ? `\n      renderer: solidRenderer({ project: './tsconfig.solid.json' }),`
+        : `\n      renderer: reactRenderer({ project: './tsconfig.json' }),`;
+  return `import { defineConfig } from '@taujs/server/config';${rendererImport}
 
 export default defineConfig({
   server: {
@@ -418,7 +563,7 @@ export default defineConfig({
   apps: [
     {
       appId: 'main',
-      entryPoint: '',${pluginsLine}
+      entryPoint: '',${rendererLine}
       routes: [
         {
           path: '/',
@@ -1111,6 +1256,91 @@ export const { renderSSR, renderStream } = createRenderer({
 `;
 }
 
+function generateSolidCompilerTsConfig() {
+  // The Solid managed compiler's DISJOINT ownership project. It claims the client TSX and nothing
+  // else - deliberately not the root tsconfig, which also covers `src/server/**` and
+  // `taujs.config.ts`. `jsx: 'preserve'` hands JSX to Solid's Babel transform rather than
+  // TypeScript's.
+  return {
+    compilerOptions: {
+      jsx: 'preserve',
+      jsxImportSource: 'solid-js',
+    },
+    include: ['src/client/**/*.tsx'],
+  };
+}
+
+function generateSolidRenderId() {
+  return `/**
+ * The renderId is a SHARED constant: the server renders Solid's markers and serialised data under
+ * this namespace, and the client must hydrate under the SAME one. It is imported by BOTH entries
+ * on purpose - a literal duplicated in two files is a hydration bug waiting to happen.
+ */
+export const RENDER_ID = 'app';
+`;
+}
+
+function generateAppComponentSolid() {
+  return `import { Show } from 'solid-js';
+import { useSSRStore } from '@taujs/solid';
+
+type RouteData = { message?: string };
+
+export function App() {
+  // Route data arrives through the store, which the renderer provides. On the server it is already
+  // committed before the render begins; on the client it is seeded from window.__INITIAL_DATA__.
+  const store = useSSRStore<RouteData>();
+
+  return (
+    <main>
+      <h1>τjs + Solid</h1>
+      <Show when={store.data().message} fallback={<p>No route data.</p>}>
+        <p>{store.data().message}</p>
+      </Show>
+    </main>
+  );
+}
+`;
+}
+
+function generateEntryClientSolid() {
+  return `import { hydrateApp } from '@taujs/solid';
+
+import { App } from './App';
+import { RENDER_ID } from './renderId';
+
+hydrateApp({
+  app: () => <App />,
+  renderId: RENDER_ID,
+  rootElementId: 'root',
+  onHydrationError: (error) => {
+    console.error('Hydration failed:', error);
+  },
+});
+`;
+}
+
+function generateEntryServerSolid() {
+  return `import { createRenderer } from '@taujs/solid';
+
+import { App } from './App';
+import { RENDER_ID } from './renderId';
+
+export const { renderSSR, renderStream } = createRenderer({
+  appComponent: () => <App />,
+  renderId: RENDER_ID,
+  headContent: ({ data, meta }) => \`
+    <title>\${meta?.title || "τjs - Composing systems, not just apps"}</title>
+    <meta name="description" content="\${
+      meta?.description ||
+      data?.message ||
+      "τjs - Composing systems, not just apps"
+    }">
+  \`,
+});
+`;
+}
+
 function generateServerIndex() {
   return `import { createServer } from '@taujs/server';
 import config from '../../taujs.config.ts';
@@ -1146,7 +1376,15 @@ export type ServiceRegistry = typeof serviceRegistry;
 }
 
 function generateServiceTypesAugmentation() {
-  return `declare module '@taujs/server/config' {
+  // The leading import is REQUIRED, not stylistic. Without it TypeScript treats the block as an
+  // AMBIENT MODULE DECLARATION that REPLACES '@taujs/server/config' wholesale - so every real
+  // export disappears and `defineConfig` / `defineService` / `defineServiceRegistry` all report
+  // TS2305 "has no exported member", which in turn drops the route `data` callbacks to implicit
+  // `any` (TS7006). Importing the module first makes this a module AUGMENTATION, which extends the
+  // real one instead of shadowing it.
+  return `import '@taujs/server/config';
+
+declare module '@taujs/server/config' {
   interface ServiceContext {
     tenantId?: string;
   }

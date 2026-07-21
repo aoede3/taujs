@@ -9,6 +9,7 @@ import type { Writable } from 'node:stream';
 import type { LoggerLike } from './utils/Logger.js';
 
 import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming.js';
+import { brandRenderFunctions, VUE_RENDERER_KEY } from './renderContract.js';
 
 export type RenderCallbacks<T> = {
   /**
@@ -77,6 +78,10 @@ type StreamCallOptions<R> = StreamOptions & {
   // RFC 0004 (H6): broad at the contract boundary; narrowed to R/H at the internal seams.
   routeContext?: unknown;
   headData?: Record<string, unknown>;
+  // ESC-2: cspNonce delivered via opts (authoritative, replacing the removed positional arg);
+  // shouldHydrate is the host-resolved hydration policy.
+  cspNonce?: string;
+  shouldHydrate?: boolean;
 };
 
 const NOOP = () => {};
@@ -231,10 +236,11 @@ export function createRenderer<
     location: string,
     bootstrapModules?: string,
     meta: Record<string, unknown> = {},
-    cspNonce?: string,
     signal?: AbortSignal,
     opts?: StreamCallOptions<R>,
   ) => {
+    // ESC-2: cspNonce arrives via opts (authoritative), no longer a positional argument.
+    const cspNonce = opts?.cspNonce;
     const cb = {
       onHead: callbacks.onHead ?? NOOP,
       onShellReady: callbacks.onShellReady ?? NOOP,
@@ -490,5 +496,7 @@ export function createRenderer<
     };
   };
 
-  return { renderSSR, renderStream };
+  // Renderer v1: brand BOTH functions (function-level, survives the entry-server destructure); the host
+  // validates it against the app's `renderer: vueRenderer()` declaration before invoking either.
+  return brandRenderFunctions({ renderSSR, renderStream }, VUE_RENDERER_KEY);
 }

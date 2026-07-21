@@ -22,6 +22,7 @@ import {
   applyViteTransform,
 } from './Templates';
 import { serializeInlineData } from './InlineData';
+import { assertRenderContract, declaredContractOf, requireRendererContribution } from './RendererContract';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -160,6 +161,11 @@ export const handleRender = async (
       params,
     };
 
+    // ESC-2: the host-resolved hydration policy, computed ONCE and passed on BOTH render strategies (in
+    // opts.shouldHydrate). It also drives the host's operative hydration mechanism (the SSR bootstrap tag /
+    // the stream bootstrapModules gate) - one host-side source of truth.
+    const shouldHydrate = attr?.hydrate !== false;
+
     const config = processedConfigs.find((c) => c.appId === appId);
     if (!config) {
       throw AppError.internal('No configuration found for the request', {
@@ -191,6 +197,12 @@ export const handleRender = async (
         const entryServerFile = resolveEntryFile(clientRoot, entryServer);
         const entryServerPath = path.join(clientRoot, entryServerFile);
         const executedModule = await viteDevServer.ssrLoadModule(entryServerPath);
+
+        // Renderer v1: validate the dev-loaded module's identity against the app's renderer declaration
+        // BEFORE it is invoked for this request (prod modules are validated once at boot). `renderer:` is
+        // required and every renderer ships a render module - a missing/invalid one hard-errors here.
+        const contribution = requireRendererContribution(config.appId, config.renderer);
+        assertRenderContract(executedModule, declaredContractOf(contribution), { phase: 'dev', appId: config.appId, clientRoot });
         renderModule = executedModule as RenderModule;
 
         const styles = await collectStyle(viteDevServer, [entryServerPath]);
@@ -213,6 +225,9 @@ export const handleRender = async (
           if (cspNonce) template = addNonceToInlineScripts(template, cspNonce);
         }
       } catch (error) {
+        // Preserve a render-contract validation AppError's migration guidance rather than masking it as a
+        // generic dev-asset failure.
+        if (AppError.isAppError(error)) throw error;
         throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServer, url } });
       }
     } else {
@@ -355,6 +370,9 @@ export const handleRender = async (
           logger: reqLogger,
           routeContext,
           ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}),
+          // ESC-2: cspNonce + shouldHydrate are delivered on BOTH strategies (symmetric RenderOptions).
+          ...(cspNonce ? { cspNonce } : {}),
+          shouldHydrate,
         });
         headContent = res.headContent;
         appHtml = res.appHtml;
@@ -398,7 +416,6 @@ export const handleRender = async (
       if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
       if (manifest && cssLink) aggregateHeadContent += cssLink;
 
-      const shouldHydrate = attr?.hydrate !== false;
       const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
       // R0-04: single serialization boundary. On the SSR path a failure is inside the request
       // try/catch, so throw into the existing 500 machinery (valid-data output is unchanged).
@@ -487,8 +504,6 @@ export const handleRender = async (
 
       ctx.signal = ac.signal; // R1-01: propagate into the data context before renderStream fetches it
 
-      const shouldHydrate = attr?.hydrate !== false;
-
       const writable = new PassThrough();
       writable.on('error', (err) => {
         if (!isBenignSocketError(err)) logger.error({ error: err }, 'PassThrough error:');
@@ -573,15 +588,15 @@ export const handleRender = async (
             // introspection-owned, conventions #3). Never fails the response.
             //
             // Log at `warn`, not `error`: this channel is advisory by contract. Only `post-shell`
-            // errors are provably recoverable (React retries the boundary client-side); a
-            // `pre-shell` error's fatality is resolved by the SEPARATE fatal channel
+            // errors are provably recoverable (the renderer's client runtime completes the affected
+            // boundary); a `pre-shell` error's fatality is resolved by the SEPARATE fatal channel
             // (`onError`/`onShellError`), which logs the real failure at `error` if it fails the
             // response. Keying the message on `recoverable` avoids claiming "Recoverable" for a
             // pre-shell error that then turns fatal (which previously double-logged at `error` with
-            // contradictory framing).
+            // contradictory framing). ESC-2: framework-neutral wording (the host is multi-renderer).
             const message =
               info.recoverable === true
-                ? 'Recoverable render error (React retries the affected boundary client-side)'
+                ? 'Recoverable render error (the client runtime completes the affected boundary)'
                 : 'Render error observed (pre-shell); response outcome resolved by the fatal channel';
             reqLogger.warn({ error: safeNormaliseError(info.error), phase: info.phase, recoverable: info.recoverable, clientRoot, url: req.url }, message);
           },
@@ -643,12 +658,20 @@ export const handleRender = async (
         },
         initialDataInput,
         req.url!,
+        // The bootstrapModules gate stays the operative hydration mechanism; the host keeps it consistent
+        // with the same `shouldHydrate` it now also passes explicitly in opts (one host-side source).
         shouldHydrate ? bootstrapModule : undefined,
         attr?.meta,
-        cspNonce,
         ac.signal,
-        // RFC 0004: conditional inclusion - see the renderSSR call site.
-        { logger: reqLogger, routeContext, ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}) },
+        // ESC-2: cspNonce is now opts-authoritative (was a positional argument); shouldHydrate is the
+        // host-resolved policy. RFC 0004: headData conditional inclusion - see the renderSSR call site.
+        {
+          logger: reqLogger,
+          routeContext,
+          ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}),
+          ...(cspNonce ? { cspNonce } : {}),
+          shouldHydrate,
+        },
       );
 
       // R0-01: observe the stream handle's `done`. Fatal stream errors are already fully handled

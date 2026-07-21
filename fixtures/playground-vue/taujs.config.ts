@@ -1,20 +1,12 @@
-import type { PluginOption } from 'vite';
-
 import { defineConfig } from '@taujs/server/config';
-import { pluginVue } from '@taujs/vue/plugin';
+import { vueRenderer } from '@taujs/vue/renderer';
 
 import { serviceData } from './src/server/services/registry.ts';
 
-// Workspace-only type shim: pnpm resolves two nominal `vite` type identities here because
-// @taujs/vue builds @vitejs/plugin-vue against @types/node 22 while @taujs/server is built
-// against @types/node 20, so pluginVue()'s `PluginOption` is not identical to the one this
-// config's `plugins` field expects. Runtime is unaffected, and a published scaffold — which
-// has a single @types/node — never sees it. Cast bridges the two identities.
-const vuePlugin = pluginVue() as unknown as PluginOption;
-
 // The Vue twin of fixtures/playground: one bootable app that exercises @taujs/vue end to end
 // against the workspace package (no publish needed). `/` is ssr, `/streaming` is streaming SSR;
-// both hydrate. pluginVue is the load-bearing difference — Vue SFCs need it in dev and build.
+// both hydrate. vueRenderer is the load-bearing difference — it supplies pluginVue, which Vue
+// SFCs need in dev and build.
 export default defineConfig({
   server: {
     port: 5273,
@@ -25,7 +17,7 @@ export default defineConfig({
     {
       appId: 'playground-vue',
       entryPoint: '',
-      plugins: [vuePlugin],
+      renderer: vueRenderer(),
       routes: [
         {
           path: '/',

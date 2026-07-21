@@ -1,34 +1,22 @@
 /**
- * NOTE:
- * `@vitejs/plugin-react` is a **peer dependency only**.
+ * `@taujs/react/plugin` - the raw, portable React Vite plugin surface.
  *
- * It is intentionally NOT installed as a dependency to avoid
- * coupling τjs to a specific Vite toolchain or React refresh implementation.
+ * `@vitejs/plugin-react` is a **peer dependency only**: intentionally NOT installed as a dependency to
+ * avoid coupling τjs to a specific Vite toolchain or React-refresh implementation. Consumers using
+ * `@taujs/react/plugin` install `@vitejs/plugin-react` themselves.
  *
- * Consumers using `@taujs/react/plugin` must install `@vitejs/plugin-react`
- * in their own project.
+ * `pluginReact()` is the raw React plugin pack, unchanged for single-framework/standalone use (real Vite
+ * plugins, no `@taujs/server` needed). Its plugin objects carry a non-enumerable "unscoped compiler" tag
+ * ONLY so the τjs host can detect a raw JSX compiler running chain-globally alongside managed ownership (a
+ * hard error). For multi-framework τjs apps declare `renderer: reactRenderer(...)` (`@taujs/react/renderer`)
+ * instead - the host computes each framework's scope and constructs the real plugin.
  */
 import react from '@vitejs/plugin-react';
-import type { Plugin, PluginOption } from 'vite';
 
-function taujsReactPreambleFix(): Plugin {
-  return {
-    name: 'taujs:react-refresh-preamble-fix',
-    apply: 'serve',
-    enforce: 'post',
-    transformIndexHtml(html) {
-      if (html.includes('__vite_plugin_react_preamble_installed__')) return html;
+import { REACT_KEY, tagUnscopedCompiler, taujsReactPreambleFix } from './compiler/reactCompiler.js';
 
-      if (!html.includes('/@react-refresh')) return html;
-
-      return html.replace(
-        /<head([^>]*)>/i,
-        `<head$1><script>window.__vite_plugin_react_preamble_installed__=true;window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>(t)=>t;</script>`,
-      );
-    },
-  };
-}
+import type { PluginOption } from 'vite';
 
 export function pluginReact(opts?: Parameters<typeof react>[0]): PluginOption {
-  return [react(opts), taujsReactPreambleFix()];
+  return tagUnscopedCompiler([react(opts), taujsReactPreambleFix()], REACT_KEY);
 }

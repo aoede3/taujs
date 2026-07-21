@@ -39,15 +39,37 @@ const toError = (err: unknown): Error => {
  * pages must not observe a diff). U+2028/U+2029 are legal in ES2019+ string literals and pass
  * through unescaped.
  *
- * `__proto__` note (RFC SEC4): the inline script is emitted as a JS OBJECT LITERAL
- * (`window.__INITIAL_DATA__ = { ... }`), and a quoted `"__proto__":` key in an object literal
- * SETS THE CREATED OBJECT'S PROTOTYPE (ES Annex B.3.1), it does not add an own property. So a
- * `__proto__` DATA key lands on the initial-data object's prototype (reachable via the prototype
- * chain, with no own `__proto__` property) — it does NOT pollute the global `Object.prototype`,
- * but its shape differs between server (own key) and client (prototype). Removing that drift
- * (recursively rejecting `__proto__`, or emitting via `JSON.parse("…")`) is a data-contract
- * change, deferred with the nested-value handling above. Behaviour is unchanged from before R0-04.
+ * `__proto__` (ESC-3, RFC SEC4): FIXED. Previously the payload was ALWAYS emitted as a JS OBJECT
+ * LITERAL (`window.__INITIAL_DATA__ = { ... }`), where a quoted `"__proto__":` key SETS THE
+ * CREATED OBJECT'S PROTOTYPE (ES Annex B.3.1) instead of adding an own property. That never
+ * polluted the global `Object.prototype`, but the client value's SHAPE differed from the server's
+ * (own key on the server, prototype on the client) — semantic drift in the shared serializer,
+ * found by S0-C2 and ruled a FIX (not a rejection) by the ESC-0 ruling.
+ *
+ * The fix is REPRESENTATIONAL, not a data-contract change: when (and only when) the payload
+ * contains `__proto__` anywhere, the value is emitted as `JSON.parse("…")`. `JSON.parse` uses
+ * CreateDataProperty, so `__proto__` round-trips as an ORDINARY OWN DATA PROPERTY at every depth,
+ * the object's prototype stays `Object.prototype`, and the global prototype is untouched. Every
+ * other payload keeps the object-literal form and is BYTE-IDENTICAL to before, so ordinary
+ * responses and cached pages observe no diff.
+ *
+ * The trigger is a substring test for the QUOTED token `"__proto__"` in the JSON text. Because the
+ * token includes both quotes, it matches exactly two things:
+ *   - a property KEY named `__proto__` (at any depth) — the case that must be fixed; and
+ *   - a string VALUE exactly equal to `__proto__` — a harmless false positive.
+ * It does NOT match a string that merely mentions `__proto__` among other text (`"the __proto__
+ * key"` has no quote adjacent to the token), and it does not need to: such a value is an ordinary
+ * string and the object-literal form already round-trips it correctly.
+ *
+ * So the trigger is narrow, not "conservative over-matching": its only false positive is the exact
+ * string `"__proto__"`. That is deliberate and safe, because both emission forms are semantically
+ * identical for every input — over-triggering costs a few bytes, under-triggering would reintroduce
+ * the drift. A substring test is also far more auditable than parsing the JSON to tell keys from
+ * values. Breakout safety is unchanged: `<` is escaped in both forms, and inside the `JSON.parse`
+ * string literal `<` is an ordinary escape that yields `<` after parsing.
  */
+const PROTO_KEY_MARKER = '"__proto__"';
+
 export const serializeInlineData = (value: unknown): SerializedInlineData => {
   try {
     const json = JSON.stringify(value);
@@ -55,6 +77,13 @@ export const serializeInlineData = (value: unknown): SerializedInlineData => {
     // representable value for inline injection.
     if (json === undefined) {
       return { ok: false, error: new Error('Value is not JSON-serializable (JSON.stringify returned undefined)') };
+    }
+
+    // ESC-3: a `__proto__` KEY at any depth (or the exact string value `"__proto__"`) — emit via
+    // `JSON.parse` so it round-trips as an own data property instead of setting the created
+    // object's prototype.
+    if (json.includes(PROTO_KEY_MARKER)) {
+      return { ok: true, js: `JSON.parse(${JSON.stringify(json).replace(/</g, '\\u003c')})` };
     }
 
     return { ok: true, js: json.replace(/</g, '\\u003c') };

@@ -470,7 +470,7 @@ describe('createRenderer.renderStream', () => {
       headContent: () => '<head/>',
     });
 
-    const r = renderStream(writable as any, {}, {}, '/sig', undefined, {}, undefined, ac.signal);
+    const r = renderStream(writable as any, {}, {}, '/sig', undefined, {}, ac.signal);
     expect(RDS.renderToPipeableStream).not.toHaveBeenCalled();
     await expect(r.done).resolves.toBeUndefined();
 
@@ -488,7 +488,7 @@ describe('createRenderer.renderStream', () => {
       headContent: () => '<head/>',
     });
 
-    const r = renderStream(writable as any, {}, {}, '/later', undefined, {}, undefined, ac.signal);
+    const r = renderStream(writable as any, {}, {}, '/later', undefined, {}, ac.signal);
     ac.abort();
     await expect(r.done).resolves.toBeUndefined();
 
@@ -506,7 +506,7 @@ describe('createRenderer.renderStream', () => {
       headContent: () => '<head/>',
     });
 
-    const r = renderStream(writable as any, {}, {}, '/aborted-early', undefined, {}, undefined, ac.signal);
+    const r = renderStream(writable as any, {}, {}, '/aborted-early', undefined, {}, ac.signal);
 
     // controller.benignAbort called once by handleAbortSignal
     const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;
@@ -560,7 +560,6 @@ describe('createRenderer.renderStream', () => {
       undefined,
       {},
       undefined,
-      undefined,
       { shellTimeoutMs: 1 }, // override
     );
 
@@ -598,7 +597,7 @@ describe('createRenderer.renderStream', () => {
       headContent: () => '<head/>',
     });
 
-    renderStream(writable as any, {}, {}, '/later', undefined, {}, undefined, ac.signal);
+    renderStream(writable as any, {}, {}, '/later', undefined, {}, ac.signal);
 
     // Grab the function registered via controller.setRemoveAbortListener(...)
     const ctrl = (Streaming.createStreamController as any).mock.results.at(-1)!.value;

@@ -21,6 +21,7 @@ import { createUILogger } from './utils/Logger.js';
 import type { LoggerLike } from './utils/Logger.js';
 
 import { createStreamController, startShellTimer, wireWritableGuards } from './utils/Streaming.js';
+import { brandRenderFunctions, REACT_RENDERER_KEY } from './renderContract.js';
 
 /**
  * R1-01: structured, NON-FATAL render-error observation.
@@ -120,6 +121,10 @@ type StreamCallOptions<R> = StreamOptions & {
   // RFC 0004 (H2): BROAD at the contract boundary (the host cannot know `H`); narrowed to `H` at
   // the single seam where `headContent` is invoked — the same trust model as the body data.
   headData?: Record<string, unknown>;
+  // ESC-2: cspNonce is now delivered via opts (authoritative, replacing the removed positional arg);
+  // shouldHydrate is the host-resolved hydration policy. Keeps this in step with the host RenderOptions.
+  cspNonce?: string;
+  shouldHydrate?: boolean;
 };
 
 const NOOP = () => {};
@@ -300,10 +305,11 @@ export function createRenderer<
     location: string,
     bootstrapModules?: string,
     meta: Record<string, unknown> = {},
-    cspNonce?: string,
     signal?: AbortSignal,
     opts?: StreamCallOptions<R>, // per-call override
   ) => {
+    // ESC-2: cspNonce arrives via opts (authoritative), no longer a positional argument.
+    const cspNonce = opts?.cspNonce;
     const cb = {
       onHead: callbacks.onHead ?? NOOP,
       onShellReady: callbacks.onShellReady ?? NOOP,
@@ -655,5 +661,8 @@ export function createRenderer<
     };
   };
 
-  return { renderSSR, renderStream };
+  // Renderer v1: stamp the render-module identity brand on BOTH functions (function-level so it survives
+  // the scaffold's `export const { renderSSR, renderStream } = createRenderer(...)` destructure). The host
+  // validates it against the app's `renderer: reactRenderer(...)` declaration before invoking either.
+  return brandRenderFunctions({ renderSSR, renderStream }, REACT_RENDERER_KEY);
 }

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { resolveDevViteConfig } from '../utils/ViteMergeEngine';
+import { testRenderer } from './support/renderer';
 import type { TaujsViteConfig, TaujsViteContext, TaujsViteOverride } from '../ViteConfig';
 
 const hoisted = vi.hoisted(() => ({
@@ -30,6 +31,14 @@ const hoisted = vi.hoisted(() => ({
 vi.mock('vite', () => ({
   createServer: hoisted.createServerMock,
   build: hoisted.buildMock,
+}));
+
+// taujsBuild.deleteDist() does a REAL `rm(<projectRoot>/dist)` and this test passes
+// projectRoot=process.cwd() (packages/server) - stub `rm` so it cannot delete the package's own built
+// dist that dependent packages resolve at test time. Keep the rest of fs/promises real.
+vi.mock('node:fs/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs/promises')>()),
+  rm: vi.fn(async () => {}),
 }));
 
 vi.mock('../logging/Logger', () => ({
@@ -94,6 +103,7 @@ async function runBuild(viteOverride?: TaujsViteOverride) {
       entryServer: 'entry-server',
       htmlTemplate: 'index.html',
       plugins: [],
+      renderer: testRenderer(),
     },
   ];
   vi.mocked(setup.extractBuildConfigs).mockReturnValue(apps as any);

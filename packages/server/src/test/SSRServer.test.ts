@@ -158,6 +158,7 @@ import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
 import { composePlugins } from '../utils/VitePlugins';
 import { printVitePluginSummary } from '../Setup';
+import { testRenderer } from './support/renderer';
 
 describe('SSRServer', () => {
   let app: FastifyInstance;
@@ -190,7 +191,7 @@ describe('SSRServer', () => {
 
     await app.register(SSRServer, {
       alias: {},
-      configs: [{ appId: 'a', entryPoint: '.' }],
+      configs: [{ appId: 'a', entryPoint: '.', renderer: testRenderer() }],
       routes: [{ path: '/*' }],
       serviceRegistry: {},
       clientRoot: '/client',
@@ -323,7 +324,7 @@ describe('SSRServer', () => {
   it('does not require serviceRegistry option', async () => {
     await app.register(SSRServer, {
       alias: {},
-      configs: [{ appId: 'a', entryPoint: '.' }],
+      configs: [{ appId: 'a', entryPoint: '.', renderer: testRenderer() }],
       routes: [{ path: '/*' }],
       clientRoot: '/client',
       debug: false,
@@ -761,10 +762,12 @@ describe('SSRServer', () => {
           appId: 'app-a',
           entryPoint: '.',
           plugins: [pluginArrayOption, namedPlugin, unnamedObject, pluginFn, falsyPlugin, nullPlugin],
+          renderer: testRenderer(),
         },
         {
           appId: 'app-b',
           entryPoint: '.',
+          renderer: testRenderer(),
         },
       ],
     } as any);
@@ -775,8 +778,12 @@ describe('SSRServer', () => {
       expect.objectContaining({
         internal: [],
         sources: [
+          // ESC-1: each app source now carries its RAW plugins as a concrete array (managed
+          // contributions are extracted in the pre-pass; an app with no plugins yields [] not
+          // undefined). composePlugins treats [] and undefined identically, so the composed list is
+          // unchanged - a functional no-op when no managed contribution is declared.
           { source: 'app-a', plugins: [pluginArrayOption, namedPlugin, unnamedObject, pluginFn, falsyPlugin, nullPlugin] },
-          { source: 'app-b', plugins: undefined },
+          { source: 'app-b', plugins: [] },
         ],
         onCollision: expect.any(Function),
         onReservedPrefix: expect.any(Function),
@@ -824,7 +831,7 @@ describe('SSRServer', () => {
       clientRoot: '/client',
       routes: [],
       debug: false,
-      configs: [{ appId: 'app-a', entryPoint: '.', plugins: [{ name: 'app-plugin' }] }],
+      configs: [{ appId: 'app-a', entryPoint: '.', plugins: [{ name: 'app-plugin' }], renderer: testRenderer() }],
       taujsConfig: { apps: [], vite: viteFn },
     } as any);
 

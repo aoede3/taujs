@@ -24,7 +24,9 @@ export type ExtractRoutesResult = {
 };
 
 export const extractBuildConfigs = <A extends CoreAppConfig = CoreAppConfig>(config: { apps: readonly A[] }): A[] => {
-  return config.apps.map(({ appId, entryPoint, plugins }) => ({ appId, entryPoint, plugins })) as A[];
+  // Renderer v1: `renderer` is picked alongside {appId, entryPoint, plugins} so the app's contribution
+  // survives into the build carriage (it is dropped if omitted from this projection).
+  return config.apps.map(({ appId, entryPoint, plugins, renderer }) => ({ appId, entryPoint, plugins, renderer })) as A[];
 };
 
 export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult => {

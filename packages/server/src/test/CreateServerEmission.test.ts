@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+import { testRenderer } from './support/renderer';
+
 import type { TaujsConfig } from '../Config';
 
 // Evaluation counter proves the acceptance criterion directly: in production the
@@ -28,7 +30,7 @@ vi.mock('../network/CLI', () => ({
 }));
 
 const config: TaujsConfig = {
-  apps: [{ appId: 'web', entryPoint: 'web', routes: [{ path: '/', attr: { render: 'ssr' } }] }],
+  apps: [{ appId: 'web', entryPoint: 'web', renderer: testRenderer(), routes: [{ path: '/', attr: { render: 'ssr' } }] }],
 };
 
 const mkApp = () =>

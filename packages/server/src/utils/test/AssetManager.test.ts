@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ENTRY_EXTENSIONS, TEMPLATE } from '../../constants';
+import { testRenderer } from '../../test/support/renderer';
 
 const hoisted = vi.hoisted(() => ({
   // fs
@@ -61,8 +62,18 @@ vi.mock('../../core/errors/AppError', () => {
   return { AppError };
 });
 
-// Used by dynamic import in production success case
-vi.mock('/virtual/render-ok.js', () => ({ renderSSR: () => 'ok', renderStream: () => 'ok' }));
+// Used by dynamic import in production success case. Renderer v1: the host now VALIDATES the loaded module
+// against the app's declared renderer (key 'test' here, matching testRenderer()), so the render-fn doubles
+// must carry the render-contract brand. (vi.mock is hoisted, so the brand is applied inline in the factory
+// rather than via the support helper.)
+vi.mock('/virtual/render-ok.js', () => {
+  const TAG = Symbol.for('taujs.render-contract/v1');
+  const brand = (fn: any) => {
+    Object.defineProperty(fn, TAG, { value: { key: 'test', contractVersion: 'v1' }, enumerable: false });
+    return fn;
+  };
+  return { renderSSR: brand(() => 'ok'), renderStream: brand(() => 'ok') };
+});
 
 async function importer(isDev: boolean) {
   vi.resetModules();
@@ -368,6 +379,7 @@ describe('loadAssets (production)', () => {
         htmlTemplate: 'index.html',
         appId: 'a',
         plugins: [],
+        renderer: testRenderer(),
       },
     ];
 
@@ -489,6 +501,7 @@ describe('loadAssets (production)', () => {
         htmlTemplate: 'index.html',
         appId: 'a',
         plugins: [],
+        renderer: testRenderer(),
       },
     ];
 
@@ -603,6 +616,7 @@ describe('loadAssets (production)', () => {
         htmlTemplate: 'index.html',
         appId: 'root',
         plugins: [],
+        renderer: testRenderer(),
       },
     ];
 

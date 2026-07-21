@@ -46,8 +46,8 @@ export interface InitialRouteParams extends Record<string, unknown> {
 /**
  * Structured, NON-FATAL render-error observation (R1-01). `phase` is the OBSERVED timing (had the
  * shell committed when the renderer surfaced the error) — descriptive only, never a fatality
- * signal. `recoverable` is `true` only for `post-shell` errors (React recovers them client-side)
- * and `'unknown'` for `pre-shell` (outcome resolved by the fatal channels).
+ * signal. `recoverable` is `true` only for `post-shell` errors (the renderer's client runtime completes
+ * the affected boundary) and `'unknown'` for `pre-shell` (outcome resolved by the fatal channels).
  */
 export type RenderErrorInfo = {
   error: unknown;
@@ -108,6 +108,28 @@ export type RendererLogger = {
 type _AssertExtends<T extends RendererLogger> = T;
 type _LogsConformsToRendererLogger = _AssertExtends<Logs>;
 
+/**
+ * ESC-2 (RFC 0006): the named render-options bag shared by {@link RenderSSR} + {@link RenderStream} - the
+ * single home for per-render metadata, superseding the two identical inline `{ logger, routeContext,
+ * headData }` bags.
+ *
+ * - `cspNonce` is AUTHORITATIVE when present: it replaces the removed positional stream argument (the host
+ *   derives the request nonce once and passes it here on the streaming path).
+ * - `shouldHydrate` is the host-RESOLVED hydration policy (`attr.hydrate !== false`). The host keeps its
+ *   operative hydration mechanism consistent with it (the stream `bootstrapModules` gate; the SSR bootstrap
+ *   tag), so a renderer may treat `shouldHydrate` as the authoritative declaration without a second source
+ *   of truth.
+ *
+ * Both fields are optional and additive - a renderer that ignores them behaves exactly as before.
+ */
+export type RenderOptions = {
+  logger?: RendererLogger;
+  routeContext?: unknown;
+  headData?: Record<string, unknown>;
+  cspNonce?: string;
+  shouldHydrate?: boolean;
+};
+
 export type RenderSSR = (
   initialDataResolved: Record<string, unknown>,
   location: string,
@@ -117,7 +139,7 @@ export type RenderSSR = (
   // route declares none, or when the head degraded under the signed policy). BROAD at this
   // boundary by design - the host stores heterogeneous render modules and cannot know a route's
   // `H`; the renderer narrows at its own internal seam (the same trust model as the body data).
-  opts?: { logger?: RendererLogger; routeContext?: unknown; headData?: Record<string, unknown> },
+  opts?: RenderOptions,
 ) => Promise<{
   headContent: string;
   appHtml: string;
@@ -151,10 +173,11 @@ export type RenderStream = (
   location: string,
   bootstrapModules?: string,
   meta?: Record<string, unknown>,
-  cspNonce?: string,
   signal?: AbortSignal,
-  // RFC 0004 (H1): see RenderSSR's `headData` note - resolved pre-shell, broad at this boundary.
-  opts?: { logger?: RendererLogger; routeContext?: unknown; headData?: Record<string, unknown> },
+  // ESC-2: `cspNonce` moved from a positional argument here into `opts.cspNonce` (authoritative when
+  // present); `opts` also carries the resolved `shouldHydrate` policy. `headData` note: RFC 0004 (H1) -
+  // resolved pre-shell, broad at this boundary.
+  opts?: RenderOptions,
 ) => RenderStreamHandle;
 
 export type RenderModule = {
@@ -169,6 +192,9 @@ export type Config<P = unknown> = {
   entryServer?: string;
   htmlTemplate?: string;
   plugins?: readonly P[];
+  // Renderer v1: the app's opaque renderer contribution, carried as a single scalar (NOT the plugin `P`
+  // array generic). The host reads it structurally in the pre-pass + at render-module load.
+  renderer?: unknown;
 };
 
 export type ProcessedConfig<P = unknown> = {
@@ -179,4 +205,5 @@ export type ProcessedConfig<P = unknown> = {
   entryServer: string;
   htmlTemplate: string;
   plugins?: readonly P[];
+  renderer?: unknown;
 };

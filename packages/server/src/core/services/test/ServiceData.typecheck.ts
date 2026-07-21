@@ -1,4 +1,5 @@
 import { createServiceData, defineConfig, defineService, defineServiceRegistry, getServiceDataMetadata } from '../../../Config';
+import { testRenderer } from '../../../test/support/renderer';
 
 import type { ServiceDataMetadata } from '../../../Config';
 
@@ -35,6 +36,7 @@ const config = defineConfig({
     {
       appId: 'storefront',
       entryPoint: 'storefront',
+      renderer: testRenderer(),
       routes: [
         { path: '/product/:id', attr: { render: 'ssr', data: withMapper } },
         { path: '/specials', attr: { render: 'streaming', meta: {}, data: passthrough } },

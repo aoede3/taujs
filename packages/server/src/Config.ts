@@ -10,6 +10,7 @@ import type {
 } from './core/config/types';
 import type { CSPDirectives } from './security/CSP';
 import type { CSPViolationReport } from './security/CSPReporting';
+import type { TaujsRendererContribution } from './utils/RendererContract';
 import type { TaujsViteOverride } from './ViteConfig';
 
 export type SecurityConfig = CoreSecurityConfig & {
@@ -26,6 +27,13 @@ export type SecurityConfig = CoreSecurityConfig & {
 };
 
 export type AppConfig = CoreAppConfig & {
+  // Renderer v1 (RFC 0006): every app declares a REQUIRED singular `renderer:` - an opaque branded
+  // contribution from `reactRenderer()` or `vueRenderer()`. It carries the framework's compiler (scoped
+  // JSX ownership for React; a fresh plugin pack for Vue) and the render-module contract the host validates
+  // the entry-server against.
+  renderer: TaujsRendererContribution;
+  // Ordinary user Vite plugins ONLY. Framework compilers no longer ride here - they belong on `renderer:`;
+  // a managed/renderer contribution found in `plugins` is a hard configuration error.
   plugins?: PluginOption[];
   routes?: readonly AppRoute[];
 };
@@ -68,6 +76,12 @@ export type { HeadAttributes, HeadDataOf, ServiceDataHandler } from './core/conf
 // alongside `defineConfig`/`TaujsConfig`) so the `vite.shared.ts satisfies TaujsViteConfig` recipe
 // resolves from the same place users import `defineConfig`.
 export type { TaujsOptimizeDeps, TaujsViteConfig, TaujsViteContext, TaujsViteOverride } from './ViteConfig';
+
+// Renderer v1: the ONE new public application concept - the opaque renderer contribution declared on
+// `AppConfig.renderer`. The renderer-AUTHOR contract (the internal shapes the first-party renderer
+// packages implement - CompilerImpl/PreparedPlan/ManagedContributionShape/the brands) lives on the
+// separate `@taujs/server/renderer` entry, NOT here; application code only ever sees this opaque type.
+export type { TaujsRendererContribution } from './utils/RendererContract';
 
 export { AppError } from './core/errors/AppError';
 

@@ -6,6 +6,7 @@
 // (tsc); the `.test-d.ts` suffix is outside vitest's spec glob so it never runs as a test.
 // Invariant-`Equal` (not mere assignability) is used where width-subtyping could fake a pass.
 import { defineConfig } from '../Config';
+import { testRenderer } from './support/renderer';
 
 import type { TaujsOptimizeDeps, TaujsViteConfig, TaujsViteContext, TaujsViteOverride } from '../ViteConfig';
 
@@ -104,18 +105,18 @@ void [_entries, _noDiscovery, _force, _disabled];
 
 // ── `defineConfig({ vite })` accepts BOTH static and function forms ───────────────────────────────
 const _staticForm = defineConfig({
-  apps: [{ appId: 'main', entryPoint: '', routes: [] }],
+  apps: [{ appId: 'main', entryPoint: '', routes: [], renderer: testRenderer() }],
   vite: { plugins: [], define: { __APP__: '1' } },
 });
 
 const _functionForm = defineConfig({
-  apps: [{ appId: 'main', entryPoint: '', routes: [] }],
+  apps: [{ appId: 'main', entryPoint: '', routes: [], renderer: testRenderer() }],
   vite: (c) => ({ logLevel: c.command === 'build' && c.isSSRBuild ? 'silent' : 'info' }),
 });
 
 // And the declarative top-level `alias` is accepted.
 const _aliasForm = defineConfig({
-  apps: [{ appId: 'main', entryPoint: '', routes: [] }],
+  apps: [{ appId: 'main', entryPoint: '', routes: [], renderer: testRenderer() }],
   alias: { '@components': './src/client/shared/components' },
 });
 

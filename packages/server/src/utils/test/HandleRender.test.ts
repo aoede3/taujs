@@ -9,6 +9,7 @@ import * as Templates from '../Templates';
 import * as Telemetry from '../Telemetry';
 import { handleRender } from '../HandleRender';
 import { createLogger } from '../../logging/Logger';
+import { testRenderer, brandedRenderModule } from '../../test/support/renderer';
 
 import type { Mock } from 'vitest';
 
@@ -216,6 +217,9 @@ describe('handleRender', () => {
         appId: 'test-app',
         clientRoot: '/test/client',
         entryServer: 'entry-server.tsx',
+        // Renderer v1: `renderer:` is required; the dev path validates the loaded module against it (key
+        // 'test' - dev render-module doubles are branded via brandedRenderModule('test', ...)).
+        renderer: testRenderer(),
       },
     ];
 
@@ -751,7 +755,7 @@ describe('handleRender', () => {
 
       const renderSSR = vi.fn().mockRejectedValue(new Error('boom'));
       const viteDevServer = {
-        ssrLoadModule: vi.fn().mockResolvedValue({ renderSSR }),
+        ssrLoadModule: vi.fn().mockResolvedValue(brandedRenderModule('test', { renderSSR })),
         transformIndexHtml: vi.fn().mockResolvedValue('<html><head></head><body></body></html>'),
       } as any;
 
@@ -855,7 +859,7 @@ describe('handleRender', () => {
         throw 'aborted'; // string, no .message -> exercises the "?? err" reason extraction
       });
       const viteDevServer = {
-        ssrLoadModule: vi.fn().mockResolvedValue({ renderSSR }),
+        ssrLoadModule: vi.fn().mockResolvedValue(brandedRenderModule('test', { renderSSR })),
         transformIndexHtml: vi.fn().mockResolvedValue('<html><head></head><body></body></html>'),
       } as any;
 
@@ -888,7 +892,7 @@ describe('handleRender', () => {
 
       const renderSSR = vi.fn().mockRejectedValue(undefined); // triggers ?? ''
       const viteDevServer = {
-        ssrLoadModule: vi.fn().mockResolvedValue({ renderSSR }),
+        ssrLoadModule: vi.fn().mockResolvedValue(brandedRenderModule('test', { renderSSR })),
         transformIndexHtml: vi.fn().mockResolvedValue('<html><head></head><body></body></html>'),
       } as any;
 
@@ -1031,7 +1035,8 @@ describe('handleRender', () => {
       expect(mockRenderStream).toHaveBeenCalled();
 
       const call = mockRenderStream.mock.calls[0] as any[];
-      const options = call[8];
+      // ESC-2: positional cspNonce removed, so opts shifted from index 8 to 7.
+      const options = call[7];
 
       expect(options).toEqual(
         expect.objectContaining({
@@ -1056,6 +1061,67 @@ describe('handleRender', () => {
           },
         }),
       );
+    });
+
+    // ESC-2: cspNonce + shouldHydrate are the symmetric RenderOptions - computed ONCE by the host and
+    // delivered in `opts` on BOTH strategies (renderSSR opts index 4, renderStream opts index 7).
+    it('ESC-2 symmetry (SSR): renderSSR opts carry cspNonce + shouldHydrate', async () => {
+      (mockReq as any).cspNonce = 'esc2-nonce';
+
+      const mockRoute = createMockRouteMatch({ render: 'ssr' }); // hydrate defaults to true
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
+
+      const mockRenderModule = {
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }),
+      };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // renderSSR(data, url, meta, signal, opts) - opts is the 5th arg (index 4).
+      const opts = (mockRenderModule.renderSSR as Mock).mock.calls[0]![4];
+      expect(opts).toEqual(expect.objectContaining({ cspNonce: 'esc2-nonce', shouldHydrate: true }));
+    });
+
+    it('ESC-2 symmetry (streaming): renderStream opts carry cspNonce + shouldHydrate', async () => {
+      (mockReq as any).cspNonce = 'esc2-nonce';
+
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        writable.on = vi.fn((event: string, handler: any) => {
+          if (event === 'finish') handler();
+        });
+        callbacks.onHead?.('<title>Stream</title>');
+        callbacks.onShellReady?.();
+        callbacks.onAllReady?.({});
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // renderStream opts is index 7 (positional cspNonce removed in ESC-2).
+      const opts = (mockRenderStream.mock.calls[0] as any[])[7];
+      expect(opts).toEqual(expect.objectContaining({ cspNonce: 'esc2-nonce', shouldHydrate: true }));
     });
 
     it('should unsubscribe aborted listener on reply finish in streaming mode', async () => {
@@ -1126,9 +1192,9 @@ describe('handleRender', () => {
         afterBody: '</body></html>',
       });
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }),
-      });
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(
+        brandedRenderModule('test', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) }),
+      );
 
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
@@ -1157,9 +1223,9 @@ describe('handleRender', () => {
         afterBody: '</body></html>',
       });
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }),
-      });
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(
+        brandedRenderModule('test', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) }),
+      );
 
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
@@ -2120,13 +2186,15 @@ describe('handleRender', () => {
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>');
       vi.mocked(Templates.extractHeadInner).mockReturnValue('<script type="module" src="/@vite/client"></script>');
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderStream: vi.fn((writable: any, callbacks: any) => {
-          callbacks.onHead?.('<title>X</title>');
-          writable.emit('finish');
-          return { abort: vi.fn(), done: Promise.resolve() };
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(
+        brandedRenderModule('test', {
+          renderStream: vi.fn((writable: any, callbacks: any) => {
+            callbacks.onHead?.('<title>X</title>');
+            writable.emit('finish');
+            return { abort: vi.fn(), done: Promise.resolve() };
+          }),
         }),
-      });
+      );
 
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
@@ -2158,13 +2226,15 @@ describe('handleRender', () => {
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>');
       vi.mocked(Templates.extractHeadInner).mockReturnValue('<script type="module" src="/@vite/client"></script>');
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderStream: vi.fn((writable: any, callbacks: any) => {
-          callbacks.onHead?.('<title>X</title>');
-          writable.emit('finish');
-          return { abort: vi.fn(), done: Promise.resolve() };
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(
+        brandedRenderModule('test', {
+          renderStream: vi.fn((writable: any, callbacks: any) => {
+            callbacks.onHead?.('<title>X</title>');
+            writable.emit('finish');
+            return { abort: vi.fn(), done: Promise.resolve() };
+          }),
         }),
-      });
+      );
 
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
@@ -2269,7 +2339,7 @@ describe('handleRender', () => {
         }),
       };
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mockRenderModule);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
       mockViteDevServer.transformIndexHtml.mockResolvedValue('<html>transformed</html>');
 
       vi.mocked(Templates.collectStyle).mockResolvedValue('.dev { color: red; }');
@@ -2303,7 +2373,7 @@ describe('handleRender', () => {
         }),
       };
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mockRenderModule);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
       mockViteDevServer.transformIndexHtml.mockImplementation((_url: any, html: any) => {
         expect(html).not.toContain('/@vite/client');
         return Promise.resolve(html);
@@ -2338,7 +2408,7 @@ describe('handleRender', () => {
         }),
       };
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mockRenderModule);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
       mockViteDevServer.transformIndexHtml.mockImplementation((_url: any, html: any) => {
         expect(html).not.toContain('.old { color: blue; }');
         return Promise.resolve(html);
@@ -2427,7 +2497,7 @@ describe('handleRender', () => {
         }),
       };
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mockRenderModule);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
       vi.mocked(Templates.collectStyle).mockResolvedValue('.dev-style { display:block }');
 
       // Assert the <style> tag carries the nonce after collectStyle runs
@@ -2461,7 +2531,7 @@ describe('handleRender', () => {
       });
 
       const mod = { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) };
-      mockViteDevServer.ssrLoadModule.mockResolvedValue(mod);
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mod));
 
       // non-empty styles so the injected tag is visible
       vi.mocked(Templates.collectStyle).mockResolvedValue('.x{y:z}');
@@ -2513,9 +2583,7 @@ describe('handleRender', () => {
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
-      mockViteDevServer.ssrLoadModule.mockResolvedValue({
-        renderStream: mockRenderStream,
-      });
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', { renderStream: mockRenderStream }));
 
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
@@ -2577,6 +2645,88 @@ describe('handleRender', () => {
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
       await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+    });
+  });
+
+  // ESC-3 response-path leg. InlineData.test.ts proves the serializer in isolation; these prove the
+  // fix survives the REAL response path on BOTH render modes, by evaluating the exact
+  // `window.__INITIAL_DATA__ = <js>` expression a browser would receive.
+  describe('__proto__ is inert end-to-end through the response path (ESC-3)', () => {
+    const PAYLOAD = { ['__proto__']: { polluted: 'YES' }, ok: 1, nested: { ['__proto__']: { deep: true } } };
+
+    // The SSR script ends `= <js>;</script>`; the streaming one continues
+    // `= <js>; window.dispatchEvent(...)</script>`. Stop at whichever terminator comes first so the
+    // captured expression is exactly the serialized value.
+    const evaluateEmitted = (script: string) => {
+      const match = /window\.__INITIAL_DATA__ = ([\s\S]*?);(?: window\.dispatchEvent|<\/script>)/.exec(script);
+      expect(match, `no __INITIAL_DATA__ assignment found in: ${script}`).toBeTruthy();
+      return new Function(`return (${match![1]});`)() as Record<string, unknown>;
+    };
+
+    const assertInert = (value: Record<string, unknown>) => {
+      expect(Object.prototype.hasOwnProperty.call(value, '__proto__')).toBe(true);
+      expect(value['__proto__']).toEqual({ polluted: 'YES' });
+      expect(Object.getPrototypeOf(value)).toBe(Object.prototype);
+
+      const nested = value.nested as Record<string, unknown>;
+      expect(Object.prototype.hasOwnProperty.call(nested, '__proto__')).toBe(true);
+      expect(Object.getPrototypeOf(nested)).toBe(Object.prototype);
+
+      // the GLOBAL prototype is never polluted, at any depth
+      expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+      expect(({} as { deep?: unknown }).deep).toBeUndefined();
+    };
+
+    it('ssr: the emitted assignment round-trips __proto__ as an own property', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      mockMaps.renderModules.set('/test/client', {
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '<title>T</title>', appHtml: '<div>T</div>' }),
+      });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue(PAYLOAD);
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      // HandleRender passes the body (including the initial-data script) as rebuildTemplate's 3rd arg.
+      const body = String(vi.mocked(Templates.rebuildTemplate).mock.calls.at(-1)?.[2] ?? '');
+      assertInert(evaluateEmitted(body));
+    });
+
+    it('streaming: the emitted assignment round-trips __proto__ as an own property', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue(PAYLOAD);
+
+      mockMaps.renderModules.set('/test/client', {
+        renderStream: vi.fn((writable, callbacks) => {
+          writable.on = vi.fn((event: string, handler: any) => {
+            if (event === 'finish') handler();
+          });
+          callbacks.onHead?.('<title>Stream</title>');
+          callbacks.onAllReady?.(PAYLOAD);
+          return { abort: vi.fn(), done: Promise.resolve() };
+        }),
+      });
+
+      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      const scriptWrite = String(mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0] ?? '');
+      assertInert(evaluateEmitted(scriptWrite));
     });
   });
 
@@ -3105,7 +3255,7 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(renderStream).toHaveBeenCalledTimes(1);
-      const opts = (renderStream as Mock).mock.calls[0]![8];
+      const opts = (renderStream as Mock).mock.calls[0]![7];
       expect(opts).toEqual(expect.objectContaining({ headData: { t: 1 } }));
     });
 
@@ -3140,7 +3290,7 @@ describe('handleRender', () => {
         'Head data degraded; rendering with headData undefined',
       );
       expect(renderStream).toHaveBeenCalledTimes(1);
-      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![8], 'headData')).toBe(false);
+      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![7], 'headData')).toBe(false);
     });
 
     it('streaming: head.optional degrades an ordinary rejection and the stream still starts', async () => {
@@ -3159,7 +3309,7 @@ describe('handleRender', () => {
         'Head data degraded; rendering with headData undefined',
       );
       expect(renderStream).toHaveBeenCalledTimes(1);
-      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![8], 'headData')).toBe(false);
+      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![7], 'headData')).toBe(false);
       expect(mockReply.raw.writeHead).not.toHaveBeenCalledWith(500, expect.anything());
     });
 
@@ -3173,7 +3323,7 @@ describe('handleRender', () => {
 
       expect(DataRoutes.fetchHeadData).not.toHaveBeenCalled();
       expect(renderStream).toHaveBeenCalledTimes(1);
-      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![8], 'headData')).toBe(false);
+      expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![7], 'headData')).toBe(false);
     });
 
     it('streaming: a THROWING host logger cannot skip the hijacked-socket teardown on head failure (belted telemetry)', async () => {

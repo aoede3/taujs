@@ -1,0 +1,87 @@
+{
+  "name": "@taujs/solid",
+  "version": "0.1.0",
+  "description": "Framework-agnostic Solid SSR primitives - ESC-1 build-time compiler plugin surface (renderer lands post-GO)",
+  "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
+  "license": "MIT",
+  "homepage": "https://taujs.dev/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aoede3/taujs.git",
+    "directory": "packages/solid"
+  },
+  "bugs": {
+    "url": "https://github.com/aoede3/taujs/issues"
+  },
+  "keywords": [
+    "fastify",
+    "typescript",
+    "esm",
+    "vite",
+    "streaming",
+    "solid",
+    "ssr"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer.d.ts",
+      "import": "./dist/renderer.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin.d.ts",
+      "import": "./dist/plugin.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "picomatch": "^2.3.1",
+    "seroval": "1.5.5",
+    "vitefu": "^1.1.1"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.4",
+    "@taujs/server": "workspace:*",
+    "@types/node": "^24.0.7",
+    "@types/picomatch": "^2.3.3",
+    "solid-js": "~1.9.14",
+    "tsup": "^8.2.4",
+    "typescript": "^5.5.4",
+    "vite": "^7.3.1",
+    "vite-plugin-solid": "^2.11.12",
+    "vitest": "^3.2.4"
+  },
+  "peerDependencies": {
+    "solid-js": "^1.9.0",
+    "typescript": "^5.5.0",
+    "vite": "^7.0.0",
+    "vite-plugin-solid": "^2.11.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    },
+    "vite-plugin-solid": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "check-format": "prettier --check .",
+    "check-exports": "attw --pack . --profile esm-only"
+  },
+  "sideEffects": false
+}

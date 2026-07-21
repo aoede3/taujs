@@ -7,6 +7,7 @@ import { AppError } from '../core/errors/AppError';
 import { resolveLogs } from '../core/logging/resolve';
 import { isDevelopment } from '../System';
 import { resolveEntryFile } from './Entry';
+import { assertRenderContract, declaredContractOf, requireRendererContribution } from './RendererContract';
 import { getCssLinks, renderPreloadLinks } from './Templates';
 
 import type { Logs } from '../core/logging/types';
@@ -34,6 +35,9 @@ export const processConfigs = <P = unknown>(configs: readonly Config<P>[], baseC
       htmlTemplate: config.htmlTemplate || templateDefaults.defaultHtmlTemplate,
       appId: config.appId,
       plugins: config.plugins ?? [],
+      // Renderer v1: forward the app's opaque contribution unchanged (no default) so the pre-pass and
+      // render-module identity validation can read it off ProcessedConfig.
+      renderer: config.renderer,
     };
   }) as ProcessedConfig<P>[];
 };
@@ -137,18 +141,28 @@ export const loadAssets = async (
       preloadLinks.set(clientRoot, renderPreloadLinks(ssrManifest, adjustedRelativePath));
       cssLinks.set(clientRoot, getCssLinks(manifest, adjustedRelativePath));
 
+      // Renderer v1: every app MUST declare a valid renderer contribution (fail-closed at boot - the outer
+      // catch rethrows in production). Every renderer ships a render module the host validates; there is
+      // no compiler-only/incomplete-renderer mode.
+      const contribution = requireRendererContribution(config.appId, config.renderer);
+
       const renderModulePath = path.join(ssrDistPath, `${entryServer}.js`);
       const moduleUrl = pathToFileURL(renderModulePath).href;
 
+      let importedModule: unknown;
       try {
-        const importedModule = await import(moduleUrl);
-        renderModules.set(clientRoot, importedModule as RenderModule);
+        importedModule = await import(moduleUrl);
       } catch (err) {
         throw AppError.internal(`Failed to load render module ${renderModulePath}`, {
           cause: err,
           details: { moduleUrl, clientRoot, entryServer, ssrDistPath },
         });
       }
+
+      // Validate the render-module identity against the app's renderer declaration BEFORE storing it
+      // (outside the import try so the migration message is not masked by "Failed to load render module").
+      assertRenderContract(importedModule, declaredContractOf(contribution), { phase: 'prod-boot', appId: config.appId, clientRoot });
+      renderModules.set(clientRoot, importedModule as RenderModule);
     } catch (err) {
       logAssetError(logger, isDevelopment ? 'loadAssets:development' : 'loadAssets:production', err);
 

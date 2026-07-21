@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
+  "include": ["app/**/*.tsx", "shared"],
+  "exclude": ["app/legacy"]
+}
