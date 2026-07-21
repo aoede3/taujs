@@ -6,6 +6,11 @@
 
 Renderer v1: declare an app's framework with a required singular `renderer:`
 
+**BREAKING CHANGE.** Existing apps must migrate (see Migration below): every app now needs a
+`renderer:` field, and any direct `renderStream` caller must move `cspNonce` from the removed
+positional argument onto `opts`. The bump is `minor` because these packages are pre-1.0, where a
+minor is the semver-correct level for a breaking change; it is nonetheless breaking for consumers.
+
 Every app now declares a REQUIRED singular `renderer:` - an opaque contribution from
 `reactRenderer({ project })` (`@taujs/react/renderer`) or `vueRenderer()`
 (`@taujs/vue/renderer`). `renderer:` is required at runtime: an app without a valid
