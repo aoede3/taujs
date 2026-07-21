@@ -230,10 +230,9 @@ export function hydrateApp<T>({
     emitDevHook('hydration:start');
     runObserver('onStart', () => onStart?.());
 
-    if (enableDebug) log('Initial data loaded:', initialData);
-
+    // Lifecycle messages only - the route-data payload and the store object are NOT logged, so debug
+    // logging cannot disclose request data through a supplied (e.g. Pino) logger.
     const store = createSSRStore(initialData);
-    if (enableDebug) log('Store created:', store);
 
     try {
       hydrateRoot(rootEl, buildTree(store), rootErrorOptions);

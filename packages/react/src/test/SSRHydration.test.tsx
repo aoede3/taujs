@@ -108,6 +108,23 @@ describe('hydrateApp (lean bootstrap: hydrate if data, else CSR)', () => {
     expect(error).not.toHaveBeenCalled();
   });
 
+  it('never logs the route-data payload or store object, even with enableDebug (no disclosure through the logger)', () => {
+    addRoot('root');
+    const SECRET = 'super-secret-token-9f3a';
+    (window as any).__INITIAL_DATA__ = { token: SECRET, nested: { x: SECRET } };
+    const log = vi.fn(),
+      warn = vi.fn(),
+      error = vi.fn();
+
+    hydrateApp({ appComponent: <div>App</div>, enableDebug: true, logger: { log, warn, error } });
+
+    const logged = [...log.mock.calls, ...warn.mock.calls, ...error.mock.calls]
+      .flat()
+      .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+      .join(' ');
+    expect(logged).not.toContain(SECRET);
+  });
+
   it('a throwing onStart is isolated — hydration still proceeds to hydrateRoot (single-settlement intact)', () => {
     addRoot('root');
     (window as any).__INITIAL_DATA__ = { a: 1 };

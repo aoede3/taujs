@@ -164,6 +164,53 @@ describe('hydrateApp — error handler wiring (F11)', () => {
     expect(onHydrationError).not.toHaveBeenCalled();
   });
 
+  it('an error after success but before nextTick does not reverse settlement (settlement guard)', () => {
+    setRoot('<div>app</div>');
+    setData({ a: 1 });
+    const events: string[] = [];
+    (window as any).__TAUJS_DEVTOOLS_HOOK__ = { emit: (ev: string) => events.push(ev) };
+    const onSuccess = vi.fn();
+    const onHydrationError = vi.fn();
+    let captured: App | undefined;
+
+    hydrateApp({
+      appComponent: CleanApp,
+      onSuccess: (app) => {
+        captured = app;
+        onSuccess(app);
+      },
+      onHydrationError,
+    });
+
+    // Success has settled synchronously; the phase-closing nextTick has NOT run yet.
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['hydration:start', 'hydration:success']);
+
+    // Provoke Vue's error handler in the post-success, pre-nextTick window - the exact window the
+    // old phase-only guard left open.
+    captured!.config.errorHandler!(new Error('post-success boom'), null, 'x');
+
+    // Settlement holds: still one success, no hydration:error beacon, no onHydrationError.
+    expect(events).toEqual(['hydration:start', 'hydration:success']);
+    expect(onHydrationError).not.toHaveBeenCalled();
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it('never logs the route-data payload, even with enableDebug (no disclosure through the logger)', () => {
+    const SECRET = 'super-secret-token-9f3a';
+    setRoot('<div>app</div>');
+    setData({ token: SECRET, nested: { x: SECRET } });
+    const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    hydrateApp({ appComponent: CleanApp, enableDebug: true, logger });
+
+    const logged = [...logger.log.mock.calls, ...logger.warn.mock.calls, ...logger.error.mock.calls]
+      .flat()
+      .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+      .join(' ');
+    expect(logged).not.toContain(SECRET);
+  });
+
   it('forwards Vue warnings to the logger in enableDebug mode (hydration mismatch)', () => {
     // Markup deliberately mismatches the component render → Vue emits a hydration warning.
     setRoot('<span>mismatch</span>');

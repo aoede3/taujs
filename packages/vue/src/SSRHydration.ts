@@ -132,26 +132,26 @@ export function hydrateApp<T>({
   };
 
   const startHydration = (rootEl: HTMLElement, initialData: T) => {
+    // Lifecycle messages only - the route-data payload and the store object are NOT logged, so debug
+    // logging cannot disclose request data through a supplied (e.g. Pino) logger.
     if (enableDebug) log('Hydration started');
-    if (enableDebug) log('Initial data loaded:', initialData);
 
     const store = createSSRStore(initialData);
-    if (enableDebug) log('Store created:', store);
 
-    // "Hydration phase": the window during which an error is attributable to hydration.
-    // It ends on the first post-mount tick, so ordinary runtime errors afterwards are
-    // logged only, not reported as hydration failures. `errored` guards against the
-    // double-emit that would otherwise happen when app.config.errorHandler fires DURING a
-    // mount() that still returns normally (Vue swallows a handled error) — once we've
-    // emitted hydration:error we must suppress hydration:success. Known limitation: an
-    // async/<Suspense> error completing after the first tick is misclassified as post-phase.
+    // Single settlement: exactly one of success | failure fires, at most once. `settled` is set the
+    // moment either happens - crucially BEFORE emitting success - so an error arriving in the
+    // post-mount window (Vue surfaces hydration problems through `app.config.errorHandler`, which
+    // stays installed for the app's life) is log-only and cannot reverse a settled success.
+    // `inHydrationPhase` additionally makes post-tick runtime errors log-only even before settlement.
     let inHydrationPhase = true;
-    let errored = false;
+    let settled = false;
     const vueErrLog = createVueErrorHandler(logger, enableDebug);
 
     const reportHydrationFailure = (err: unknown) => {
-      if (!inHydrationPhase || errored) return;
-      errored = true;
+      // After settlement (a success or a prior error) the error is log-only - `vueErrLog` already
+      // logged it; this must not emit a second beacon or reverse a settled success.
+      if (!inHydrationPhase || settled) return;
+      settled = true;
       emitDevHook('hydration:error', err);
       // Isolated: this runs from Vue's app.config.errorHandler and from the outer catch, where an
       // un-isolated observer throw would escape hydrateApp.
@@ -199,7 +199,10 @@ export function hydrateApp<T>({
       // createSSRApp(...).mount() hydrates by default; no non-public second argument (F11).
       app.mount(rootEl);
 
-      if (!errored) {
+      if (!settled) {
+        // Settle BEFORE emitting success so an error in the post-mount, pre-nextTick window is
+        // log-only and cannot reverse this success.
+        settled = true;
         if (enableDebug) log('Hydration completed');
         emitDevHook('hydration:success');
         // Isolated: an un-isolated throw would hit the outer catch and emit hydration:error +
