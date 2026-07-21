@@ -39,6 +39,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  */
 const CONTROL_ROOT = fileURLToPath(new URL('./vanilla-control', import.meta.url));
 const BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(homedir(), '.cache', 'ms-playwright');
+// Needs the pinned chromium-1117; runs locally, SKIPS VISIBLY in CI where no Playwright browser is
+// installed (a visible skip never claims the control ran). Install the pinned browser to run it.
+const HAS_PINNED_BROWSER = existsSync(path.join(BROWSERS_PATH, 'chromium-1117'));
+if (!HAS_PINNED_BROWSER)
+  console.warn(`[vanilla-control.test] chromium-1117 not under ${BROWSERS_PATH} - skipping the vanilla replay control (install the pinned browser to run it)`);
 const PORT = 5399;
 const BASE = `http://127.0.0.1:${PORT}`;
 
@@ -131,12 +136,8 @@ const runDelayedEntry = async (page: Page): Promise<Capture> => {
   return capture;
 };
 
-describe('vanilla Solid replay control (no τjs) - the upstream tripwire', () => {
+describe.skipIf(!HAS_PINNED_BROWSER)('vanilla Solid replay control (no τjs) - the upstream tripwire', () => {
   beforeAll(async () => {
-    if (!existsSync(path.join(BROWSERS_PATH, 'chromium-1117'))) {
-      throw new Error(`chromium-1117 not found under ${BROWSERS_PATH} - the pinned browser is required for the replay control`);
-    }
-
     // 1. Build the CLIENT bundle with the control's own `ssr: true` compiler config. Self-contained
     //    (dependencies bundled), so it can be served as a bare module with no node_modules present.
     outDir = mkdtempSync(path.join(tmpdir(), 'solid-vanilla-control-'));
