@@ -19,9 +19,15 @@ hydrateApp({
   rootElementId: 'root',
   enableDebug: true,
   logger: {
-    log: (message: string) => probe.logs.push(String(message)),
-    warn: (message: string) => probe.logs.push(String(message)),
-    error: (message: string) => probe.logs.push(String(message)),
+    log: (...args: unknown[]) => {
+      probe.logs.push(args.map((a) => String(a)).join(' '));
+    },
+    warn: (...args: unknown[]) => {
+      probe.logs.push(args.map((a) => String(a)).join(' '));
+    },
+    error: (...args: unknown[]) => {
+      probe.logs.push(args.map((a) => String(a)).join(' '));
+    },
   },
   onStart: () => probe.events.push('onStart'),
   onSuccess: () => probe.events.push('onSuccess'),
