@@ -523,13 +523,15 @@ hydrateApp({
 - Automatically handles `DOMContentLoaded` timing.
 - Wraps your app in `SSRStoreProvider` on both the hydrate and CSR paths.
 
-**Error reporting (Vue-native).** Unlike React, which surfaces hydration failures as synchronous throws, Vue reports them through `app.config.errorHandler` and recoverable warnings. So `hydrateApp` installs an error handler **before** `mount()` and treats errors during the hydration phase as hydration failures, routing them to `onHydrationError`. In `enableDebug` mode it also forwards Vue hydration-mismatch warnings to the logger. A user handler installed via `setupApp` still fires alongside τjs's routing.
+**Error reporting (Vue-native).** Unlike React, which surfaces hydration failures as synchronous throws, Vue reports them through `app.config.errorHandler` and recoverable warnings. So `hydrateApp` installs an error handler **before** `mount()` and treats errors during the hydration phase as hydration failures, routing them to `onHydrationError`. In `enableDebug` mode it also forwards Vue hydration-mismatch warnings to the logger. A user handler installed via `setupApp` still fires alongside τjs's routing. Exactly one of `onSuccess` or `onHydrationError` settles per call: once a hydration has succeeded, a later Vue error is an ordinary logged error and cannot reverse that success into a failure.
+
+**Logging.** Hydration debug logging (under `enableDebug`) contains lifecycle messages only - the route-data payload and the store object are never logged, so a logger that forwards to a server sink cannot disclose request data.
 
 <Aside type="note" title="onStart / onSuccess receive the App instance">
 This is a deliberate divergence from `@taujs/react`, whose callbacks take no arguments. `setupApp`, `onStart` and `onSuccess` all receive the same `App` instance, so you can inspect or interact with the fully-configured app.
 </Aside>
 
-**Devtools beacon (dev-only).** On the hydrate path, `hydrateApp` emits `hydration:start`, `hydration:success` and `hydration:error` to `window.__TAUJS_DEVTOOLS_HOOK__` around your callbacks (internal emission first, user callback second). The hook is only ever set by the server-injected dev script, is absent in production, and emission can never throw into hydration. The CSR-fallback path emits nothing.
+**Devtools beacon (dev-only).** On the hydrate path, `hydrateApp` emits `hydration:start`, `hydration:success` and `hydration:error` to `window.__TAUJS_DEVTOOLS_HOOK__` around your callbacks (internal emission first, user callback second). The hook is only ever set by the server-injected dev script, is absent in production, and emission can never throw into hydration. The CSR-fallback path emits no hydration beacons (it still calls `onSuccess(app)` on a committed root).
 
 **HTML template requirements.** Your server-rendered HTML must include the root element, an initial data script, and the client bundle:
 
