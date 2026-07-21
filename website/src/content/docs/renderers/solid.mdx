@@ -7,24 +7,9 @@ import { LinkButton, Aside } from "@astrojs/starlight/components";
 
 # @taujs/solid
 
-**τjs resolves the request, route data and policy; Solid's compiled UI turns that resolved application into an interactive response.**
+**Solid SSR (Server-Side Rendering) with Streaming Support**
 
-`@taujs/solid` is the Solid renderer for τjs. τjs matches the URL, runs the route's data loader, and applies its policy (render strategy, hydration, CSP); it then hands the resolved response to Solid, which renders it on the server and hydrates it on the client. You write Solid components and a route table; τjs governs the URL-to-response path around them.
-
-```text
-request
-  │
-  ▼
-τjs      match route → run the route data loader → apply policy (strategy, hydrate, CSP)
-  │      → assemble the document (head, __INITIAL_DATA__, client bootstrap)
-  ▼
-Solid    render the resolved app (SSR or streaming) → hydrate on the client
-  │
-  ▼
-response
-```
-
-That division is the point. τjs owns request resolution and response assembly; Solid owns the compiled UI and its hydration. It is not a general SSR library you wire yourself - it is the Solid seat inside τjs's governed request/response model. `createRenderer` and `hydrateApp` are also usable standalone against any Node HTTP framework without `@taujs/server`.
+A lightweight Solid SSR library with streaming and hydration support, built for modern TypeScript applications. It is designed for the τjs ecosystem but its runtime rendering and hydration APIs can also be used with a standalone Node HTTP server. Within τjs, the host resolves the route data and rendering policy before handing the response to Solid.
 
 <LinkButton
   href="https://github.com/aoede3/taujs"
@@ -72,9 +57,9 @@ That division is the point. τjs owns request resolution and response assembly; 
 - **Solid-native data store** built on a signal `Accessor`, provided through Solid context
 - **Managed compilation** - `@taujs/solid/renderer` owns `vite-plugin-solid` internally with `ssr: true` forced, so an app never lists the compiler plugin itself
 - **A fixed-identity error sanitiser** - a post-shell resource rejection reaches the client redacted, never leaking server detail through the error channel
-- **HTTP-framework-independent on Node, with portable static SSR** - the streaming API writes to a Node `Writable`, so it runs under Fastify, Express or any Node HTTP server. Static SSR (`renderSSR`) returns strings and carries no stream dependency, so it also runs on edge runtimes. (It is not a fully runtime-agnostic Web Streams surface; streaming is Node-`Writable`-based.)
+- **HTTP-framework-independent on Node, with a portable static-rendering path** - the streaming API writes to a Node `Writable`, so it can be integrated with Fastify, Express or another Node HTTP server. Static SSR (`renderSSR`) returns strings and does not use the streaming sink. Worker/edge deployment still depends on the target selecting Solid's server-compatible export conditions and on the surrounding application being portable; `@taujs/server` itself is Node-based, and this package does not expose a Web Streams renderer.
 
-`@taujs/solid` mirrors the *contract and capability* of `@taujs/react` and `@taujs/vue` - the same render surface, the same server behaviour, the same hydration beacon events - but it is Solid-native. Route data flows through a signal store you read like any other Solid accessor, and app-owned async uses Solid's own `createResource` + `<Suspense>` rather than a bespoke composable. The public author surface is deliberately small; where it diverges from the other renderers the divergence is called out in place.
+`@taujs/solid` conforms to the same private host-facing render contract as `@taujs/react` and `@taujs/vue`, and uses the same hydration-beacon vocabulary, but it does **not** pretend that the frameworks have identical rendering semantics. Route data flows through a signal store you read like any other Solid accessor, and app-owned async uses Solid's own `createResource` + `<Suspense>` rather than a bespoke composable. The public author surface is deliberately small; Solid-specific completion, error and hydration behaviour is called out in place.
 
 ---
 
@@ -270,7 +255,7 @@ function createRenderer<
 **Parameters:**
 
 - `appComponent`: Your Solid root. A function that receives `{ location, routeContext? }` and returns a `JSX.Element`.
-- `headContent`: Generates the HTML head from `{ data, headData?, meta, routeContext? }`. It returns **raw** head HTML, so escape every interpolated value with `escapeHtml`. **Note:** in streaming mode the route-data snapshot is usually still pending when the head is built - guard optional `data` fields, lean on `meta`/`routeContext`, or declare `attr.head` on the route so the host resolves DYNAMIC head data before the render and passes it as `headData` (typed by the third generic `H`). `headData` is `undefined` when the route declares no `attr.head` and when the head loader degraded (deadline expiry, or an `optional` loader failure) - always handle it. **The renderer appends Solid's hydration bootstrap to your head result itself; your `headContent` must not emit it.**
+- `headContent`: Generates the HTML head from `{ data, headData?, meta, routeContext? }`. It returns **raw** head HTML, so escape every interpolated value with `escapeHtml`. On both strategies the Solid adapter waits for route data before it starts rendering, so `data` is committed when `headContent` runs. A route may also declare `attr.head`; the host resolves that dedicated dynamic head payload before rendering and passes it as `headData` (typed by the third generic `H`). `headData` is `undefined` when the route declares no `attr.head` and when the head loader degraded (deadline expiry, or an `optional` loader failure), so always handle that member. **The renderer appends Solid's hydration bootstrap to your head result itself; your `headContent` must not emit it.**
 - `renderId`: A stable namespace for Solid's hydration markers and the serialised data. It must be the **same** value you pass to `hydrateApp` (see [Client-side hydration](#client-side-hydration)). Keep it in one shared constant imported by both entries.
 - `streamOptions.shellTimeoutMs`: Shell-readiness watchdog in ms (default `10000`).
 - `streamOptions.completionTimeoutMs`: Bound on the whole `renderStream` lifecycle in ms (default `30000`). Every terminal clears it.
@@ -402,7 +387,7 @@ await done;
 
 ##### Streaming semantics
 
-`onAllReady` is **two-latch**: it fires once *and only once*, after the route data is ready **and** Solid has finished rendering. A fatal, incomplete delivery calls neither `onAllReady` nor `onShellReady`, so it never seeds a truncated document. The resolved route data is delivered to `onAllReady` and serialised into `window.__INITIAL_DATA__`.
+`onAllReady` is **two-latch**: it fires once *and only once*, after the route data is ready **and** Solid has finished rendering. A fatal, incomplete delivery never calls `onAllReady`, so it never seeds a truncated document. A pre-shell fatal also never calls `onShellReady`; a post-shell fatal necessarily occurs after `onShellReady` has already reported that the shell was committed. The resolved route data is delivered to `onAllReady` and serialised into `window.__INITIAL_DATA__`.
 
 - `shellTimeoutMs` bounds shell readiness; `completionTimeoutMs` bounds the whole lifecycle and is cleared by every terminal (normal completion, abort, or fatal).
 - App-owned `createResource` work under `<Suspense>` streams as Solid `$df` deferred patches once it settles; route data does not (see [The snapshot data bridge](#the-snapshot-data-bridge)).
@@ -432,10 +417,6 @@ function hydrateApp(options: {
 }): void;
 ```
 
-<Aside type="note" title="The hydrate surface is intentionally small">
-`@taujs/react` and `@taujs/vue` carry `logger`, `enableDebug`, `dataKey`, `onStart` and `onSuccess` on their hydrate options. `@taujs/solid` deliberately does **not** inherit them by analogy - the four members above are the whole frozen surface. Adding any of the others would be a public-API change, not a convenience.
-</Aside>
-
 **Example:**
 
 ```tsx
@@ -457,7 +438,7 @@ hydrateApp({
 **Behaviour:**
 
 - If `window.__INITIAL_DATA__` exists: hydrates the SSR markup with `hydrate(...)` under `renderId`, seeding the store from the payload.
-- If `window.__INITIAL_DATA__` is missing: clears any stale markup and mounts a fresh CSR app. **No hydration callbacks or beacon events fire** - a CSR mount is not a hydration.
+- If `window.__INITIAL_DATA__` is missing: clears any stale markup and mounts a fresh CSR app. **No hydration beacon events fire** - a CSR mount is not a hydration. A failed CSR mount is still reported to `onHydrationError`.
 - Automatically handles `DOMContentLoaded` timing.
 - Provides the store to your tree on both the hydrate and CSR paths.
 
@@ -483,15 +464,16 @@ On a hydration error `hydrateApp` routes the error to `onHydrationError` and sto
 
 #### `createSSRStore<T>(seed)`
 
-Creates a store for SSR data. Accepts synchronous data, a promise, or a lazy promise factory:
+Creates a store for SSR data. Accepts synchronous data or a promise:
 
 ```typescript
 import { createSSRStore } from "@taujs/solid";
 
 const store1 = createSSRStore({ a: 1 }); // committed immediately
 const store2 = createSSRStore(Promise.resolve({ b: 2 })); // commits when it settles
-const store3 = createSSRStore(() => Promise.resolve({ c: 3 })); // lazy factory
 ```
+
+The lazy `() => Promise<T>` form belongs to the host-facing `renderStream` input, not to this public store factory. The adapter invokes that thunk exactly once inside its guarded render lifecycle and passes the resulting value or promise to `createSSRStore`.
 
 Inside components you rarely call `createSSRStore` directly - `@taujs/server` and `hydrateApp` create and provide the store for you. You consume it with `useSSRStore`.
 
@@ -618,7 +600,7 @@ The streaming + `hydrate: false` cell is the subtle one: no application hydratio
 
 ## Error handling and the sanitiser
 
-A route loader that rejects **before** the shell is a pre-shell fatal: it aborts the render and routes to `onError`, and never seeds a truncated document.
+A route loader that rejects **before** the shell is a pre-shell fatal: it aborts the render, routes the failure to `onError`, and never seeds a truncated document.
 
 An **app-owned** resource that rejects **after** the shell is different - Solid renders it into the client `ErrorBoundary`. `@taujs/solid` sanitises that error before it crosses to the client: the value delivered through the error channel has a **fixed identity** - name `Error`, message `[redacted]` - and carries no message, stack, `cause` or custom property from the server. A secret injected into any of those fields on the server never reaches the browser.
 
@@ -635,7 +617,7 @@ import { ErrorBoundary, Suspense } from "solid-js";
 
 The sanitiser is a fixed-identity redactor only. It generates no callbacks, logging, tracing or provenance detection - confidentiality is the whole of its job.
 
-`__proto__` in a route-data payload is handled safely end to end: it arrives as an **own** property of `__INITIAL_DATA__` with `Object.prototype` left untouched, so a malicious key cannot pollute the global prototype.
+When `@taujs/server` assembles the document, `__proto__` in a route-data payload is handled safely end to end: it arrives as an **own** property of `__INITIAL_DATA__` with `Object.prototype` left untouched, so a malicious key cannot pollute the global prototype. Standalone integrations own their snapshot serialisation and must use an equivalently script-safe, prototype-safe encoding rather than interpolating unchecked JSON into HTML.
 
 ---
 
@@ -778,13 +760,13 @@ That is the complete request flow: the server matches a route, runs its `data` l
 
 ## Standalone usage
 
-Outside `@taujs/server`, `createRenderer` and `hydrateApp` are framework-agnostic. The server plumbing - Express, Hono, native Node HTTP, backpressure, CSP nonces, `AbortSignal` - is identical to `@taujs/react`; see the [React reference](/renderers/react/#standalone-usage) for those framework-specific server walkthroughs. The only Solid-specific differences are:
+Outside `@taujs/server`, `createRenderer` and `hydrateApp` remain usable as standalone **Solid** primitives; they are independent of τjs's Fastify host, not independent of Solid. The surrounding Node server plumbing - Express, Hono on Node, native Node HTTP, backpressure, CSP nonces and `AbortSignal` - follows the same integration shape as `@taujs/react`; see the [React reference](/renderers/react/#standalone-usage) for those HTTP-server walkthroughs. The Solid-specific differences are:
 
 - You must compile the client and server with `vite-plugin-solid` (`ssr: true` for the server build). Use `@taujs/solid/plugin`'s `pluginSolid` for that, or the managed `solidRenderer` when running under τjs.
 - `appComponent` / `app` are Solid components, and data is read from the store accessor.
 - `cspNonce` is passed on the `opts` object, not positionally.
 
-Static SSR (no streaming), for edge runtimes or simple cases - `renderSSR` returns the head and app HTML; assemble the document and inject `window.__INITIAL_DATA__` yourself:
+Static SSR (no streaming) returns the head and app HTML. This is the portable rendering path for simple integrations and for worker/edge targets that select Solid's server-compatible exports; assemble the document and inject `window.__INITIAL_DATA__` yourself with a script-safe serialiser:
 
 ```tsx
 import { createRenderer, escapeHtml } from "@taujs/solid";
@@ -874,9 +856,9 @@ const logger: ServerLogger = {
 1. **Know your two data kinds.** Route data comes from the store (`store.data()`) and is committed before render; app-owned async uses `createResource` under `<Suspense>`. Only the latter streams.
 2. **Streaming carries application-owned async.** Route data is resolved at the request boundary and travels in the snapshot; `createResource` under `<Suspense>` is component-owned work that streams as deferred patches. Use it for UI-local async, not to move governed route data off the request boundary.
 3. **Share one `renderId`.** Keep it in a single constant imported by `entry-server` and `entry-client`; a drift between the two is a hydration bug.
-4. **Head data: `meta` for static, `attr.head` for dynamic.** In streaming mode the route-data snapshot is usually pending when the head is built - guard optional `data` fields, and escape every interpolated value with `escapeHtml`. The renderer appends the hydration bootstrap itself; do not emit it from `headContent`.
+4. **Head data: `meta` for static, `attr.head` for dedicated dynamic head work.** The Solid adapter waits for route data before it renders, so `data` is committed when `headContent` runs. `headData` remains optional because a route may omit `attr.head`, or its loader may degrade under the configured policy. Escape every interpolated value with `escapeHtml`. The renderer appends the hydration bootstrap itself; do not emit it from `headContent`.
 5. **Let the managed compiler own the plugin.** Register `solidRenderer({ project })` and point `project` at a disjoint tsconfig; do not add `vite-plugin-solid` to your app yourself under τjs.
-6. **Handle CSR fallback.** Provide `onHydrationError`; remember the CSR path (no `__INITIAL_DATA__`) emits no hydration callbacks or beacon by design, and a hydration failure reports and stops rather than silently remounting.
+6. **Handle CSR fallback.** Provide `onHydrationError`; remember the CSR path (no `__INITIAL_DATA__`) emits no hydration beacon by design, while a failed CSR mount still reports through `onHydrationError`. A hydration failure reports and stops rather than silently remounting.
 7. **Keep secrets out of resource errors regardless.** The sanitiser redacts post-shell rejections to a fixed identity, but treat that as defence in depth, not licence to put secrets in an error `cause`.
 8. **Know the navigation model.** A cross-app navigation is a full document load and a new governed response; within an app shell the app's own router owns client navigation and subsequent data, which you fetch from your own `/api/*` endpoints (for example with TanStack Solid Query). See [Client navigation](#client-navigation).
 
@@ -885,8 +867,8 @@ const logger: ServerLogger = {
 ## Related packages
 
 - `@taujs/server` - Fastify-based server with SSR orchestration, routing and data loading.
-- `@taujs/react` - the React renderer; shares this package's contract and streaming semantics.
-- `@taujs/vue` - the Vue renderer; shares this package's contract and streaming semantics.
+- `@taujs/react` - the React renderer; conforms to the same host-facing renderer contract with React-specific streaming semantics.
+- `@taujs/vue` - the Vue renderer; conforms to the same host-facing renderer contract with Vue-specific streaming semantics.
 
 ---
 
