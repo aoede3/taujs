@@ -38,7 +38,10 @@ beforeAll(() => {
   outDir = path.join(root, 'dist');
 
   writeFileSync(path.join(root, 'tsconfig.react.json'), JSON.stringify({ compilerOptions: { jsx: 'react-jsx' }, include: ['src-react/**/*'] }));
-  writeFileSync(path.join(root, 'tsconfig.solid.json'), JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['src-solid/**/*'] }));
+  writeFileSync(
+    path.join(root, 'tsconfig.solid.json'),
+    JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['src-solid/**/*'] }),
+  );
 
   mkdirSync(path.join(root, 'src-react'), { recursive: true });
   mkdirSync(path.join(root, 'src-solid'), { recursive: true });
@@ -66,8 +69,14 @@ async function buildScoped(): Promise<{ reactOut: string; solidOut: string }> {
   const solidContribution = managedOf(solidRenderer({ project: 'tsconfig.solid.json' }));
   const prepareInput = { projectRoot: root, lifecycle: 'build' as const };
 
-  const reactPlan = await reactContribution.impl.prepare([{ contribution: reactContribution, appId: 'web', appRoot: path.join(root, 'src-react') }], prepareInput);
-  const solidPlan = await solidContribution.impl.prepare([{ contribution: solidContribution, appId: 'admin', appRoot: path.join(root, 'src-solid') }], prepareInput);
+  const reactPlan = await reactContribution.impl.prepare(
+    [{ contribution: reactContribution, appId: 'web', appRoot: path.join(root, 'src-react') }],
+    prepareInput,
+  );
+  const solidPlan = await solidContribution.impl.prepare(
+    [{ contribution: solidContribution, appId: 'admin', appRoot: path.join(root, 'src-solid') }],
+    prepareInput,
+  );
 
   // The host's effective-scope algebra (unit-tested in @taujs/server): include = own claims, exclude =
   // the other key's claims. The renderer folds its own tsconfig exclude in.
@@ -127,7 +136,10 @@ describe('ESC-1 composition (real Vite build)', () => {
 
   it('case 9 - the vitefu classifier claims a node_modules package with a solid export condition', async () => {
     const contribution = managedOf(solidRenderer({ project: 'tsconfig.solid.json' }));
-    const plan = await contribution.impl.prepare([{ contribution, appId: 'admin', appRoot: path.join(root, 'src-solid') }], { projectRoot: root, lifecycle: 'build' });
+    const plan = await contribution.impl.prepare([{ contribution, appId: 'admin', appRoot: path.join(root, 'src-solid') }], {
+      projectRoot: root,
+      lifecycle: 'build',
+    });
     const owns = createFilter(plan.claims, plan.exclude);
     // the classifier added the exact package directory; a JSX file inside it is owned by Solid
     expect(owns(path.join(root, 'node_modules', 'fake-solid-lib', 'src', 'index.jsx'))).toBe(true);

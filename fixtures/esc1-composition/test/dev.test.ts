@@ -53,7 +53,10 @@ beforeAll(async () => {
   mkdirSync(path.join(root, 'src-react'), { recursive: true });
   mkdirSync(path.join(root, 'src-solid'), { recursive: true });
   writeFileSync(path.join(root, 'tsconfig.react.json'), JSON.stringify({ compilerOptions: { jsx: 'react-jsx' }, include: ['src-react/**/*.tsx'] }));
-  writeFileSync(path.join(root, 'tsconfig.solid.json'), JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['src-solid/**/*.tsx'] }));
+  writeFileSync(
+    path.join(root, 'tsconfig.solid.json'),
+    JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['src-solid/**/*.tsx'] }),
+  );
   writeFileSync(path.join(root, 'src-react', 'App.tsx'), 'export default function App() {\n  return <div className="r">react</div>;\n}\n');
   writeFileSync(path.join(root, 'src-solid', 'App.tsx'), solidApp('solid-original'));
 

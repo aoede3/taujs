@@ -1,5 +1,5 @@
 ---
-"@taujs/server": patch
+'@taujs/server': patch
 ---
 
 Fix: `__proto__` in route data now round-trips as an ordinary own property

@@ -22,7 +22,7 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 1_000) => {
     await new Promise((r) => setTimeout(r, 1));
   }
 };
-const later = <T,>(value: T, ms = 10) => new Promise<T>((r) => setTimeout(() => r(value), ms));
+const later = <T>(value: T, ms = 10) => new Promise<T>((r) => setTimeout(() => r(value), ms));
 const laterReject = (reason: unknown, ms = 10) => new Promise<never>((_, j) => setTimeout(() => j(reason), ms));
 
 /** A sink that records everything, and can be made to fail on demand. */
@@ -527,7 +527,6 @@ describe('renderStream - terminal guard + M1 detachment', () => {
       expectDetached(read);
     });
   });
-
 });
 
 describe('renderStream - onHead commits the response at the SHELL, not before the render', () => {
@@ -747,7 +746,7 @@ describe('design 4 - the four-cell hydration/CSP table (renderer output)', () =>
         shouldHydrate: true,
       });
 
-    it('emits Solid\'s bootstrap EXACTLY ONCE across the whole renderer output', async () => {
+    it("emits Solid's bootstrap EXACTLY ONCE across the whole renderer output", async () => {
       const { headContent, appHtml } = await render();
 
       expect(countBootstrap(headContent + appHtml)).toBe(1);
@@ -755,7 +754,7 @@ describe('design 4 - the four-cell hydration/CSP table (renderer output)', () =>
       expect(headContent.startsWith('<title>t</title>')).toBe(true); // the app's head comes first
     });
 
-    it('nonces the bootstrap AND Solid\'s own resource scripts', async () => {
+    it("nonces the bootstrap AND Solid's own resource scripts", async () => {
       const { headContent, appHtml } = await render();
 
       expect(everyScriptNonced(headContent)).toBe(true);

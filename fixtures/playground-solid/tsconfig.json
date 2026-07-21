@@ -2,11 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
@@ -20,10 +16,5 @@
     "jsx": "preserve",
     "jsxImportSource": "solid-js"
   },
-  "include": [
-    "src/client/**/*",
-    "src/server/**/*",
-    "taujs.config.ts",
-    "build.ts"
-  ]
+  "include": ["src/client/**/*", "src/server/**/*", "taujs.config.ts", "build.ts"]
 }

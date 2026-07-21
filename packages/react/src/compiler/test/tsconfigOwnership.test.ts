@@ -91,7 +91,10 @@ describe('assertNoExclusionConflicts (same-key exclusion provenance, finding 3)'
   const proj = (project: string, include: string[], exclude: string[] = []) => ({ project, include, exclude });
 
   it('rejects a project excluding a directory another same-key project claims (3a)', () => {
-    const projects = [proj('/a/tsconfig.json', ['/repo/appA/**/*.tsx'], ['/repo/shared', '/repo/shared/**/*']), proj('/b/tsconfig.json', ['/repo/shared/**/*'])];
+    const projects = [
+      proj('/a/tsconfig.json', ['/repo/appA/**/*.tsx'], ['/repo/shared', '/repo/shared/**/*']),
+      proj('/b/tsconfig.json', ['/repo/shared/**/*']),
+    ];
     expect(() => assertNoExclusionConflicts('Solid', projects, [])).toThrow(/cancels another Solid project's claim/);
   });
 

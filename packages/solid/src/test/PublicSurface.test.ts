@@ -72,7 +72,15 @@ describe('slice 6 - the runtime author surface (`@taujs/solid`)', () => {
   it('does NOT leak the sanitiser, the holders or the store internals', async () => {
     const rootModule = (await import('../index.js')) as Record<string, unknown>;
 
-    for (const leaked of ['SanitisedErrorPlugin', 'REDACTED_MESSAGE', 'REDACTED_NAME', 'createHolder', 'provideSSRStore', 'detachStore', 'brandRenderFunctions']) {
+    for (const leaked of [
+      'SanitisedErrorPlugin',
+      'REDACTED_MESSAGE',
+      'REDACTED_NAME',
+      'createHolder',
+      'provideSSRStore',
+      'detachStore',
+      'brandRenderFunctions',
+    ]) {
       expect(rootModule[leaked], `${leaked} leaked from the root entry`).toBeUndefined();
     }
   });

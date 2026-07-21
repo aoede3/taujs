@@ -328,20 +328,20 @@ export function planFiles(config: ProjectConfig): FileEntry[] {
           { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
         ]
       : framework === 'vue'
-      ? [
-          { path: 'src/client/App.vue', content: generateAppVue() },
-          { path: 'src/client/HomePage.vue', content: generateHomePageVue() },
-          { path: 'src/client/StreamingPage.vue', content: generateStreamingPageVue() },
-          { path: 'src/client/entry-client.ts', content: generateEntryClientVue() },
-          { path: 'src/client/entry-server.ts', content: generateEntryServerVue() },
-          { path: 'src/client/vite-env.d.ts', content: generateViteEnvVue() },
-        ]
-      : [
-          { path: 'src/client/App.tsx', content: generateAppComponent() },
-          { path: 'src/client/entry-client.tsx', content: generateEntryClient() },
-          { path: 'src/client/entry-server.tsx', content: generateEntryServer() },
-          { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
-        ];
+        ? [
+            { path: 'src/client/App.vue', content: generateAppVue() },
+            { path: 'src/client/HomePage.vue', content: generateHomePageVue() },
+            { path: 'src/client/StreamingPage.vue', content: generateStreamingPageVue() },
+            { path: 'src/client/entry-client.ts', content: generateEntryClientVue() },
+            { path: 'src/client/entry-server.ts', content: generateEntryServerVue() },
+            { path: 'src/client/vite-env.d.ts', content: generateViteEnvVue() },
+          ]
+        : [
+            { path: 'src/client/App.tsx', content: generateAppComponent() },
+            { path: 'src/client/entry-client.tsx', content: generateEntryClient() },
+            { path: 'src/client/entry-server.tsx', content: generateEntryServer() },
+            { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
+          ];
 
   return [...shared, ...client];
 }

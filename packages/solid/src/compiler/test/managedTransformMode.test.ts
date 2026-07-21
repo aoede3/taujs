@@ -116,9 +116,7 @@ describe('managed Solid compiler - transform MODE (the ssr:true regression)', ()
     expect(isSolidSsrOutput(ssr), `SSR transform did not produce SSR output:\n${ssr.slice(0, 400)}`).toBe(true);
     // The precise failure mode of the omission: DOM runtime calls in the SERVER graph, where they
     // are `notSup` throw-stubs.
-    expect(isDomOutput(ssr), 'SSR transform emitted DOM output - this is the crash that produced "Client-only API called on the server side"').toBe(
-      false,
-    );
+    expect(isDomOutput(ssr), 'SSR transform emitted DOM output - this is the crash that produced "Client-only API called on the server side"').toBe(false);
   });
 
   it('a BROWSER transform from the SAME instance produces hydratable DOM output', async () => {

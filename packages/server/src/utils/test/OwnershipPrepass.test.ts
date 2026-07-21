@@ -63,7 +63,10 @@ describe('prepareOwnership (phase 1)', () => {
 
   it('prepares each same-key group ONCE with the whole group (union across apps)', async () => {
     const solid = makeImpl('solid');
-    await prepareOwnership([app('a', [], rendererFromManaged(contribution('solid', solid))), app('b', [], rendererFromManaged(contribution('solid', solid)))], INPUT);
+    await prepareOwnership(
+      [app('a', [], rendererFromManaged(contribution('solid', solid))), app('b', [], rendererFromManaged(contribution('solid', solid)))],
+      INPUT,
+    );
     expect(solid.prepare).toHaveBeenCalledTimes(1);
     const group = (solid.prepare as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(group).toHaveLength(2);
@@ -73,7 +76,10 @@ describe('prepareOwnership (phase 1)', () => {
   it('HARD errors on two distinct implementations claiming one key (safeguard 1)', async () => {
     await expect(
       prepareOwnership(
-        [app('a', [], rendererFromManaged(contribution('solid', makeImpl('solid')))), app('b', [], rendererFromManaged(contribution('solid', makeImpl('solid'))))],
+        [
+          app('a', [], rendererFromManaged(contribution('solid', makeImpl('solid')))),
+          app('b', [], rendererFromManaged(contribution('solid', makeImpl('solid')))),
+        ],
         INPUT,
       ),
     ).rejects.toThrow(/claimed by 2 different renderer implementations/);
@@ -130,10 +136,12 @@ describe('assembleManagedSources (phase 2)', () => {
   });
 
   it('HARD errors on a raw plugin whose NAME collides with a managed compiler (secondary net)', async () => {
-    const prepared = await prepareSync([app('web', [], rendererFromManaged(contribution('react', makeImpl('react', { createPlugin: () => ({ name: 'vite:react-babel' }) }))))]);
-    expect(() =>
-      assembleManagedSources({ prepared, keysToInstantiate: ['react'], resolvedChain: [{ name: 'vite:react-babel' }], env: 'dev' }),
-    ).toThrow(/collides with a managed compiler/);
+    const prepared = await prepareSync([
+      app('web', [], rendererFromManaged(contribution('react', makeImpl('react', { createPlugin: () => ({ name: 'vite:react-babel' }) })))),
+    ]);
+    expect(() => assembleManagedSources({ prepared, keysToInstantiate: ['react'], resolvedChain: [{ name: 'vite:react-babel' }], env: 'dev' })).toThrow(
+      /collides with a managed compiler/,
+    );
   });
 });
 

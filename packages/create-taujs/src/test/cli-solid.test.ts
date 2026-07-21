@@ -148,7 +148,7 @@ describe('create-taujs - Solid generation (through the package export)', () => {
     }
   });
 
-  it('uses only the frozen hydrateApp options - none of React\'s extras', () => {
+  it("uses only the frozen hydrateApp options - none of React's extras", () => {
     const { read } = generate('solid');
     {
       const entryClient = read('src/client/entry-client.tsx');
@@ -178,7 +178,7 @@ describe('create-taujs - Solid generation (through the package export)', () => {
     }
   });
 
-  it('the root tsconfig preserves JSX for Solid rather than using React\'s runtime', () => {
+  it("the root tsconfig preserves JSX for Solid rather than using React's runtime", () => {
     const { read } = generate('solid');
     {
       const tsconfig = JSON.parse(read('tsconfig.json')) as { compilerOptions: Record<string, unknown> };

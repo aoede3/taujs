@@ -40,8 +40,12 @@ function scaffold(order: AppSpec[]): { projectRoot: string; clientBaseDir: strin
     writeFileSync(path.join(dir, 'entry-client.tsx'), src.entry);
     writeFileSync(path.join(dir, 'entry-server.tsx'), src.entry);
     writeFileSync(path.join(dir, 'App.tsx'), src.comp);
-    writeFileSync(path.join(dir, 'index.html'), `<!doctype html><html><body><div id="root"></div><script type="module" src="./entry-client.tsx"></script></body></html>\n`);
-    const tsconfig = app.framework === 'react' ? { compilerOptions: { jsx: 'react-jsx' } } : { compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' } };
+    writeFileSync(
+      path.join(dir, 'index.html'),
+      `<!doctype html><html><body><div id="root"></div><script type="module" src="./entry-client.tsx"></script></body></html>\n`,
+    );
+    const tsconfig =
+      app.framework === 'react' ? { compilerOptions: { jsx: 'react-jsx' } } : { compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' } };
     writeFileSync(path.join(dir, `tsconfig.${app.framework}.json`), JSON.stringify({ ...tsconfig, include: ['*.tsx'] }));
   }
   return { projectRoot, clientBaseDir };
@@ -170,7 +174,10 @@ describe('ESC-1 real taujsBuild - Vue coexistence (vueRenderer) alongside a mana
     writeFileSync(path.join(clientBaseDir, 'entry-client.tsx'), 'export { default } from "./App";\n');
     writeFileSync(path.join(clientBaseDir, 'entry-server.tsx'), 'export { default } from "./App";\n');
     writeFileSync(path.join(clientBaseDir, 'App.tsx'), 'export default function App() {\n  return <div className="r">react</div>;\n}\n');
-    writeFileSync(path.join(clientBaseDir, 'index.html'), '<!doctype html><html><body><script type="module" src="./entry-client.tsx"></script></body></html>\n');
+    writeFileSync(
+      path.join(clientBaseDir, 'index.html'),
+      '<!doctype html><html><body><script type="module" src="./entry-client.tsx"></script></body></html>\n',
+    );
     writeFileSync(path.join(clientBaseDir, 'tsconfig.react.json'), JSON.stringify({ compilerOptions: { jsx: 'react-jsx' }, include: ['*.tsx'] }));
 
     // Vue app (vueRenderer supplies pluginVue internally, compiles .vue - not part of the JSX collision
@@ -190,7 +197,13 @@ describe('ESC-1 real taujsBuild - Vue coexistence (vueRenderer) alongside a mana
     };
 
     // No throw = the host does not mistake the Vue renderer's plugin pack for a different-key JSX compiler.
-    await taujsBuild({ config: config as never, projectRoot, clientBaseDir, isSSRBuild: false, vite: { build: { rollupOptions: { external: EXTERNAL } }, logLevel: 'silent' } as never });
+    await taujsBuild({
+      config: config as never,
+      projectRoot,
+      clientBaseDir,
+      isSSRBuild: false,
+      vite: { build: { rollupOptions: { external: EXTERNAL } }, logLevel: 'silent' } as never,
+    });
 
     expect(readEmitted(projectRoot, '')).toMatch(REACT_MARK);
     // the Vue app compiled its .vue via pluginVue (Vue runtime markers), with no React/Solid contamination
@@ -208,23 +221,38 @@ describe('ESC-1 real taujsBuild - filtered build importing an absent-compiler fi
 
     // React app 'web' whose entry imports a Solid node_modules package (a cross-framework mistake).
     mkdirSync(clientBaseDir, { recursive: true });
-    writeFileSync(path.join(clientBaseDir, 'entry-client.tsx'), 'import Widget from "solid-lib";\nexport default function App() {\n  return <div>{typeof Widget}</div>;\n}\n');
+    writeFileSync(
+      path.join(clientBaseDir, 'entry-client.tsx'),
+      'import Widget from "solid-lib";\nexport default function App() {\n  return <div>{typeof Widget}</div>;\n}\n',
+    );
     writeFileSync(path.join(clientBaseDir, 'entry-server.tsx'), 'export default function App() {\n  return <div className="r">r</div>;\n}\n');
-    writeFileSync(path.join(clientBaseDir, 'index.html'), '<!doctype html><html><body><script type="module" src="./entry-client.tsx"></script></body></html>\n');
+    writeFileSync(
+      path.join(clientBaseDir, 'index.html'),
+      '<!doctype html><html><body><script type="module" src="./entry-client.tsx"></script></body></html>\n',
+    );
     writeFileSync(path.join(clientBaseDir, 'tsconfig.react.json'), JSON.stringify({ compilerOptions: { jsx: 'react-jsx' }, include: ['*.tsx'] }));
 
     // Solid app 'admin' so the Solid classifier runs over the global universe.
     mkdirSync(path.join(clientBaseDir, 'admin'), { recursive: true });
     writeFileSync(path.join(clientBaseDir, 'admin', 'entry-client.tsx'), 'export default function A() {\n  return <div class="s">s</div>;\n}\n');
     writeFileSync(path.join(clientBaseDir, 'admin', 'entry-server.tsx'), 'export default function A() {\n  return <div class="s">s</div>;\n}\n');
-    writeFileSync(path.join(clientBaseDir, 'admin', 'index.html'), '<!doctype html><html><body><script type="module" src="./entry-client.tsx"></script></body></html>\n');
-    writeFileSync(path.join(clientBaseDir, 'tsconfig.solid.json'), JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['admin/**/*.tsx'] }));
+    writeFileSync(
+      path.join(clientBaseDir, 'admin', 'index.html'),
+      '<!doctype html><html><body><script type="module" src="./entry-client.tsx"></script></body></html>\n',
+    );
+    writeFileSync(
+      path.join(clientBaseDir, 'tsconfig.solid.json'),
+      JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['admin/**/*.tsx'] }),
+    );
 
     // A node_modules package declaring a `solid` export condition (the classifier owns it, no boundary).
     writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ name: 'absent-root', private: true, dependencies: { 'solid-lib': '*' } }));
     const libDir = path.join(projectRoot, 'node_modules', 'solid-lib');
     mkdirSync(path.join(libDir, 'src'), { recursive: true });
-    writeFileSync(path.join(libDir, 'package.json'), JSON.stringify({ name: 'solid-lib', version: '1.0.0', type: 'module', exports: { '.': { solid: './src/index.jsx', default: './src/index.jsx' } } }));
+    writeFileSync(
+      path.join(libDir, 'package.json'),
+      JSON.stringify({ name: 'solid-lib', version: '1.0.0', type: 'module', exports: { '.': { solid: './src/index.jsx', default: './src/index.jsx' } } }),
+    );
     writeFileSync(path.join(libDir, 'src', 'index.jsx'), 'export default () => <div>lib</div>;\n');
 
     const config = {
@@ -242,10 +270,19 @@ describe('ESC-1 real taujsBuild - filtered build importing an absent-compiler fi
     }) as never);
     try {
       await expect(
-        taujsBuild({ config: config as never, projectRoot, clientBaseDir, isSSRBuild: false, vite: { build: { rollupOptions: { external: EXTERNAL } }, logLevel: 'silent' } as never }),
+        taujsBuild({
+          config: config as never,
+          projectRoot,
+          clientBaseDir,
+          isSSRBuild: false,
+          vite: { build: { rollupOptions: { external: EXTERNAL } }, logLevel: 'silent' } as never,
+        }),
       ).rejects.toThrow();
       // the diagnostic hard-errored on the classified Solid package file (compiled by no compiler here)
-      const logged = errSpy.mock.calls.flat().map((a) => (a instanceof Error ? a.message : String(a))).join('\n');
+      const logged = errSpy.mock.calls
+        .flat()
+        .map((a) => (a instanceof Error ? a.message : String(a)))
+        .join('\n');
       expect(logged).toMatch(/compiled by NO compiler in this environment/);
     } finally {
       errSpy.mockRestore();
@@ -263,8 +300,14 @@ describe('ESC-1 real taujsBuild - fail-closed before Vite starts', () => {
     const clientBaseDir = path.join(projectRoot, 'src', 'client');
     mkdirSync(path.join(clientBaseDir, 'admin'), { recursive: true });
     mkdirSync(path.join(clientBaseDir, 'shared'), { recursive: true });
-    writeFileSync(path.join(clientBaseDir, 'tsconfig.web.json'), JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['*.tsx'], exclude: ['shared'] }));
-    writeFileSync(path.join(clientBaseDir, 'admin', 'tsconfig.admin.json'), JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['../shared/**/*.tsx'] }));
+    writeFileSync(
+      path.join(clientBaseDir, 'tsconfig.web.json'),
+      JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['*.tsx'], exclude: ['shared'] }),
+    );
+    writeFileSync(
+      path.join(clientBaseDir, 'admin', 'tsconfig.admin.json'),
+      JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['../shared/**/*.tsx'] }),
+    );
 
     const config = {
       apps: [
@@ -272,9 +315,9 @@ describe('ESC-1 real taujsBuild - fail-closed before Vite starts', () => {
         { appId: 'admin', entryPoint: 'admin', renderer: solidRenderer({ project: 'src/client/admin/tsconfig.admin.json' }) },
       ],
     };
-    await expect(
-      taujsBuild({ config: config as never, projectRoot, clientBaseDir, isSSRBuild: false, vite: { logLevel: 'silent' } as never }),
-    ).rejects.toThrow(/cancels another Solid project's claim/);
+    await expect(taujsBuild({ config: config as never, projectRoot, clientBaseDir, isSSRBuild: false, vite: { logLevel: 'silent' } as never })).rejects.toThrow(
+      /cancels another Solid project's claim/,
+    );
   });
 
   it('rejects an app that omits `renderer:` entirely (renderer v1: `renderer:` is required, through the real host build path)', async () => {

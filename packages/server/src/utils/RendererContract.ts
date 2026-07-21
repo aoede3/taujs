@@ -81,10 +81,7 @@ export function isRendererContribution(value: unknown): value is RendererContrib
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
-    v.brand === RENDERER_CONTRIBUTION_BRAND &&
-    typeof v.key === 'string' &&
-    typeof v.contractVersion === 'string' &&
-    typeof v.managedCompilation === 'boolean'
+    v.brand === RENDERER_CONTRIBUTION_BRAND && typeof v.key === 'string' && typeof v.contractVersion === 'string' && typeof v.managedCompilation === 'boolean'
   );
 }
 
@@ -146,24 +143,36 @@ export function assertRenderContract(
   void ctx.phase;
 
   if (typeof mod !== 'object' || mod === null) {
-    throw AppError.internal(`[taujs] render module for ${where} did not export an object; expected renderSSR/renderStream from @taujs/${declared.key}'s createRenderer(...).`);
+    throw AppError.internal(
+      `[taujs] render module for ${where} did not export an object; expected renderSSR/renderStream from @taujs/${declared.key}'s createRenderer(...).`,
+    );
   }
   const m = mod as { renderSSR?: unknown; renderStream?: unknown };
   if (typeof m.renderSSR !== 'function' || typeof m.renderStream !== 'function') {
-    throw AppError.internal(`[taujs] render module for ${where} must export renderSSR and renderStream (from @taujs/${declared.key}'s createRenderer(...), declared via renderer: ${factory}).`);
+    throw AppError.internal(
+      `[taujs] render module for ${where} must export renderSSR and renderStream (from @taujs/${declared.key}'s createRenderer(...), declared via renderer: ${factory}).`,
+    );
   }
   const ssr = readRenderFnContract(m.renderSSR);
   const stream = readRenderFnContract(m.renderStream);
   if (!ssr || !stream) {
-    throw AppError.internal(`[taujs] render module for ${where} is not branded by createRenderer. Produce renderSSR/renderStream with @taujs/${declared.key}'s createRenderer(...) so τjs can validate framework identity against renderer: ${factory}.`);
+    throw AppError.internal(
+      `[taujs] render module for ${where} is not branded by createRenderer. Produce renderSSR/renderStream with @taujs/${declared.key}'s createRenderer(...) so τjs can validate framework identity against renderer: ${factory}.`,
+    );
   }
   if (ssr.key !== stream.key || ssr.contractVersion !== stream.contractVersion) {
-    throw AppError.internal(`[taujs] render module for ${where} has mismatched renderSSR/renderStream brands (${ssr.key}@${ssr.contractVersion} vs ${stream.key}@${stream.contractVersion}); both must come from the same createRenderer(...).`);
+    throw AppError.internal(
+      `[taujs] render module for ${where} has mismatched renderSSR/renderStream brands (${ssr.key}@${ssr.contractVersion} vs ${stream.key}@${stream.contractVersion}); both must come from the same createRenderer(...).`,
+    );
   }
   if (ssr.key !== declared.key) {
-    throw AppError.internal(`[taujs] render module for ${where} is a "${ssr.key}" renderer but the app declares renderer: ${factory}. The declared renderer and the entry-server's createRenderer(...) must be the same framework.`);
+    throw AppError.internal(
+      `[taujs] render module for ${where} is a "${ssr.key}" renderer but the app declares renderer: ${factory}. The declared renderer and the entry-server's createRenderer(...) must be the same framework.`,
+    );
   }
   if (ssr.contractVersion !== declared.contractVersion) {
-    throw AppError.internal(`[taujs] render module for ${where} was built against render contract "${ssr.contractVersion}" but @taujs/server expects "${declared.contractVersion}"; align the @taujs/${declared.key} and @taujs/server versions.`);
+    throw AppError.internal(
+      `[taujs] render module for ${where} was built against render contract "${ssr.contractVersion}" but @taujs/server expects "${declared.contractVersion}"; align the @taujs/${declared.key} and @taujs/server versions.`,
+    );
   }
 }

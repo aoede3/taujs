@@ -1,5 +1,12 @@
 import { classifySolidPackages } from './solidClassifier.js';
-import { assertNoExclusionConflicts, dedupeMatchers, deriveBoundaries, mergeCompilerOptions, parseTsconfigProject, resolveProjectPath } from './tsconfigOwnership.js';
+import {
+  assertNoExclusionConflicts,
+  dedupeMatchers,
+  deriveBoundaries,
+  mergeCompilerOptions,
+  parseTsconfigProject,
+  resolveProjectPath,
+} from './tsconfigOwnership.js';
 
 import type { OwnershipMatcher, ProjectOwnership } from './tsconfigOwnership.js';
 import type { ManagedGroupMember, PrepareInput } from '@taujs/server/renderer';
@@ -20,7 +27,10 @@ export type SolidOwnership = {
 };
 
 export const computeSolidOwnership = async (group: ReadonlyArray<ManagedGroupMember>, input: PrepareInput): Promise<SolidOwnership> => {
-  const options = mergeCompilerOptions('Solid', group.map((member) => (member.contribution.options ?? {}) as Record<string, unknown>));
+  const options = mergeCompilerOptions(
+    'Solid',
+    group.map((member) => (member.contribution.options ?? {}) as Record<string, unknown>),
+  );
 
   const projects: ProjectOwnership[] = [];
   const boundaries: OwnershipMatcher[] = [];

@@ -279,7 +279,7 @@ describe('createSSRStore - detachment (M1)', () => {
     expect(store.data()).toBeDefined();
   });
 
-  gcIt('detach releases a LATE REJECTION\'s error and everything its cause retains', async () => {
+  gcIt("detach releases a LATE REJECTION's error and everything its cause retains", async () => {
     // The reviewer's case: the leak need not be the successful value. A rejected route loader
     // carries an Error whose `.cause` can reference request data, and `fail()` parks that Error in
     // the store closure - where the holder cannot reach it.

@@ -1,6 +1,14 @@
 import { createFilter } from 'vite';
 
-import { assertOneImplPerKey, collectPluginNames, effectiveScopeFor, findTaggedRawCompilers, groupByKey, isManagedContribution, partitionAppPlugins } from './ManagedPlugins';
+import {
+  assertOneImplPerKey,
+  collectPluginNames,
+  effectiveScopeFor,
+  findTaggedRawCompilers,
+  groupByKey,
+  isManagedContribution,
+  partitionAppPlugins,
+} from './ManagedPlugins';
 import { isRendererContribution, requireRendererContribution } from './RendererContract';
 import { composePlugins } from './VitePlugins';
 
@@ -50,7 +58,9 @@ function extractRawPlugins(appId: string, plugins: ReadonlyArray<unknown> | unde
   }
   for (const entry of raw) {
     if (isRendererContribution(entry)) {
-      throw new Error(`[taujs] app "${appId}": a renderer contribution was found in \`plugins\`. Declare it on the app's \`renderer:\` field, not in \`plugins\`.`);
+      throw new Error(
+        `[taujs] app "${appId}": a renderer contribution was found in \`plugins\`. Declare it on the app's \`renderer:\` field, not in \`plugins\`.`,
+      );
     }
   }
   return raw;

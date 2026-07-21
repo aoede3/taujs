@@ -234,11 +234,10 @@ describe.each(['solid', 'react'] as const)('slice 6 - generated %s project lifec
 
           // Resolution goes through the export map. `import.meta.resolve`, not `require.resolve`:
           // these packages are ESM-only, so a CJS resolve cannot see their subpaths at all.
-          const resolved = execFileSync(
-            process.execPath,
-            ['--input-type=module', '-e', `console.log(import.meta.resolve('@taujs/${framework}/renderer'))`],
-            { cwd: projectDir, encoding: 'utf8' },
-          );
+          const resolved = execFileSync(process.execPath, ['--input-type=module', '-e', `console.log(import.meta.resolve('@taujs/${framework}/renderer'))`], {
+            cwd: projectDir,
+            encoding: 'utf8',
+          });
           expect(resolved).toContain(`${framework}/dist/renderer.js`);
         },
       },

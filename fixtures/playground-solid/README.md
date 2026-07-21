@@ -11,11 +11,11 @@ pnpm --filter playground-solid start
 
 Routes:
 
-| Route        | Strategy    | Hydrate | What it demonstrates                                             |
-| ------------ | ----------- | ------- | ---------------------------------------------------------------- |
-| `/`          | `ssr`       | yes     | Snapshot route data read through `useSSRStore`, nonced bootstrap |
-| `/streaming` | `streaming` | yes     | Deferred patch machinery retained and nonced                     |
-| `/no-hydrate`| `ssr`       | no      | Static markup: no host entry, and no `$R` / `_$HY` / `$df`       |
+| Route         | Strategy    | Hydrate | What it demonstrates                                             |
+| ------------- | ----------- | ------- | ---------------------------------------------------------------- |
+| `/`           | `ssr`       | yes     | Snapshot route data read through `useSSRStore`, nonced bootstrap |
+| `/streaming`  | `streaming` | yes     | Deferred patch machinery retained and nonced                     |
+| `/no-hydrate` | `ssr`       | no      | Static markup: no host entry, and no `$R` / `_$HY` / `$df`       |
 
 Load-bearing details, all ruled rather than incidental:
 

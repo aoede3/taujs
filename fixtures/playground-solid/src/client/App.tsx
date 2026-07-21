@@ -74,7 +74,11 @@ export function App(props: { location: string }) {
       </Show>
 
       <Show when={store.data().items?.length}>
-        <ul id="items">{store.data().items?.map((item) => <li>{item}</li>)}</ul>
+        <ul id="items">
+          {store.data().items?.map((item) => (
+            <li>{item}</li>
+          ))}
+        </ul>
       </Show>
 
       <Counter />

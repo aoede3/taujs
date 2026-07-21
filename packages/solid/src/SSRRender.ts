@@ -134,8 +134,7 @@ const resolveShouldHydrate = (opts?: RenderOptions): boolean => opts?.shouldHydr
  */
 const generateHydrationScriptServer = generateHydrationScript as unknown as (options?: { nonce?: string; eventNames?: string[] }) => string;
 
-const hydrationBootstrap = (cspNonce?: string): string =>
-  cspNonce ? generateHydrationScriptServer({ nonce: cspNonce }) : generateHydrationScriptServer();
+const hydrationBootstrap = (cspNonce?: string): string => (cspNonce ? generateHydrationScriptServer({ nonce: cspNonce }) : generateHydrationScriptServer());
 
 /** The host client entry, for the STREAMING path only (on `ssr` the host emits it itself). */
 const clientEntryScript = (src: string, cspNonce?: string): string =>
@@ -222,7 +221,8 @@ export function createRenderer<
     //
     // `noScripts` is correct HERE and forbidden for streaming, where it would suppress the
     // deferred patches the response depends on.
-    const head = headContent({ data: initialDataResolved as T, headData: opts?.headData as H | undefined, meta, routeContext }) +
+    const head =
+      headContent({ data: initialDataResolved as T, headData: opts?.headData as H | undefined, meta, routeContext }) +
       (shouldHydrate ? hydrationBootstrap(cspNonce) : '');
 
     // M1: the SSR single-promise path uses the SAME holder design as streaming. Its timeout is a
@@ -533,8 +533,7 @@ export function createRenderer<
       // `noScripts` is deliberately NEVER used on this path.
       let head: string;
       try {
-        head =
-          headContent({ data: store.data() as T, headData: opts?.headData as H | undefined, meta, routeContext }) + hydrationBootstrap(cspNonce);
+        head = headContent({ data: store.data() as T, headData: opts?.headData as H | undefined, meta, routeContext }) + hydrationBootstrap(cspNonce);
       } catch (headErr) {
         failFatal(headErr);
 

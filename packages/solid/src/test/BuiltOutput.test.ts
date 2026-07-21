@@ -131,20 +131,26 @@ describe('built-output import smoke (packed artefact, real consumers)', () => {
   });
 
   it('constructs solidRenderer from the PACKED /renderer subpath (peers installed)', { timeout: 600_000 }, () => {
-    const out = runIn(getFull(), `
+    const out = runIn(
+      getFull(),
+      `
       import { solidRenderer } from '@taujs/solid/renderer';
       const c = solidRenderer({ project: './tsconfig.solid.json' });
       console.log(JSON.stringify({ key: c.key, managedCompilation: c.managedCompilation }));
-    `);
+    `,
+    );
 
     expect(JSON.parse(out)).toEqual({ key: 'solid', managedCompilation: true });
   });
 
   it('exposes the raw plugin from the PACKED /plugin subpath (peers installed)', { timeout: 600_000 }, () => {
-    const out = runIn(getFull(), `
+    const out = runIn(
+      getFull(),
+      `
       import * as plugin from '@taujs/solid/plugin';
       console.log(JSON.stringify(Object.keys(plugin).sort()));
-    `);
+    `,
+    );
 
     expect(JSON.parse(out)).toContain('pluginSolid');
   });

@@ -14,7 +14,7 @@ type Data = Record<string, unknown>;
 
 const html = (markup: string): JSX.Element => ssr(markup) as never;
 const laterReject = (reason: unknown, ms = 10) => new Promise<never>((_, j) => setTimeout(() => j(reason), ms));
-const later = <T,>(value: T, ms = 10) => new Promise<T>((r) => setTimeout(() => r(value), ms));
+const later = <T>(value: T, ms = 10) => new Promise<T>((r) => setTimeout(() => r(value), ms));
 
 const appRejectingWith = (reason: unknown): JSX.Element =>
   [
@@ -37,16 +37,7 @@ async function renderStreaming(app: () => JSX.Element) {
 
   let head = '';
   const { renderStream } = createRenderer({ appComponent: app, headContent: () => '' });
-  const handle = renderStream(
-    sink,
-    { onHead: (h: string) => (head = h) },
-    { a: 1 },
-    '/',
-    undefined,
-    {},
-    undefined,
-    { shouldHydrate: true },
-  );
+  const handle = renderStream(sink, { onHead: (h: string) => (head = h) }, { a: 1 }, '/', undefined, {}, undefined, { shouldHydrate: true });
 
   const outcome = await handle.done.then(
     () => ({ settled: 'resolved' as const }),
@@ -305,9 +296,11 @@ describe('sanitiser - REVISE tripwire: the pinned plugin passthrough must remain
       },
     };
 
-    (renderToStream(() => appRejectingWith(new Error('tripwire')), { plugins: [probe], onError: () => {} } as never) as never as {
-      pipe: (w: unknown) => void;
-    }).pipe(sink);
+    (
+      renderToStream(() => appRejectingWith(new Error('tripwire')), { plugins: [probe], onError: () => {} } as never) as never as {
+        pipe: (w: unknown) => void;
+      }
+    ).pipe(sink);
     await done;
 
     expect(invoked, 'Solid no longer honours the `plugins` passthrough - design 5 says FIRE REVISE, do not monkey-patch').toBeGreaterThan(0);
@@ -330,7 +323,7 @@ describe('sanitiser - REVISE tripwire: the pinned plugin passthrough must remain
     expect(invoked, 'Solid no longer honours the `plugins` passthrough on the ssr path - design 5 says FIRE REVISE').toBeGreaterThan(0);
   });
 
-  it('custom plugins are PREPENDED, so the sanitiser pre-empts seroval\'s built-in Error node', async () => {
+  it("custom plugins are PREPENDED, so the sanitiser pre-empts seroval's built-in Error node", async () => {
     // web/dist/server.js:151 - `[...customPlugins, ...defaultPlugins]`. Being first is what makes
     // the sanitiser authoritative; if that order inverted, the built-in node would win and emit
     // the raw error.

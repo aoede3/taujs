@@ -1,7 +1,7 @@
 ---
-"@taujs/server": minor
-"@taujs/react": minor
-"@taujs/vue": minor
+'@taujs/server': minor
+'@taujs/react': minor
+'@taujs/vue': minor
 ---
 
 Renderer v1: declare an app's framework with a required singular `renderer:`
@@ -30,6 +30,7 @@ The shared render-options bag is now a named `RenderOptions` on both `renderSSR`
 removed) and the host-resolved `shouldHydrate`, delivered on both rendering strategies.
 
 Migration:
+
 - Replace `plugins: [pluginReact()]`/`plugins: [pluginVue()]`-style framework wiring with
   `renderer: reactRenderer({ project: './tsconfig.json' })` / `renderer: vueRenderer()`.
 - Raw `pluginReact()`/`pluginVue()` remain exported and portable for plain-Vite/standalone use.

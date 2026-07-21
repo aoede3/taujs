@@ -22,7 +22,7 @@ describe('utils upstream-sync drift guard', () => {
     expect(read('../Html.ts')).toBe(read('../../../../react/src/utils/Html.ts'));
   });
 
-  it('Streaming.ts is deliberately NOT a copy of react\'s (Solid follows the ruled matrix)', () => {
+  it("Streaming.ts is deliberately NOT a copy of react's (Solid follows the ruled matrix)", () => {
     // A regression guard on the RULING, not on bytes: if someone later "syncs" this file with
     // react's, the Solid-specific fatality semantics disappear silently. These markers are the
     // ruled divergences.

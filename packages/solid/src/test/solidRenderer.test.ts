@@ -93,7 +93,11 @@ describe('solidCompilerImpl.prepare (end-to-end ownership)', () => {
 });
 
 describe('ESC-1 matrix coverage (Solid)', () => {
-  const member = (name: string): ManagedGroupMember => ({ contribution: asShape(buildSolidContribution({ project: name })), appId: name, appRoot: fixturesDir });
+  const member = (name: string): ManagedGroupMember => ({
+    contribution: asShape(buildSolidContribution({ project: name })),
+    appId: name,
+    appRoot: fixturesDir,
+  });
 
   it('case 1 - two same-key Solid apps at different roots union their claims', async () => {
     const group = [member('tsconfig.owned.json'), member('tsconfig.owned2.json')];
@@ -104,9 +108,14 @@ describe('ESC-1 matrix coverage (Solid)', () => {
 
   it('case §8 - the REAL scoped Solid plugin transforms a query-suffixed id (HMR ?t / dep ?v), not only the bare path', async () => {
     const contribution = buildSolidContribution({ project: 'tsconfig.owned.json' });
-    const plan = await contribution.impl.prepare([{ contribution: asShape(contribution), appId: 'admin', appRoot: fixturesDir }], { projectRoot: fixturesDir, lifecycle: 'dev' });
+    const plan = await contribution.impl.prepare([{ contribution: asShape(contribution), appId: 'admin', appRoot: fixturesDir }], {
+      projectRoot: fixturesDir,
+      lifecycle: 'dev',
+    });
     const plugin = plan.createPlugin({ include: plan.claims, exclude: [] }) as {
-      transform?: ((this: unknown, code: string, id: string, opts?: unknown) => unknown) | { handler: (this: unknown, code: string, id: string, opts?: unknown) => unknown };
+      transform?:
+        | ((this: unknown, code: string, id: string, opts?: unknown) => unknown)
+        | { handler: (this: unknown, code: string, id: string, opts?: unknown) => unknown };
     };
     const t = plugin.transform;
     const handler = typeof t === 'function' ? t : t?.handler;

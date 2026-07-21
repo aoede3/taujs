@@ -97,9 +97,7 @@ const openPage = async (): Promise<{ page: Page; faults: PageFaults }> => {
     (window as unknown as { __CSP_VIOLATIONS__: string[] }).__CSP_VIOLATIONS__ = [];
     document.addEventListener('securitypolicyviolation', (e) => {
       const ev = e as SecurityPolicyViolationEvent;
-      (window as unknown as { __CSP_VIOLATIONS__: string[] }).__CSP_VIOLATIONS__.push(
-        `${ev.violatedDirective} blocked ${ev.blockedURI || '(inline)'}`,
-      );
+      (window as unknown as { __CSP_VIOLATIONS__: string[] }).__CSP_VIOLATIONS__.push(`${ev.violatedDirective} blocked ${ev.blockedURI || '(inline)'}`);
     });
   });
 
@@ -204,7 +202,7 @@ describe('slice 7 group C - real browser (production build, enforced CSP)', () =
     }
   });
 
-  it('CAPTURES a pre-hydration click into Solid\'s event queue', async () => {
+  it("CAPTURES a pre-hydration click into Solid's event queue", async () => {
     const { page, faults } = await openPage();
     try {
       // Deterministic delay: hold the client entry until the click has landed. Nothing about the

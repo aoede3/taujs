@@ -95,9 +95,9 @@ describe('assertOneImplPerKey (safeguard 1: reference identity)', () => {
   });
 
   it('HARD errors when two distinct impls claim the same key (two installed copies/versions)', () => {
-    expect(() => assertOneImplPerKey('solid', [member(makeContribution('solid', makeImpl('solid'))), member(makeContribution('solid', makeImpl('solid')))])).toThrow(
-      /claimed by 2 different renderer implementations/,
-    );
+    expect(() =>
+      assertOneImplPerKey('solid', [member(makeContribution('solid', makeImpl('solid'))), member(makeContribution('solid', makeImpl('solid')))]),
+    ).toThrow(/claimed by 2 different renderer implementations/);
   });
 
   it('HARD errors when the contribution key and its impl key disagree', () => {

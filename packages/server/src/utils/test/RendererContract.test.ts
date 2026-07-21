@@ -45,10 +45,12 @@ describe('assertRenderContract (generic host identity validation)', () => {
   });
 
   it('rejects a module missing renderSSR or renderStream', () => {
-    expect(() => assertRenderContract({ renderSSR: brandFn(() => renderSSR(), 'react') }, reactDeclared, ctx)).toThrow(/must export renderSSR and renderStream/);
+    expect(() => assertRenderContract({ renderSSR: brandFn(() => renderSSR(), 'react') }, reactDeclared, ctx)).toThrow(
+      /must export renderSSR and renderStream/,
+    );
   });
 
-  it('rejects an UNBRANDED module (the paired contract\'s runtime half is missing)', () => {
+  it("rejects an UNBRANDED module (the paired contract's runtime half is missing)", () => {
     expect(() => assertRenderContract({ renderSSR: () => renderSSR(), renderStream: () => renderStream() }, reactDeclared, ctx)).toThrow(
       /is not branded by createRenderer/,
     );

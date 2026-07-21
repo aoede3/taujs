@@ -34,13 +34,20 @@ const writePkg = (dir: string, name: string, extra: Record<string, unknown> = {}
 
 beforeAll(() => {
   root = mkdtempSync(path.join(os.tmpdir(), 'esc1-classifier-'));
-  writeFileSync(path.join(root, 'tsconfig.solid.json'), JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['src/**/*'] }));
+  writeFileSync(
+    path.join(root, 'tsconfig.solid.json'),
+    JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['src/**/*'] }),
+  );
 
   // root dependencies: a direct solid lib, a plain mid pkg (deps a hoisted solid lib), and a host pkg
   // (deps a nested-only solid lib).
   writeFileSync(
     path.join(root, 'package.json'),
-    JSON.stringify({ name: 'classifier-root', private: true, dependencies: { 'direct-solid': '*', 'mid-pkg': '*', 'host-pkg': '*', 'dup-solid': '*', 'ws-solid': '*' } }),
+    JSON.stringify({
+      name: 'classifier-root',
+      private: true,
+      dependencies: { 'direct-solid': '*', 'mid-pkg': '*', 'host-pkg': '*', 'dup-solid': '*', 'ws-solid': '*' },
+    }),
   );
   const nm = path.join(root, 'node_modules');
 

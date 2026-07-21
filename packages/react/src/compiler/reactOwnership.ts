@@ -1,4 +1,11 @@
-import { assertNoExclusionConflicts, dedupeMatchers, deriveBoundaries, mergeCompilerOptions, parseTsconfigProject, resolveProjectPath } from './tsconfigOwnership.js';
+import {
+  assertNoExclusionConflicts,
+  dedupeMatchers,
+  deriveBoundaries,
+  mergeCompilerOptions,
+  parseTsconfigProject,
+  resolveProjectPath,
+} from './tsconfigOwnership.js';
 
 import type { OwnershipMatcher, ProjectOwnership } from './tsconfigOwnership.js';
 import type { ManagedGroupMember, PrepareInput } from '@taujs/server/renderer';
@@ -21,7 +28,10 @@ export type ReactOwnership = {
 };
 
 export const computeReactOwnership = (group: ReadonlyArray<ManagedGroupMember>, input: PrepareInput): ReactOwnership => {
-  const options = mergeCompilerOptions('React', group.map((member) => (member.contribution.options ?? {}) as Record<string, unknown>));
+  const options = mergeCompilerOptions(
+    'React',
+    group.map((member) => (member.contribution.options ?? {}) as Record<string, unknown>),
+  );
 
   const projects: ProjectOwnership[] = [];
   const boundaries: OwnershipMatcher[] = [];

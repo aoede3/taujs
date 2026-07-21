@@ -12,7 +12,6 @@ import solid from 'vite-plugin-solid';
 import type { PluginOption } from 'vite';
 import type { CompilerImpl, EffectiveScope, ManagedContributionBrand, ManagedContributionShape, PreparedPlan } from '@taujs/server/renderer';
 
-
 // vite-plugin-solid filters the RAW module id (query included) with a createFilter captured at
 // construction (dist/esm/index.mjs: `if (!filter(id)) return null`), UNLIKE @vitejs/plugin-react which
 // strips the query first. So a scoped `.tsx` include would miss `App.tsx?t=...` (HMR)/`App.tsx?v=...`
