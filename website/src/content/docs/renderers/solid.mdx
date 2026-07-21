@@ -7,9 +7,24 @@ import { LinkButton, Aside } from "@astrojs/starlight/components";
 
 # @taujs/solid
 
-**Solid SSR (Server-Side Rendering) with Streaming Support**
+**τjs resolves the request, route data and policy; Solid's compiled UI turns that resolved application into an interactive response.**
 
-A lightweight, Solid SSR library with streaming capabilities, built for modern TypeScript applications. Designed as part of the taujs (τjs) ecosystem but fully standalone and runtime-agnostic.
+`@taujs/solid` is the Solid renderer for τjs. τjs matches the URL, runs the route's data loader, and applies its policy (render strategy, hydration, CSP); it then hands the resolved response to Solid, which renders it on the server and hydrates it on the client. You write Solid components and a route table; τjs governs the URL-to-response path around them.
+
+```text
+request
+  │
+  ▼
+τjs      match route → run the route data loader → apply policy (strategy, hydrate, CSP)
+  │      → assemble the document (head, __INITIAL_DATA__, client bootstrap)
+  ▼
+Solid    render the resolved app (SSR or streaming) → hydrate on the client
+  │
+  ▼
+response
+```
+
+That division is the point. τjs owns request resolution and response assembly; Solid owns the compiled UI and its hydration. It is not a general SSR library you wire yourself - it is the Solid seat inside τjs's governed request/response model. `createRenderer` and `hydrateApp` are also usable standalone against any Node HTTP framework without `@taujs/server`.
 
 <LinkButton
   href="https://github.com/aoede3/taujs"
@@ -36,6 +51,7 @@ A lightweight, Solid SSR library with streaming capabilities, built for modern T
   - [Managed compilation](#managed-compilation)
   - [Vite plugin](#vite-plugin)
 - [The snapshot data bridge](#the-snapshot-data-bridge)
+- [Client navigation](#client-navigation)
 - [Hydration and CSP](#hydration-and-csp)
 - [Error handling and the sanitiser](#error-handling-and-the-sanitiser)
 - [Known limitations](#known-limitations)
@@ -56,7 +72,7 @@ A lightweight, Solid SSR library with streaming capabilities, built for modern T
 - **Solid-native data store** built on a signal `Accessor`, provided through Solid context
 - **Managed compilation** - `@taujs/solid/renderer` owns `vite-plugin-solid` internally with `ssr: true` forced, so an app never lists the compiler plugin itself
 - **A fixed-identity error sanitiser** - a post-shell resource rejection reaches the client redacted, never leaking server detail through the error channel
-- **Runtime agnostic** - works with Node.js, Fastify, Express, or any HTTP server
+- **HTTP-framework-independent on Node, with portable static SSR** - the streaming API writes to a Node `Writable`, so it runs under Fastify, Express or any Node HTTP server. Static SSR (`renderSSR`) returns strings and carries no stream dependency, so it also runs on edge runtimes. (It is not a fully runtime-agnostic Web Streams surface; streaming is Node-`Writable`-based.)
 
 `@taujs/solid` mirrors the *contract and capability* of `@taujs/react` and `@taujs/vue` - the same render surface, the same server behaviour, the same hydration beacon events - but it is Solid-native. Route data flows through a signal store you read like any other Solid accessor, and app-owned async uses Solid's own `createResource` + `<Suspense>` rather than a bespoke composable. The public author surface is deliberately small; where it diverges from the other renderers the divergence is called out in place.
 
@@ -168,7 +184,7 @@ Because route data is already committed on the `ssr` strategy, no `<Suspense>` i
 
 ### App-owned async (Suspense + createResource)
 
-**App-owned async** is work your component starts itself - a `createResource` that fetches or computes after the shell. This is what Solid's deferred patch channel exists for, and on a `streaming` route it is what actually streams:
+**App-owned async** is work a component starts itself - a `createResource` under `<Suspense>`, such as a widget fetching its own data. Solid streams that work as a deferred (`$df`) patch once it settles, and τjs manages its transport: the shell and completion deadlines, cancellation and stream completion all bound it. The work itself is **application-owned and UI-local** - τjs governs its delivery, not its meaning; it is not part of the route's data contract or the route graph. Keep governed request data in the route loader, and reach for `createResource` for genuinely component-local async:
 
 ```tsx
 import { createResource, Suspense } from "solid-js";
@@ -188,8 +204,8 @@ function DeferredNote() {
 </Suspense>;
 ```
 
-<Aside type="caution" title="Route data does not stream">
-Under the snapshot bridge, route data travels in `window.__INITIAL_DATA__` and is **never** streamed through Solid's `$df` patch channel (see [The snapshot data bridge](#the-snapshot-data-bridge)). A `streaming` route whose page reads only route data therefore emits no deferred-patch machinery - there is nothing to defer. Streaming is only observable end to end when the application itself owns some async work, so put slow work in an app-owned `createResource` under `<Suspense>`.
+<Aside type="note" title="Route data and createResource are different, on purpose">
+Route data is resolved by τjs at the request boundary and travels in `window.__INITIAL_DATA__`; it never streams through Solid's `$df` channel (see [The snapshot data bridge](#the-snapshot-data-bridge)). `createResource` under `<Suspense>` is the other case - application-owned async the component starts itself. So a `streaming` route whose page reads only route data emits no deferred-patch machinery: there is nothing to defer, and that is correct. Deferred patches are the mechanism for component-local async; they are not a way to move governed route data off the request boundary.
 </Aside>
 
 ---
@@ -309,8 +325,8 @@ type SSROptions = {
 };
 ```
 
-<Aside type="note" title="cspNonce lives in opts, not a positional argument">
-Unlike `@taujs/vue`, whose `renderStream` takes `cspNonce` as a positional parameter, `@taujs/solid` carries it on the final `opts` object (`RenderOptions.cspNonce`) for both `renderSSR` and `renderStream`. When present it nonces the hydration bootstrap and every resource script the renderer emits. See [Hydration and CSP](#hydration-and-csp).
+<Aside type="note" title="cspNonce lives in opts">
+`@taujs/solid` carries `cspNonce` on the final `opts` object (`RenderOptions.cspNonce`) for both `renderSSR` and `renderStream` - the same shape `@taujs/react` and `@taujs/vue` use. When present it nonces the hydration bootstrap and every resource script the renderer emits. See [Hydration and CSP](#hydration-and-csp).
 </Aside>
 
 #### Route-aware rendering with `routeContext`
@@ -560,15 +576,26 @@ export default defineConfig({
 
 ## The snapshot data bridge
 
-`window.__INITIAL_DATA__` is the **single authority** for route data. The server commits the resolved route data into the store before rendering and serialises the same payload into `__INITIAL_DATA__`; the client seeds the store from it during hydration. Route data therefore never travels through Solid's `$df` deferred-patch channel, on any strategy.
+A τjs response renders **one selected app and root**: the host matches the URL to a single app by `appId` and loads that app's renderer for the response. So `window.__INITIAL_DATA__` is that response's single route-data authority - one root hydrates one payload, and no second app's data shares the document.
+
+The server commits the resolved route data into the store before rendering and serialises the same payload into `__INITIAL_DATA__`; the client seeds the store from it during hydration. Route data therefore never travels through Solid's `$df` deferred-patch channel, on any strategy.
 
 The practical consequences:
 
 - **`ssr` routes:** the store is committed before render, so `store.data()` is populated in the server HTML with no `<Suspense>` needed for route data.
-- **`streaming` routes:** route data is already in `__INITIAL_DATA__`, so a page that reads only route data streams no deferred patches. To exercise streaming you need app-owned async (`createResource` under `<Suspense>`) - that, and only that, flows as `$df` patches.
-- **The client never re-runs your route loader.** It hydrates from the snapshot; there is exactly one route-data seed per navigation.
+- **`streaming` routes:** route data is already in `__INITIAL_DATA__`, so a page that reads only route data emits no deferred patches. Application-owned `createResource` work under `<Suspense>` is what flows as `$df` patches (see [App-owned async](#app-owned-async-suspense--createresource)).
+- **The client never re-runs your route loader.** It hydrates from the snapshot; there is exactly one route-data seed per response.
 
-For data that changes *after* the initial render, call your own `/api/*` endpoints from the client with a library such as TanStack Solid Query - τjs keeps SSR request-first and adds no client data channel.
+---
+
+## Client navigation
+
+τjs governs the response for a URL. What a _subsequent_ navigation does depends on whether it crosses a τjs app boundary:
+
+- **Between τjs apps** (a different `appId`): a full-document navigation. The browser requests the new URL, τjs matches it, resolves its data and policy, and returns a new governed response - the same request-to-response path as the first load. See [Navigation Between Apps](/guides/micro-frontend/#navigation-between-apps).
+- **Within a single app shell:** the application's own client-side router (Solid Router, TanStack Router, or a custom router) owns navigation and any subsequent data fetching. τjs delivers the governed first response; the shell drives client-side transitions from there. See [App Shell Architecture](/reference/app-shell-pattern/).
+
+For data that changes _after_ the first render - within the shell - fetch it from your own `/api/*` endpoints with a client library such as TanStack Solid Query. τjs keeps SSR request-first and adds no generic client data channel; the initial snapshot stays the authority for the response it was built for.
 
 ---
 
@@ -805,6 +832,27 @@ function Component() {
 }
 ```
 
+### Route-derived types
+
+You do not have to hand-repeat a payload shape. `@taujs/server/config` exports types that derive from your `taujs.config.ts` route table:
+
+- `RouteData<typeof config, "/path">` - the resolved data type of the route with that path (the awaited return of its `attr.data` loader).
+- `HeadDataOf<typeof route>` - what `headContent` receives as `headData` for a route. This is what makes the `attr.head` → `headContent` chain typed end to end (RFC 0004, a signed type gate).
+- `RouteContext<...>` - the union of `{ appId, path, data, attr }` across the config's routes.
+
+```ts
+import type { RouteData } from "@taujs/server/config";
+import config from "./taujs.config";
+
+// Derived from the route loader, not hand-written:
+type HomeData = RouteData<typeof config, "/">;
+
+// In the Solid entry / component:
+const store = useSSRStore<HomeData>();
+```
+
+The chain is not fully automatic: `useSSRStore<T>()` still takes `T` as an argument, so it is an assertion at that call site. But deriving `T` from the route contract - rather than duplicating the shape in a second place - keeps the store type honest against the loader, and the head-data chain (`HeadDataOf`) is inferred end to end.
+
 ### Logger types
 
 `ServerLogger`, `UILogger` and the union `SolidLogger` describe the accepted logger shapes; pass one to `createRenderer` (or per call via `opts.logger`):
@@ -824,13 +872,13 @@ const logger: ServerLogger = {
 ## Best practices
 
 1. **Know your two data kinds.** Route data comes from the store (`store.data()`) and is committed before render; app-owned async uses `createResource` under `<Suspense>`. Only the latter streams.
-2. **Streamed routes need app-owned async to stream.** Route data is already in `__INITIAL_DATA__`, so put slow work in a `createResource` under `<Suspense>` if you want deferred patches.
+2. **Streaming carries application-owned async.** Route data is resolved at the request boundary and travels in the snapshot; `createResource` under `<Suspense>` is component-owned work that streams as deferred patches. Use it for UI-local async, not to move governed route data off the request boundary.
 3. **Share one `renderId`.** Keep it in a single constant imported by `entry-server` and `entry-client`; a drift between the two is a hydration bug.
 4. **Head data: `meta` for static, `attr.head` for dynamic.** In streaming mode the route-data snapshot is usually pending when the head is built - guard optional `data` fields, and escape every interpolated value with `escapeHtml`. The renderer appends the hydration bootstrap itself; do not emit it from `headContent`.
 5. **Let the managed compiler own the plugin.** Register `solidRenderer({ project })` and point `project` at a disjoint tsconfig; do not add `vite-plugin-solid` to your app yourself under τjs.
 6. **Handle CSR fallback.** Provide `onHydrationError`; remember the CSR path (no `__INITIAL_DATA__`) emits no hydration callbacks or beacon by design, and a hydration failure reports and stops rather than silently remounting.
 7. **Keep secrets out of resource errors regardless.** The sanitiser redacts post-shell rejections to a fixed identity, but treat that as defence in depth, not licence to put secrets in an error `cause`.
-8. **Client-side updates after SSR are userland.** For data that changes after the initial render, call your own `/api/*` endpoints with a client library such as TanStack Solid Query - τjs keeps SSR request-first and does not add a client data channel.
+8. **Know the navigation model.** A cross-app navigation is a full document load and a new governed response; within an app shell the app's own router owns client navigation and subsequent data, which you fetch from your own `/api/*` endpoints (for example with TanStack Solid Query). See [Client navigation](#client-navigation).
 
 ---
 
