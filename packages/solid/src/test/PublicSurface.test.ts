@@ -12,8 +12,10 @@ import { describe, expect, it } from 'vitest';
 const packageJson = JSON.parse(readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8')) as {
   exports: Record<string, unknown>;
   dependencies: Record<string, string>;
+  devDependencies?: Record<string, string>;
   peerDependencies: Record<string, string>;
   peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+  files?: string[];
 };
 
 const distPath = (file: string) => fileURLToPath(new URL(`../../dist/${file}`, import.meta.url));
@@ -111,6 +113,16 @@ describe('slice 6 - the raw plugin subpath (`@taujs/solid/plugin`) stays portabl
 });
 
 describe('slice 6 - dependency classification', () => {
+  it('happy-dom is a devDependency only - never a runtime dependency, peer, or packed output', () => {
+    // The client hydration tests run in a happy-dom worker; it is the one sanctioned dependency of
+    // the hydration-observability work and must never reach a consumer. `files` ships only `dist`,
+    // and a test-only DOM environment appears in no runtime surface.
+    expect(packageJson.devDependencies?.['happy-dom']).toBeTruthy();
+    expect(packageJson.dependencies['happy-dom']).toBeUndefined();
+    expect(packageJson.peerDependencies['happy-dom']).toBeUndefined();
+    expect(packageJson.files).toEqual(['dist']);
+  });
+
   it('seroval is a real dependency pinned exactly, not an optional peer', () => {
     expect(packageJson.dependencies.seroval).toBe('1.5.5');
     expect(packageJson.peerDependencies.seroval).toBeUndefined();

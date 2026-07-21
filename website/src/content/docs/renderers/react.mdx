@@ -468,7 +468,7 @@ function hydrateApp<T>(options: {
 
 - `appComponent`: Your root React component (already instantiated)
 - `rootElementId`: DOM element ID to hydrate into (default: `'root'`)
-- `enableDebug`: Enable debug logging (default: `false`)
+- `enableDebug`: Enable debug logging (default: `false`). Debug logging is lifecycle messages only - the route-data payload and the store object are never logged, so a logger that forwards to a server sink cannot disclose request data.
 - `logger`: Custom logger implementation
 - `dataKey`: Key for initial data on window object (default: `'__INITIAL_DATA__'`)
 - `identifierPrefix`: React's `useId` prefix, passed to both `hydrateRoot` and the CSR-fallback `createRoot`. Must be identical to the value the server rendered with (`createRenderer`'s `identifierPrefix`), or hydration mismatches.

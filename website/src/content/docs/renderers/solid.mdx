@@ -406,6 +406,7 @@ Hydrates a server-rendered Solid application on the client, or mounts a fresh CS
 
 ```typescript
 import type { JSX } from "solid-js";
+import type { SolidLogger } from "@taujs/solid";
 
 function hydrateApp(options: {
   /** Your root, receiving { location }. */
@@ -413,9 +414,34 @@ function hydrateApp(options: {
   /** Must match the renderId the SERVER rendered with. */
   renderId?: string;
   rootElementId?: string; // default 'root'
+  /** Receives hydration lifecycle logs (see below). */
+  logger?: SolidLogger;
+  /** Gate verbose lifecycle logs. Warnings and errors are never gated. Default false. */
+  enableDebug?: boolean;
+  /** Observes the start of hydration (hydrate path only). */
+  onStart?: () => void;
+  /** Observes successful root establishment (hydrate or CSR). */
+  onSuccess?: () => void;
+  /** Observes a failed root establishment. */
   onHydrationError?: (error: unknown) => void;
 }): void;
 ```
+
+**Lifecycle callbacks.** The three observers are advisory - a throw from any of them is logged and swallowed; it never becomes an `onHydrationError`, manufactures a beacon, or tears down the root.
+
+| Path                 | `onStart`                    | `onSuccess`                      | `onHydrationError` |
+| -------------------- | ---------------------------- | -------------------------------- | ------------------ |
+| Hydration succeeds   | once, before native `hydrate` | once, after `hydrate` returns    | never              |
+| Hydration throws     | once                         | never                            | once               |
+| CSR fallback succeeds | never                        | once, after `render` establishes | never              |
+| CSR fallback throws  | never                        | never                            | once               |
+| Root element missing | never                        | never                            | once               |
+
+`onSuccess` means Solid returned from `hydrate(...)` (or `render(...)` on CSR) without a bootstrap failure - the root is established. It does **not** mean every resource or `<Suspense>` boundary settled. Exactly one of `onSuccess` | `onHydrationError` settles per call, each at most once.
+
+This is the same lifecycle contract `@taujs/react` and `@taujs/vue` expose; the option objects are not identical (Solid's `renderId`, React's `identifierPrefix`, Vue's `setupApp` and its `App`-instance callback argument remain framework-native), and Solid deliberately has no `dataKey` - `window.__INITIAL_DATA__` is the one snapshot authority.
+
+**Logging.** With `enableDebug: true` the start/success/CSR lifecycle is logged through `logger`; warnings and errors are logged regardless of `enableDebug`. With no `logger`, warnings and errors fall back to `console.warn` / `console.error` (verbose stays off unless `enableDebug`). The route-data snapshot is never logged.
 
 **Example:**
 
@@ -438,7 +464,7 @@ hydrateApp({
 **Behaviour:**
 
 - If `window.__INITIAL_DATA__` exists: hydrates the SSR markup with `hydrate(...)` under `renderId`, seeding the store from the payload.
-- If `window.__INITIAL_DATA__` is missing: clears any stale markup and mounts a fresh CSR app. **No hydration beacon events fire** - a CSR mount is not a hydration. A failed CSR mount is still reported to `onHydrationError`.
+- If `window.__INITIAL_DATA__` is missing: clears any stale markup and mounts a fresh CSR app. **No hydration beacon events and no `onStart` fire** - a CSR mount is not a hydration. A successful CSR mount still reports `onSuccess`; a failed one reports `onHydrationError`.
 - Automatically handles `DOMContentLoaded` timing.
 - Provides the store to your tree on both the hydrate and CSR paths.
 
@@ -446,7 +472,7 @@ hydrateApp({
 On a hydration error `hydrateApp` routes the error to `onHydrationError` and stops. It deliberately does **not** silently remount as CSR: a silent remount hides a real server/client divergence behind a page that looks fine, and destroys the server-rendered markup that would have shown the mismatch.
 </Aside>
 
-**Devtools beacon (dev-only).** On the hydrate path, `hydrateApp` emits `hydration:start`, `hydration:success` and `hydration:error` to `window.__TAUJS_DEVTOOLS_HOOK__` around the work. The hook is only ever set by the server-injected dev script, is absent in production, and emission can never throw into hydration. The CSR-fallback path emits nothing.
+**Devtools beacon (dev-only).** On the hydrate path, `hydrateApp` emits `hydration:start`, `hydration:success` and `hydration:error` to `window.__TAUJS_DEVTOOLS_HOOK__`, each **before** the matching user callback. The hook is only ever set by the server-injected dev script, is absent in production, and emission can never throw into hydration. The CSR-fallback path emits no beacons (a CSR mount is not a hydration), though it still reports `onSuccess` / `onHydrationError`.
 
 **HTML template requirements.** Your server-rendered HTML must include the root element, the initial-data script and the client bundle. With `@taujs/server` these are assembled for you; standalone you provide them yourself:
 

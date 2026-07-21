@@ -206,6 +206,31 @@ describe.skipIf(!HAS_PINNED_BROWSER)('slice 7 group C - real browser (production
     }
   });
 
+  // The one native-browser callback/logging smoke for the hydration-observability surface. The unit
+  // matrix (real hydrateApp, mocked terminals) lives in @taujs/solid's happy-dom suite; this proves
+  // the real callbacks and debug logs fire during a real production hydrate. The entry-client wires
+  // onStart/onSuccess/logger into window.__TAUJS_HYDRATION_PROBE__ (fixture-owned state).
+  it('fires onStart before onSuccess and emits debug lifecycle logs during real hydration', async () => {
+    const { page, faults } = await openPage();
+    try {
+      await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+
+      const probe = await page.evaluate(
+        () => (window as unknown as { __TAUJS_HYDRATION_PROBE__?: { events: string[]; logs: string[] } }).__TAUJS_HYDRATION_PROBE__ ?? { events: [], logs: [] },
+      );
+
+      // onStart then onSuccess, exactly once each; no failure was reported.
+      expect(probe.events).toEqual(['onStart', 'onSuccess']);
+      // enableDebug:true surfaced the start and success lifecycle logs through the supplied logger.
+      expect(probe.logs.some((m) => /started/i.test(m))).toBe(true);
+      expect(probe.logs.some((m) => /succeeded/i.test(m))).toBe(true);
+
+      expectClean(await collectFaults(page, faults));
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it("CAPTURES a pre-hydration click into Solid's event queue", async () => {
     const { page, faults } = await openPage();
     try {

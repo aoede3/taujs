@@ -1,7 +1,7 @@
 {
   "name": "@taujs/solid",
   "version": "0.2.0",
-  "description": "Framework-agnostic Solid SSR primitives - ESC-1 build-time compiler plugin surface (renderer lands post-GO)",
+  "description": "Framework-agnostic Solid SSR primitives - transport layer for server-side rendering and hydration",
   "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
   "license": "MIT",
   "homepage": "https://taujs.dev/",
@@ -51,6 +51,7 @@
     "@taujs/server": "workspace:*",
     "@types/node": "^24.0.7",
     "@types/picomatch": "^2.3.3",
+    "happy-dom": "^20.11.0",
     "solid-js": "~1.9.14",
     "tsup": "^8.2.4",
     "typescript": "^5.5.4",
