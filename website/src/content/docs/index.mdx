@@ -143,7 +143,7 @@ Because orchestration happens at the request boundary, τjs can support multiple
   - “static" pages via CDN caching of SSR output,
   - or a build-time MFE inside a larger system
 
-## Declarative rendering per route
+### Declarative rendering per route
 
 Any route can explicitly define how it renders, independently of how its data is orchestrated:
 
@@ -152,7 +152,7 @@ Any route can explicitly define how it renders, independently of how its data is
 - Streaming SSR
 - Hydration toggle (enable or disable hydration where needed)
 
-## Start simple. Add orchestration only where you need it
+### Start simple. Add orchestration only where you need it
 
 Start with familiar Fastify, Vite and UI-framework conventions. Routes can remain conventional, adopting declared data, mediated services and explicit render control only where the system benefits from them.
 
@@ -164,7 +164,7 @@ Each route can declare its data, service access and render strategy independentl
 - Render strategy can be introduced independently for each route
 - Client-side fetching and traditional API patterns remain fully supported alongside request contracts
 
-## Modular without the runtime complexity
+### Modular without runtime complexity
 
 τjs gives you room to grow without adding runtime complexity:
 
