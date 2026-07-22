@@ -1,7 +1,7 @@
 // Killer-demo eval (P1-04, Gate 1 acceptance + launch demo): boot the playground, break
 // /product/999, and drive the MCP toolset to the diagnosis — the exact flow the
 // taujs_skill_diagnose_broken_route skill teaches. Run with:
-//   pnpm -r build && pnpm --filter playground eval
+//   pnpm -r build && pnpm --filter playground-react eval
 // NODE_ENV=development is set by the npm script (the structural dev gate is import-time).
 
 import assert from 'node:assert/strict';
@@ -65,7 +65,10 @@ step('taujs_doctor', `mode=active; failed traces: ${doctor.failedTraces.items.le
 const failed = await call('taujs_get_recent_traces', { outcome: 'failed' });
 assert.equal(failed.traces.items.length, 1);
 const { traceId } = failed.traces.items[0];
-assert.match(failed.traces.items[0].serviceCalls[0], /^catalog\.getProduct FAILED [\d.]+ms$/);
+// Head data (catalog.getProductHead) resolves before the shell, so it can precede the failing
+// main-data call; assert the FAILED getProduct edge is present rather than assuming its position.
+const failedServiceCall = failed.traces.items[0].serviceCalls.find((c: string) => /^catalog\.getProduct FAILED [\d.]+ms$/.test(c));
+assert.ok(failedServiceCall, 'expected a catalog.getProduct FAILED entry in serviceCalls');
 step('taujs_get_recent_traces {outcome:"failed"}', `traceId=${traceId}; serviceCalls=${JSON.stringify(failed.traces.items[0].serviceCalls)}`);
 
 // 3. The full trace: exact failing edge + honest URL hygiene
@@ -73,7 +76,9 @@ const trace = await call('taujs_get_trace', { traceId });
 assert.equal(trace.trace.outcome, 'failed');
 assert.equal(trace.trace.route, '/product/:id');
 assert.match(trace.trace.error.message, /Product 999 does not exist/);
-assert.equal(trace.trace.serviceCalls[0].ok, false);
+const productCall = trace.trace.serviceCalls.find((c: { service: string; method: string }) => c.service === 'catalog' && c.method === 'getProduct');
+assert.ok(productCall, 'expected a catalog.getProduct service call on the trace');
+assert.equal(productCall.ok, false);
 step('taujs_get_trace', `route=${trace.trace.route}; error=[${trace.trace.error.kind}] ${trace.trace.error.message}`);
 
 // 4. Logs on demand (never embedded)
@@ -83,7 +88,7 @@ assert.ok(logs.logs.length >= 1, 'expected warn+ annex lines for the failed requ
 step('taujs_get_trace_logs', `${logs.logs.length} warn+ line(s); first: "${logs.logs[0].msg}"`);
 
 // 5. The declared edge behind the route
-const explain = await call('taujs_explain_route', { routeId: 'playground:/product/:id' });
+const explain = await call('taujs_explain_route', { routeId: 'playground-react:/product/:id' });
 assert.equal(explain.explanations[0].data.service, 'catalog');
 assert.equal(explain.explanations[0].data.method, 'getProduct');
 assert.equal(explain.explanations[0].data.schema.params.kind, 'parse');
@@ -95,7 +100,7 @@ const sources = new Set(who.edges.map((e: { source: string }) => e.source));
 assert.ok(sources.has('declared') && sources.has('observed'), 'expected both declared and observed edges');
 step(
   'taujs_who_calls_service',
-  `${who.edges.length} edge(s); sources=${[...sources].join('+')} — diagnosis: catalog.getProduct throws for id "999" (PRODUCT_NOT_FOUND); only playground:/product/:id is affected.`,
+  `${who.edges.length} edge(s); sources=${[...sources].join('+')} — diagnosis: catalog.getProduct throws for id "999" (PRODUCT_NOT_FOUND); only playground-react:/product/:id is affected.`,
 );
 
 await client.close();

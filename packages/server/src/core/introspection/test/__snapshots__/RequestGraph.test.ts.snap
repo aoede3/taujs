@@ -767,7 +767,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
 {
   "apps": [
     {
-      "appId": "playground",
+      "appId": "playground-react",
       "entryPoint": "",
       "routeCount": 5,
     },
@@ -775,14 +775,14 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
   "disclosure": "conservative",
   "emittedAt": "2026-07-09T10:12:03.412Z",
   "fallthrough": {
-    "appId": "playground",
+    "appId": "playground-react",
     "assetLike": 404,
     "mode": "spa",
     "reachable": true,
   },
   "routes": [
     {
-      "appId": "playground",
+      "appId": "playground-react",
       "data": {
         "kind": "service",
         "method": "getProduct",
@@ -792,7 +792,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
         "defaulted": true,
         "enabled": true,
       },
-      "id": "playground:/product/:id",
+      "id": "playground-react:/product/:id",
       "middleware": {
         "auth": {
           "declared": false,
@@ -809,7 +809,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
       "specificity": 11.2,
     },
     {
-      "appId": "playground",
+      "appId": "playground-react",
       "data": {
         "kind": "none",
       },
@@ -817,7 +817,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
         "defaulted": true,
         "enabled": true,
       },
-      "id": "playground:/admin",
+      "id": "playground-react:/admin",
       "middleware": {
         "auth": {
           "declared": true,
@@ -834,7 +834,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
       "specificity": 10.1,
     },
     {
-      "appId": "playground",
+      "appId": "playground-react",
       "data": {
         "kind": "dynamic",
       },
@@ -842,7 +842,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
         "defaulted": true,
         "enabled": true,
       },
-      "id": "playground:/legacy",
+      "id": "playground-react:/legacy",
       "middleware": {
         "auth": {
           "declared": false,
@@ -859,7 +859,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
       "specificity": 10.1,
     },
     {
-      "appId": "playground",
+      "appId": "playground-react",
       "data": {
         "kind": "none",
       },
@@ -867,7 +867,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
         "defaulted": false,
         "enabled": false,
       },
-      "id": "playground:/terms",
+      "id": "playground-react:/terms",
       "middleware": {
         "auth": {
           "declared": false,
@@ -884,7 +884,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
       "specificity": 10.1,
     },
     {
-      "appId": "playground",
+      "appId": "playground-react",
       "data": {
         "kind": "service",
         "method": "home",
@@ -894,7 +894,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
         "defaulted": true,
         "enabled": true,
       },
-      "id": "playground:/",
+      "id": "playground-react:/",
       "middleware": {
         "auth": {
           "declared": false,
@@ -931,9 +931,9 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
           },
           "usedBy": [
             {
-              "appId": "playground",
+              "appId": "playground-react",
               "path": "/product/:id",
-              "routeId": "playground:/product/:id",
+              "routeId": "playground-react:/product/:id",
             },
           ],
         },
@@ -952,9 +952,9 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
           },
           "usedBy": [
             {
-              "appId": "playground",
+              "appId": "playground-react",
               "path": "/",
-              "routeId": "playground:/",
+              "routeId": "playground-react:/",
             },
           ],
         },

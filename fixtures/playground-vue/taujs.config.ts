@@ -3,7 +3,7 @@ import { vueRenderer } from '@taujs/vue/renderer';
 
 import { serviceData } from './src/server/services/registry.ts';
 
-// The Vue twin of fixtures/playground: one bootable app that exercises @taujs/vue end to end
+// The Vue twin of fixtures/playground-react: one bootable app that exercises @taujs/vue end to end
 // against the workspace package (no publish needed). `/` is ssr, `/streaming` is streaming SSR;
 // both hydrate. vueRenderer is the load-bearing difference — it supplies pluginVue, which Vue
 // SFCs need in dev and build.

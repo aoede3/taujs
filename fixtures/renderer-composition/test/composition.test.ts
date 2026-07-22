@@ -50,7 +50,10 @@ beforeAll(() => {
 
   // A node_modules package that declares a `solid` export condition (ships JSX) - the classifier must
   // claim its directory (case 9, direct-package feasibility).
-  writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'esc1-fixture-root', private: true, dependencies: { 'fake-solid-lib': '*' } }));
+  writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'renderer-composition-fixture-root', private: true, dependencies: { 'fake-solid-lib': '*' } }),
+  );
   const libDir = path.join(root, 'node_modules', 'fake-solid-lib');
   mkdirSync(path.join(libDir, 'src'), { recursive: true });
   writeFileSync(

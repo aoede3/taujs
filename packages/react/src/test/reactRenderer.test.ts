@@ -13,7 +13,7 @@ import type { ManagedContributionShape, ManagedGroupMember, RendererContribution
 
 // The brand LITERALS (asserted by value, not imported at runtime): @taujs/react must not runtime-depend
 // on @taujs/server. Compile-time equality with the host is enforced by the type-only brand imports; the
-// cross-package literal match is checked in fixtures/esc1-composition.
+// cross-package literal match is checked in fixtures/renderer-composition.
 const MANAGED_CONTRIBUTION_BRAND = 'taujs.managed-plugin-contribution/v1';
 const RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v1';
 

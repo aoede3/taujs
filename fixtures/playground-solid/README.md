@@ -1,6 +1,6 @@
 # playground-solid
 
-The Solid twin of `fixtures/playground` (React) and `fixtures/playground-vue`. One bootable app
+The Solid twin of `fixtures/playground-react` and `fixtures/playground-vue`. One bootable app
 that exercises `@taujs/solid` end to end against the workspace package.
 
 ```

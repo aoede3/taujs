@@ -1,6 +1,6 @@
 # playground-vue
 
-The Vue twin of `fixtures/playground`: one bootable τjs app that exercises `@taujs/vue`
+The Vue twin of `fixtures/playground-react`: one bootable τjs app that exercises `@taujs/vue`
 end-to-end against the **workspace** package (`@taujs/vue: workspace:*`), so it runs on the
 current source without publishing. It is the runtime evidence for Gate V2 — SSR, streaming
 SSR, and hydration in a real Fastify server.

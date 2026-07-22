@@ -23,8 +23,8 @@ in `packages/server/src/core/introspection/test/RequestGraph.test.ts` — keep t
 ## Run
 
 ```sh
-pnpm --filter playground dev     # boots on http://localhost:5173
-pnpm --filter playground build   # dist/ + dist/.taujs/graph.json (source: 'build')
+pnpm --filter playground-react dev     # boots on http://localhost:5173
+pnpm --filter playground-react build   # dist/ + dist/.taujs/graph.json (source: 'build')
 ```
 
 A dev boot writes `node_modules/.taujs/` (dev.json, graph.json, traces.ndjson, logs.ndjson,

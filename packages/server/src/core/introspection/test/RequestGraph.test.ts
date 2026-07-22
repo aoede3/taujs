@@ -118,8 +118,8 @@ const fixtureAllWarnings: CoreTaujsConfig = {
   ],
 };
 
-// (e) mirrors fixtures/playground/taujs.config.ts (P0B-05) — keep the two in sync; the
-// playground README points back here. Registry mirrors content/catalog kinds.
+// (e) mirrors fixtures/playground-react/taujs.config.ts (P0B-05) — keep the two in sync; the
+// playground-react README points back here. Registry mirrors content/catalog kinds.
 const playgroundCatalog = defineService({
   getProduct: {
     handler: async (p: { id: string }) => ({ product: { id: p.id, title: `Product ${p.id}`, price: 42 } }),
@@ -137,7 +137,7 @@ const fixturePlayground: CoreTaujsConfig = {
   server: { port: 5173, host: 'localhost', hmrPort: 5174 },
   apps: [
     {
-      appId: 'playground',
+      appId: 'playground-react',
       entryPoint: '',
       routes: [
         { path: '/', attr: { render: 'ssr', data: playgroundServiceData('content', 'home') } },

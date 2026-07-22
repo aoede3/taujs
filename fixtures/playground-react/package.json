@@ -1,9 +1,9 @@
 {
-  "name": "playground",
+  "name": "playground-react",
   "private": true,
   "version": "0.0.8",
   "type": "module",
-  "description": "τjs introspection fixture playground — the app the whole effort drives against (P0B-05)",
+  "description": "τjs React introspection fixture - the app the whole effort drives against (P0B-05)",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch --ignore vite.config.ts --tsconfig ./src/server/tsconfig.json ./src/server/index.ts",
     "build": "tsx build.ts && BUILD_MODE=ssr tsx build.ts",
