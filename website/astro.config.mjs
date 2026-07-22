@@ -19,7 +19,7 @@ export default defineConfig({
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/aoede3/taujs-server",
+          href: "https://github.com/aoede3/taujs",
         },
       ],
       sidebar: [
