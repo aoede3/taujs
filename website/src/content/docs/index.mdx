@@ -4,7 +4,7 @@ description: A developer-first orchestration layer with explicit, declarative pe
 template: splash
 hero:
   title: Composing Systems, <span>Not Just Apps</span>
-  tagline: Fullstack. Full Control.
+  tagline: Full control over your whole stack
 
   image:
     file: ../../assets/taujs.svg
@@ -64,34 +64,79 @@ import solidLogo from "../../assets/solid.svg";
   </a>
 </div>
 
-τjs is an orchestration layer built on Fastify, Vite, and React / Vue / Solid. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
 
-## Leverage every ecosystem
+  τjs orchestrates your application from request to interaction, letting your UI framework focus on building the interactive application.
 
-τjs orchestrates Fastify, Vite, React / Vue / Solid rather than wrapping them behind its own abstractions, so each ecosystem stays fully open to you:
+
+
+## Leverage the ecosystems you already know
+
+τjs composes Fastify and Vite with React, Vue or Solid in a single application architecture while preserving each ecosystem's native APIs.
 
 - **Fastify** - register plugins, hooks, and decorators on the server instance as you would in any Fastify app
 - **Vite** - use standard Vite plugins directly through τjs's declared plugin channels; the configuration fields τjs owns are documented and protected
-- **React / Vue / Solid** - bring the component libraries, tooling, and patterns of whichever framework each app uses
+- **React / Vue / Solid** - use the component libraries, rendering model and tooling of the frameworks you're already invested in.
 
 There is no parallel plugin system to learn and no fork to track - when the underlying ecosystems move, τjs moves with them.
 
-## Request boundary not component tree
+## Resolve the application response before rendering
+<div className="orchestration-layout">
+  <div className="orchestration-layout__copy">
 
-τjs defines a clear boundary: **everything required for the initial render is orchestrated and resolved at the request level**.
+τjs defines a clear boundary: **everything required for the application response is orchestrated and resolved at the request boundary**.
 
 - Data dependencies are declared before rendering begins
 - Service access is mediated and observable
-- Rendering strategy is chosen before rendering begins, not during render
+- Rendering strategy is resolved before rendering begins, not discovered during rendering
 - Components do not discover data imperatively during SSR
 
-## Supported application structures
+Modern component-driven architectures make it easy to build features. As systems grow, understanding a single application response often means tracing behaviour across the component tree.
 
-With orchestration and rendering resolved at the request boundary, τjs can support multiple application structures within the same system:
+τjs deliberately moves orchestration to the request boundary. More is declared up front, so less has to be inferred later. In return, applications become easier to reason about, rendering strategies become predictable, and the architecture remains observable as systems grow.
+
+  </div>
+  <div className="orchestration-layout__flow">
+
+```text
+Request
+
+│
+▼
+┌───────────────────────┐
+│          τjs          │
+├───────────────────────┤
+│ Route                 │
+│ Policy                │
+│ Data & Services       │
+│ Metadata              │
+│ Render Strategy       │
+├───────────────────────┤
+│ Trace                 │
+└───────────────────────┘
+
+│
+▼
+Application Response
+
+│
+▼
+React • Vue • Solid
+
+│
+▼
+Interactive Application
+```
+
+  </div>
+</div>
+
+## One architecture. Multiple application styles.
+
+Because orchestration happens at the request boundary, τjs can support multiple application styles within the same system.
 
 - Single-Page Applications (SPA)
 - Multi-Page Applications (MPA)
-- Build-time Micro-Frontends (MFE)
+- Build-time micro-frontends (MFE)
 - Hybrid per-route composition, where a route can be:
   - a standalone app,
   - part of an MPA,
@@ -107,14 +152,16 @@ Any route can explicitly define how it renders, independently of how its data is
 - Streaming SSR
 - Hydration toggle (enable or disable hydration where needed)
 
-## Start simple. Add orchestration only where you need it.
+## Start simple. Add orchestration only where you need it
 
-Each route defines, at the request boundary, whether τjs performs orchestration.
+Start with familiar Fastify, Vite and UI-framework conventions. Routes can remain conventional, adopting declared data, mediated services and explicit render control only where the system benefits from them.
 
-- Initial render data is declared at the route boundary
+Each route can declare its data, service access and render strategy independently at the request boundary.
+
+- Data dependencies can be declared at the route boundary
 - Service access can be mediated through a registry rather than direct imports
-- The request defines which data and services participate in the initial render
-- Rendering remains downstream of orchestration (CSR / SSR / Streaming)
+- The route declares which data and services participate in the application response
+- Render strategy can be introduced independently for each route
 - Client-side fetching and traditional API patterns remain fully supported alongside request contracts
 
 ## Modular without the runtime complexity
@@ -124,13 +171,9 @@ Each route defines, at the request boundary, whether τjs performs orchestration
 - Compose multiple independently built apps at build time
 - Keep strict boundaries between domains without runtime federation
 - Maintain monolithic-level performance with modular structure
-- Deterministic behavior - consistent across environments and render modes
+- Deterministic request resolution - same data, services, and routing state resolved regardless of render strategy
 - Minimal, overridable defaults - entry points, directory layout, rendering modes
-
-- Coherent backend + frontend DX built on `Fastify` and `Vite`
-- Build-time orchestration via `taujs.config.ts`
 - Clear, granular control over routing, data loading, rendering, and hydration
-- Server runtime powered by `Fastify` serving `Vite` builds and handling SSR/streaming
 
 ## Next steps
 
@@ -138,7 +181,7 @@ Each route defines, at the request boundary, whether τjs performs orchestration
   <Card title="Get started" icon="open-book">
     [Learn more and get started with τjs](/guides/getting-started/)
   </Card>
-  <Card title="τjs' MFE: Micro FrontEnds" icon="add-document">
+  <Card title="Micro-frontends with τjs" icon="add-document">
     [Build time and server orchestration](/guides/micro-frontend)
   </Card>
 </CardGrid>

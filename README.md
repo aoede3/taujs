@@ -18,7 +18,7 @@
 | Package                                        | Description                                                                                                                                            |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [`@taujs/create-taujs`](packages/create-taujs) | Scaffolder for a new τjs application.                                                                                                                  |
-| [`@taujs/server`](packages/server)             | Fastify plugin & render orchestration - CSR / SSR / Streaming SSR for SPA, MPA, and build‑time micro‑frontends (MFE). React 19, Vite HMR + tsx in dev. |
+| [`@taujs/server`](packages/server)             | Fastify plugin & render orchestration - CSR / SSR / Streaming SSR for SPA, MPA, and build‑time micro‑frontends (MFE). Vite HMR + tsx in dev. |
 | [`@taujs/react`](packages/react)               | React renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                              |
 | [`@taujs/vue`](packages/vue)                   | Vue renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                                |
 | [`@taujs/solid`](packages/solid)               | Solid renderer: CSR, SSR and Streaming SSR. Standalone or integrated with τjs.                                                                         |
@@ -91,4 +91,4 @@ Merging the changeset to `main` opens a **Version Packages** PR; merging that PR
 
 ## License
 
-MIT © John Smith | Aoede. Attribution appreciated.
+MIT Copyright (c) 2024-present Aoede Ltd. Attribution appreciated.
