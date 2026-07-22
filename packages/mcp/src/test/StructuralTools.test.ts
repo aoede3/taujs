@@ -32,7 +32,7 @@ const serviceData = createServiceData<typeof registry>();
 const config: CoreTaujsConfig = {
   apps: [
     {
-      appId: 'playground',
+      appId: 'playground-react',
       entryPoint: '',
       routes: [
         { path: '/', attr: { render: 'ssr', data: serviceData('content', 'home') } },
@@ -57,7 +57,7 @@ beforeAll(async () => {
   // Observed traffic: one getProduct call recorded through the real assembler.
   const dev = createDevIntrospection();
   dev.recorder.requestStart({ traceId: 'obs-1', url: '/product/7', method: 'GET' });
-  dev.recorder.routeMatched({ traceId: 'obs-1', path: '/product/:id', appId: 'playground', render: 'streaming' });
+  dev.recorder.routeMatched({ traceId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
   dev.recorder.serviceCall({ traceId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
   dev.recorder.sent({ traceId: 'obs-1', status: 200, mode: 'streaming' });
   await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations(), null, 2));
@@ -99,7 +99,7 @@ describe('structural tools (cold/stale mode)', () => {
   });
 
   it('taujs_get_route by id and by path; honest miss lists known ids', () => {
-    const byId = call('taujs_get_route', { routeId: 'playground:/product/:id' });
+    const byId = call('taujs_get_route', { routeId: 'playground-react:/product/:id' });
     expect(byId.ok).toBe(true);
     expect(byId.routes[0].data).toEqual({ kind: 'service', service: 'catalog', method: 'getProduct' });
 
@@ -108,7 +108,7 @@ describe('structural tools (cold/stale mode)', () => {
 
     const miss = call('taujs_get_route', { path: '/nope' });
     expect(miss.ok).toBe(false);
-    expect(miss.knownRouteIds.items).toContain('playground:/product/:id');
+    expect(miss.knownRouteIds.items).toContain('playground-react:/product/:id');
   });
 
   it('taujs_who_calls_service labels declared and observed edges per source', () => {
@@ -128,7 +128,7 @@ describe('structural tools (cold/stale mode)', () => {
   });
 
   it('taujs_explain_route composes render, data edge with schema flags, and warnings', () => {
-    const result = call('taujs_explain_route', { routeId: 'playground:/product/:id' });
+    const result = call('taujs_explain_route', { routeId: 'playground-react:/product/:id' });
 
     expect(result.ok).toBe(true);
     const explanation = result.explanations[0];

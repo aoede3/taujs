@@ -1,11 +1,12 @@
 # τjs &nbsp;[ taujs ]
 
-> τjs is an orchestration layer built on Fastify, Vite, and React / Vue. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
+> τjs is an orchestration layer built on Fastify, Vite, and React / Vue / Solid. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
 
 [![@taujs/create-taujs](https://img.shields.io/npm/v/@taujs/create-taujs?label=%40taujs%2Fcreate-taujs)](https://www.npmjs.com/package/@taujs/create-taujs)
 [![@taujs/server](https://img.shields.io/npm/v/@taujs/server?label=%40taujs%2Fserver)](https://www.npmjs.com/package/@taujs/server)
 [![@taujs/react](https://img.shields.io/npm/v/@taujs/react?label=%40taujs%2Freact)](https://www.npmjs.com/package/@taujs/react)
 [![@taujs/vue](https://img.shields.io/npm/v/@taujs/vue?label=%40taujs%2Fvue)](https://www.npmjs.com/package/@taujs/vue)
+[![@taujs/solid](https://img.shields.io/npm/v/@taujs/solid?label=%40taujs%2Fsolid)](https://www.npmjs.com/package/@taujs/solid)
 [![@taujs/mcp](https://img.shields.io/npm/v/@taujs/mcp?label=%40taujs%2Fmcp)](https://www.npmjs.com/package/@taujs/mcp)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.11-brightgreen)](.nvmrc)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -20,6 +21,7 @@
 | [`@taujs/server`](packages/server)             | Fastify plugin & render orchestration - CSR / SSR / Streaming SSR for SPA, MPA, and build‑time micro‑frontends (MFE). React 19, Vite HMR + tsx in dev. |
 | [`@taujs/react`](packages/react)               | React renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                              |
 | [`@taujs/vue`](packages/vue)                   | Vue renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                                |
+| [`@taujs/solid`](packages/solid)               | Solid renderer: CSR, SSR and Streaming SSR. Standalone or integrated with τjs.                                                                         |
 | [`@taujs/mcp`](packages/mcp)                   | MCP server for AI agents: reads the dev‑emitted request graph and live request traces (filesystem‑only stdio adapter). Wired by the scaffolder.        |
 
 Current versions are shown by the badges above.
@@ -46,11 +48,15 @@ taujs/
 ├── tsconfig.base.json
 ├── .changeset/
 ├── fixtures/
-│   └── playground/     # private fixture app (introspection e2e + demos)
+│   ├── playground-react/       # @taujs/react fixture (introspection e2e + demos)
+│   ├── playground-vue/         # @taujs/vue fixture
+│   ├── playground-solid/       # @taujs/solid fixture
+│   └── renderer-composition/   # real-Vite multi-renderer composition proof
 └── packages/
     ├── server/         # @taujs/server
     ├── react/          # @taujs/react
     ├── vue/            # @taujs/vue
+    ├── solid/          # @taujs/solid
     ├── mcp/            # @taujs/mcp
     └── create-taujs/   # @taujs/create-taujs
 ```

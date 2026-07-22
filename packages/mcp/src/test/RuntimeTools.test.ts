@@ -20,7 +20,7 @@ import type { ToolResult } from '../toolkit';
 const config: CoreTaujsConfig = {
   apps: [
     {
-      appId: 'playground',
+      appId: 'playground-react',
       entryPoint: '',
       routes: [{ path: '/product/:id', attr: { render: 'streaming', meta: {} } }, { path: '/defaulted' }],
     },
@@ -34,12 +34,12 @@ const seed = async (root: string) => {
   const dev = createDevIntrospection();
 
   dev.recorder.requestStart({ traceId: 'ok-1', url: '/product/123', method: 'GET' });
-  dev.recorder.routeMatched({ traceId: 'ok-1', path: '/product/:id', appId: 'playground', render: 'streaming' });
+  dev.recorder.routeMatched({ traceId: 'ok-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
   dev.recorder.serviceCall({ traceId: 'ok-1', service: 'catalog', method: 'getProduct', ms: 8, ok: true });
   dev.recorder.sent({ traceId: 'ok-1', status: 200, mode: 'streaming' });
 
   dev.recorder.requestStart({ traceId: 'boom-999', url: '/product/999?ref=demo', method: 'GET' });
-  dev.recorder.routeMatched({ traceId: 'boom-999', path: '/product/:id', appId: 'playground', render: 'streaming' });
+  dev.recorder.routeMatched({ traceId: 'boom-999', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
   dev.recorder.serviceCall({ traceId: 'boom-999', service: 'catalog', method: 'getProduct', ms: 3, ok: false });
   dev.recorder.failed({ traceId: 'boom-999', error: { kind: 'domain', message: 'Product 999 does not exist' } });
 
@@ -166,7 +166,7 @@ describe('runtime tools (active boot)', () => {
 
     expect(result.ok).toBe(true);
     expect(result.mode).toBe('active');
-    expect(result.defaultedRenders.routeIds).toEqual(['playground:/defaulted']);
+    expect(result.defaultedRenders.routeIds).toEqual(['playground-react:/defaulted']);
     expect(result.warnings.warn.some((w: { code: string }) => w.code === 'render.defaulted')).toBe(true);
     expect(result.failedTraces.items).toHaveLength(1);
     expect(result.failedTraces.items[0].error.message).toContain('999');

@@ -1,8 +1,8 @@
 {
-  "name": "esc1-composition",
+  "name": "renderer-composition",
   "version": "0.0.0",
   "private": true,
-  "description": "ESC-1 acceptance matrix - real-Vite composition proof (React + Solid compile together, no contamination)",
+  "description": "Real-Vite composition proof: React and Solid compile together with no cross-contamination (RFC 0006)",
   "type": "module",
   "scripts": {
     "test": "vitest run"

@@ -14,7 +14,7 @@ export default defineConfig({
   },
   apps: [
     {
-      appId: 'playground',
+      appId: 'playground-react',
       entryPoint: '',
       // React app: the client (src/client/**) compiles under the root tsconfig.json (jsx: react-jsx).
       renderer: reactRenderer({ project: './tsconfig.json' }),

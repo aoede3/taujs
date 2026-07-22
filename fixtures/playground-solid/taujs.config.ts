@@ -3,7 +3,7 @@ import { solidRenderer } from '@taujs/solid/renderer';
 
 import { serviceData } from './src/server/services/registry.ts';
 
-// The Solid twin of fixtures/playground: one bootable app exercising @taujs/solid end to end
+// The Solid twin of fixtures/playground-react: one bootable app exercising @taujs/solid end to end
 // against the workspace package (no publish needed). `/` is ssr, `/streaming` is streaming SSR;
 // both hydrate.
 //
