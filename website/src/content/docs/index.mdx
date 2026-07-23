@@ -92,7 +92,9 @@ There is no parallel plugin system to learn and no fork to track - when the unde
 
 Modern component-driven architectures make it easy to build features. As systems grow, understanding a single application response often means tracing behaviour across the component tree.
 
-τjs deliberately moves orchestration to the request boundary. More is declared up front, so less has to be inferred later. In return, applications become easier to reason about, rendering strategies become predictable, and the architecture remains observable as systems grow.
+τjs deliberately moves orchestration to the request boundary. More is declared up front, so less has to be inferred later. This creates a shared orchestration layer that powers authentication, CSP, tracing and architecture-aware AI from the same request-boundary model.
+
+[Learn how τjs exposes this architecture to AI agents through MCP](/reference/mcp).
 
   </div>
   <div className="orchestration-layout__flow">
