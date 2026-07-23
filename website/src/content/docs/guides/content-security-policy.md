@@ -5,8 +5,6 @@ description: How τjs generates and manages CSP headers
 
 How τjs generates and manages CSP headers for your routes.
 
-## Overview
-
 τjs provides CSP middleware that generates nonce-based Content Security Policy headers and exposes the nonce to your rendering pipeline. This allows inline scripts to execute safely while blocking unauthorised code.
 
 ## Basic Configuration

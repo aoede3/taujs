@@ -5,8 +5,6 @@ description: Structured logging with request tracing and debug categories
 
 How τjs provides structured logging with request tracing and debug categories.
 
-## Overview
-
 τjs includes a flexible logging system that integrates with popular Node.js loggers (Pino, Winston) while also providing its own structured logger. The system supports:
 
 - Request-scoped logging with trace IDs

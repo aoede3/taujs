@@ -5,8 +5,6 @@ description: How to share state and code between apps in τjs
 
 How τjs handles shared code and state across multiple applications.
 
-## Overview
-
 τjs supports sharing code between apps through **build-time composition**. State sharing happens through:
 
 - **Shared code modules** (compiled into each bundle)

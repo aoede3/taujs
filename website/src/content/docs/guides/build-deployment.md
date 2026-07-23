@@ -10,9 +10,6 @@ How τjs builds applications and deployment strategies.
 The deployment strategies below cover the most common patterns, but the underlying principle is simple: build, copy the output, start the server.
 
 
-
-## Overview
-
 τjs uses Vite to build frontend applications and produces:
 
 - **Client assets** - Browser JavaScript and CSS

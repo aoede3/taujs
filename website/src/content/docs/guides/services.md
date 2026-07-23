@@ -5,8 +5,6 @@ description: How τjs's service registry works for organising data access and bu
 
 How τjs's service registry works for organising data access and business logic.
 
-## Overview
-
 τjs provides an optional service registry pattern for separating route handlers from business logic and data access. You can use τjs without it but, it becomes valuable when you need consistent cross-cutting behaviour (logging, auth, tracing, retries) across all data access, or when you expect service boundaries to evolve over time.
 
 **Key components:**

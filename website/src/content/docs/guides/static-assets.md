@@ -5,8 +5,6 @@ description: How τjs handles static file serving
 
 How τjs handles static file serving in development and production.
 
-## Overview
-
 τjs includes `@fastify/static` as a dependency and **automatically registers it in production** unless you explicitly opt out. This means static assets "just work" for standard setups.
 
 You can:
