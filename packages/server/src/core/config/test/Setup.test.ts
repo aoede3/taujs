@@ -33,7 +33,7 @@ describe('extractRoutes', () => {
       ],
     };
 
-    const { routes, apps, totalRoutes, warnings, durationMs } = extractRoutes(tau);
+    const { routes, apps, totalRoutes, durationMs } = extractRoutes(tau);
 
     expect(routes.map((route) => [route.path, route.appId])).toEqual([
       ['/users/:id', 'app1'],
@@ -45,7 +45,6 @@ describe('extractRoutes', () => {
       { appId: 'app2', routeCount: 1 },
     ]);
     expect(totalRoutes).toBe(3);
-    expect(warnings).toEqual([]);
     expect(typeof durationMs).toBe('number');
   });
 
@@ -88,7 +87,7 @@ describe('extractRoutes', () => {
       ],
     };
 
-    const { routes, apps, totalRoutes, warnings } = extractRoutes(tau);
+    const { routes, apps, totalRoutes } = extractRoutes(tau);
 
     expect(totalRoutes).toBe(1);
     expect(routes.map((r) => r.path)).toEqual(['/only']);
@@ -97,7 +96,6 @@ describe('extractRoutes', () => {
       { appId: 'b', routeCount: 0 },
       { appId: 'c', routeCount: 1 },
     ]);
-    expect(warnings).toEqual([]);
   });
 });
 

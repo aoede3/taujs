@@ -94,7 +94,6 @@ const extractRoutesSpy = vi.fn(() => ({
   apps: [{ name: 'A' }],
   totalRoutes: 1,
   durationMs: 12,
-  warnings: ['w1'],
 }));
 const extractSecuritySpy = vi.fn(() => ({
   security: { csp: { directives: { defaultSrc: ["'self'"] } } },

@@ -19,7 +19,6 @@ export type ExtractRoutesResult = {
   apps: { appId: string; routeCount: number }[];
   totalRoutes: number;
   durationMs: number;
-  warnings: string[];
 };
 
 export const extractBuildConfigs = <A extends CoreAppConfig = CoreAppConfig>(config: { apps: readonly A[] }): A[] => {
@@ -73,9 +72,6 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
   const t0 = now();
   const allRoutes: Route<RouteParams>[] = [];
   const apps: { appId: string; routeCount: number }[] = [];
-  // Retained in the extraction/report shape for compatibility with the existing boot summary.
-  // Route ambiguity now fails closed, so this migration currently emits no warning-only cases.
-  const warnings: string[] = [];
   const pathTracker = new Map<string, string[]>();
 
   for (const app of taujsConfig.apps) {
@@ -121,7 +117,6 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
     apps,
     totalRoutes: allRoutes.length,
     durationMs,
-    warnings,
   };
 };
 
