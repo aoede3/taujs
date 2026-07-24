@@ -5,8 +5,6 @@ description: How τjs handles route protection and authentication integration
 
 How τjs handles route protection and authentication integration.
 
-## Overview
-
 τjs provides hooks for authentication but does not implement authentication strategies. You provide the authentication logic, and τjs ensures it runs for protected routes.
 
 **Key points:**

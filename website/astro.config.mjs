@@ -29,6 +29,10 @@ export default defineConfig({
             { label: "Overview", slug: "guides/getting-started" },
             { label: "Architecture", slug: "guides/architecture" },
             {
+              label: "Incremental Migration",
+              slug: "guides/incremental-migration",
+            },
+            {
               label: "Request Contracts & Data",
               slug: "guides/request-contracts",
             },

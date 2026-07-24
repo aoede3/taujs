@@ -5,8 +5,6 @@ description: How τjs resolves and optimises dependencies across applications
 
 How τjs resolves and optimises dependencies across multiple applications.
 
-## Overview
-
 τjs uses a **single dependency tree** at the project root. Vite's tree-shaking removes unused code from each bundle at build time. This means:
 
 - One `node_modules` directory at project root

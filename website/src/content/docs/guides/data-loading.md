@@ -5,8 +5,6 @@ description: How to load data for routes in τjs
 
 τjs provides a route-first, declarative way to load data for SSR and streaming. This page builds on the request contract model / data ownership described earlier, but can be read independently.
 
-## Overview
-
 Data loading happens at the route level through the `attr.data` function. This function:
 
 - Runs on the server
