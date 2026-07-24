@@ -255,6 +255,78 @@ Navigating between apps requires a full page load:
 
 **Why:** Different apps = different bundles. Browser must load new bundle.
 
+### Soften the document boundary
+
+A cross-app navigation remains a real document request, but it does not have to feel like an
+abrupt refresh. Same-origin apps can use
+[cross-document View Transitions](https://www.w3.org/TR/css-view-transitions-2/) as a progressive
+enhancement:
+
+```css
+/* Include this in both apps, usually through a shared design-system stylesheet. */
+@view-transition {
+  navigation: auto;
+}
+
+.site-header {
+  view-transition-name: site-header;
+}
+
+.page-content {
+  view-transition-name: page-content;
+}
+```
+
+The browser visually connects elements with the same `view-transition-name` in the old and new
+documents. τjs still receives a new request, matches the destination app and returns its independent
+bundle and response. No client shell, runtime federation or foreign-bundle mounting is introduced.
+
+Keep the names stable across apps and unique within each document. Treat the effect as optional:
+browsers that do not support cross-document transitions continue with an ordinary navigation. For
+direction-aware or conditional effects, the platform also provides `pageswap` and `pagereveal`;
+τjs does not need to coordinate them.
+
+This improves visual continuity only. It does not preserve in-memory stores, active WebSockets,
+media playback, unfinished forms or other client state. If a transition must retain that state,
+the routes probably belong inside one application shell rather than on opposite MFE boundaries.
+
+### Optional speculative loading
+
+[Speculation Rules](https://developer.mozilla.org/en-US/docs/Web/API/Speculation_Rules_API) can
+prefetch or prerender a likely next document in supporting browsers. Combined with a View
+Transition, this can make a cross-app navigation feel very fast while preserving the full request
+boundary.
+
+Start conservatively and select links explicitly:
+
+```html
+<a href="/admin/users" data-prefetch>Go to Admin</a>
+
+<script type="speculationrules">
+  {
+    "prefetch": [
+      {
+        "where": { "selector_matches": "a[data-prefetch]" },
+        "eagerness": "moderate"
+      }
+    ]
+  }
+</script>
+```
+
+Speculation is a hint, not a guarantee. A browser may decline it. Prerendering is more expensive
+than prefetching: it can execute the destination document, load its JavaScript and repeat route or
+service work before the user navigates.
+
+Do not apply blanket prerender rules to logout, checkout, mutations, expensive personalised
+responses or anything with activation-sensitive side effects. Inline speculation rules must also
+be allowed by the site CSP using an appropriate nonce, hash or the dedicated
+`'inline-speculation-rules'` source.
+
+τjs does not infer speculation from its route table. A declared route says that a URL exists; it
+does not establish that loading it speculatively is safe, cheap or likely. This remains an
+application or delivery-policy decision.
+
 ### Client-Side Routing Within Apps
 
 Within an app, use client-side routing:
