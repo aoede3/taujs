@@ -5,12 +5,15 @@ import type { RequestContext } from '../telemetry/Telemetry';
 
 export type RenderType = (typeof RENDERTYPE)[keyof typeof RENDERTYPE];
 
-export type PathToRegExpParams = Partial<Record<string, string | string[]>>;
+export type RouteParams = Partial<Record<string, string | string[]>>;
+
+/** @deprecated Use `RouteParams`. Retained as a type alias for pre-v1 source compatibility. */
+export type PathToRegExpParams = RouteParams;
 
 export type RouteCSPConfig = {
   disabled?: boolean;
   mode?: 'merge' | 'replace';
-  directives?: unknown | ((args: { url: string; params: PathToRegExpParams; headers: Record<string, string>; req?: unknown }) => unknown);
+  directives?: unknown | ((args: { url: string; params: RouteParams; headers: Record<string, string>; req?: unknown }) => unknown);
   generateCSP?: (directives: unknown, nonce: string, req?: unknown) => string;
   reportOnly?: boolean;
 };
@@ -32,7 +35,7 @@ export type RequestServiceContext<L extends Logs = Logs> = ServiceContext &
     headers: Record<string, string>;
   };
 
-export type DataHandler<Params extends PathToRegExpParams, L extends Logs = Logs> = (
+export type DataHandler<Params extends RouteParams, L extends Logs = Logs> = (
   params: Params,
   ctx: (RequestServiceContext<L> & { call: RegistryCaller<ServiceRegistry> }) & { [key: string]: unknown },
 ) => Promise<DataResult>;
@@ -49,7 +52,7 @@ declare const SERVICE_RESULT: unique symbol;
  * to, so `HeadDataOf` (and future `RouteDataOf` work) can infer the real payload instead of the
  * descriptor shape.
  */
-export type ServiceDataHandler<Result, Params extends PathToRegExpParams = PathToRegExpParams, L extends Logs = Logs> = DataHandler<Params, L> & {
+export type ServiceDataHandler<Result, Params extends RouteParams = RouteParams, L extends Logs = Logs> = DataHandler<Params, L> & {
   readonly [SERVICE_RESULT]: Result;
 };
 
@@ -58,7 +61,7 @@ export type ServiceDataHandler<Result, Params extends PathToRegExpParams = PathT
  * strategies and delivered to the renderer as `opts.headData` (never serialised into
  * `__INITIAL_DATA__` - ruling 1). `attr.meta` remains the static layer (ruling 5).
  */
-export type HeadAttributes<Params extends PathToRegExpParams = PathToRegExpParams, L extends Logs = Logs> = {
+export type HeadAttributes<Params extends RouteParams = RouteParams, L extends Logs = Logs> = {
   /** Head data loader - same shape as `attr.data` (plain object or `ServiceDescriptor`, incl. `serviceData()` sugar). */
   data: DataHandler<Params, L>;
   /**
@@ -76,7 +79,7 @@ export type HeadAttributes<Params extends PathToRegExpParams = PathToRegExpParam
   optional?: boolean;
 };
 
-export type RouteAttributes<Params extends PathToRegExpParams = PathToRegExpParams, Middleware = BaseMiddleware, L extends Logs = Logs> =
+export type RouteAttributes<Params extends RouteParams = RouteParams, Middleware = BaseMiddleware, L extends Logs = Logs> =
   | {
       render: 'ssr';
       hydrate?: boolean;
@@ -94,13 +97,13 @@ export type RouteAttributes<Params extends PathToRegExpParams = PathToRegExpPara
       head?: HeadAttributes<Params, L>;
     };
 
-export type Route<Params extends PathToRegExpParams = PathToRegExpParams> = {
+export type Route<Params extends RouteParams = RouteParams> = {
   attr?: RouteAttributes<Params>;
   path: string;
   appId?: string;
 };
 
-export type RoutePathsAndAttributes<Params extends PathToRegExpParams = PathToRegExpParams> = Omit<Route<Params>, 'element'>;
+export type RoutePathsAndAttributes<Params extends RouteParams = RouteParams> = Omit<Route<Params>, 'element'>;
 
 export type AppId<C extends { apps: readonly { appId: string }[] }> = C['apps'][number]['appId'];
 
@@ -172,8 +175,8 @@ export type CoreSecurityConfig = {
   };
 };
 
-export type AppRoute = Omit<Route<PathToRegExpParams>, 'appId'> & {
-  attr?: RouteAttributes<PathToRegExpParams>;
+export type AppRoute = Omit<Route<RouteParams>, 'appId'> & {
+  attr?: RouteAttributes<RouteParams>;
 };
 
 export type CoreAppConfig = {

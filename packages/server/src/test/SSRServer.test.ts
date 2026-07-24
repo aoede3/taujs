@@ -10,7 +10,6 @@ const {
   maps,
   processConfigsMock,
   loadAssetsMock,
-  routeMatchersMock,
   // authHookFn,
   createAuthHookMock,
   cspPluginMock,
@@ -59,7 +58,6 @@ const {
     configs.map((c: any) => ({ ...c, clientRoot: baseClientRoot, template: TEMPLATE })),
   );
   const loadAssetsMock = vi.fn(async () => {});
-  const routeMatchersMock = { match: vi.fn() };
   const authHookFn = vi.fn((_req: any, _reply: any, done: any) => done && done());
   const createAuthHookMock = vi.fn(() => authHookFn);
   const cspPluginMock = vi.fn(async (_instance: any, _opts: any, done?: () => void) => done?.());
@@ -91,7 +89,6 @@ const {
     maps,
     processConfigsMock,
     loadAssetsMock,
-    routeMatchersMock,
     authHookFn,
     createAuthHookMock,
     cspPluginMock,
@@ -116,8 +113,6 @@ vi.mock('../utils/AssetManager', () => ({
   loadAssets: loadAssetsMock,
   processConfigs: processConfigsMock,
 }));
-
-vi.mock('../core/routes/DataRoutes', () => ({ createRouteMatchers: vi.fn(() => routeMatchersMock) }));
 
 vi.mock('../security/Auth', () => ({ createAuthHook: createAuthHookMock }));
 
@@ -167,15 +162,6 @@ describe('SSRServer', () => {
     vi.clearAllMocks();
     devRef.value = false;
     app = fastify();
-
-    // Shim: some path-to-regexp versions dislike '/*' - translate to '*' during test
-    const origGet = (app.get as any).bind(app) as (...args: any[]) => any;
-    (app as any).get = (path: string, ...rest: any[]) => {
-      if (path === '/*') {
-        return origGet.apply(app, ['*', ...rest]);
-      }
-      return origGet.apply(app, [path, ...rest]);
-    };
   });
 
   afterEach(async () => {
@@ -192,7 +178,7 @@ describe('SSRServer', () => {
     await app.register(SSRServer, {
       alias: {},
       configs: [{ appId: 'a', entryPoint: '.', renderer: testRenderer() }],
-      routes: [{ path: '/*' }],
+      routes: [{ path: '/anything', appId: 'a', attr: { render: 'ssr' } }],
       serviceRegistry: {},
       clientRoot: '/client',
       debug: false,
@@ -214,20 +200,19 @@ describe('SSRServer', () => {
       expect.objectContaining({ logger: mockLogger }),
     );
 
-    // CSP plugin called with route matchers + debug
+    // CSP plugin called with the global policy; route metadata now comes from Fastify
     const cspCall = cspPluginMock.mock.calls[0];
     expect(cspCall?.[1]).toEqual(
       expect.objectContaining({
         directives: undefined,
         generateCSP: undefined,
-        routeMatchers: routeMatchersMock,
         debug: false,
       }),
     );
 
     // Auth hook added and executes
     expect(addHookSpy).toHaveBeenCalledWith('onRequest', expect.any(Function));
-    expect(createAuthHook).toHaveBeenCalledWith(expect.any(Object), mockLogger);
+    expect(createAuthHook).toHaveBeenCalledWith(mockLogger);
 
     // GET route triggers handleRender
     const res = await app.inject({ method: 'GET', url: '/anything' });
@@ -388,7 +373,7 @@ describe('SSRServer', () => {
     await app.register(SSRServer, {
       alias: { '@': '/src' },
       configs: [],
-      routes: [],
+      routes: [{ path: '/x', appId: 'a', attr: { render: 'ssr' } }],
       serviceRegistry: {},
       clientRoot: '/client',
       debug: { all: true },
@@ -470,7 +455,7 @@ describe('SSRServer', () => {
     await app.register(SSRServer, {
       alias: {},
       configs: [],
-      routes: [],
+      routes: [{ path: '/x', appId: 'a', attr: { render: 'ssr' } }],
       serviceRegistry: {},
       clientRoot: '/client',
       debug: false,
@@ -494,7 +479,7 @@ describe('SSRServer', () => {
     await app.register(SSRServer, {
       alias: {},
       configs: [],
-      routes: [],
+      routes: [{ path: '/err', appId: 'a', attr: { render: 'ssr' } }],
       serviceRegistry: {},
       clientRoot: '/client',
     });
@@ -644,7 +629,7 @@ describe('SSRServer', () => {
     await app.register(SSRServer, {
       alias: {},
       configs: [],
-      routes: [],
+      routes: [{ path: '/err2', appId: 'a', attr: { render: 'ssr' } }],
       serviceRegistry: {},
       clientRoot: '/client',
     });
@@ -673,7 +658,7 @@ describe('SSRServer', () => {
     await app.register(SSRServer, {
       alias: {},
       configs: [],
-      routes: [],
+      routes: [{ path: '/dup', appId: 'a', attr: { render: 'ssr' } }],
       serviceRegistry: {},
       clientRoot: '/client',
     });
@@ -698,7 +683,7 @@ describe('SSRServer', () => {
     await app.register(SSRServer, {
       alias: {},
       configs: [],
-      routes: [],
+      routes: [{ path: '/nonobj', appId: 'a', attr: { render: 'ssr' } }],
       serviceRegistry: {},
       clientRoot: '/client',
     });
@@ -712,12 +697,6 @@ describe('SSRServer', () => {
   it('error handler: does NOT suppress when details.logged is falsy', async () => {
     const app2 = fastify();
 
-    const origGet2 = (app2.get as any).bind(app2) as (...args: any[]) => any;
-    (app2 as any).get = (path: string, ...rest: any[]) => {
-      if (path === '/*') return origGet2.apply(app2, ['*', ...rest]);
-      return origGet2.apply(app2, [path, ...rest]);
-    };
-
     handleRenderMock.mockImplementationOnce(async () => {
       const err: any = new Error('logged-false');
       err.httpStatus = 503;
@@ -728,7 +707,7 @@ describe('SSRServer', () => {
     await app2.register(SSRServer, {
       alias: {},
       configs: [],
-      routes: [],
+      routes: [{ path: '/loggedfalse', appId: 'a', attr: { render: 'ssr' } }],
       serviceRegistry: {},
       clientRoot: '/client',
     });
@@ -846,5 +825,132 @@ describe('SSRServer', () => {
       { source: 'app-a', plugins: [{ name: 'app-plugin' }] },
       { source: 'config.vite', plugins: [overridePlugin] },
     ]);
+  });
+
+  it('registers declared page routes natively and forwards Fastify-decoded params', async () => {
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [{ appId: 'shop', entryPoint: '.', renderer: testRenderer() }],
+      routes: [{ path: '/products/:id', appId: 'shop', attr: { render: 'ssr' } }],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/products/hello%20world' });
+
+    expect(res.statusCode).toBe(200);
+    expect(handleRenderMock).toHaveBeenCalledWith(
+      expect.objectContaining({ params: { id: 'hello world' } }),
+      expect.any(Object),
+      expect.objectContaining({
+        route: expect.objectContaining({ path: '/products/:id', appId: 'shop' }),
+        params: { id: 'hello world' },
+      }),
+      expect.any(Array),
+      expect.anything(),
+      expect.anything(),
+      expect.any(Object),
+    );
+  });
+
+  it('lets a declared page route own dotted parameter values instead of treating them as asset misses', async () => {
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [{ appId: 'shop', entryPoint: '.', renderer: testRenderer() }],
+      routes: [{ path: '/products/:id', appId: 'shop', attr: { render: 'ssr' } }],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/products/logo.png' });
+
+    expect(res.statusCode).toBe(200);
+    expect(handleRenderMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ params: { id: 'logo.png' } }),
+      expect.any(Object),
+      expect.objectContaining({
+        route: expect.objectContaining({ path: '/products/:id', appId: 'shop' }),
+        params: { id: 'logo.png' },
+      }),
+      expect.any(Array),
+      expect.anything(),
+      expect.anything(),
+      expect.any(Object),
+    );
+  });
+
+  it('honours the supplied Fastify router policy instead of reproducing it in taujs', async () => {
+    const configuredApp = fastify({ routerOptions: { caseSensitive: false, ignoreTrailingSlash: true } });
+    try {
+      await configuredApp.register(SSRServer, {
+        alias: {},
+        configs: [{ appId: 'docs', entryPoint: '.', renderer: testRenderer() }],
+        routes: [{ path: '/Guides', appId: 'docs', attr: { render: 'ssr' } }],
+        serviceRegistry: {},
+        clientRoot: '/client',
+      });
+
+      const res = await configuredApp.inject({ method: 'GET', url: '/guides/' });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toBe('OK:handleRender');
+    } finally {
+      await configuredApp.close();
+    }
+  });
+
+  it('coexists with host-owned Fastify routes without a parallel taujs namespace', async () => {
+    app.get('/health', async () => ({ ok: true }));
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [{ appId: 'site', entryPoint: '.', renderer: testRenderer() }],
+      routes: [{ path: '/page', appId: 'site', attr: { render: 'ssr' } }],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    expect((await app.inject({ method: 'GET', url: '/health' })).json()).toEqual({ ok: true });
+    expect((await app.inject({ method: 'GET', url: '/page' })).body).toBe('OK:handleRender');
+  });
+
+  it('uses Fastify precedence when static and parameter routes overlap', async () => {
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [{ appId: 'site', entryPoint: '.', renderer: testRenderer() }],
+      routes: [
+        { path: '/users/:id', appId: 'site', attr: { render: 'ssr' } },
+        { path: '/users/edit', appId: 'site', attr: { render: 'ssr' } },
+      ],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    await app.inject({ method: 'GET', url: '/users/edit' });
+
+    expect(handleRenderMock).toHaveBeenLastCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      expect.objectContaining({
+        route: expect.objectContaining({ path: '/users/edit' }),
+        params: {},
+      }),
+      expect.any(Array),
+      expect.anything(),
+      expect.anything(),
+      expect.any(Object),
+    );
+  });
+
+  it('lets Fastify reject a collision with an existing host route at boot', async () => {
+    app.get('/occupied', async () => 'host');
+
+    await expect(
+      app.register(SSRServer, {
+        alias: {},
+        configs: [{ appId: 'site', entryPoint: '.', renderer: testRenderer() }],
+        routes: [{ path: '/occupied', appId: 'site', attr: { render: 'ssr' } }],
+        serviceRegistry: {},
+        clientRoot: '/client',
+      }),
+    ).rejects.toMatchObject({ code: 'FST_ERR_DUPLICATED_ROUTE' });
   });
 });

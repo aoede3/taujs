@@ -135,7 +135,7 @@ vi.mock('node:stream', () => {
 describe('handleRender', () => {
   let mockReq: any;
   let mockReply: any;
-  let mockRouteMatchers: any[];
+  let mockSelectedRoute: any;
   let mockProcessedConfigs: any[];
   let mockServiceRegistry: any;
   let mockMaps: any;
@@ -210,7 +210,7 @@ describe('handleRender', () => {
       },
     };
 
-    mockRouteMatchers = [];
+    mockSelectedRoute = createMockRouteMatch({ render: 'ssr' });
 
     mockProcessedConfigs = [
       {
@@ -262,55 +262,12 @@ describe('handleRender', () => {
     (globalThis as any).AbortController = OriginalAbortController;
   });
 
-  describe('Asset file handling', () => {
-    it('should call not found handler for asset files', async () => {
-      mockReq.raw.url = '/static/image.png';
-
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(mockReply.callNotFound).toHaveBeenCalled();
-    });
-
-    it('should call not found handler for various asset extensions', async () => {
-      const extensions = ['.js', '.css', '.jpg', '.svg', '.woff2', '.json'];
-
-      for (const ext of extensions) {
-        vi.clearAllMocks();
-        mockReq.raw.url = `/asset${ext}`;
-
-        await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-        expect(mockReply.callNotFound).toHaveBeenCalled();
-      }
-    });
-
-    it('does not treat a query string ending in a filename as an asset', async () => {
-      mockReq.url = '/search?q=file.txt';
-      mockReq.raw.url = '/search?q=file.txt';
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(null);
-
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      // Passed the asset gate: route matching ran against the pathname
-      expect(DataRoutes.matchRoute).toHaveBeenCalledWith('/search', mockRouteMatchers);
-    });
-
-    it('still short-circuits assets when a query string is present', async () => {
-      mockReq.raw.url = '/app.js?v=123';
-
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(mockReply.callNotFound).toHaveBeenCalled();
-      expect(DataRoutes.matchRoute).not.toHaveBeenCalled();
-    });
-  });
-
   describe('CSP nonce handling', () => {
     it('should handle valid nonce', async () => {
       (mockReq as any).cspNonce = 'valid-nonce';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -330,7 +287,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(Templates.rebuildTemplate).toHaveBeenCalledWith(expect.any(Object), expect.any(String), expect.stringContaining('nonce="valid-nonce"'));
     });
@@ -339,7 +296,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = '';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -359,7 +316,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const bodyContent = vi.mocked(Templates.rebuildTemplate).mock.calls[0]?.[2]!;
       expect(bodyContent).not.toContain('nonce=');
@@ -367,7 +324,7 @@ describe('handleRender', () => {
 
     it('R2-02 SEC2: an attribute-breakout bootstrapModule is escaped in the SSR bootstrap tag (no live onerror)', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' }); // hydrate defaults to true
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -384,7 +341,7 @@ describe('handleRender', () => {
       mockMaps.bootstrapModules.set('/test/client', '/x.js" onerror="alert(1)');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       // bootstrapScriptTag is the tail of rebuildTemplate's bodyContent (3rd) arg.
       const bodyContent = vi.mocked(Templates.rebuildTemplate).mock.calls[0]?.[2]!;
@@ -396,7 +353,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = null;
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -416,30 +373,22 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const bodyContent = vi.mocked(Templates.rebuildTemplate).mock.calls[0]?.[2]!;
       expect(bodyContent).not.toContain('nonce=');
     });
   });
 
-  describe('Route matching', () => {
-    it('should call not found when no route matches', async () => {
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(null);
-
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(mockReply.callNotFound).toHaveBeenCalled();
-    });
-
+  describe('Selected route handling', () => {
     it('should throw error when config not found for appId', async () => {
       const mockRoute = createMockRouteMatch({}, 'non-existent-app');
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       const mockError = new AppError('Config not found', 'infra');
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
 
       expect(AppError.internal).toHaveBeenCalledWith(
         'No configuration found for the request',
@@ -455,7 +404,7 @@ describe('handleRender', () => {
   describe('SSR rendering', () => {
     it('should render SSR successfully with all assets', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -475,7 +424,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({ test: 'data' });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockRenderModule.renderSSR).toHaveBeenCalled();
       expect(mockReply.status).toHaveBeenCalledWith(200);
@@ -485,7 +434,7 @@ describe('handleRender', () => {
 
     it('should render SSR without hydration when hydrate is false', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr', hydrate: false });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -508,7 +457,7 @@ describe('handleRender', () => {
         return '<html>no-hydrate</html>';
       });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.send).toHaveBeenCalled();
     });
@@ -517,7 +466,7 @@ describe('handleRender', () => {
       const attr = { render: 'ssr', meta: { title: 'Test Page' } };
       const params = { id: '123' };
       const mockRoute = createMockRouteMatch(attr, 'test-app', params, '/test-path');
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -537,7 +486,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const renderSSRMock = mockRenderModule.renderSSR as Mock;
       const [data, url, meta, signal, options] = renderSSRMock.mock.calls[0] as any[];
@@ -561,7 +510,7 @@ describe('handleRender', () => {
 
     it('should throw error when renderSSR is missing', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -578,12 +527,12 @@ describe('handleRender', () => {
       const mockError = new AppError('Missing renderSSR', 'infra');
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
     });
 
     it('should escape JSON data in initial data script', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -608,7 +557,7 @@ describe('handleRender', () => {
         return '<html>complete</html>';
       });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(capturedBody).toContain('\\u003c');
     });
@@ -629,7 +578,7 @@ describe('handleRender', () => {
       });
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -647,7 +596,7 @@ describe('handleRender', () => {
         return mockReq.raw;
       });
 
-      const p = handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const p = handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
       abortedHandler?.();
       await p;
 
@@ -661,7 +610,7 @@ describe('handleRender', () => {
       });
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -679,7 +628,7 @@ describe('handleRender', () => {
         return mockReply.raw;
       });
 
-      const p = handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const p = handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       mockReply.raw.writableEnded = false; // required to take the abort path
       closeHandler?.();
@@ -694,7 +643,7 @@ describe('handleRender', () => {
       });
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -706,7 +655,7 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', mockRenderModule);
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.warn).toHaveBeenCalledWith({ url: mockReq.url }, 'SSR skipped; already aborted');
       expect(mockRenderModule.renderSSR).not.toHaveBeenCalled();
@@ -714,7 +663,7 @@ describe('handleRender', () => {
 
     it('R0-02: SSR render error with a disconnect-shaped message but signal NOT aborted → 500, not a silent hang', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -730,7 +679,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
         'handleRender failed',
       );
 
@@ -744,7 +693,7 @@ describe('handleRender', () => {
       vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
 
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -762,7 +711,7 @@ describe('handleRender', () => {
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer })).rejects.toThrow(
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer })).rejects.toThrow(
         'handleRender failed',
       );
 
@@ -777,7 +726,7 @@ describe('handleRender', () => {
 
     it('warns and returns on benign SSR send failure', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -797,7 +746,7 @@ describe('handleRender', () => {
         throw Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
       });
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
 
       expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, reason: 'write EPIPE' }), 'SSR send aborted (benign)');
       expect(mockLogger.error).not.toHaveBeenCalledWith(expect.any(Object), 'SSR send failed');
@@ -805,7 +754,7 @@ describe('handleRender', () => {
 
     it('logs error on non-benign SSR send failure', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -825,7 +774,7 @@ describe('handleRender', () => {
         throw kaboom;
       });
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
 
       expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({ url: mockReq.url, error: expect.objectContaining({ message: 'kaboom' }) }),
@@ -844,7 +793,7 @@ describe('handleRender', () => {
       });
 
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -866,7 +815,7 @@ describe('handleRender', () => {
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
         viteDevServer,
       });
 
@@ -880,7 +829,7 @@ describe('handleRender', () => {
       vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
 
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -899,7 +848,7 @@ describe('handleRender', () => {
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer })).rejects.toEqual(
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer })).rejects.toEqual(
         expect.objectContaining({ message: 'handleRender failed' }),
       );
 
@@ -908,7 +857,7 @@ describe('handleRender', () => {
 
     it('R0-02: SSR send catch: a thrown string has no socket shape → NOT benign → send-failed logged (?? err coverage)', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -927,7 +876,7 @@ describe('handleRender', () => {
         throw 'premature'; // plain string -> no .code/.message, so NOT benign (R0-02); '?? err' extracts the message
       }) as any;
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'SSR send failed');
       expect(mockLogger.warn).not.toHaveBeenCalledWith(expect.any(Object), 'SSR send aborted (benign)');
@@ -935,7 +884,7 @@ describe('handleRender', () => {
 
     it('SSR send catch: non-benign via undefined err (uses ?? "")', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -954,7 +903,7 @@ describe('handleRender', () => {
         throw undefined; // triggers ?? ''
       }) as any;
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url, error: expect.any(Object) }), 'SSR send failed');
     });
@@ -966,7 +915,7 @@ describe('handleRender', () => {
         keys: [],
       } as any;
 
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -984,7 +933,7 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', mockRenderModule);
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const finishCall = (mockReply.raw.on as unknown as Mock).mock.calls.find(([event]) => event === 'finish');
       expect(finishCall).toBeTruthy();
@@ -1002,7 +951,7 @@ describe('handleRender', () => {
       const attr = { render: 'streaming', meta: {} };
       const params = { slug: 'abc' };
       const mockRoute = createMockRouteMatch(attr, 'test-app', params, '/articles/:slug');
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1027,7 +976,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.raw.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
       expect(mockReply.raw.write).toHaveBeenCalled();
@@ -1069,7 +1018,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = 'esc2-nonce';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' }); // hydrate defaults to true
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1085,7 +1034,7 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', mockRenderModule);
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       // renderSSR(data, url, meta, signal, opts) - opts is the 5th arg (index 4).
       const opts = (mockRenderModule.renderSSR as Mock).mock.calls[0]![4];
@@ -1096,7 +1045,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = 'esc2-nonce';
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1117,7 +1066,7 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       // renderStream opts is index 7 (positional cspNonce removed in ESC-2).
       const opts = (mockRenderStream.mock.calls[0] as any[])[7];
@@ -1126,7 +1075,7 @@ describe('handleRender', () => {
 
     it('should unsubscribe aborted listener on reply finish in streaming mode', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1165,7 +1114,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReq.raw.on).toHaveBeenCalledWith('aborted', expect.any(Function));
       expect(abortedHandler).toBeDefined();
@@ -1182,7 +1131,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = 'nonce-2';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -1201,7 +1150,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html/>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
         viteDevServer: mockViteDevServer,
       });
 
@@ -1213,7 +1162,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = '';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -1232,7 +1181,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html/>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
         viteDevServer: mockViteDevServer,
       });
 
@@ -1241,7 +1190,7 @@ describe('handleRender', () => {
 
     it('ssr: does not append preloadLink when ssrManifest is missing', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       // remove ssrManifest (preload should not be appended)
       mockMaps.ssrManifests.delete('/test/client');
@@ -1266,7 +1215,7 @@ describe('handleRender', () => {
         return '<html/>';
       });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(capturedHead).toContain('<meta name="x">');
       expect(capturedHead).not.toContain('<link rel="preload">'); // from your preloadLinks map
@@ -1274,7 +1223,7 @@ describe('handleRender', () => {
 
     it('ssr: does not append cssLink when manifest is missing', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       mockMaps.manifests.delete('/test/client');
 
@@ -1298,7 +1247,7 @@ describe('handleRender', () => {
         return '<html/>';
       });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(capturedHead).toContain('<meta name="x">');
       expect(capturedHead).not.toContain('rel="stylesheet"'); // from your cssLinks map
@@ -1308,7 +1257,7 @@ describe('handleRender', () => {
   describe('Streaming rendering', () => {
     it('should render streaming successfully', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1336,7 +1285,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.raw.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
       expect(mockReply.raw.write).toHaveBeenCalled();
@@ -1363,7 +1312,7 @@ describe('handleRender', () => {
       });
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1389,7 +1338,7 @@ describe('handleRender', () => {
       });
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       // The loader received the signal (regression guard: dropping `ctx.signal = ac.signal` leaves it
       // undefined) and it is the SAME signal the disconnect path aborts.
@@ -1401,7 +1350,7 @@ describe('handleRender', () => {
 
     it('should handle streaming without hydration', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', hydrate: false, meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1424,14 +1373,14 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockRenderStream).toHaveBeenCalled();
     });
 
     it('should abort stream when request is aborted', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1455,7 +1404,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       abortCallback?.();
       expect(mockReq.raw.on).toHaveBeenCalledWith('aborted', expect.any(Function));
@@ -1463,7 +1412,7 @@ describe('handleRender', () => {
 
     it('should handle reply close event', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1487,7 +1436,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       mockReply.raw.writableEnded = false;
       closeCallback?.();
@@ -1497,7 +1446,7 @@ describe('handleRender', () => {
 
     it('should handle benign socket errors in PassThrough', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1521,14 +1470,14 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.error).not.toHaveBeenCalledWith('PassThrough error:', expect.any(Object));
     });
 
     it('should log non-benign socket errors in PassThrough', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1547,7 +1496,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.error).toHaveBeenCalledWith(expect.any(Object), 'PassThrough error:');
     });
@@ -1557,7 +1506,7 @@ describe('handleRender', () => {
     // is ACTUAL request-abort state.
     const setupStreamingRoute = () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1585,7 +1534,7 @@ describe('handleRender', () => {
         });
         mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-        await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
         expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
         expect(mockLogger.warn).not.toHaveBeenCalledWith({}, 'Client disconnected before stream finished');
@@ -1612,7 +1561,7 @@ describe('handleRender', () => {
       });
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.warn).toHaveBeenCalledWith({}, 'Client disconnected before stream finished');
       expect(mockLogger.error).not.toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
@@ -1659,7 +1608,7 @@ describe('handleRender', () => {
         mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
         // No uncaught escapes, and the response is torn down deterministically (headers not sent → 500).
-        await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+        await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
 
         expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
         expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.any(Object));
@@ -1684,7 +1633,7 @@ describe('handleRender', () => {
       });
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
 
       expect(mockReply.raw.destroy).toHaveBeenCalled();
       expect(mockReply.raw.writeHead).not.toHaveBeenCalledWith(500, expect.any(Object));
@@ -1692,7 +1641,7 @@ describe('handleRender', () => {
 
     it('R0-04: streaming route with non-serializable (circular) final data terminates deterministically — no data script, no crash', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1721,7 +1670,7 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
       expect(finishHandler).toBeTypeOf('function');
 
       // Fire 'finish' on a later tick (post-return): the listener must handle the serialization
@@ -1735,7 +1684,7 @@ describe('handleRender', () => {
 
     it('R0-04: SSR route with non-serializable (circular) data → 500 via the request try/catch', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1755,7 +1704,7 @@ describe('handleRender', () => {
 
       // On the SSR path the serialization failure throws an AppError.internal into the request
       // try/catch → 500 machinery (the app HTML is never sent).
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
         'Failed to serialize initial data',
       );
       expect(mockReply.send).not.toHaveBeenCalled();
@@ -1763,7 +1712,7 @@ describe('handleRender', () => {
 
     it('should handle finish event when already aborted', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1783,14 +1732,14 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.raw.write).not.toHaveBeenCalledWith(expect.stringContaining('__INITIAL_DATA__'));
     });
 
     it('should handle finish event when already ended', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1818,14 +1767,14 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.raw.end).not.toHaveBeenCalled();
     });
 
     it('should throw error when renderStream is missing', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1842,12 +1791,12 @@ describe('handleRender', () => {
       const mockError = new AppError('Missing renderStream', 'infra');
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
     });
 
     it('should escape JSON in streaming initial data', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1874,14 +1823,14 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.raw.write).toHaveBeenCalledWith(expect.stringContaining('\\u003c'));
     });
 
     it('should dispatch taujs:data-ready event in streaming', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1908,14 +1857,14 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.raw.write).toHaveBeenCalledWith(expect.stringContaining("window.dispatchEvent(new Event('taujs:data-ready'))"));
     });
 
     it('benign onError logs "destroy() failed" when destroy throws', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1947,7 +1896,7 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
         'ssr',
@@ -1960,7 +1909,7 @@ describe('handleRender', () => {
 
     it('critical onError logs "abort() failed" when AbortController.abort throws', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -1990,7 +1939,7 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
         'ssr',
@@ -2005,7 +1954,7 @@ describe('handleRender', () => {
 
     it('critical onError logs "destroy() failed" when reply.raw.destroy throws', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2033,7 +1982,7 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
         'ssr',
@@ -2048,7 +1997,7 @@ describe('handleRender', () => {
 
     it('fatal onError before any output sends a 500 instead of destroying the socket', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2066,7 +2015,7 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.hijack).toHaveBeenCalled();
       expect(mockReply.raw.writeHead).toHaveBeenCalledTimes(1);
@@ -2077,7 +2026,7 @@ describe('handleRender', () => {
 
     it('does not commit the response status until onHead fires', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2096,7 +2045,7 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.raw.writeHead).not.toHaveBeenCalled();
 
@@ -2109,7 +2058,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = 'nonce-abc-123';
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2130,7 +2079,7 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const scriptWrite = mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0];
       expect(scriptWrite).toContain('nonce="nonce-abc-123"');
@@ -2140,7 +2089,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = '';
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2161,7 +2110,7 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const scriptWrite = mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0];
       expect(scriptWrite).toContain('<script');
@@ -2173,7 +2122,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = '';
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -2199,7 +2148,7 @@ describe('handleRender', () => {
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
         viteDevServer: mockViteDevServer,
       });
 
@@ -2213,7 +2162,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = '';
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -2239,7 +2188,7 @@ describe('handleRender', () => {
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
         viteDevServer: mockViteDevServer,
       });
 
@@ -2250,7 +2199,7 @@ describe('handleRender', () => {
 
     it('streaming: does not record finalData when already aborted before onAllReady', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -2279,7 +2228,7 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       // Should not write data-ready script because finish exits early when abortedState.aborted is true.
       const writes = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
@@ -2288,7 +2237,7 @@ describe('handleRender', () => {
 
     it('streaming: does not add CSP header when getHeader returns undefined', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       mockReply.getHeader = vi.fn().mockReturnValue(undefined);
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
@@ -2309,7 +2258,7 @@ describe('handleRender', () => {
         }),
       });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const [, headers] = mockReply.raw.writeHead.mock.calls[0];
       expect(headers['Content-Security-Policy']).toBeUndefined();
@@ -2323,7 +2272,7 @@ describe('handleRender', () => {
 
     it('should load module from Vite in dev mode', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2346,7 +2295,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
 
       expect(mockViteDevServer.ssrLoadModule).toHaveBeenCalledWith('/test/client/entry-server.tsx');
       expect(mockViteDevServer.transformIndexHtml).toHaveBeenCalled();
@@ -2355,7 +2304,7 @@ describe('handleRender', () => {
 
     it('should strip Vite client script in dev mode', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       const templateWithVite = '<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>';
       vi.mocked(Templates.ensureNonNull).mockReturnValue(templateWithVite);
@@ -2383,14 +2332,14 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
 
       expect(mockViteDevServer.transformIndexHtml).toHaveBeenCalled();
     });
 
     it('should strip existing style tags in dev mode', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       const templateWithStyles = '<html><head><style type="text/css">.old { color: blue; }</style></head><body></body></html>';
       vi.mocked(Templates.ensureNonNull).mockReturnValue(templateWithStyles);
@@ -2418,14 +2367,14 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
 
       expect(mockViteDevServer.transformIndexHtml).toHaveBeenCalled();
     });
 
     it('should handle dev mode asset loading errors', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2441,7 +2390,7 @@ describe('handleRender', () => {
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
       await expect(
-        handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer }),
+        handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer }),
       ).rejects.toThrow();
 
       expect(AppError.internal).toHaveBeenCalledWith(
@@ -2457,7 +2406,7 @@ describe('handleRender', () => {
       mockReq.url = '/';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2470,9 +2419,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html/>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(DataRoutes.matchRoute).toHaveBeenCalled();
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
       expect(mockReply.callNotFound).not.toHaveBeenCalled();
     });
 
@@ -2480,7 +2427,7 @@ describe('handleRender', () => {
       (mockReq as any).cspNonce = 'stylenonce-777';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       // include <head> so our <style> injection can be verified
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
@@ -2509,7 +2456,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>done</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
     });
 
     it('omits nonce on collected <style> when cspNonce is falsy in dev mode', async () => {
@@ -2519,7 +2466,7 @@ describe('handleRender', () => {
       // falsy nonce triggers the ": ''" branch of the ternary
 
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       // make sure </head> exists so replacement happens
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
@@ -2546,7 +2493,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>ok</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
     });
 
     it('dev + streaming: injects nonce into devHead scripts that lack nonce', async () => {
@@ -2558,7 +2505,7 @@ describe('handleRender', () => {
 
       // 3. Streaming route
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       // 4. Template + parts
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
@@ -2589,7 +2536,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
       // 8. Execute
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
 
       // 9. Assert: devHead script was nonce-patched
       const writtenHtml = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
@@ -2601,7 +2548,7 @@ describe('handleRender', () => {
   describe('Production mode', () => {
     it('should use preloaded render module in production', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2621,14 +2568,14 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockRenderModule.renderSSR).toHaveBeenCalled();
     });
 
     it('should throw error when render module not preloaded', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2644,7 +2591,7 @@ describe('handleRender', () => {
       const mockError = new AppError('Module not preloaded', 'infra');
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
     });
   });
 
@@ -2679,7 +2626,7 @@ describe('handleRender', () => {
 
     it('ssr: the emitted assignment round-trips __proto__ as an own property', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2693,7 +2640,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue(PAYLOAD);
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       // HandleRender passes the body (including the initial-data script) as rebuildTemplate's 3rd arg.
       const body = String(vi.mocked(Templates.rebuildTemplate).mock.calls.at(-1)?.[2] ?? '');
@@ -2702,7 +2649,7 @@ describe('handleRender', () => {
 
     it('streaming: the emitted assignment round-trips __proto__ as an own property', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2723,7 +2670,7 @@ describe('handleRender', () => {
         }),
       });
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const scriptWrite = String(mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0] ?? '');
       assertInert(evaluateEmitted(scriptWrite));
@@ -2733,7 +2680,7 @@ describe('handleRender', () => {
   describe('Initial data handling', () => {
     it('should build initial data input successfully', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' }, 'test-app', { id: '123' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2753,7 +2700,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({ id: '123', name: 'Test' });
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(DataRoutes.fetchInitialData).toHaveBeenCalledWith(
         mockRoute.route.attr,
@@ -2779,7 +2726,7 @@ describe('handleRender', () => {
 
     it('should throw error when initial data input fails', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2799,7 +2746,7 @@ describe('handleRender', () => {
       const dataError = new Error('Data fetch failed');
       vi.mocked(DataRoutes.fetchInitialData).mockRejectedValue(dataError);
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
 
       expect(AppError.internal).toHaveBeenCalledWith(
         'handleRender failed',
@@ -2816,7 +2763,7 @@ describe('handleRender', () => {
       mockReq.url = '/test-path?query=value';
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2836,16 +2783,14 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(DataRoutes.matchRoute).toHaveBeenCalledWith('/test-path', mockRouteMatchers);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
     });
 
     it('should handle missing URL defaulting to root', async () => {
       mockReq.url = undefined;
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2865,16 +2810,14 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(DataRoutes.matchRoute).toHaveBeenCalledWith('/', mockRouteMatchers);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
     });
   });
 
   describe('Error handling', () => {
     it('should wrap non-AppError errors', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockImplementation(() => {
         throw new Error('Template error');
       });
@@ -2882,7 +2825,7 @@ describe('handleRender', () => {
       const mockError = new AppError('Wrapped error', 'infra');
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
 
       expect(AppError.internal).toHaveBeenCalledWith(
         'handleRender failed',
@@ -2895,20 +2838,20 @@ describe('handleRender', () => {
 
     it('should rethrow AppError as-is', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       const appError = new AppError('Original AppError', 'domain');
       vi.mocked(Templates.ensureNonNull).mockImplementation(() => {
         throw appError;
       });
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toBe(appError);
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toBe(appError);
     });
 
     describe('onError message extraction coverage', () => {
       const setupStreamAndFire = async (errValue: any) => {
         const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-        vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+        mockSelectedRoute = mockRoute;
         vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
         vi.mocked(Templates.processTemplate).mockReturnValue({
           beforeHead: '<html><head>',
@@ -2930,7 +2873,7 @@ describe('handleRender', () => {
 
         mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-        await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
       };
 
       it.each([
@@ -2950,7 +2893,7 @@ describe('handleRender', () => {
 
     it('includes routeOptions.url in wrapped error details', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
 
       mockReq.routeOptions = { url: '/internal-route' };
 
@@ -2958,7 +2901,7 @@ describe('handleRender', () => {
         throw new Error('boom in template');
       });
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
 
       expect(AppError.internal).toHaveBeenCalledWith(
         'handleRender failed',
@@ -2982,7 +2925,9 @@ describe('handleRender', () => {
 
       mockReq.raw.url = '/asset.png';
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps, { logger: customLogger as any });
+      await expect(
+        handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { logger: customLogger as any }),
+      ).rejects.toThrow('Render module not found');
 
       expect(createLogger).not.toHaveBeenCalled();
     });
@@ -2992,7 +2937,9 @@ describe('handleRender', () => {
 
       mockReq.raw.url = '/asset.png';
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
+        'Render module not found',
+      );
 
       expect(createLogger).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3007,7 +2954,9 @@ describe('handleRender', () => {
 
       mockReq.raw.url = '/asset.png';
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
+        'Render module not found',
+      );
 
       expect(createLogger).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3018,7 +2967,7 @@ describe('handleRender', () => {
 
     it('logs HTTP socket error only when not benign', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -3042,7 +2991,7 @@ describe('handleRender', () => {
       const mockRenderModule = { renderStream: mockRenderStream };
       mockMaps.renderModules.set('/test/client', mockRenderModule);
 
-      const p = handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const p = handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       handlers['error']?.forEach((cb) => cb(Object.assign(new Error('aborted'), { code: 'ECONNRESET' })));
       expect(mockLogger.error).not.toHaveBeenCalledWith(expect.any(Object), 'HTTP socket error:');
@@ -3057,7 +3006,9 @@ describe('handleRender', () => {
       vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(false);
 
       mockReq.raw.url = '/asset.png';
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
+        'Render module not found',
+      );
 
       type LoggerOpts = Parameters<typeof createLogger>[0];
       const args = ((vi.mocked(createLogger).mock.calls[0]?.[0] ?? {}) as LoggerOpts) || {};
@@ -3074,7 +3025,9 @@ describe('handleRender', () => {
       vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
 
       mockReq.raw.url = '/asset.png';
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
+        'Render module not found',
+      );
 
       type LoggerOpts = Parameters<typeof createLogger>[0];
       const args = (vi.mocked(createLogger).mock.calls[0]?.[0] ?? {}) as LoggerOpts;
@@ -3092,7 +3045,7 @@ describe('handleRender', () => {
   describe('Default render type', () => {
     it('should default to SSR when render type not specified', async () => {
       const mockRoute = createMockRouteMatch({});
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(mockRoute);
+      mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -3112,7 +3065,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockRenderModule.renderSSR).toHaveBeenCalled();
     });
@@ -3157,12 +3110,12 @@ describe('handleRender', () => {
     it('ssr: resolved head data reaches renderSSR opts.headData', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}) } }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}) } });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({ body: 1 });
       vi.mocked(DataRoutes.fetchHeadData).mockResolvedValue({ ogTitle: 'X' });
       const renderSSR = ssrModule();
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(renderSSR).toHaveBeenCalledWith({ body: 1 }, '/test-path', undefined, expect.anything(), expect.objectContaining({ headData: { ogTitle: 'X' } }));
     });
@@ -3170,11 +3123,11 @@ describe('handleRender', () => {
     it('ssr: no attr.head -> fetchHeadData is never called and no headData key exists (byte-identical guard)', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'ssr' }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr' });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       const renderSSR = ssrModule();
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(DataRoutes.fetchHeadData).not.toHaveBeenCalled();
       expect(Object.hasOwn((renderSSR as Mock).mock.calls[0]![4], 'headData')).toBe(false);
@@ -3183,12 +3136,12 @@ describe('handleRender', () => {
     it('ssr: deadline expiry degrades to undefined with an advisory warn (Policy ii)', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}), timeoutMs: 20 } }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}), timeoutMs: 20 } });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(DataRoutes.fetchHeadData).mockImplementation(() => new Promise(() => {}));
       const renderSSR = ssrModule();
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ timeoutMs: 20, optional: false }),
@@ -3200,12 +3153,12 @@ describe('handleRender', () => {
     it('ssr: a non-optional head rejection fails the request through the existing error path', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}) } }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}) } });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('head boom'));
       const renderSSR = ssrModule();
 
-      await expect(handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow(
         /handleRender failed/,
       );
       expect(renderSSR).not.toHaveBeenCalled();
@@ -3214,12 +3167,12 @@ describe('handleRender', () => {
     it('ssr: head.optional degrades an ordinary rejection instead of failing', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}), optional: true } }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}), optional: true } });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('flaky head service'));
       const renderSSR = ssrModule();
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ optional: true, reason: 'flaky head service' }),
@@ -3231,12 +3184,12 @@ describe('handleRender', () => {
     it('ssr: caller abort during the head fetch skips the render (never proceeds degraded)', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}) } }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr', head: { data: async () => ({}) } });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
       vi.mocked(DataRoutes.fetchHeadData).mockImplementation(() => new Promise(() => {}));
       const renderSSR = ssrModule();
 
-      const p = handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const p = handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
       await new Promise((r) => setTimeout(r, 10));
       firedAbortedHandler();
       await p;
@@ -3248,11 +3201,11 @@ describe('handleRender', () => {
     it('streaming: resolved head data reaches renderStream opts', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } });
       vi.mocked(DataRoutes.fetchHeadData).mockResolvedValue({ t: 1 });
       const renderStream = streamModule();
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(renderStream).toHaveBeenCalledTimes(1);
       const opts = (renderStream as Mock).mock.calls[0]![7];
@@ -3262,11 +3215,11 @@ describe('handleRender', () => {
     it('streaming: a non-optional head rejection terminates with a 500 on the hijacked reply - never a rethrow', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } });
       vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('head boom'));
       const renderStream = streamModule();
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(renderStream).not.toHaveBeenCalled();
       expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.anything());
@@ -3277,13 +3230,11 @@ describe('handleRender', () => {
     it('streaming: deadline expiry degrades to an ABSENT headData key with an advisory warn (Policy ii)', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(
-        createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}), timeoutMs: 20 } }),
-      );
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}), timeoutMs: 20 } });
       vi.mocked(DataRoutes.fetchHeadData).mockImplementation(() => new Promise(() => {}));
       const renderStream = streamModule();
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ timeoutMs: 20, optional: false }),
@@ -3296,13 +3247,11 @@ describe('handleRender', () => {
     it('streaming: head.optional degrades an ordinary rejection and the stream still starts', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(
-        createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}), optional: true } }),
-      );
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}), optional: true } });
       vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('flaky head service'));
       const renderStream = streamModule();
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ optional: true, reason: 'flaky head service' }),
@@ -3316,10 +3265,10 @@ describe('handleRender', () => {
     it('streaming: no attr.head -> fetchHeadData never called and no headData key (byte-identical parity)', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'streaming', meta: {} }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       const renderStream = streamModule();
 
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(DataRoutes.fetchHeadData).not.toHaveBeenCalled();
       expect(renderStream).toHaveBeenCalledTimes(1);
@@ -3329,7 +3278,7 @@ describe('handleRender', () => {
     it('streaming: a THROWING host logger cannot skip the hijacked-socket teardown on head failure (belted telemetry)', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } });
       vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('head boom'));
       mockLogger.error.mockImplementation(() => {
         throw new Error('hostile logger');
@@ -3337,7 +3286,7 @@ describe('handleRender', () => {
       const renderStream = streamModule();
 
       // Must resolve (no escape into the outer catch) AND still terminate the response.
-      await handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(renderStream).not.toHaveBeenCalled();
       expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.anything());
@@ -3347,11 +3296,11 @@ describe('handleRender', () => {
     it('streaming: caller abort during the head fetch destroys the hijacked socket without starting the stream', async () => {
       useRealAbortController();
       stubTemplate();
-      vi.mocked(DataRoutes.matchRoute).mockReturnValue(createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } }));
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } });
       vi.mocked(DataRoutes.fetchHeadData).mockImplementation(() => new Promise(() => {}));
       const renderStream = streamModule();
 
-      const p = handleRender(mockReq, mockReply, mockRouteMatchers, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const p = handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
       await new Promise((r) => setTimeout(r, 10));
       firedAbortedHandler();
       await p;

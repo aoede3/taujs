@@ -46,7 +46,7 @@ async function buildApp() {
   const app = fastify();
   await app.register(SSRServer as any, {
     configs: [{ appId: 'web', entryPoint: 'web' }],
-    routes: [],
+    routes: [{ path: '/page', appId: 'web', attr: { render: 'ssr' } }],
     clientRoot: '/tmp/none',
     serviceRegistry: {},
     staticAssets: false,
@@ -114,8 +114,9 @@ describe('trace-context hoist (P0B-01)', () => {
 
     const res = await app.inject({ method: 'GET', url: '/__taujs/graph', headers: { 'x-taujs-token': 'anything' } });
 
-    // No overlay route exists: the URL falls into the ordinary catch-all render path.
-    expect(handleRenderMock).toHaveBeenCalledTimes(1);
+    // No overlay route exists: Fastify sends the URL through the ordinary τjs not-found path.
+    expect(handleRenderMock).not.toHaveBeenCalled();
+    expect(handleNotFoundMock).toHaveBeenCalledTimes(1);
     expect(res.json().traceId).toBeTruthy();
     expect((app as any).taujsIntrospection).toBeUndefined();
   });

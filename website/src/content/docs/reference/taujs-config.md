@@ -177,6 +177,42 @@ other two. τjs never reads a `vite.config.*` - if one sits where Vite used to p
 τjs emits a migration warning naming the file and pointing at these channels
 (see [Vite Configuration](#vite-configuration)).
 
+### Fastify owns HTTP routing
+
+Every app route path is registered as a real Fastify GET route. Fastify selects the route and decodes its parameters; τjs then applies the declared auth, CSP, data, render and trace contract. There is no second τjs route matcher.
+
+Configure HTTP routing on the Fastify instance passed to createServer:
+
+~~~typescript
+const fastify = Fastify({
+  routerOptions: {
+    caseSensitive: false,
+    ignoreTrailingSlash: true,
+  },
+});
+
+await createServer({ config, serviceRegistry, fastify });
+~~~
+
+Those native options govern τjs routes and host-owned Fastify routes alike. Use Fastify for case sensitivity, trailing or duplicate slash handling, bad-URL policy, parameter limits and other router behaviour; τjs does not mirror those settings in taujs.config.ts. See the [Fastify server router options](https://fastify.dev/docs/latest/Reference/Server/#routeroptions) and [route reference](https://fastify.dev/docs/latest/Reference/Routes/).
+
+This is a deliberate product boundary: the server package is Node/Fastify-native. The renderer packages retain their standalone uses, but the integrated server does not carry a second runtime-neutral HTTP or router abstraction.
+
+Route paths therefore use Fastify route syntax, not regular expressions. An exact path may be declared by only one τjs app. Ordinary Fastify routes can coexist beside τjs page routes, while unmatched document URLs continue through the τjs application-shell fallback.
+
+When migrating an existing config, replace path-to-regexp-only forms such as
+`/app{/:feature}{/:id}`, `/app/:page*` and `/docs/*slug`. τjs rejects these known stale forms at
+startup rather than allowing Fastify to register a literal or differently behaving route. Use a
+terminal Fastify wildcard such as `/app/*`, a terminal optional parameter such as
+`/products/:id?`, or explicit routes. `/app/*` owns paths below `/app/`; declare `/app`
+separately when the bare prefix must render too.
+
+Route ownership is now exact. Route-level auth and CSP apply only after Fastify selects that τjs
+route; host-owned routes and unmatched case variants do not inherit policy merely because their
+URL resembles a τjs declaration. Conversely, once a declared parameter route is selected, dotted
+values such as `/products/logo.png` are valid parameter values. Asset-like URLs still 404 when no
+page or static route owns them.
+
 ### Entry Point Structure
 
 Each `entryPoint` directory must contain:
@@ -480,7 +516,7 @@ Routes define URL patterns, rendering strategies, and data requirements.
 
 | Property | Type              | Required | Description                  |
 | -------- | ----------------- | -------- | ---------------------------- |
-| `path`   | `string`          | Yes      | URL pattern (path-to-regexp) |
+| `path`   | `string`          | Yes      | Fastify route path |
 | `attr`   | `RouteAttributes` | No       | Rendering and data config    |
 
 ### Route Attributes
@@ -488,7 +524,7 @@ Routes define URL patterns, rendering strategies, and data requirements.
 | Property     | Type                      | Default     | Description         |
 | ------------ | ------------------------- | ----------- | ------------------- |
 | `render`     | `'ssr' \| 'streaming'`    | Required    | Rendering strategy  |
-| `hydrate`    | `boolean`                 | `true`      | Add React on client |
+| `hydrate`    | `boolean`                 | `true`      | Hydrate the client renderer |
 | `meta`       | `Record<string, unknown>` | `{}`        | Metadata for head   |
 | `middleware` | `Middleware`              | `undefined` | Auth and CSP        |
 | `data`       | `DataHandler`             | `undefined` | Data loader         |
@@ -821,7 +857,7 @@ export default defineConfig({
       entryPoint: "app",
       routes: [
         {
-          path: "/app/:feature?/:id?",
+          path: "/app/*",
           attr: {
             render: "streaming",
             meta: { title: "App" },
@@ -835,7 +871,7 @@ export default defineConfig({
       entryPoint: "admin",
       routes: [
         {
-          path: "/admin/:section?/:id?",
+          path: "/admin/*",
           attr: {
             render: "ssr",
             middleware: {

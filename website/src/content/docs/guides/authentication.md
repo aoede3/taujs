@@ -56,12 +56,12 @@ When a route has `middleware.auth`, τjs automatically runs an `onRequest` hook:
 
 ```typescript
 // Internal - τjs does this automatically
-app.addHook("onRequest", createAuthHook(routeMatchers, logger));
+app.addHook("onRequest", createAuthHook(logger));
 ```
 
 For each request, τjs:
 
-1. Finds the matching route
+1. Reads the Fastify-selected route metadata
 2. Checks for `attr.middleware.auth`
 3. If present, calls `await req.server.authenticate(req, reply)`
 4. If `authenticate` sends a reply (for example `401` / `403`) or throws, the request is treated as rejected

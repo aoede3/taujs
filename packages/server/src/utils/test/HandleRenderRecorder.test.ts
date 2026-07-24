@@ -12,11 +12,8 @@ import { handleNotFound } from '../HandleNotFound';
 import type { TraceRecorder } from '../../core/introspection/TraceRecorder';
 
 vi.mock('../../core/routes/DataRoutes', () => ({
-  matchRoute: vi.fn(),
   fetchInitialData: vi.fn(async () => ({ product: { id: '42' } })),
 }));
-
-import { matchRoute } from '../../core/routes/DataRoutes';
 
 const T = 'trace-render-1';
 
@@ -88,15 +85,13 @@ const renderSSRModule = {
 };
 
 beforeEach(() => {
-  vi.mocked(matchRoute).mockReset();
   renderSSRModule.renderSSR.mockClear();
 });
 
 const runSSR = async (recorder?: TraceRecorder) => {
-  vi.mocked(matchRoute).mockReturnValue(ssrRoute as any);
   const req = mkReq('/product/42', recorder);
   const reply = mkReply();
-  await handleRender(req, reply, [] as any, configs, {} as any, maps(renderSSRModule), { logger: mkLogger() });
+  await handleRender(req, reply, ssrRoute as any, configs, {} as any, maps(renderSSRModule), { logger: mkLogger() });
   return reply;
 };
 
@@ -124,12 +119,11 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
   it('SSR render failure: outcome failed with the error message', async () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ traceId: T, url: '/product/42', method: 'GET' });
-    vi.mocked(matchRoute).mockReturnValue(ssrRoute as any);
     const failingModule = { renderSSR: vi.fn(async () => Promise.reject(new Error('render exploded'))) };
     const req = mkReq('/product/42', dev.recorder);
     const reply = mkReply();
 
-    await expect(handleRender(req, reply, [] as any, configs, {} as any, maps(failingModule), { logger: mkLogger() })).rejects.toThrow();
+    await expect(handleRender(req, reply, ssrRoute as any, configs, {} as any, maps(failingModule), { logger: mkLogger() })).rejects.toThrow();
 
     const [trace] = dev.getTraces();
     expect(trace!.outcome).toBe('failed');
@@ -139,7 +133,6 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
   it('streaming: streamPhases land and the finish handler emits sent(streaming)', async () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ traceId: T, url: '/live', method: 'GET' });
-    vi.mocked(matchRoute).mockReturnValue(streamingRoute as any);
 
     const streamingModule = {
       renderStream: vi.fn((writable: PassThrough, cb: any, initialDataInput: () => Promise<unknown>) => {
@@ -155,7 +148,7 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
 
     const req = mkReq('/live', dev.recorder);
     const reply = mkReply();
-    await handleRender(req, reply, [] as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() });
+    await handleRender(req, reply, streamingRoute as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() });
     await vi.waitFor(() => {
       expect(dev.getTraces()).toHaveLength(1);
     });
@@ -191,11 +184,10 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
   const devServer = { taujsIntrospection: { token: 'boot-token-abc' } };
 
   it('SSR HTML carries the stamp + hook + beacon script when the dev decoration exists', async () => {
-    vi.mocked(matchRoute).mockReturnValue(ssrRoute as any);
     const req = mkReq('/product/42', undefined, devServer);
     const reply = mkReply();
 
-    await handleRender(req, reply, [] as any, configs, {} as any, maps(renderSSRModule), { logger: mkLogger() });
+    await handleRender(req, reply, ssrRoute as any, configs, {} as any, maps(renderSSRModule), { logger: mkLogger() });
 
     const html = String(reply.sent[0]);
     expect(html).toContain(`window.__TAUJS_TRACE_ID__="${T}"`);
@@ -213,7 +205,6 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
   });
 
   it('streaming head write carries the stamp when the decoration exists', async () => {
-    vi.mocked(matchRoute).mockReturnValue(streamingRoute as any);
     const streamingModule = {
       renderStream: vi.fn((writable: PassThrough, cb: any, initialDataInput: () => Promise<unknown>) => {
         cb.onHead('<title>s</title>');
@@ -233,7 +224,7 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
       return origWrite(chunk);
     };
 
-    await handleRender(req, reply, [] as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() });
+    await handleRender(req, reply, streamingRoute as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() });
     await vi.waitFor(() => {
       expect(writes.join('')).toContain('__TAUJS_TRACE_ID__');
     });

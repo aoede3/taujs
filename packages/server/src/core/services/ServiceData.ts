@@ -1,4 +1,4 @@
-import type { DataHandler, PathToRegExpParams, ServiceDataHandler } from '../config/types';
+import type { DataHandler, RouteParams, ServiceDataHandler } from '../config/types';
 import type { JsonObject, ServiceMethodParams, ServiceRegistry } from './DataServices';
 
 // Module-private: graph code reads via getServiceDataMetadata, never the symbol itself.
@@ -6,14 +6,14 @@ const SERVICE_DATA_METADATA = Symbol('taujs.serviceData');
 
 export type ServiceDataMetadata = Readonly<{ serviceName: string; serviceMethod: string }>;
 
-type ServiceDataMapper<P> = (params: PathToRegExpParams) => P;
+type ServiceDataMapper<P> = (params: RouteParams) => P;
 
 // Mirrors RegistryCallerArgs: the mapper may be omitted only when passing the broad
 // route-params object to the method is sound. Route params are
 // Partial<Record<string, string | string[]>> — any key may be undefined — so specific
 // param shapes must narrow through a mapper.
 type ServiceDataArgs<R extends ServiceRegistry, S extends keyof R & string, M extends keyof R[S] & string> =
-  PathToRegExpParams extends ServiceMethodParams<R[S][M]>
+  RouteParams extends ServiceMethodParams<R[S][M]>
     ? [serviceName: S, serviceMethod: M, mapper?: ServiceDataMapper<ServiceMethodParams<R[S][M]>>]
     : [serviceName: S, serviceMethod: M, mapper: ServiceDataMapper<ServiceMethodParams<R[S][M]>>];
 
@@ -28,7 +28,7 @@ export function createServiceData<R extends ServiceRegistry>() {
   return function serviceData<S extends keyof R & string, M extends keyof R[S] & string>(
     ...[serviceName, serviceMethod, mapper]: ServiceDataArgs<R, S, M>
   ): ServiceDataHandler<ServiceMethodResult<R[S][M]>> {
-    const handler: DataHandler<PathToRegExpParams> = async (params) => ({
+    const handler: DataHandler<RouteParams> = async (params) => ({
       serviceName,
       serviceMethod,
       args: (mapper ? mapper(params) : params) as JsonObject,

@@ -54,10 +54,10 @@ When a request arrives:
    GET /admin/users
 ```
 
-2. **τjs matches route**
+2. **Fastify selects the registered τjs route**
 
 ```typescript
-   // Finds matching route in config
+   // Fastify route metadata identifies the owning τjs app
    {
      path: '/admin/:section',
      appId: 'admin'
@@ -92,7 +92,7 @@ export default defineConfig({
       entryPoint: "app",
       routes: [
         {
-          path: "/app/:feature?/:id?",
+          path: "/app/*",
           attr: {
             render: "streaming",
             middleware: { auth: { strategy: "jwt" } },
@@ -105,7 +105,7 @@ export default defineConfig({
       entryPoint: "admin",
       routes: [
         {
-          path: "/admin/:section?/:id?",
+          path: "/admin/*",
           attr: {
             render: "ssr",
             middleware: {
@@ -123,7 +123,7 @@ export default defineConfig({
       entryPoint: "docs",
       routes: [
         {
-          path: "/docs/:slug*",
+          path: "/docs/*",
           attr: {
             render: "ssr",
             hydrate: true,
@@ -134,6 +134,8 @@ export default defineConfig({
   ],
 });
 ```
+
+A terminal wildcard owns child URLs below its prefix. Add exact `/app`, `/admin` or `/docs` routes as well when the bare prefix must render rather than redirect.
 
 ## Project Structure
 
@@ -369,7 +371,7 @@ apps: [
     entryPoint: "app",
     routes: [
       {
-        path: "/app/:page*",
+        path: "/app/*",
         attr: {
           render: "streaming",
           middleware: { auth: {} },
@@ -389,7 +391,7 @@ apps: [
     entryPoint: "app",
     routes: [
       {
-        path: "/app/:page*",
+        path: "/app/*",
         attr: {
           render: "streaming",
           middleware: { auth: { strategy: "jwt" } },
@@ -402,7 +404,7 @@ apps: [
     entryPoint: "admin",
     routes: [
       {
-        path: "/admin/:section*",
+        path: "/admin/*",
         attr: {
           render: "ssr",
           middleware: {

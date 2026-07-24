@@ -1,17 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const hoisted = vi.hoisted(() => ({
-  matchRouteMock: vi.fn(),
-}));
-
-vi.mock('../../core/routes//DataRoutes', () => ({
-  matchRoute: hoisted.matchRouteMock,
-}));
-
 import { createAuthHook } from '../Auth';
-
-const { matchRouteMock } = hoisted;
+import { fastifyConfigForRoute } from '../../core/routes/FastifyRoutes';
+import type { Route } from '../../core/config/types';
 
 describe('createAuthHook', () => {
   let logger: {
@@ -24,14 +16,13 @@ describe('createAuthHook', () => {
       debug: vi.fn(),
       warn: vi.fn(),
     };
-    matchRouteMock.mockReset();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  function makeReqReply(opts: { url?: string; host?: string; method?: string; authenticate?: ((req: any, reply: any) => any) | undefined }) {
+  function makeReqReply(opts: { url?: string; host?: string; method?: string; authenticate?: ((req: any, reply: any) => any) | undefined; route?: Route }) {
     const reply = {
       status: vi.fn().mockReturnThis(),
       send: vi.fn(),
@@ -40,6 +31,8 @@ describe('createAuthHook', () => {
       url: opts.url ?? '/path?x=1',
       method: opts.method ?? 'GET',
       headers: { host: opts.host ?? 'example.test' },
+      routeOptions: { config: opts.route ? fastifyConfigForRoute(opts.route) : {} },
+      params: {},
       server: {
         authenticate: opts.authenticate,
       },
@@ -48,29 +41,26 @@ describe('createAuthHook', () => {
     return { req, reply, done };
   }
 
-  it('returns early when no route matches', async () => {
-    matchRouteMock.mockReturnValue(undefined);
-
-    const hook = createAuthHook([], logger as any);
-    const { req, reply, done } = makeReqReply({});
+  it('does not apply taujs auth metadata to a host-owned or unmatched Fastify route', async () => {
+    const authenticate = vi.fn();
+    const hook = createAuthHook(logger as any);
+    const { req, reply, done } = makeReqReply({ url: '/admin/metrics', authenticate });
 
     await (hook as any).call({} as any, req, reply, done);
 
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(req.routeMeta).toBeUndefined();
     expect(logger.debug).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
     expect(reply.status).not.toHaveBeenCalled();
     expect(reply.send).not.toHaveBeenCalled();
-    expect(matchRouteMock).toHaveBeenCalledWith('/path', []);
   });
 
   it('logs debug "(none)" and returns when route has no auth config', async () => {
-    matchRouteMock.mockReturnValue({
-      route: { appId: 'appA', attr: { middleware: {} } },
-      params: {},
-    });
+    const route = { appId: 'appA', attr: { render: 'ssr', middleware: {} } } as Route;
 
-    const hook = createAuthHook([], logger as any);
-    const { req, reply, done } = makeReqReply({ url: '/noauth?y=2', host: 'localhost:3000', method: 'POST' });
+    const hook = createAuthHook(logger as any);
+    const { req, reply, done } = makeReqReply({ route, url: '/noauth?y=2', host: 'localhost:3000', method: 'POST' });
 
     await (hook as any).call({} as any, req, reply, done);
 
@@ -89,13 +79,11 @@ describe('createAuthHook', () => {
   });
 
   it('warns and replies 500 when auth required but server.authenticate is missing', async () => {
-    matchRouteMock.mockReturnValue({
-      route: { appId: 'appB', attr: { middleware: { auth: { required: true } } } },
-      params: {},
-    });
+    const route = { path: '/secure', appId: 'appB', attr: { render: 'ssr', middleware: { auth: { required: true } } } } as Route;
 
-    const hook = createAuthHook([], logger as any);
+    const hook = createAuthHook(logger as any);
     const { req, reply, done } = makeReqReply({
+      route,
       url: '/secure?z=3',
       host: '0.0.0.0:5173',
       method: 'GET',
@@ -116,13 +104,11 @@ describe('createAuthHook', () => {
       /* success */
     });
 
-    matchRouteMock.mockReturnValue({
-      route: { appId: 'appC', attr: { middleware: { auth: { roles: ['user'] } } } },
-      params: {},
-    });
+    const route = { appId: 'appC', attr: { render: 'ssr', middleware: { auth: { roles: ['user'] } } } } as Route;
 
-    const hook = createAuthHook([], logger as any);
+    const hook = createAuthHook(logger as any);
     const { req, reply, done } = makeReqReply({
+      route,
       url: '/auth/success?ok=1',
       host: 'example.com',
       method: 'PUT',
@@ -162,13 +148,11 @@ describe('createAuthHook', () => {
       throw err;
     });
 
-    matchRouteMock.mockReturnValue({
-      route: { appId: 'appD', attr: { middleware: { auth: true } } },
-      params: {},
-    });
+    const route = { path: '/auth/fail', appId: 'appD', attr: { render: 'ssr', middleware: { auth: {} } } } as Route;
 
-    const hook = createAuthHook([], logger as any);
+    const hook = createAuthHook(logger as any);
     const { req, reply, done } = makeReqReply({
+      route,
       url: '/auth/fail?q=1',
       host: 'dev.local:1234',
       method: 'DELETE',
@@ -207,13 +191,10 @@ describe('createAuthHook', () => {
       reply.sent = true;
     });
 
-    matchRouteMock.mockReturnValue({
-      route: { appId: 'appG', attr: { middleware: { auth: { strategy: 'jwt' } } } },
-      params: {},
-    });
+    const route = { appId: 'appG', attr: { render: 'ssr', middleware: { auth: { strategy: 'jwt' } } } } as Route;
 
-    const hook = createAuthHook([], logger as any);
-    const { req, reply, done } = makeReqReply({ url: '/auth/soft-reject', authenticate });
+    const hook = createAuthHook(logger as any);
+    const { req, reply, done } = makeReqReply({ route, url: '/auth/soft-reject', authenticate });
 
     await (hook as any).call({} as any, req, reply, done);
 

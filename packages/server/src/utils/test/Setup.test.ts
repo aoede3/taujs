@@ -46,7 +46,7 @@ describe('printConfigSummary', () => {
 
   beforeEach(() => reset());
 
-  it('logs counts, per-app debug lines, and warnings', () => {
+  it('logs counts and per-app debug lines', () => {
     printConfigSummary(
       logger as any,
       [
@@ -56,7 +56,6 @@ describe('printConfigSummary', () => {
       2,
       2,
       12.34,
-      ['dup path here'],
     );
 
     const infoLines = take('info').map((args) => args.join(' '));
@@ -66,9 +65,6 @@ describe('printConfigSummary', () => {
     expect(debugCalls.length).toBe(2);
     expect(debugCalls[0]?.[0]).toContain('• a: 2 route(s)');
     expect(debugCalls[1]?.[0]).toContain('• b: 0 route(s)');
-
-    const warnLines = take('warn').map((args) => args.join(' '));
-    expect(warnLines[0]).toContain('[τjs] [warn] dup path here');
   });
 });
 

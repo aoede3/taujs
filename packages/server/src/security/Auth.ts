@@ -1,22 +1,18 @@
-import { matchRoute } from '../core/routes/DataRoutes';
+import { selectedRouteFrom } from '../core/routes/FastifyRoutes';
 
 import type { FastifyRequest, FastifyReply, onRequestHookHandler } from 'fastify';
-import type { PathToRegExpParams } from '../core/config/types';
-import type { RouteMatcher } from '../core/routes/DataRoutes';
 import type { Logger } from '../logging/Logger';
 
-export const createAuthHook = (routeMatchers: RouteMatcher<PathToRegExpParams>[], logger: Logger): onRequestHookHandler => {
+export const createAuthHook = (logger: Logger): onRequestHookHandler => {
   return async function authHook(req: FastifyRequest, reply: FastifyReply) {
+    const selected = selectedRouteFrom(req);
+    if (!selected) return;
+
+    const { route } = selected;
     const url = new URL(req.url, `http://${req.headers.host}`).pathname;
-
-    const match = matchRoute(url, routeMatchers);
-
-    if (!match) return;
-
-    const { route } = match;
     const authConfig = route.attr?.middleware?.auth;
 
-    // Boundary (taujs.dev/guides/authentication): taujs matches the route,
+    // Boundary (taujs.dev/guides/authentication): Fastify selects the route and taujs
     // surfaces the auth metadata below, and invokes the authenticate decorator.
     // roles / strategy / redirect are metadata for that decorator to read and
     // enforce - taujs deliberately does not interpret them.

@@ -1,7 +1,6 @@
-import { calculateSpecificity } from '../routes/DataRoutes';
 import { now } from '../telemetry/Telemetry';
 
-import type { PathToRegExpParams, Route, CoreAppConfig, CoreSecurityConfig, CoreTaujsConfig } from './types';
+import type { RouteParams, Route, CoreAppConfig, CoreSecurityConfig, CoreTaujsConfig } from './types';
 
 export type ExtractSecurityResult<S extends CoreSecurityConfig = CoreSecurityConfig> = {
   security: S;
@@ -16,11 +15,10 @@ export type ExtractSecurityResult<S extends CoreSecurityConfig = CoreSecurityCon
 };
 
 export type ExtractRoutesResult = {
-  routes: Route<PathToRegExpParams>[];
+  routes: Route<RouteParams>[];
   apps: { appId: string; routeCount: number }[];
   totalRoutes: number;
   durationMs: number;
-  warnings: string[];
 };
 
 export const extractBuildConfigs = <A extends CoreAppConfig = CoreAppConfig>(config: { apps: readonly A[] }): A[] => {
@@ -29,15 +27,57 @@ export const extractBuildConfigs = <A extends CoreAppConfig = CoreAppConfig>(con
   return config.apps.map(({ appId, entryPoint, plugins, renderer }) => ({ appId, entryPoint, plugins, renderer })) as A[];
 };
 
+// This is deliberately a migration lint, not a second route parser. Fastify remains the only
+// authority for valid route syntax. These are stale path-to-regexp forms that Fastify may accept
+// as literals (or with materially different semantics), allowing a formerly live route to die
+// silently after the native-route migration.
+const assertNoLegacyRouteSyntax = (path: string, appId: string): void => {
+  // Fastify regexp constraints may legitimately contain quantifiers such as `(^\\d{4})`.
+  // Only braces outside a regexp constraint are path-to-regexp optional-group syntax.
+  let regexpDepth = 0;
+  let hasOptionalGroup = false;
+  for (let i = 0; i < path.length; i += 1) {
+    const char = path[i];
+    if (char === '\\') {
+      i += 1;
+      continue;
+    }
+    if (char === '(') {
+      regexpDepth += 1;
+      continue;
+    }
+    if (char === ')') {
+      regexpDepth = Math.max(0, regexpDepth - 1);
+      continue;
+    }
+    if (regexpDepth === 0 && (char === '{' || char === '}')) {
+      hasOptionalGroup = true;
+      break;
+    }
+  }
+
+  const hasNamedWildcard = /(^|\/)\*[A-Za-z0-9_]/.test(path);
+  const hasLegacyParameterModifier = /:[A-Za-z0-9_]+[+*](?=\/|$)/.test(path);
+  const hasNonTerminalOptionalParameter = /:[A-Za-z0-9_]+\?(?=\/)/.test(path);
+
+  if (hasOptionalGroup || hasNamedWildcard || hasLegacyParameterModifier || hasNonTerminalOptionalParameter) {
+    throw new Error(
+      `Route "${path}" (app "${appId}") uses legacy path-to-regexp syntax. ` +
+        'Route paths now use Fastify syntax; use a terminal "/*" wildcard, a terminal optional parameter, or declare explicit routes.',
+    );
+  }
+};
+
 export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult => {
   const t0 = now();
-  const allRoutes: Route<PathToRegExpParams>[] = [];
+  const allRoutes: Route<RouteParams>[] = [];
   const apps: { appId: string; routeCount: number }[] = [];
-  const warnings: string[] = [];
   const pathTracker = new Map<string, string[]>();
 
   for (const app of taujsConfig.apps) {
     const appRoutes = (app.routes ?? []).map((route) => {
+      assertNoLegacyRouteSyntax(route.path, app.appId);
+
       // RFC 0004 (H1): validate `attr.head` at BOOT - misconfiguration fails fast, before any
       // request depends on it. `timeoutMs` must be POSITIVE FINITE (ruling 3: the head blocks
       // the shell, so there is deliberately no 0/Infinity wait-forever sentinel).
@@ -53,7 +93,7 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
         }
       }
 
-      const fullRoute: Route<PathToRegExpParams> = { ...route, appId: app.appId };
+      const fullRoute: Route<RouteParams> = { ...route, appId: app.appId };
 
       if (!pathTracker.has(route.path)) pathTracker.set(route.path, []);
       pathTracker.get(route.path)!.push(app.appId);
@@ -66,19 +106,17 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
   }
 
   for (const [path, appIds] of pathTracker.entries()) {
-    if (appIds.length > 1) warnings.push(`Route path "${path}" is declared in multiple apps: ${appIds.join(', ')}`);
+    if (appIds.length > 1) {
+      throw new Error(`Route path "${path}" is declared more than once by: ${appIds.join(', ')}`);
+    }
   }
-
-  // Same algorithm createRouteMatchers sorts with - one source of truth for specificity
-  const sortedRoutes = allRoutes.sort((a, b) => calculateSpecificity(b.path) - calculateSpecificity(a.path));
   const durationMs = now() - t0;
 
   return {
-    routes: sortedRoutes,
+    routes: allRoutes,
     apps,
     totalRoutes: allRoutes.length,
     durationMs,
-    warnings,
   };
 };
 

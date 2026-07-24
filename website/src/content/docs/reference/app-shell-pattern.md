@@ -76,6 +76,11 @@ export default defineConfig({
 });
 ```
 
+> `/*` is a real Fastify wildcard. It intentionally owns every unmatched GET path, including
+> dotted paths that look like missing assets. Registered static-asset routes still take
+> precedence, but a missing asset can reach the shell. Use explicit page routes instead when
+> missing asset-like URLs must remain 404 responses.
+
 - one app,
 - one wildcard route,
 - SSR + hydration.
@@ -187,7 +192,7 @@ Those patterns assume:
 
 #### Why router server APIs don’t apply in τjs
 
-τjs already handles route matching and data orchestration at the **server layer**-before your React tree is even created.
+Fastify selects the registered τjs route, and τjs handles data orchestration at the **server layer** before your React tree is even created.
 
 Your server entry receives:
 

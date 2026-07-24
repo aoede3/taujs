@@ -77,10 +77,10 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   });
 
   const configs = extractBuildConfigs(opts.config);
-  const { routes, apps, totalRoutes, durationMs, warnings } = extractRoutes(opts.config);
+  const { routes, apps, totalRoutes, durationMs } = extractRoutes(opts.config);
   const { security, durationMs: securityDuration, hasExplicitCSP } = extractSecurity(opts.config);
 
-  printConfigSummary(logger, apps, configs.length, totalRoutes, durationMs, warnings);
+  printConfigSummary(logger, apps, configs.length, totalRoutes, durationMs);
   printSecuritySummary(logger, routes, security, hasExplicitCSP, securityDuration);
 
   // RFC security model §2: relaxing the loopback guard must shout in the boot summary —

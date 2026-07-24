@@ -12,13 +12,10 @@ export function printConfigSummary(
   configsCount: number,
   totalRoutes: number,
   durationMs: number,
-  warnings: string[],
 ) {
   logger.info({}, `${CONTENT.TAG} [config] Loaded ${configsCount} app(s), ${totalRoutes} route(s) in ${durationMs.toFixed(1)}ms`);
 
   apps.forEach((a) => logger.debug('routes', {}, `• ${a.appId}: ${a.routeCount} route(s)`));
-
-  warnings.forEach((w) => logger.warn({}, `${CONTENT.TAG} [warn] ${w}`));
 }
 
 export function printSecuritySummary(logger: Logger, routes: Route[], security: CoreSecurityConfig, hasExplicitCSP: boolean, securityDurationMs: number) {

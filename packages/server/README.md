@@ -79,7 +79,7 @@ https://github.com/aoede3/taujs/blob/main/src/client/client.d.ts
 
 ### Routes
 
-Integral to τjs is its internal routing:
+τjs app paths are registered as native Fastify routes:
 
 1. Fastify serving index.html to client browser for client routing
 2. Internal service calls to API to provide data for streaming/hydration
@@ -92,7 +92,11 @@ In ensuring a particular 'route' receives data for hydration there are two optio
 
 In supporting Option 1. there is a registry of services. More detail in 'Service Registry'.
 
-Each routes 'path' is a simple URL regex as per below examples.
+Each route path uses Fastify route syntax. Configure router behaviour on the Fastify instance passed to createServer; τjs does not maintain a parallel matcher or duplicate Fastify router options.
+
+Known stale path-to-regexp forms fail at startup rather than registering with different semantics.
+Auth and route CSP apply only to the Fastify-selected τjs route. Dotted values are valid page-route
+parameters; asset-like URLs 404 only when no static or declared page route owns them.
 
 https://github.com/aoede3/taujs/blob/main/src/shared/routes/Routes.ts
 

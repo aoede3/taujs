@@ -25,39 +25,57 @@ describe('extractBuildConfigs', () => {
 });
 
 describe('extractRoutes', () => {
-  it('aggregates, warns on duplicate paths, and sorts by specificity', () => {
+  it('preserves declaration order and attaches app identity', () => {
     const tau: CoreTaujsConfig = {
       apps: [
-        {
-          appId: 'app1',
-          entryPoint: '/e1',
-          routes: [{ path: '/users/:id' }, { path: '/about/team' }],
-        },
-        {
-          appId: 'app2',
-          entryPoint: '/e2',
-          routes: [{ path: '/about/team' }, { path: '/products/:sku/spec' }],
-        },
+        { appId: 'app1', entryPoint: '/e1', routes: [{ path: '/users/:id' }, { path: '/about/team' }] },
+        { appId: 'app2', entryPoint: '/e2', routes: [{ path: '/products/:sku/spec' }] },
       ],
     };
 
-    const { routes, apps, totalRoutes, warnings, durationMs } = extractRoutes(tau);
+    const { routes, apps, totalRoutes, durationMs } = extractRoutes(tau);
 
-    const hasAppId = (r: Route): r is Route & { appId: string } => typeof (r as any).appId === 'string';
-    expect(routes.every(hasAppId)).toBe(true);
-
-    expect((routes[0] as any).path).toBe('/products/:sku/spec');
-
+    expect(routes.map((route) => [route.path, route.appId])).toEqual([
+      ['/users/:id', 'app1'],
+      ['/about/team', 'app1'],
+      ['/products/:sku/spec', 'app2'],
+    ]);
     expect(apps).toEqual([
       { appId: 'app1', routeCount: 2 },
-      { appId: 'app2', routeCount: 2 },
+      { appId: 'app2', routeCount: 1 },
     ]);
-    expect(totalRoutes).toBe(4);
-
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('Route path "/about/team" is declared in multiple apps: app1, app2');
-
+    expect(totalRoutes).toBe(3);
     expect(typeof durationMs).toBe('number');
+  });
+
+  it('rejects an exact duplicate path before Fastify registration', () => {
+    const tau: CoreTaujsConfig = {
+      apps: [
+        { appId: 'app1', entryPoint: '/e1', routes: [{ path: '/about' }] },
+        { appId: 'app2', entryPoint: '/e2', routes: [{ path: '/about' }] },
+      ],
+    };
+
+    expect(() => extractRoutes(tau)).toThrow('Route path "/about" is declared more than once by: app1, app2');
+  });
+
+  it.each(['/app{/:feature}{/:id}', '/download{.zip}', '/app/:page*', '/app/:page+', '/app/:feature?/:id', '/docs/*slug', '*slug'])(
+    'rejects stale path-to-regexp syntax before Fastify can register it with different semantics: %s',
+    (path) => {
+      const tau: CoreTaujsConfig = {
+        apps: [{ appId: 'legacy', entryPoint: '/entry', routes: [{ path }] }],
+      };
+
+      expect(() => extractRoutes(tau)).toThrow(`Route "${path}" (app "legacy") uses legacy path-to-regexp syntax. Route paths now use Fastify syntax`);
+    },
+  );
+
+  it.each(['/app/:feature?', '/app/*', '*', '/products/:id', '/archive/:year(^\\d{4})'])('leaves valid Fastify syntax to Fastify: %s', (path) => {
+    const tau: CoreTaujsConfig = {
+      apps: [{ appId: 'native', entryPoint: '/entry', routes: [{ path }] }],
+    };
+
+    expect(extractRoutes(tau).routes[0]?.path).toBe(path);
   });
 
   it('handles apps with no routes property (routes ?? [])', () => {
@@ -69,7 +87,7 @@ describe('extractRoutes', () => {
       ],
     };
 
-    const { routes, apps, totalRoutes, warnings } = extractRoutes(tau);
+    const { routes, apps, totalRoutes } = extractRoutes(tau);
 
     expect(totalRoutes).toBe(1);
     expect(routes.map((r) => r.path)).toEqual(['/only']);
@@ -78,7 +96,6 @@ describe('extractRoutes', () => {
       { appId: 'b', routeCount: 0 },
       { appId: 'c', routeCount: 1 },
     ]);
-    expect(warnings).toEqual([]);
   });
 });
 

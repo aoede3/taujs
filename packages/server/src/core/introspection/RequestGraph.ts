@@ -33,6 +33,7 @@ export type GraphRoute = {
   path: string;
   render: { strategy: 'ssr' | 'streaming'; defaulted: boolean };
   hydrate: { enabled: boolean; defaulted: boolean };
+  /** Schema-v1 declaration score retained for deterministic graph ordering; Fastify owns runtime precedence. */
   specificity: number;
   middleware: { auth: { declared: boolean }; csp: GraphRouteCSP };
   data: GraphRouteData;

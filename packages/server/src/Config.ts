@@ -70,7 +70,7 @@ export type RouteData<C extends TaujsConfig = TaujsConfig, P extends string = st
 // RFC 0004 (H1): the config-side head-data surface. `HeadDataOf<R>` infers what `headContent`
 // receives as `headData` for a route (the phantom-branded service result for `serviceData()`
 // loaders); `ServiceDataHandler` is `serviceData()`'s branded return type.
-export type { HeadAttributes, HeadDataOf, ServiceDataHandler } from './core/config/types';
+export type { HeadAttributes, HeadDataOf, RouteParams, ServiceDataHandler } from './core/config/types';
 
 // RFC 0005 (VS2): the public, allowlisted Vite surface. Exported here (the `./config` entry,
 // alongside `defineConfig`/`TaujsConfig`) so the `vite.shared.ts satisfies TaujsViteConfig` recipe
