@@ -1,7 +1,6 @@
-import { calculateSpecificity } from '../routes/DataRoutes';
 import { now } from '../telemetry/Telemetry';
 
-import type { PathToRegExpParams, Route, CoreAppConfig, CoreSecurityConfig, CoreTaujsConfig } from './types';
+import type { RouteParams, Route, CoreAppConfig, CoreSecurityConfig, CoreTaujsConfig } from './types';
 
 export type ExtractSecurityResult<S extends CoreSecurityConfig = CoreSecurityConfig> = {
   security: S;
@@ -16,7 +15,7 @@ export type ExtractSecurityResult<S extends CoreSecurityConfig = CoreSecurityCon
 };
 
 export type ExtractRoutesResult = {
-  routes: Route<PathToRegExpParams>[];
+  routes: Route<RouteParams>[];
   apps: { appId: string; routeCount: number }[];
   totalRoutes: number;
   durationMs: number;
@@ -31,7 +30,7 @@ export const extractBuildConfigs = <A extends CoreAppConfig = CoreAppConfig>(con
 
 export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult => {
   const t0 = now();
-  const allRoutes: Route<PathToRegExpParams>[] = [];
+  const allRoutes: Route<RouteParams>[] = [];
   const apps: { appId: string; routeCount: number }[] = [];
   const warnings: string[] = [];
   const pathTracker = new Map<string, string[]>();
@@ -53,7 +52,7 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
         }
       }
 
-      const fullRoute: Route<PathToRegExpParams> = { ...route, appId: app.appId };
+      const fullRoute: Route<RouteParams> = { ...route, appId: app.appId };
 
       if (!pathTracker.has(route.path)) pathTracker.set(route.path, []);
       pathTracker.get(route.path)!.push(app.appId);
@@ -66,15 +65,14 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
   }
 
   for (const [path, appIds] of pathTracker.entries()) {
-    if (appIds.length > 1) warnings.push(`Route path "${path}" is declared in multiple apps: ${appIds.join(', ')}`);
+    if (appIds.length > 1) {
+      throw new Error(`Route path "${path}" is declared more than once by: ${appIds.join(', ')}`);
+    }
   }
-
-  // Same algorithm createRouteMatchers sorts with - one source of truth for specificity
-  const sortedRoutes = allRoutes.sort((a, b) => calculateSpecificity(b.path) - calculateSpecificity(a.path));
   const durationMs = now() - t0;
 
   return {
-    routes: sortedRoutes,
+    routes: allRoutes,
     apps,
     totalRoutes: allRoutes.length,
     durationMs,

@@ -187,7 +187,7 @@ Those patterns assume:
 
 #### Why router server APIs don’t apply in τjs
 
-τjs already handles route matching and data orchestration at the **server layer**-before your React tree is even created.
+Fastify selects the registered τjs route, and τjs handles data orchestration at the **server layer** before your React tree is even created.
 
 Your server entry receives:
 

@@ -12,7 +12,7 @@ import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
 import { AppError } from './core/errors/AppError';
-import { createRouteMatchers } from './core/routes/DataRoutes';
+import { fastifyConfigForRoute, selectedRouteFrom } from './core/routes/FastifyRoutes';
 import { isDevelopment } from './System';
 
 import { printVitePluginSummary } from './Setup';
@@ -53,7 +53,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     const maps = createMaps();
 
     const processedConfigs = processConfigs(configs, clientRoot, TEMPLATE);
-    const routeMatchers = createRouteMatchers(routes);
     let viteDevServer: ViteDevServer | undefined;
     let introspection: DevIntrospection | undefined;
 
@@ -90,7 +89,6 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     app.register(cspPlugin, {
       directives: opts.security?.csp?.directives,
       generateCSP: opts.security?.csp?.generateCSP,
-      routeMatchers,
       debug: opts.debug,
     });
 
@@ -178,7 +176,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       }
     }
     // Trace context first, deliberately before auth: every request — rendered, fallthrough,
-    // asset-like — gets a traceId and the x-trace-id response header before route matching,
+    // asset-like — gets a traceId and the x-trace-id response header before auth,
     // and auth logging can carry the traceId (P0B-01). In dev the request logger is teed
     // into the logs annex and the recorder rides the context (P0B-02).
     app.decorateRequest('taujsRequestContext', null);
@@ -191,15 +189,20 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       req.taujsRequestContext = requestContext;
       requestContext.recorder?.requestStart({ traceId: requestContext.traceId, url: req.url, method: req.method });
     });
-    app.addHook('onRequest', createAuthHook(routeMatchers, logger));
+    app.addHook('onRequest', createAuthHook(logger));
 
-    app.get('/*', async (req, reply) => {
-      await handleRender(req, reply, routeMatchers, processedConfigs, serviceRegistry, maps, {
-        debug: opts.debug,
-        logger,
-        viteDevServer,
+    for (const route of routes) {
+      app.get(route.path, { config: fastifyConfigForRoute(route) }, async (req, reply) => {
+        const selectedRoute = selectedRouteFrom(req);
+        if (!selectedRoute) throw AppError.internal(`Fastify selected route "${route.path}" without its τjs route identity`);
+
+        await handleRender(req, reply, selectedRoute, processedConfigs, serviceRegistry, maps, {
+          debug: opts.debug,
+          logger,
+          viteDevServer,
+        });
       });
-    });
+    }
 
     app.setNotFoundHandler(async (req, reply) => {
       await handleNotFound(

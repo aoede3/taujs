@@ -54,10 +54,10 @@ When a request arrives:
    GET /admin/users
 ```
 
-2. **τjs matches route**
+2. **Fastify selects the registered τjs route**
 
 ```typescript
-   // Finds matching route in config
+   // Fastify route metadata identifies the owning τjs app
    {
      path: '/admin/:section',
      appId: 'admin'

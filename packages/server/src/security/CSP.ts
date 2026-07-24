@@ -1,21 +1,18 @@
 import fp from 'fastify-plugin';
 import crypto from 'crypto';
 
-import { createRouteMatchers, matchRoute } from '../core/routes/DataRoutes';
+import { selectedRouteFrom } from '../core/routes/FastifyRoutes';
 import { isDevelopment } from '../System';
 import { DEV_CSP_DIRECTIVES } from '../constants';
 import { createLogger } from '../logging/Logger';
 
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
-import type { Route, PathToRegExpParams, RouteCSPConfig } from '../core/config/types';
-import type { CommonRouteMatcher } from '../core/routes/DataRoutes';
+import type { RouteCSPConfig } from '../core/config/types';
 import type { DebugConfig } from '../core/logging/types';
 
 export type CSPPluginOptions = {
   directives?: CSPDirectives;
   generateCSP?: (directives: CSPDirectives, nonce: string, req?: FastifyRequest) => string;
-  routes?: Route[];
-  routeMatchers?: CommonRouteMatcher[];
   debug?: DebugConfig;
   reporting?: {
     reportOnly?: boolean;
@@ -67,21 +64,13 @@ const mergeDirectives = (base: CSPDirectives, override: CSPDirectives): CSPDirec
   return merged;
 };
 
-const findMatchingRoute = (routeMatchers: CommonRouteMatcher[] | null, path: string): { route: Route; params: PathToRegExpParams } | null => {
-  if (!routeMatchers) return null;
-
-  const match = matchRoute(path, routeMatchers);
-  return match ? { route: match.route, params: match.params } : null;
-};
-
 export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
   async (fastify, opts: CSPPluginOptions) => {
-    const { generateCSP = defaultGenerateCSP, routes = [], routeMatchers, debug } = opts;
+    const { generateCSP = defaultGenerateCSP, debug } = opts;
     // DEV_CSP_DIRECTIVES is a development-only fallback: in production without
     // explicit directives no global header is sent (a dev-grade header allowing
     // ws:/http:/unsafe-inline would only look like protection).
     const globalDirectives = opts.directives || (isDevelopment ? DEV_CSP_DIRECTIVES : undefined);
-    const matchers = routeMatchers || (routes.length > 0 ? createRouteMatchers(routes) : null);
 
     const logger = createLogger({
       debug,
@@ -100,8 +89,8 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
       let routeCSP: false | RouteCSPConfig | undefined;
 
       try {
-        const routeMatch = findMatchingRoute(matchers, req.url);
-        routeCSP = routeMatch?.route.attr?.middleware?.csp;
+        const selected = selectedRouteFrom(req);
+        routeCSP = selected?.route.attr?.middleware?.csp;
 
         if (routeCSP === false) {
           done();
@@ -124,7 +113,7 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
             typeof routeCSP.directives === 'function'
               ? routeCSP.directives({
                   url: req.url,
-                  params: routeMatch?.params || {},
+                  params: selected?.params ?? {},
                   headers: req.headers,
                   req,
                 })

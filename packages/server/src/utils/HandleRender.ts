@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 
 import { RENDERTYPE } from '../core/constants';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
-import { fetchHeadData, fetchInitialData, matchRoute } from '../core/routes/DataRoutes';
+import { fetchHeadData, fetchInitialData } from '../core/routes/DataRoutes';
 import { now } from '../core/telemetry/Telemetry';
 import { resolveEntryFile } from '../Build';
 import { createLogger } from '../logging/Logger';
@@ -26,12 +26,10 @@ import { assertRenderContract, declaredContractOf, requireRendererContribution }
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { ViteDevServer } from 'vite';
-import type { PathToRegExpParams } from '../core/config/types';
 import type { DebugConfig, Logs } from '../core/logging/types';
-import type { RouteMatcher } from '../core/routes/DataRoutes';
+import type { SelectedPageRoute } from '../core/routes/FastifyRoutes';
 import type { ServiceRegistry } from '../core/services/DataServices';
 import type { Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../types';
-import { handleNotFound } from './HandleNotFound';
 
 // R0-02: origin-aware benign classification, textually parallel to `isBenignStreamErr` in
 // packages/react/src/utils/Streaming.ts (the server does not import renderer utils). A
@@ -101,7 +99,7 @@ const safeToReason = (err: unknown): Error => {
 export const handleRender = async (
   req: FastifyRequest,
   reply: FastifyReply,
-  routeMatchers: RouteMatcher<PathToRegExpParams>[],
+  selectedRoute: SelectedPageRoute,
   processedConfigs: ProcessedConfig[],
   serviceRegistry: ServiceRegistry,
   maps: {
@@ -131,22 +129,12 @@ export const handleRender = async (
     });
 
   try {
-    // fastify/static wildcard: false and /* => checks for .assets here and routes 404
-    // Pathname only: a query string like ?q=file.txt must not make a route look like an asset
-    const rawPath = req.raw.url ? new URL(req.raw.url, `http://${req.headers.host}`).pathname : '';
-    if (/\.\w+$/.test(rawPath)) return reply.callNotFound();
-
     const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
-    const matchedRoute = matchRoute(url, routeMatchers);
 
     const rawNonce = (req as any).cspNonce as string | undefined | null;
     const cspNonce = rawNonce && rawNonce.length > 0 ? rawNonce : undefined;
 
-    if (!matchedRoute) {
-      return reply.callNotFound();
-    }
-
-    const { route, params } = matchedRoute;
+    const { route, params } = selectedRoute;
     const { attr, appId } = route;
 
     // Dev-only recorder riding the hoisted context (P0B-02); absent → all calls no-op.

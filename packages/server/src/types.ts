@@ -2,7 +2,7 @@ import type { Writable } from 'node:stream';
 
 import type { FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 
-import type { CoreTaujsConfig, Route, PathToRegExpParams } from './core/config/types';
+import type { CoreTaujsConfig, Route, RouteParams } from './core/config/types';
 import type { DebugConfig, Logs } from './core/logging/types';
 import type { ServiceRegistry } from './core/services/DataServices';
 
@@ -20,7 +20,7 @@ export type SSRServerOptions = {
    */
   projectRoot?: string;
   configs: readonly AppConfig[];
-  routes: Route<PathToRegExpParams>[];
+  routes: Route<RouteParams>[];
   serviceRegistry?: ServiceRegistry;
   security?: SecurityConfig;
   staticAssets?: StaticAssetsRegistration;

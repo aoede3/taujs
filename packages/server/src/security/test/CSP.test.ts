@@ -2,8 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const hoisted = vi.hoisted(() => ({
-  createRouteMatchersMock: vi.fn(),
-  matchRouteMock: vi.fn(),
+  selectedRouteMock: vi.fn(),
 
   createLoggerMock: vi.fn(),
   loggerErrorMock: vi.fn(),
@@ -27,9 +26,8 @@ vi.mock('../../constants', () => ({
   },
 }));
 
-vi.mock('../../core/routes/DataRoutes', () => ({
-  createRouteMatchers: hoisted.createRouteMatchersMock,
-  matchRoute: hoisted.matchRouteMock,
+vi.mock('../../core/routes/FastifyRoutes', () => ({
+  selectedRouteFrom: hoisted.selectedRouteMock,
 }));
 
 vi.mock('../../logging/Logger', () => ({
@@ -50,9 +48,8 @@ async function importer(isDev = true) {
       'script-src': ["'self'"],
     },
   }));
-  vi.doMock('../../core/routes/DataRoutes', () => ({
-    createRouteMatchers: hoisted.createRouteMatchersMock,
-    matchRoute: hoisted.matchRouteMock,
+  vi.doMock('../../core/routes/FastifyRoutes', () => ({
+    selectedRouteFrom: hoisted.selectedRouteMock,
   }));
   vi.doMock('../../logging/Logger', () => ({
     createLogger: hoisted.createLoggerMock,
@@ -94,11 +91,10 @@ function makeReqReply(url = '/path', headers: any = {}) {
   return { req, reply, done, replyHeaders };
 }
 
-const { createRouteMatchersMock, matchRouteMock, createLoggerMock, loggerErrorMock, randomBytesMock } = hoisted;
+const { selectedRouteMock, createLoggerMock, loggerErrorMock, randomBytesMock } = hoisted;
 
 beforeEach(() => {
-  createRouteMatchersMock.mockReset();
-  matchRouteMock.mockReset();
+  selectedRouteMock.mockReset();
   createLoggerMock.mockReset().mockReturnValue({ error: loggerErrorMock.mockReset() });
   randomBytesMock.mockClear();
 });
@@ -159,11 +155,9 @@ describe('cspPlugin (production, no explicit directives)', () => {
   it('sends no global CSP header but still sets req.cspNonce', async () => {
     const { cspPlugin } = await importer(false);
     const fastify = makeFastify();
+    selectedRouteMock.mockReturnValue(undefined);
 
-    createRouteMatchersMock.mockReturnValue(undefined);
-    matchRouteMock.mockReturnValue(undefined);
-
-    await cspPlugin(fastify as any, { routes: [], debug: false });
+    await cspPlugin(fastify as any, { debug: false });
 
     const { req, reply, done } = makeReqReply('/prod-no-config');
     await fastify._hooks.onRequest(req, reply, done);
@@ -177,12 +171,12 @@ describe('cspPlugin (production, no explicit directives)', () => {
     const { cspPlugin } = await importer(false);
     const fastify = makeFastify();
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: { attr: { middleware: { csp: { directives: { 'img-src': ["'self'"] } } } } },
       params: {},
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/prod-route-csp');
     await fastify._hooks.onRequest(req, reply, done);
@@ -197,11 +191,11 @@ describe('cspPlugin (production, no explicit directives)', () => {
     const { cspPlugin } = await importer(false);
     const fastify = makeFastify();
 
-    matchRouteMock.mockImplementation(() => {
+    selectedRouteMock.mockImplementation(() => {
       throw new Error('boom');
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/prod-err');
     await fastify._hooks.onRequest(req, reply, done);
@@ -215,7 +209,7 @@ describe('cspPlugin (production, no explicit directives)', () => {
     const { cspPlugin } = await importer(false);
     const fastify = makeFastify();
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: {
         attr: {
           middleware: {
@@ -230,7 +224,7 @@ describe('cspPlugin (production, no explicit directives)', () => {
       params: {},
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/prod-route-csp-err');
     await fastify._hooks.onRequest(req, reply, done);
@@ -244,11 +238,9 @@ describe('cspPlugin (production, no explicit directives)', () => {
   it('explicit directives still produce a header in production', async () => {
     const { cspPlugin } = await importer(false);
     const fastify = makeFastify();
+    selectedRouteMock.mockReturnValue(undefined);
 
-    createRouteMatchersMock.mockReturnValue(undefined);
-    matchRouteMock.mockReturnValue(undefined);
-
-    await cspPlugin(fastify as any, { directives: { 'default-src': ["'self'"] }, routes: [] });
+    await cspPlugin(fastify as any, { directives: { 'default-src': ["'self'"] } });
 
     const { req, reply, done } = makeReqReply('/prod-configured');
     await fastify._hooks.onRequest(req, reply, done);
@@ -270,15 +262,15 @@ describe('generateNonce', () => {
   });
 });
 
-describe('findMatchingRoute', () => {
-  it('onRequest: routeMatchers present but no match → findMatchingRoute returns null (ternary : null)', async () => {
+describe('selected route metadata', () => {
+  it('onRequest: no selected route → findMatchingRoute returns null (ternary : null)', async () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    // routeMatchers provided (non-null), but matchRoute returns no match
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    // selectedRouteFrom returns no route
+    await cspPlugin(fastify as any, {});
 
-    matchRouteMock.mockReturnValueOnce(undefined);
+    selectedRouteMock.mockReturnValueOnce(undefined);
 
     const { req, reply, done } = makeReqReply('/no-match-with-matchers');
     await fastify._hooks.onRequest(req, reply, done);
@@ -290,15 +282,14 @@ describe('findMatchingRoute', () => {
 });
 
 describe('cspPlugin', () => {
-  it('sets header using global directives when no route matchers / no match', async () => {
+  it('sets header using global directives when no selected route', async () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    // No matchers created (routes empty & routeMatchers undefined)
-    createRouteMatchersMock.mockReturnValue(undefined);
-    matchRouteMock.mockReturnValue(undefined);
+    // No selected τjs route
+    selectedRouteMock.mockReturnValue(undefined);
 
-    await cspPlugin(fastify as any, { routes: [], debug: false });
+    await cspPlugin(fastify as any, { debug: false });
 
     const { req, reply, done } = makeReqReply('/no-match');
     await fastify._hooks.onRequest(req, reply, done);
@@ -312,12 +303,12 @@ describe('cspPlugin', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: { attr: { middleware: { csp: false } } },
       params: {},
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/skip');
     await fastify._hooks.onRequest(req, reply, done);
@@ -332,12 +323,12 @@ describe('cspPlugin', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: { attr: { middleware: { csp: { disabled: true } } } },
       params: {},
     });
 
-    await cspPlugin(fastify as any, { generateCSP: gen, routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, { generateCSP: gen });
 
     const { req, reply, done } = makeReqReply('/disabled');
     await fastify._hooks.onRequest(req, reply, done);
@@ -351,7 +342,7 @@ describe('cspPlugin', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: {
         attr: {
           middleware: {
@@ -367,7 +358,7 @@ describe('cspPlugin', () => {
       params: {},
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/merge');
     await fastify._hooks.onRequest(req, reply, done);
@@ -384,7 +375,7 @@ describe('cspPlugin', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: {
         attr: {
           middleware: {
@@ -400,7 +391,7 @@ describe('cspPlugin', () => {
       params: {},
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/replace');
     await fastify._hooks.onRequest(req, reply, done);
@@ -427,7 +418,7 @@ describe('cspPlugin', () => {
       };
     });
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: {
         attr: {
           middleware: {
@@ -440,7 +431,7 @@ describe('cspPlugin', () => {
       params: { id: '42' },
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/user/42?foo=bar');
     await fastify._hooks.onRequest(req, reply, done);
@@ -459,7 +450,7 @@ describe('cspPlugin', () => {
 
     const routeGen = vi.fn(() => 'ROUTE-OVERRIDE-CSP');
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: {
         attr: {
           middleware: {
@@ -473,7 +464,7 @@ describe('cspPlugin', () => {
       params: {},
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/gen');
     await fastify._hooks.onRequest(req, reply, done);
@@ -486,12 +477,12 @@ describe('cspPlugin', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    // Throw inside matchRoute to hit catch block
-    matchRouteMock.mockImplementation(() => {
+    // Throw inside selectedRouteFrom to hit catch block
+    selectedRouteMock.mockImplementation(() => {
       throw new Error('boom');
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/err');
     await fastify._hooks.onRequest(req, reply, done);
@@ -510,27 +501,7 @@ describe('cspPlugin', () => {
     expect(done).toHaveBeenCalled();
   });
 
-  it('initialisation: routes non-empty → creates matchers via createRouteMatchers(routes)', async () => {
-    const { cspPlugin } = await importer(true);
-    const fastify = makeFastify();
-
-    createRouteMatchersMock.mockReturnValue([{/* matcher */}] as any);
-
-    const routes = [{ path: '/foo', attr: { middleware: {} } }] as any;
-    await cspPlugin(fastify as any, { routes }); // no routeMatchers passed
-
-    expect(createRouteMatchersMock).toHaveBeenCalledWith(routes);
-
-    // Run a request to ensure the created matchers are used
-    matchRouteMock.mockReturnValueOnce(undefined);
-    const { req, reply, done } = makeReqReply('/foo');
-    await fastify._hooks.onRequest(req, reply, done);
-
-    expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy', expect.stringMatching(/script-src 'self' .*'nonce-/));
-    expect(done).toHaveBeenCalled();
-  });
-
-  it('route directives function receives params default {} when routeMatch.params is undefined', async () => {
+  it('route directives function receives params default {} when selected route params is undefined', async () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
@@ -539,12 +510,12 @@ describe('cspPlugin', () => {
       return { 'img-src': ["'self'", 'data:'] };
     });
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: { attr: { middleware: { csp: { directives: directivesFn } } } },
       params: undefined, // ← trigger default
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/with-undefined-params');
     await fastify._hooks.onRequest(req, reply, done);
@@ -557,7 +528,7 @@ describe('cspPlugin', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: {
         attr: {
           middleware: {
@@ -568,7 +539,7 @@ describe('cspPlugin', () => {
       params: {},
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/no-directives');
     await fastify._hooks.onRequest(req, reply, done);
@@ -583,11 +554,11 @@ describe('cspPlugin', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    matchRouteMock.mockImplementation(() => {
+    selectedRouteMock.mockImplementation(() => {
       throw 'route-err-str'; // ← non-Error to hit String(error)
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/err-str');
     await fastify._hooks.onRequest(req, reply, done);
@@ -644,8 +615,8 @@ describe('cspPlugin - reportOnly header selection', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    // No matchers; global path
-    await cspPlugin(fastify as any, { routes: [], reporting: { reportOnly: true } });
+    // No selected τjs route; global path
+    await cspPlugin(fastify as any, { reporting: { reportOnly: true } });
 
     const { req, reply, done } = makeReqReply('/no-match');
     await fastify._hooks.onRequest(req, reply, done);
@@ -658,7 +629,7 @@ describe('cspPlugin - reportOnly header selection', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: {
         attr: {
           middleware: {
@@ -672,7 +643,7 @@ describe('cspPlugin - reportOnly header selection', () => {
       params: {},
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/route-report-only');
     await fastify._hooks.onRequest(req, reply, done);
@@ -687,11 +658,11 @@ describe('cspPlugin - reportOnly header selection', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    matchRouteMock.mockImplementation(() => {
+    selectedRouteMock.mockImplementation(() => {
       throw new Error('blow-up');
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any], reporting: { reportOnly: true } });
+    await cspPlugin(fastify as any, { reporting: { reportOnly: true } });
 
     const { req, reply, done } = makeReqReply('/err-report-only');
     await fastify._hooks.onRequest(req, reply, done);
@@ -707,7 +678,7 @@ describe('cspPlugin - reportOnly header selection', () => {
 
     const routeGen = vi.fn(() => 'ROUTE-REPORT-ONLY-CSP');
 
-    matchRouteMock.mockReturnValue({
+    selectedRouteMock.mockReturnValue({
       route: {
         attr: {
           middleware: {
@@ -722,7 +693,7 @@ describe('cspPlugin - reportOnly header selection', () => {
       params: {},
     });
 
-    await cspPlugin(fastify as any, { routeMatchers: [{} as any] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/route-gen-report-only');
     await fastify._hooks.onRequest(req, reply, done);
@@ -738,7 +709,7 @@ describe('cspPlugin - req.cspNonce assignment', () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 
-    await cspPlugin(fastify as any, { routes: [] });
+    await cspPlugin(fastify as any, {});
 
     const { req, reply, done } = makeReqReply('/nonce-check');
     await fastify._hooks.onRequest(req, reply, done);
