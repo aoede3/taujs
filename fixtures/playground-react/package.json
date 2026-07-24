@@ -1,7 +1,7 @@
 {
   "name": "playground-react",
   "private": true,
-  "version": "0.0.8",
+  "version": "0.0.9",
   "type": "module",
   "description": "τjs React introspection fixture - the app the whole effort drives against (P0B-05)",
   "scripts": {
