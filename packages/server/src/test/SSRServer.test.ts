@@ -853,6 +853,32 @@ describe('SSRServer', () => {
     );
   });
 
+  it('lets a declared page route own dotted parameter values instead of treating them as asset misses', async () => {
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [{ appId: 'shop', entryPoint: '.', renderer: testRenderer() }],
+      routes: [{ path: '/products/:id', appId: 'shop', attr: { render: 'ssr' } }],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/products/logo.png' });
+
+    expect(res.statusCode).toBe(200);
+    expect(handleRenderMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ params: { id: 'logo.png' } }),
+      expect.any(Object),
+      expect.objectContaining({
+        route: expect.objectContaining({ path: '/products/:id', appId: 'shop' }),
+        params: { id: 'logo.png' },
+      }),
+      expect.any(Array),
+      expect.anything(),
+      expect.anything(),
+      expect.any(Object),
+    );
+  });
+
   it('honours the supplied Fastify router policy instead of reproducing it in taujs', async () => {
     const configuredApp = fastify({ routerOptions: { caseSensitive: false, ignoreTrailingSlash: true } });
     try {

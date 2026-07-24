@@ -60,6 +60,25 @@ describe('extractRoutes', () => {
     expect(() => extractRoutes(tau)).toThrow('Route path "/about" is declared more than once by: app1, app2');
   });
 
+  it.each(['/app{/:feature}{/:id}', '/download{.zip}', '/app/:page*', '/app/:page+', '/app/:feature?/:id', '/docs/*slug', '*slug'])(
+    'rejects stale path-to-regexp syntax before Fastify can register it with different semantics: %s',
+    (path) => {
+      const tau: CoreTaujsConfig = {
+        apps: [{ appId: 'legacy', entryPoint: '/entry', routes: [{ path }] }],
+      };
+
+      expect(() => extractRoutes(tau)).toThrow(`Route "${path}" (app "legacy") uses legacy path-to-regexp syntax. Route paths now use Fastify syntax`);
+    },
+  );
+
+  it.each(['/app/:feature?', '/app/*', '*', '/products/:id', '/archive/:year(^\\d{4})'])('leaves valid Fastify syntax to Fastify: %s', (path) => {
+    const tau: CoreTaujsConfig = {
+      apps: [{ appId: 'native', entryPoint: '/entry', routes: [{ path }] }],
+    };
+
+    expect(extractRoutes(tau).routes[0]?.path).toBe(path);
+  });
+
   it('handles apps with no routes property (routes ?? [])', () => {
     const tau: CoreTaujsConfig = {
       apps: [

@@ -282,7 +282,7 @@ describe('selected route metadata', () => {
 });
 
 describe('cspPlugin', () => {
-  it('sets header using global directives when no selected route', async () => {
+  it('applies only global directives to a host-owned or unmatched Fastify route', async () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
 

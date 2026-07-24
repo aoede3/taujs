@@ -76,6 +76,11 @@ export default defineConfig({
 });
 ```
 
+> `/*` is a real Fastify wildcard. It intentionally owns every unmatched GET path, including
+> dotted paths that look like missing assets. Registered static-asset routes still take
+> precedence, but a missing asset can reach the shell. Use explicit page routes instead when
+> missing asset-like URLs must remain 404 responses.
+
 - one app,
 - one wildcard route,
 - SSR + hydration.

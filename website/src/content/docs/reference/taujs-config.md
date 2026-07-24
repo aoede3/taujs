@@ -200,6 +200,19 @@ This is a deliberate product boundary: the server package is Node/Fastify-native
 
 Route paths therefore use Fastify route syntax, not regular expressions. An exact path may be declared by only one τjs app. Ordinary Fastify routes can coexist beside τjs page routes, while unmatched document URLs continue through the τjs application-shell fallback.
 
+When migrating an existing config, replace path-to-regexp-only forms such as
+`/app{/:feature}{/:id}`, `/app/:page*` and `/docs/*slug`. τjs rejects these known stale forms at
+startup rather than allowing Fastify to register a literal or differently behaving route. Use a
+terminal Fastify wildcard such as `/app/*`, a terminal optional parameter such as
+`/products/:id?`, or explicit routes. `/app/*` owns paths below `/app/`; declare `/app`
+separately when the bare prefix must render too.
+
+Route ownership is now exact. Route-level auth and CSP apply only after Fastify selects that τjs
+route; host-owned routes and unmatched case variants do not inherit policy merely because their
+URL resembles a τjs declaration. Conversely, once a declared parameter route is selected, dotted
+values such as `/products/logo.png` are valid parameter values. Asset-like URLs still 404 when no
+page or static route owns them.
+
 ### Entry Point Structure
 
 Each `entryPoint` directory must contain:
@@ -844,7 +857,7 @@ export default defineConfig({
       entryPoint: "app",
       routes: [
         {
-          path: "/app/:feature?/:id?",
+          path: "/app/*",
           attr: {
             render: "streaming",
             meta: { title: "App" },
@@ -858,7 +871,7 @@ export default defineConfig({
       entryPoint: "admin",
       routes: [
         {
-          path: "/admin/:section?/:id?",
+          path: "/admin/*",
           attr: {
             render: "ssr",
             middleware: {

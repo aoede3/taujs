@@ -41,12 +41,15 @@ describe('createAuthHook', () => {
     return { req, reply, done };
   }
 
-  it('returns early when no route matches', async () => {
+  it('does not apply taujs auth metadata to a host-owned or unmatched Fastify route', async () => {
+    const authenticate = vi.fn();
     const hook = createAuthHook(logger as any);
-    const { req, reply, done } = makeReqReply({});
+    const { req, reply, done } = makeReqReply({ url: '/admin/metrics', authenticate });
 
     await (hook as any).call({} as any, req, reply, done);
 
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(req.routeMeta).toBeUndefined();
     expect(logger.debug).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
     expect(reply.status).not.toHaveBeenCalled();

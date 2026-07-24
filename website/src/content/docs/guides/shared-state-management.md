@@ -187,7 +187,7 @@ Load state from server on each app load:
 ```typescript
 // taujs.config.ts
 {
-  path: '/app/:page*',
+  path: '/app/*',
   attr: {
     render: 'ssr',
     middleware: { auth: {} },
@@ -200,7 +200,7 @@ Load state from server on each app load:
 }
 
 {
-  path: '/admin/:section*',
+  path: '/admin/*',
   attr: {
     render: 'ssr',
     middleware: { auth: {} },
