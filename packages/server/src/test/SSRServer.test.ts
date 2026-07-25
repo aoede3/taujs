@@ -207,6 +207,7 @@ describe('SSRServer', () => {
         directives: undefined,
         generateCSP: undefined,
         debug: false,
+        logger: mockLogger,
       }),
     );
 
@@ -389,6 +390,7 @@ describe('SSRServer', () => {
         clientRoot: '/client',
         alias: { '@': '/src' },
         debug: { all: true },
+        logger: mockLogger,
         devNet: { host: 'localhost', hmrPort: 5173 },
         declarativeAlias: undefined,
         viteConfig: expect.objectContaining({ plugins: ['composed:one', 'composed:two'] }),
@@ -500,6 +502,37 @@ describe('SSRServer', () => {
     expect(toHttpMock).toHaveBeenCalled();
     expect(res.statusCode).toBe(499);
     expect(res.json()).toEqual({ message: 'safe' });
+  });
+
+  it('error handler: logs through the hoisted request logger', async () => {
+    const setErrorHandlerSpy = vi.spyOn(app, 'setErrorHandler');
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [],
+      routes: [],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    const errorHandlerFn = setErrorHandlerSpy.mock.calls[0]?.[0] as any;
+    const requestLogger = { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn(), child: vi.fn(), isDebugEnabled: vi.fn() };
+    const mockReq = {
+      method: 'GET',
+      url: '/terminal',
+      routeOptions: { url: '/terminal' },
+      taujsRequestContext: { traceId: 'trace-terminal', logger: requestLogger },
+    };
+    const mockReply = {
+      raw: { headersSent: false, end: vi.fn() },
+      status: vi.fn().mockReturnThis(),
+      send: vi.fn().mockReturnThis(),
+    };
+    mockLogger.error.mockClear();
+
+    errorHandlerFn(new Error('terminal failure'), mockReq, mockReply);
+
+    expect(requestLogger.error).toHaveBeenCalledWith(expect.objectContaining({ method: 'GET', url: '/terminal' }), 'terminal failure');
+    expect(mockLogger.error).not.toHaveBeenCalled();
   });
 
   it('error handler: ends raw stream if headers already sent', async () => {

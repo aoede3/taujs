@@ -82,12 +82,12 @@ describe('messageMetaAdapter', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('when sink has no child(), child() returns an adapter wrapping the same sink', () => {
+  it('does not claim child-binding ownership when the sink has no child seam', () => {
     const { sink, calls } = makeSink();
     const log = messageMetaAdapter(sink);
 
-    const child = log.child?.({ foo: 'bar' }) as BaseLogger;
-    child.error?.({ oops: true }, 'boom');
+    expect(log.child).toBeUndefined();
+    log.error?.({ oops: true }, 'boom');
 
     expect(calls).toEqual([{ method: 'error', message: 'boom', meta: { oops: true } }]);
   });

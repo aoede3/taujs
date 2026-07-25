@@ -10,7 +10,7 @@ import { findFormerlyDiscoveredViteConfig, formerlyDiscoveredViteConfigWarning }
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import type { InlineConfig, ViteDevServer } from 'vite';
-import type { DebugConfig } from '../core/logging/types';
+import type { DebugConfig, Logs } from '../core/logging/types';
 
 /**
  * RFC 0005 VS4 - `setupDevServer` options.
@@ -35,6 +35,8 @@ export type SetupDevServerOptions = {
    */
   projectRoot?: string;
   debug?: DebugConfig;
+  /** Internal runtime logger selected by createServer. */
+  logger?: Logs;
   devNet?: { host: string; hmrPort: number };
   /**
    * The resolved, engine-merged dev Vite fragment (VS4), assembled ONCE in `SSRServer` via
@@ -49,11 +51,13 @@ export type SetupDevServerOptions = {
 export const setupDevServer = async (options: SetupDevServerOptions): Promise<ViteDevServer> => {
   const { app, clientRoot: baseClientRoot, alias, declarativeAlias, projectRoot, debug, devNet, viteConfig } = options;
 
-  const logger = createLogger({
-    context: { service: 'setupDevServer' },
-    debug,
-    minLevel: 'debug',
-  });
+  const logger =
+    options.logger ??
+    createLogger({
+      context: { service: 'setupDevServer' },
+      debug,
+      minLevel: 'debug',
+    });
 
   const host = devNet?.host ?? process.env.HOST?.trim() ?? process.env.FASTIFY_ADDRESS?.trim() ?? 'localhost';
   const hmrPort = devNet?.hmrPort ?? (Number(process.env.HMR_PORT) || 5174);

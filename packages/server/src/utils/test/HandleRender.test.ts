@@ -2015,11 +2015,22 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
+      mockReq.taujsRequestContext = {
+        traceId: 'fatal-trace-1',
+        logger: mockLogger,
+        headers: { 'x-trace-id': 'fatal-trace-1' },
+      };
+      // Fastify's reply header store is the source copied into the raw streaming response.
+      mockReply.getHeaders.mockReturnValue({ 'x-trace-id': 'fatal-trace-1' });
+
       await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(mockReply.hijack).toHaveBeenCalled();
       expect(mockReply.raw.writeHead).toHaveBeenCalledTimes(1);
-      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.objectContaining({ 'Content-Type': 'text/html; charset=utf-8' }));
+      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(
+        500,
+        expect.objectContaining({ 'Content-Type': 'text/html; charset=utf-8', 'x-trace-id': 'fatal-trace-1' }),
+      );
       expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
       expect(mockReply.raw.destroy).not.toHaveBeenCalled();
     });

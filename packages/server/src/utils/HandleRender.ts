@@ -119,14 +119,17 @@ export const handleRender = async (
 ) => {
   const { viteDevServer } = opts;
 
-  const logger =
-    (opts.logger as any) ??
+  const baseLogger =
+    (opts.logger as Logs | undefined) ??
     createLogger({
       debug: opts.debug,
       minLevel: isDevelopment ? 'debug' : 'info',
       includeContext: true,
       includeStack: (lvl) => lvl === 'error' || isDevelopment,
     });
+  const requestContext = getRequestContext(req) ?? createRequestContext(req, reply, baseLogger);
+  const { traceId, logger, headers, recorder } = requestContext;
+  const reqLogger = logger;
 
   try {
     const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
@@ -138,10 +141,7 @@ export const handleRender = async (
     const { attr, appId } = route;
 
     // Dev-only recorder riding the hoisted context (P0B-02); absent → all calls no-op.
-    const hoistedContext = getRequestContext(req);
-    const recorder = hoistedContext?.recorder;
-    if (recorder && hoistedContext)
-      recorder.routeMatched({ traceId: hoistedContext.traceId, path: route.path, appId: appId ?? '', render: attr?.render ?? RENDERTYPE.ssr });
+    if (recorder) recorder.routeMatched({ traceId, path: route.path, appId: appId ?? '', render: attr?.render ?? RENDERTYPE.ssr });
     const routeContext = {
       appId,
       path: route.path,
@@ -226,10 +226,8 @@ export const handleRender = async (
     const renderType = attr?.render ?? RENDERTYPE.ssr;
     const templateParts = processTemplate(template);
 
-    const baseLogger = (opts.logger ?? logger) as Logs;
-    // Hoisted by SSRServer's onRequest hook (P0B-01); created in place only when handleRender
-    // is invoked without the hook, preserving standalone behaviour byte-for-byte.
-    const { traceId, logger: reqLogger, headers } = hoistedContext ?? createRequestContext(req, reply, baseLogger);
+    // The request context is hoisted by SSRServer's onRequest hook (P0B-01); direct
+    // handler invocation creates it once at entry so every branch uses one logger lineage.
     // Dev stamp (spec 03 §7): present only when the structural gate holds — the decoration
     // exists solely on dev boots, so production HTML never carries it.
     const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
@@ -461,6 +459,9 @@ export const handleRender = async (
       const commitHead = () => {
         if (!reply.raw.headersSent) reply.raw.writeHead(200, headers as any);
       };
+      const commitErrorHead = () => {
+        if (!reply.raw.headersSent) reply.raw.writeHead(500, { ...headers, 'Content-Type': 'text/html; charset=utf-8' } as any);
+      };
 
       const abortedState = { aborted: false };
       const ac = new AbortController();
@@ -524,7 +525,7 @@ export const handleRender = async (
         } catch {}
         try {
           if (!reply.raw.headersSent) {
-            reply.raw.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+            commitErrorHead();
             reply.raw.end('Internal Server Error');
           } else if (!reply.raw.writableEnded && !reply.raw.destroyed) {
             reply.raw.destroy();
@@ -627,7 +628,7 @@ export const handleRender = async (
               // Nothing committed yet - send a real error response instead of
               // tearing down the socket.
               try {
-                reply.raw.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+                commitErrorHead();
                 reply.raw.end('Internal Server Error');
               } catch (e) {
                 logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: error response failed');
@@ -687,7 +688,7 @@ export const handleRender = async (
             // Deterministic termination — mirror the onError teardown idioms above.
             if (!reply.raw.headersSent) {
               try {
-                reply.raw.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+                commitErrorHead();
                 reply.raw.end('Internal Server Error');
               } catch (e) {
                 logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: error response failed');
@@ -722,9 +723,8 @@ export const handleRender = async (
       });
     }
   } catch (err) {
-    const hoisted = getRequestContext(req);
-    hoisted?.recorder?.failed({
-      traceId: hoisted.traceId,
+    recorder?.failed({
+      traceId,
       error: { kind: AppError.isAppError(err) ? (err as any).kind : 'internal', message: String((err as any)?.message ?? err ?? '') },
     });
 

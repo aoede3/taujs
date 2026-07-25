@@ -1,10 +1,12 @@
 import { selectedRouteFrom } from '../core/routes/FastifyRoutes';
+import { getRequestContext } from '../utils/Telemetry';
 
 import type { FastifyRequest, FastifyReply, onRequestHookHandler } from 'fastify';
-import type { Logger } from '../logging/Logger';
+import type { Logs } from '../core/logging/types';
 
-export const createAuthHook = (logger: Logger): onRequestHookHandler => {
+export const createAuthHook = (logger: Logs): onRequestHookHandler => {
   return async function authHook(req: FastifyRequest, reply: FastifyReply) {
+    const requestLogger = getRequestContext(req)?.logger ?? logger;
     const selected = selectedRouteFrom(req);
     if (!selected) return;
 
@@ -30,12 +32,12 @@ export const createAuthHook = (logger: Logger): onRequestHookHandler => {
     };
 
     if (!authConfig) {
-      logger.debug('auth', { method: req.method, url: req.url }, '(none)');
+      requestLogger.debug('auth', { method: req.method, url: req.url }, '(none)');
       return;
     }
 
     if (typeof req.server.authenticate !== 'function') {
-      logger.warn(
+      requestLogger.warn(
         {
           path: url,
           appId: route.appId,
@@ -46,20 +48,20 @@ export const createAuthHook = (logger: Logger): onRequestHookHandler => {
     }
 
     try {
-      logger.debug('auth', { method: req.method, url: req.url }, 'Invoking authenticate(...)');
+      requestLogger.debug('auth', { method: req.method, url: req.url }, 'Invoking authenticate(...)');
 
       await req.server.authenticate(req, reply);
 
       // The documented handshake allows the decorator to reject without
       // throwing (reply.code(401).send(); return;) - that is not a success.
       if (reply.sent) {
-        logger.debug('auth', { method: req.method, url: req.url }, 'Authentication handled by decorator (reply already sent)');
+        requestLogger.debug('auth', { method: req.method, url: req.url }, 'Authentication handled by decorator (reply already sent)');
         return;
       }
 
-      logger.debug('auth', { method: req.method, url: req.url }, 'Authentication successful');
+      requestLogger.debug('auth', { method: req.method, url: req.url }, 'Authentication successful');
     } catch (err) {
-      logger.debug('auth', { method: req.method, url: req.url }, 'Authentication failed');
+      requestLogger.debug('auth', { method: req.method, url: req.url }, 'Authentication failed');
 
       return reply.send(err);
     }

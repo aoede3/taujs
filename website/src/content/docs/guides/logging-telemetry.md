@@ -43,9 +43,42 @@ await createServer({
 });
 ```
 
-τjs automatically uses `fastify.log` for internal logging.
+When you supply a logging-enabled Fastify instance, τjs uses Fastify's logger
+for its runtime records. Request records inherit from `request.log`, so they
+retain Fastify's request ID, serializers, redaction rules, transport and
+destination.
+
+The complete precedence is:
+
+```text
+createServer({ logger })
+          ↓ otherwise
+active fastify.log / request.log
+          ↓ otherwise
+τjs console logger
+```
+
+An explicit `createServer({ logger })` is authoritative for τjs records. An
+active Fastify logger means that `fastify.log` has a non-empty level other than
+`silent`. When neither source is available, τjs uses its standalone formatted
+console logger.
+
+τjs does not alter the selected logger's level, serializers, redaction,
+transport or destination.
 
 ## Request Tracing
+
+### Fastify request IDs and τjs trace IDs
+
+These IDs describe related but different things:
+
+- `reqId` is Fastify's identity for the HTTP request.
+- `traceId` is τjs's identity for correlating route resolution, services,
+  rendering and the response.
+
+Request-scoped τjs records carry both. They also carry the request URL and
+method as structured bindings. The fields are bound once rather than repeated
+inside a nested logging context.
 
 ### Automatic Trace ID Generation
 
@@ -176,6 +209,15 @@ await createServer({
 });
 ```
 
+Debug output is admitted by the strictest combination of three controls:
+
+1. the τjs debug category must be enabled;
+2. τjs's runtime minimum must allow debug output;
+3. the selected logger's level must allow it.
+
+The current production runtime minimum is `info`. Setting Pino to `debug` in
+production therefore does not independently enable τjs debug records.
+
 ## Child Loggers
 
 ### In Data Handlers
@@ -225,6 +267,12 @@ export const OrderService = defineService({
 ```
 
 ## Structured Logging
+
+Structured sinks receive the semantic message and metadata. τjs does not add
+its console timestamp or `[level]` prefix before handing a record to Pino,
+Winston or a custom logger; the selected sink owns framing and presentation.
+Debug categories remain available as structured metadata, for example
+`{ category: "ssr" }`.
 
 ### Log Levels
 
@@ -363,6 +411,10 @@ await createServer({
   logger: customLoggerAdapter(myLogger),
 });
 ```
+
+Custom logger adapters receive metadata first and the raw semantic message
+second. If the logger supports `child()`, τjs uses it for request bindings. If
+it does not, τjs retains those bindings as structured metadata.
 
 ## Production Configuration
 
@@ -572,6 +624,11 @@ ctx.logger.error({ error, userId }, "Operation failed");
 
 ### 3. Don't Log Secrets
 
+τjs does not log route-data payloads, renderer stores, service return values,
+request bodies or complete request headers as part of its runtime lifecycle.
+Application logs can still disclose anything explicitly passed to them, so
+configure sink redaction and keep sensitive values out of metadata.
+
 ```typescript
 // redact sensitive data
 ctx.logger.info(
@@ -648,6 +705,17 @@ export const ExternalApiService = defineService({
   },
 });
 ```
+
+## Logs and request traces
+
+Logs and τjs request traces are complementary:
+
+- logs are the operational stream delivered through Fastify, Pino, Winston or
+  the standalone console logger;
+- request traces are τjs's structured evidence of how a response was resolved
+  and rendered.
+
+They share request correlation, but one is not a substitute for the other.
 
 <!--
 ## What's Next?

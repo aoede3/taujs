@@ -315,6 +315,41 @@ describe('createServer', () => {
     );
   });
 
+  it('resolves runtime logger precedence as explicit > active Fastify logger > fallback', async () => {
+    const { createServer } = await importer();
+    const activeFastifyLogger = { level: 'info', info: vi.fn(), child: vi.fn() };
+    const explicitLogger = { info: vi.fn() };
+    const activeApp = { register: vi.fn(async () => undefined), log: activeFastifyLogger } as any;
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+      fastify: activeApp,
+      logger: explicitLogger,
+    });
+    let runtimeLogger = activeApp.register.mock.calls[1]?.[1]?.runtimeLogger;
+    expect(runtimeLogger).toEqual(expect.objectContaining({ source: 'explicit', custom: explicitLogger }));
+
+    activeApp.register.mockClear();
+    await createServer({ config: minimalConfig, serviceRegistry: dummyRegistry, fastify: activeApp });
+    runtimeLogger = activeApp.register.mock.calls[1]?.[1]?.runtimeLogger;
+    expect(runtimeLogger).toEqual(expect.objectContaining({ source: 'fastify', custom: activeFastifyLogger }));
+
+    const silentApp = { register: vi.fn(async () => undefined), log: { ...activeFastifyLogger, level: 'silent' } } as any;
+    await createServer({ config: minimalConfig, serviceRegistry: dummyRegistry, fastify: silentApp });
+    runtimeLogger = silentApp.register.mock.calls[1]?.[1]?.runtimeLogger;
+    expect(runtimeLogger).toEqual(expect.objectContaining({ source: 'fallback', custom: undefined }));
+  });
+
+  it('treats an empty Fastify logger level as inactive', async () => {
+    const { createServer } = await importer();
+    const app = { register: vi.fn(async () => undefined), log: { level: '', info: vi.fn() } } as any;
+
+    await createServer({ config: minimalConfig, serviceRegistry: dummyRegistry, fastify: app });
+
+    expect(app.register.mock.calls[1]?.[1]?.runtimeLogger).toEqual(expect.objectContaining({ source: 'fallback', custom: undefined }));
+  });
+
   it('when a Fastify instance is provided, returns only { net } (no app) and still registers plugins', async () => {
     const { createServer } = await importer();
 
@@ -382,7 +417,7 @@ describe('createServer', () => {
       }),
     );
 
-    expect(registerMock).toHaveBeenNthCalledWith(1, bannerPluginMock, expect.objectContaining({ debug: debugConfig }));
+    expect(registerMock).toHaveBeenNthCalledWith(1, bannerPluginMock, expect.objectContaining({ debug: debugConfig, logger: fakeLogger }));
   });
 
   it('exercises contract required/verify lambdas (auth & csp)', async () => {

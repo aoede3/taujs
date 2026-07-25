@@ -5,15 +5,21 @@ import { selectedRouteFrom } from '../core/routes/FastifyRoutes';
 import { isDevelopment } from '../System';
 import { DEV_CSP_DIRECTIVES } from '../constants';
 import { createLogger } from '../logging/Logger';
+import { createRuntimeLogger, createRuntimeRequestLogger } from '../logging/RuntimeLogger';
 
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { RouteCSPConfig } from '../core/config/types';
-import type { DebugConfig } from '../core/logging/types';
+import type { DebugConfig, Logs } from '../core/logging/types';
+import type { RuntimeLoggerSelection } from '../logging/RuntimeLogger';
 
 export type CSPPluginOptions = {
   directives?: CSPDirectives;
   generateCSP?: (directives: CSPDirectives, nonce: string, req?: FastifyRequest) => string;
   debug?: DebugConfig;
+  /** Internal runtime logger state threaded by SSRServer. */
+  runtimeLogger?: RuntimeLoggerSelection;
+  /** Direct-registration fallback; normal createServer calls also provide runtimeLogger. */
+  logger?: Logs;
   reporting?: {
     reportOnly?: boolean;
   };
@@ -72,12 +78,19 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
     // ws:/http:/unsafe-inline would only look like protection).
     const globalDirectives = opts.directives || (isDevelopment ? DEV_CSP_DIRECTIVES : undefined);
 
-    const logger = createLogger({
-      debug,
-      context: { component: 'csp-plugin' },
-    });
+    const logger = opts.runtimeLogger
+      ? createRuntimeLogger(opts.runtimeLogger, { context: { component: 'csp-plugin' }, includeContext: true })
+      : (opts.logger ?? createLogger({ debug, context: { component: 'csp-plugin' } }));
 
     fastify.addHook('onRequest', (req, reply, done) => {
+      const requestLogger = opts.runtimeLogger
+        ? createRuntimeRequestLogger(opts.runtimeLogger, req, {
+            component: 'csp-plugin',
+            reqId: req.id,
+            url: req.url,
+            method: req.method,
+          })
+        : logger;
       const nonce = generateNonce();
       req.cspNonce = nonce;
 
@@ -126,7 +139,7 @@ export const cspPlugin: FastifyPluginAsync<CSPPluginOptions> = fp(
 
         reply.header(headerNameFor(routeCSP), cspHeader);
       } catch (error) {
-        logger.error(
+        requestLogger.error(
           {
             url: req.url,
             error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),

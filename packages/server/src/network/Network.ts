@@ -5,11 +5,13 @@ import { CONTENT } from '../constants';
 import { createLogger } from '../logging/Logger';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
-import type { DebugConfig } from '../core/logging/types';
+import type { DebugConfig, Logs } from '../core/logging/types';
 
 type BannerPluginOpts = {
   debug?: DebugConfig;
   hmr?: { host: string; port: number };
+  /** Internal runtime logger; presentation output remains on console. */
+  logger?: Logs;
 };
 
 // RFC1918 ranges
@@ -25,7 +27,7 @@ const isPrivateIPv4 = (addr: string): boolean => {
 };
 
 export const bannerPlugin: FastifyPluginAsync<BannerPluginOpts> = async (fastify, options) => {
-  const logger = createLogger({ debug: options.debug });
+  const logger = options.logger ?? createLogger({ debug: options.debug });
   const dbgNetwork = logger.isDebugEnabled('network');
 
   fastify.decorate('showBanner', function showBanner(this: FastifyInstance) {

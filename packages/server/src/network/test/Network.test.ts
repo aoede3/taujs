@@ -117,6 +117,24 @@ describe('bannerPlugin', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('uses a supplied runtime logger for operational records while keeping presentation on console', async () => {
+    const supplied = {
+      isDebugEnabled: vi.fn(() => true),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    netsMock.mockReturnValue({ en0: [{ address: '192.168.1.44', family: 'IPv4', internal: false }] });
+    const f = makeFastify({ address: () => ({ address: '0.0.0.0', port: 3000 }), listening: true });
+
+    await bannerPlugin(f as any, { debug: true, logger: supplied as any });
+    f.showBanner();
+
+    expect(createLoggerMock).not.toHaveBeenCalled();
+    expect(supplied.warn).toHaveBeenCalledTimes(1);
+    expect(supplied.info).toHaveBeenCalledTimes(1);
+    expect(console.log).toHaveBeenCalledWith('┃ Local    http://localhost:3000/');
+  });
+
   it('non-local host (0.0.0.0) with PRIVATE IPv4 found -> prints Network URL, warn if dbg on, info bound host', async () => {
     const { info, warn } = makeLogger({ dbgNetwork: true });
 

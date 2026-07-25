@@ -94,6 +94,7 @@ describe('createRequestContext', () => {
         expect(bindings).toEqual(
           expect.objectContaining({
             traceId: expect.any(String),
+            reqId: 'req-child-1',
             url: '/child',
             method: 'GET',
           }),
@@ -113,6 +114,27 @@ describe('createRequestContext', () => {
 
     expect(loggerWithChild.child).toHaveBeenCalledTimes(1);
     expect(childThis).toBe(loggerWithChild);
+    expect(ctx.logger).toBe(derivedLogger);
+  });
+
+  it('uses an injected request-logger derivation seam when supplied', () => {
+    const derivedLogger = { ...baseLogger, marker: 'derived' };
+    const deriveLogger = vi.fn(() => derivedLogger);
+    const req: Req = {
+      headers: { host: 'factory.test' },
+      method: 'PATCH',
+      url: '/factory',
+      id: 'req-factory-1',
+    };
+
+    const ctx = createRequestContext(req as any, reply as any, baseLogger, deriveLogger as any);
+
+    expect(deriveLogger).toHaveBeenCalledWith({
+      traceId: 'req-factory-1',
+      reqId: 'req-factory-1',
+      url: '/factory',
+      method: 'PATCH',
+    });
     expect(ctx.logger).toBe(derivedLogger);
   });
 
