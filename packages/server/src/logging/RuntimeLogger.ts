@@ -1,5 +1,6 @@
 import { createLogger, type Logger } from './Logger';
 
+import type { FastifyRequest } from 'fastify';
 import type { BaseLogger, DebugConfig, LogLevel } from '../core/logging/types';
 
 export type RuntimeLoggerSource = 'explicit' | 'fastify' | 'fallback';
@@ -37,4 +38,20 @@ export const createRuntimeLogger = (selection: RuntimeLoggerSelection, options: 
     includeContext: options.includeContext,
     singleLine: options.singleLine,
   });
+};
+
+/** Derive a request logger from Fastify's req.log only when Fastify owns the selected sink. */
+export const createRuntimeRequestLogger = (selection: RuntimeLoggerSelection, req: FastifyRequest, context: Record<string, unknown>): Logger => {
+  const { reqId: _reqId, ...fastifyContext } = context;
+  const custom = selection.source === 'fastify' ? req.log : selection.custom;
+  const requestContext = selection.source === 'fastify' ? fastifyContext : { ...context, reqId: req.id };
+
+  return createRuntimeLogger(
+    { ...selection, custom },
+    {
+      context: requestContext,
+      includeContext: true,
+      singleLine: true,
+    },
+  );
 };

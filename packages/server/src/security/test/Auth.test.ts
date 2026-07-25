@@ -78,6 +78,19 @@ describe('createAuthHook', () => {
     expect(reply.send).not.toHaveBeenCalled();
   });
 
+  it('uses the hoisted request logger rather than the plugin-scope logger', async () => {
+    const route = { appId: 'app-request', attr: { render: 'ssr', middleware: {} } } as Route;
+    const requestLogger = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn(), child: vi.fn(), isDebugEnabled: vi.fn() };
+    const hook = createAuthHook(logger as any);
+    const { req, reply, done } = makeReqReply({ route, url: '/request-logger' });
+    req.taujsRequestContext = { traceId: 'trace-request', logger: requestLogger };
+
+    await (hook as any).call({} as any, req, reply, done);
+
+    expect(requestLogger.debug).toHaveBeenCalledWith('auth', { method: 'GET', url: '/request-logger' }, '(none)');
+    expect(logger.debug).not.toHaveBeenCalled();
+  });
+
   it('warns and replies 500 when auth required but server.authenticate is missing', async () => {
     const route = { path: '/secure', appId: 'appB', attr: { render: 'ssr', middleware: { auth: { required: true } } } } as Route;
 

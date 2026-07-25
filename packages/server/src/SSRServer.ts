@@ -17,7 +17,7 @@ import { isDevelopment } from './System';
 
 import { printVitePluginSummary } from './Setup';
 import { createLogger } from './logging/Logger';
-import { createRuntimeLogger } from './logging/RuntimeLogger';
+import { createRuntimeLogger, createRuntimeRequestLogger } from './logging/RuntimeLogger';
 import { toHttp } from './logging/utils';
 import { createAuthHook } from './security/Auth';
 import { cspPlugin } from './security/CSP';
@@ -25,7 +25,7 @@ import { cspReportPlugin } from './security/CSPReporting';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
 import { setupDevServer } from './utils/DevServer';
 import { resolveDevViteConfig } from './utils/ViteMergeEngine';
-import { createRequestContext } from './utils/Telemetry';
+import { createRequestContext, getRequestContext } from './utils/Telemetry';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { registerStaticAssets } from './utils/StaticAssets';
@@ -188,7 +188,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
     // into the logs annex and the recorder rides the context (P0B-02).
     app.decorateRequest('taujsRequestContext', null);
     app.addHook('onRequest', async (req, reply) => {
-      const requestContext = createRequestContext(req, reply, logger);
+      const requestContext = createRequestContext(
+        req,
+        reply,
+        logger,
+        opts.runtimeLogger ? (bindings) => createRuntimeRequestLogger(opts.runtimeLogger!, req, { component: 'ssr-server', ...bindings }) : undefined,
+      );
       if (introspection) {
         requestContext.logger = introspection.wrapRequestLogger(requestContext.logger, requestContext.traceId);
         requestContext.recorder = introspection.recorder;
@@ -231,11 +236,12 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
 
     app.setErrorHandler((err, req, reply) => {
       const e = AppError.from(err);
+      const terminalLogger = getRequestContext(req)?.logger ?? logger;
 
       const alreadyLogged = !!(e as any)?.details && (e as any).details && (e as any).details.logged;
 
       if (!alreadyLogged) {
-        logger.error(
+        terminalLogger.error(
           {
             kind: e.kind,
             httpStatus: e.httpStatus,
