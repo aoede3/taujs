@@ -1,5 +1,22 @@
 # @taujs/server
 
+## 0.14.1
+
+### Patch Changes
+
+- [#38](https://github.com/aoede3/taujs/pull/38) [`985cf55`](https://github.com/aoede3/taujs/commit/985cf552f6275a0db1d3ee97ba6304ec495d02c4) Thanks [@aoede3](https://github.com/aoede3)! - Converge τjs runtime logging on the selected Fastify, explicit, or standalone
+  logger, preserving request correlation, Pino policy, and CSP reporting across
+  the server lifecycle.
+
+  Custom structured sinks now receive the raw semantic message instead of a
+  τjs-formatted timestamp and level prefix. This corrects the documented
+  `BaseLogger` contract; consumers parsing the previous embedded prefix should
+  use their sink's structured timestamp and level fields instead.
+
+  Pre-shell streaming failures now preserve the response's existing headers,
+  including `x-trace-id` and Content Security Policy, on the resulting 500
+  response.
+
 ## 0.14.0
 
 ### Minor Changes
