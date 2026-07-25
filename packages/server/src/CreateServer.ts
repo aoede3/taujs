@@ -8,7 +8,7 @@ import { extractBuildConfigs, extractRoutes, extractSecurity } from './core/conf
 import { normaliseError } from './core/errors/AppError';
 
 import { CONTENT } from './constants';
-import { createLogger } from './logging/Logger';
+import { createRuntimeLogger, type RuntimeLoggerSelection } from './logging/RuntimeLogger';
 import { resolveNet } from './network/CLI';
 import { bannerPlugin } from './network/Network';
 import { verifyContracts, isAuthRequired, hasAuthenticate } from './security/VerifyMiddleware';
@@ -63,10 +63,13 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
 
   const app = opts.fastify ?? Fastify({ logger: false });
   const fastifyLogger = app.log && app.log.level && app.log.level !== 'silent' ? app.log : undefined;
-  const logger = createLogger({
+  const runtimeLogger: RuntimeLoggerSelection = {
+    source: opts.logger ? 'explicit' : fastifyLogger ? 'fastify' : 'fallback',
     debug: opts.debug,
     custom: opts.logger ?? fastifyLogger,
     minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  };
+  const logger = createRuntimeLogger(runtimeLogger, {
     includeContext: true,
   });
 
@@ -119,6 +122,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       serviceRegistry: opts.serviceRegistry,
       staticAssets: opts.staticAssets ?? false,
       debug: opts.debug,
+      runtimeLogger,
       alias: opts.alias,
       projectRoot: opts.projectRoot,
       security,

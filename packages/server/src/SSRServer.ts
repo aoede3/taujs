@@ -17,6 +17,7 @@ import { isDevelopment } from './System';
 
 import { printVitePluginSummary } from './Setup';
 import { createLogger } from './logging/Logger';
+import { createRuntimeLogger } from './logging/RuntimeLogger';
 import { toHttp } from './logging/utils';
 import { createAuthHook } from './security/Auth';
 import { cspPlugin } from './security/CSP';
@@ -42,13 +43,19 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
   async (app: FastifyInstance, opts: SSRServerOptions) => {
     const { alias, configs, routes, serviceRegistry = {}, clientRoot, security } = opts;
 
-    const logger = createLogger({
-      debug: opts.debug,
-      context: { component: 'ssr-server' },
-      minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-      includeContext: true,
-      singleLine: true,
-    });
+    const logger = opts.runtimeLogger
+      ? createRuntimeLogger(opts.runtimeLogger, {
+          context: { component: 'ssr-server' },
+          includeContext: true,
+          singleLine: true,
+        })
+      : createLogger({
+          debug: opts.debug,
+          context: { component: 'ssr-server' },
+          minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+          includeContext: true,
+          singleLine: true,
+        });
 
     const maps = createMaps();
 

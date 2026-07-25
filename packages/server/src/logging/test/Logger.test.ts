@@ -225,6 +225,48 @@ describe('Logger', () => {
     expect(console.error).toHaveBeenCalledTimes(1);
   });
 
+  it('passes semantic messages and structured debug categories to custom sinks', () => {
+    const custom = { info: vi.fn(), debug: vi.fn() };
+    const logger = createLogger({ custom, minLevel: 'debug' });
+    logger.configure(['ssr']);
+
+    logger.info({ route: '/products' }, 'Rendered response');
+    logger.debug('ssr', { strategy: 'streaming' }, 'Shell ready');
+
+    expect(custom.info).toHaveBeenCalledWith({ route: '/products' }, 'Rendered response');
+    expect(custom.debug).toHaveBeenCalledWith({ strategy: 'streaming', category: 'ssr' }, 'Shell ready');
+    expect(custom.info.mock.calls[0]?.[1]).not.toMatch(/\[info\]/);
+    expect(custom.debug.mock.calls[0]?.[1]).not.toMatch(/\[debug:ssr\]/);
+  });
+
+  it('lets a custom child own bindings once instead of echoing them in context', () => {
+    const childInfo = vi.fn();
+    const customChild = vi.fn(() => ({ info: childInfo }));
+    const logger = createLogger({
+      custom: { child: customChild },
+      context: { component: 'ssr-server' },
+      includeContext: true,
+    });
+
+    logger.child({ traceId: 'trace-1' }).info({ route: '/products' }, 'Rendered response');
+
+    expect(customChild).toHaveBeenCalledWith({ component: 'ssr-server', traceId: 'trace-1' });
+    expect(childInfo).toHaveBeenCalledWith({ route: '/products' }, 'Rendered response');
+  });
+
+  it('retains wrapper context when a custom sink has no child seam', () => {
+    const info = vi.fn();
+    const logger = createLogger({
+      custom: { info },
+      context: { component: 'ssr-server' },
+      includeContext: true,
+    });
+
+    logger.child({ traceId: 'trace-2' }).info({ route: '/account' }, 'Rendered response');
+
+    expect(info).toHaveBeenCalledWith({ context: { component: 'ssr-server', traceId: 'trace-2' }, route: '/account' }, 'Rendered response');
+  });
+
   it('hasMeta toggles: meta omitted vs provided', () => {
     const logger = createLogger();
 
@@ -406,12 +448,12 @@ describe('Logger', () => {
     const custom = { error: vi.fn() };
     const logger = createLogger({ custom: custom as any, includeContext: false });
 
-    logger.error(); // -> custom.error({}, "<ts> [error] ")
+    logger.error();
 
     expect(custom.error).toHaveBeenCalledTimes(1);
     const args = (custom.error as any).mock.calls[0];
     expect(args[0]).toEqual({});
-    expect(args[1]).toMatch(/\[error\] $/);
+    expect(args[1]).toBe('');
   });
 
   it('defaults message to empty string for debug(category) when omitted (with meta)', () => {
@@ -423,7 +465,7 @@ describe('Logger', () => {
     expect(console.log).toHaveBeenCalledTimes(1);
     const call = (console.log as any).mock.calls[0];
     expect(call[0]).toMatch(/\[debug:routes\] $/);
-    expect(call[1]).toEqual({ d: 1 });
+    expect(call[1]).toEqual({ d: 1, category: 'routes' });
   });
 
   it('defaults message to empty string for debug(category) when both meta and message omitted', () => {
@@ -434,7 +476,8 @@ describe('Logger', () => {
 
     expect(console.log).toHaveBeenCalledTimes(1);
     const call = (console.log as any).mock.calls[0];
-    expect(call.length).toBe(1);
+    expect(call.length).toBe(2);
     expect(call[0]).toMatch(/\[debug:routes\] $/);
+    expect(call[1]).toEqual({ category: 'routes' });
   });
 });

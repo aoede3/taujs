@@ -6,6 +6,7 @@ import type { CoreTaujsConfig, Route, RouteParams } from './core/config/types';
 import type { DebugConfig, Logs } from './core/logging/types';
 import type { ServiceRegistry } from './core/services/DataServices';
 
+import type { RuntimeLoggerSelection } from './logging/RuntimeLogger';
 import type { AppConfig, SecurityConfig } from './Config';
 import type { StaticAssetsRegistration } from './utils/StaticAssets';
 import type { TaujsViteOverride } from './ViteConfig';
@@ -25,6 +26,8 @@ export type SSRServerOptions = {
   security?: SecurityConfig;
   staticAssets?: StaticAssetsRegistration;
   debug?: DebugConfig;
+  /** Internal runtime logger selection threaded from createServer; not a public createServer option. */
+  runtimeLogger?: RuntimeLoggerSelection;
   devNet?: { host: string; hmrPort: number };
   /**
    * Full resolved config — consumed by dev introspection surfaces (graph endpoint) AND, per RFC 0005

@@ -24,8 +24,13 @@ export class Logger implements Logs {
   }
 
   child(context: Record<string, unknown>): Logger {
-    const customChild = this.config.custom?.child?.(context) ?? this.config.custom;
-    const child = new Logger({ ...this.config, custom: customChild, context: { ...this.context, ...context } });
+    const mergedContext = { ...this.context, ...context };
+    const customChild = this.config.custom?.child?.(mergedContext);
+    const child = new Logger({
+      ...this.config,
+      custom: customChild ?? this.config.custom,
+      context: customChild ? {} : mergedContext,
+    });
     child.debugEnabled = new Set(this.debugEnabled);
     return child;
   }
@@ -129,8 +134,9 @@ export class Logger implements Logs {
     }
 
     const withCtx = wantCtx && Object.keys(this.context).length > 0 ? { context: this.context, ...baseMeta } : baseMeta;
+    const withCategory = category ? { ...withCtx, category } : withCtx;
 
-    const finalMeta = this.shouldIncludeStack(level) ? withCtx : this.stripStacks(withCtx);
+    const finalMeta = this.shouldIncludeStack(level) ? withCategory : this.stripStacks(withCategory);
     const hasMeta = finalMeta && typeof finalMeta === 'object' ? Object.keys(finalMeta as any).length > 0 : false;
 
     const levelText = level.toLowerCase() + (category ? `:${category.toLowerCase()}` : '');
@@ -150,8 +156,7 @@ export class Logger implements Logs {
       }
     })();
 
-    const tagForOutput = hasCustom ? plainTag : coloredTag;
-    const formatted = `${timestamp} ${tagForOutput} ${message}`;
+    const formatted = `${timestamp} ${coloredTag} ${message}`;
 
     if (this.config.singleLine && hasMeta && !hasCustom) {
       const metaStr = JSON.stringify(finalMeta).replace(/\n/g, '\\n');
@@ -162,7 +167,7 @@ export class Logger implements Logs {
     if (hasCustom) {
       const obj = hasMeta ? (finalMeta as Record<string, unknown>) : {};
       try {
-        boundSink!(obj, formatted);
+        boundSink!(obj, message);
       } catch {
         hasMeta ? consoleFallback(formatted, finalMeta) : consoleFallback(formatted);
       }

@@ -14,13 +14,21 @@ export interface MessageMetaLogger {
 }
 
 export function messageMetaAdapter<L extends MessageMetaLogger>(sink: L): BaseLogger {
-  return {
+  const adapted: BaseLogger = {
     debug: (meta, message) => sink.debug?.(message, cleanMeta(meta)),
     info: (meta, message) => sink.info?.(message, cleanMeta(meta)),
     warn: (meta, message) => sink.warn?.(message, cleanMeta(meta)),
     error: (meta, message) => sink.error?.(message, cleanMeta(meta)),
-    child: (ctx) => messageMetaAdapter(sink.child?.(ctx) ?? sink),
   };
+
+  if (sink.child) {
+    adapted.child = (ctx) => {
+      const child = sink.child?.(ctx);
+      return child ? messageMetaAdapter(child) : (undefined as never);
+    };
+  }
+
+  return adapted;
 }
 
 export function winstonAdapter(winston: MessageMetaLogger): BaseLogger {
