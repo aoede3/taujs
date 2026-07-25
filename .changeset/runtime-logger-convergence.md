@@ -10,3 +10,7 @@ Custom structured sinks now receive the raw semantic message instead of a
 τjs-formatted timestamp and level prefix. This corrects the documented
 `BaseLogger` contract; consumers parsing the previous embedded prefix should
 use their sink's structured timestamp and level fields instead.
+
+Pre-shell streaming failures now preserve the response's existing headers,
+including `x-trace-id` and Content Security Policy, on the resulting 500
+response.
