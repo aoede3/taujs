@@ -89,6 +89,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         path: security.csp.reporting.endpoint,
         debug: opts.debug,
         logger,
+        runtimeLogger: opts.runtimeLogger,
         onViolation: security.csp.reporting.onViolation,
       });
     }
@@ -97,6 +98,8 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
       directives: opts.security?.csp?.directives,
       generateCSP: opts.security?.csp?.generateCSP,
       debug: opts.debug,
+      logger,
+      runtimeLogger: opts.runtimeLogger,
     });
 
     if (isDevelopment) {
@@ -160,6 +163,7 @@ export const SSRServer: FastifyPluginAsync<SSRServerOptions> = fp(
         declarativeAlias: opts.taujsConfig?.alias,
         projectRoot: opts.projectRoot,
         debug: opts.debug,
+        logger,
         devNet: opts.devNet,
         viteConfig: devViteConfig,
       });

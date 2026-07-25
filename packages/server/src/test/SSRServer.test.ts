@@ -207,6 +207,7 @@ describe('SSRServer', () => {
         directives: undefined,
         generateCSP: undefined,
         debug: false,
+        logger: mockLogger,
       }),
     );
 
@@ -389,6 +390,7 @@ describe('SSRServer', () => {
         clientRoot: '/client',
         alias: { '@': '/src' },
         debug: { all: true },
+        logger: mockLogger,
         devNet: { host: 'localhost', hmrPort: 5173 },
         declarativeAlias: undefined,
         viteConfig: expect.objectContaining({ plugins: ['composed:one', 'composed:two'] }),

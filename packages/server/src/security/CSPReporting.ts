@@ -2,9 +2,12 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply, FastifyInstance 
 import fp from 'fastify-plugin';
 
 import { AppError } from '../core/errors/AppError';
-import { createLogger, Logger } from '../logging/Logger';
+import { createLogger } from '../logging/Logger';
+import { createRuntimeRequestLogger } from '../logging/RuntimeLogger';
+import { getRequestContext } from '../utils/Telemetry';
 
 import type { DebugConfig, Logs } from '../core/logging/types';
+import type { RuntimeLoggerSelection } from '../logging/RuntimeLogger';
 
 export type CSPViolationReport = {
   'document-uri': string;
@@ -42,6 +45,8 @@ export type CSPReportOptions = {
    * Optional logger instance to use. Defaults to a new Logger instance.
    */
   logger?: Logs;
+  /** Internal runtime logger state used to derive a request parent when no hoisted context exists. */
+  runtimeLogger?: RuntimeLoggerSelection;
   /**
    * Optional callback invoked when a valid report is received. Gives you the parsed
    * report plus the Fastify request object for additional context/actions.
@@ -144,7 +149,7 @@ export const processCSPReport = (body: unknown, context: CSPViolationContext, lo
   }
 };
 
-export const createCSPReportProcessor = (logger: Logger): CSPReportProcessor => {
+export const createCSPReportProcessor = (logger: Logs): CSPReportProcessor => {
   return {
     processReport: (body: unknown, context: CSPViolationContext) => {
       processCSPReport(body, context, logger);
@@ -162,13 +167,25 @@ export const cspReportPlugin: FastifyPluginAsync<CSPReportOptions> = fp(
 
     if (!opts.path || typeof opts.path !== 'string') throw AppError.badRequest('CSP report path is required and must be a string');
 
-    const logger = createLogger({
-      debug: opts.debug,
-      context: { service: 'csp-reporting' },
-      minLevel: 'info',
-    });
+    const logger =
+      opts.logger ??
+      createLogger({
+        debug: opts.debug,
+        context: { service: 'csp-reporting' },
+        minLevel: 'info',
+      });
 
     fastify.post(opts.path, async (req: FastifyRequest, reply: FastifyReply) => {
+      const requestLogger =
+        getRequestContext(req)?.logger ??
+        (opts.runtimeLogger
+          ? createRuntimeRequestLogger(opts.runtimeLogger, req, {
+              component: 'csp-reporting',
+              reqId: req.id,
+              url: req.url,
+              method: req.method,
+            })
+          : logger);
       const context: CSPViolationContext & { __fastifyRequest?: FastifyRequest } = {
         userAgent: req.headers['user-agent'] as string,
         ip: req.ip,
@@ -179,7 +196,7 @@ export const cspReportPlugin: FastifyPluginAsync<CSPReportOptions> = fp(
       };
 
       try {
-        processCSPReport(req.body, context, logger);
+        processCSPReport(req.body, context, requestLogger);
 
         const reportData = (req.body as any)?.['csp-report'] || req.body;
         if (onViolation && reportData && typeof reportData === 'object') {
@@ -203,7 +220,7 @@ export const cspReportPlugin: FastifyPluginAsync<CSPReportOptions> = fp(
           }
         }
       } catch (err) {
-        logger.warn(
+        requestLogger.warn(
           {
             error: err instanceof Error ? err.message : String(err),
           },

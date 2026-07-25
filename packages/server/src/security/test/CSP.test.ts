@@ -473,6 +473,22 @@ describe('cspPlugin', () => {
     expect(reply.header).toHaveBeenCalledWith('Content-Security-Policy', 'ROUTE-OVERRIDE-CSP');
   });
 
+  it('honours a supplied logger instead of constructing a competing plugin logger', async () => {
+    const { cspPlugin } = await importer(true);
+    const fastify = makeFastify();
+    const suppliedError = vi.fn();
+    selectedRouteMock.mockImplementation(() => {
+      throw new Error('supplied logger path');
+    });
+
+    await cspPlugin(fastify as any, { logger: { error: suppliedError } as any });
+    const { req, reply, done } = makeReqReply('/supplied-logger');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    expect(createLoggerMock).not.toHaveBeenCalled();
+    expect(suppliedError).toHaveBeenCalledWith(expect.objectContaining({ url: '/supplied-logger' }), 'CSP plugin error');
+  });
+
   it('logs and applies fallback header when an error occurs in processing', async () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();

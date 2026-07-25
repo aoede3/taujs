@@ -417,7 +417,7 @@ describe('createServer', () => {
       }),
     );
 
-    expect(registerMock).toHaveBeenNthCalledWith(1, bannerPluginMock, expect.objectContaining({ debug: debugConfig }));
+    expect(registerMock).toHaveBeenNthCalledWith(1, bannerPluginMock, expect.objectContaining({ debug: debugConfig, logger: fakeLogger }));
   });
 
   it('exercises contract required/verify lambdas (auth & csp)', async () => {

@@ -76,6 +76,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   const net = resolveNet(opts.config.server);
   await app.register(bannerPlugin, {
     debug: opts.debug,
+    logger,
     hmr: { host: net.host, port: net.hmrPort },
   });
 

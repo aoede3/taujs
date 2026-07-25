@@ -164,6 +164,16 @@ describe('setupDevServer', () => {
     expect(server).toBeDefined();
   });
 
+  it('uses a supplied runtime logger instead of constructing a standalone logger', async () => {
+    const { setupDevServer } = await importer();
+    const app = makeApp();
+
+    await setupDevServer({ app: app as any, clientRoot: '/root/client', debug: { all: true }, logger: logger as any });
+
+    expect(createLoggerMock).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith('vite', expect.stringContaining('Development server debug started'));
+  });
+
   it('debug=true injects plugin which logs rx/tx via middleware', async () => {
     const { setupDevServer } = await importer();
 

@@ -364,6 +364,31 @@ describe('cspReportPlugin', () => {
     expect(reply.send).toHaveBeenCalled();
   });
 
+  it('honours the supplied logger and prefers a hoisted request logger', async () => {
+    const { cspReportPlugin } = await importer();
+    const fastify = makeFastify();
+    const suppliedWarn = vi.fn();
+    const requestWarn = vi.fn();
+
+    await cspReportPlugin(fastify as any, { path: '/csp-report', logger: { warn: suppliedWarn } as any });
+    const handler = fastify._routes['/csp-report'];
+    const { req, reply } = makeReqReply(
+      { 'csp-report': { 'document-uri': 'https://example.test', 'violated-directive': 'script-src' } },
+      {
+        url: '/csp-report',
+        method: 'POST',
+        id: 'req-csp-1',
+        taujsRequestContext: { traceId: 'trace-csp-1', logger: { warn: requestWarn } },
+      },
+    );
+
+    await handler(req, reply);
+
+    expect(createLoggerMock).not.toHaveBeenCalled();
+    expect(requestWarn).toHaveBeenCalledWith(expect.objectContaining({ violation: expect.any(Object) }), 'CSP Violation');
+    expect(suppliedWarn).not.toHaveBeenCalled();
+  });
+
   it('does not call onViolation when body missing required fields', async () => {
     const { cspReportPlugin } = await importer();
     const fastify = makeFastify();
