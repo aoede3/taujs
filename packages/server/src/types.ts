@@ -1,6 +1,6 @@
 import type { Writable } from 'node:stream';
 
-import type { FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 
 import type { CoreTaujsConfig, Route, RouteParams } from './core/config/types';
 import type { DebugConfig, Logs } from './core/logging/types';
@@ -12,6 +12,19 @@ import type { StaticAssetsRegistration } from './utils/StaticAssets';
 import type { TaujsViteOverride } from './ViteConfig';
 
 export type SSRServerOptions = {
+  /**
+   * RFC 0010. Embedded development only. Owns the single caller-root `onRequest` hook which
+   * delegates otherwise-unmatched requests to the τjs-owned Vite server. `createServer` supplies it
+   * only when a caller instance was passed AND the process is in development, so production never
+   * receives the handle at all. It must not be used for routing, policy, tracing, errors or
+   * lifecycle.
+   *
+   * Typed as `Pick<FastifyInstance, 'addHook'>` rather than the whole instance: passing `app` still
+   * works structurally, but nothing downstream can reach `setErrorHandler`, `setNotFoundHandler`,
+   * `decorate` or `get` through this handle. The narrow authorisation is enforced by the compiler
+   * instead of by discipline, and it needs no wrapper or abstraction to do it.
+   */
+  viteRequestHookOwner?: Pick<FastifyInstance, 'addHook'>;
   alias?: Record<string, string>;
   clientRoot: string;
   /**

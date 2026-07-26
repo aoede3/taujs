@@ -42,9 +42,11 @@ vi.mock('../utils/AssetManager', () => ({
 vi.mock('../utils/StaticAssets', () => ({ registerStaticAssets: vi.fn(async () => {}) }));
 
 async function buildApp() {
-  const { SSRServer } = await import('../SSRServer');
+  const { ssrServerPlugin } = await import('../SSRServer');
   const app = fastify();
-  await app.register(SSRServer as any, {
+  // RFC 0010: this suite was written against the root-installing plugin, so the faithful
+  // translation is the τjs-created form. Trace context on τjs routes is identical in both.
+  await app.register(ssrServerPlugin({ callerOwnedHost: false }) as any, {
     configs: [{ appId: 'web', entryPoint: 'web' }],
     routes: [{ path: '/page', appId: 'web', attr: { render: 'ssr' } }],
     clientRoot: '/tmp/none',

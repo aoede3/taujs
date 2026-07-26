@@ -41,12 +41,17 @@ describe('runtime logger fallthrough (real development server)', () => {
         bindings: {
           traceId: 'fallthrough-selected-logger-trace',
           reqId: 'fallthrough-fastify-request',
-          url: '/unmatched-page',
+          url: '/',
           method: 'GET',
         },
-        meta: { status: 200, category: 'ssr' },
-        message: 'Sending not-found fallback HTML',
+        meta: { category: 'ssr' },
+        message: 'ssr requested',
       },
+      // RFC 0010 (Q5/Q6) delta: the child supplies its own Fastify, so an unmatched URL belongs to
+      // the caller. It previously received a τjs 200 shell and a τjs trace header; it now falls to
+      // the caller's own not-found policy and opens no τjs trace episode.
+      unmatchedStatus: 404,
     });
+    expect(evidence.unmatchedTraceId).toBeUndefined();
   });
 });

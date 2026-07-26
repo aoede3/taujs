@@ -124,8 +124,16 @@ vi.mock('../security/VerifyMiddleware', () => ({
 
 let ssrShouldThrow = false;
 const SSRServerPlugin = Symbol('SSRServerPlugin');
+// RFC 0010: `createServer` now selects a registration form rather than importing one plugin. The
+// factory is recorded so tests can assert which ownership mode was chosen, and still returns a
+// stable sentinel so the identity matching below is unchanged.
+const ssrServerPluginCalls: Array<{ callerOwnedHost: boolean }> = [];
 vi.mock('../SSRServer', () => ({
-  SSRServer: SSRServerPlugin,
+  ssrServerPlugin: (args: { callerOwnedHost: boolean }) => {
+    ssrServerPluginCalls.push(args);
+
+    return SSRServerPlugin;
+  },
 }));
 
 beforeEach(() => {
@@ -327,17 +335,17 @@ describe('createServer', () => {
       fastify: activeApp,
       logger: explicitLogger,
     });
-    let runtimeLogger = activeApp.register.mock.calls[1]?.[1]?.runtimeLogger;
+    let runtimeLogger = activeApp.register.mock.calls[0]?.[1]?.runtimeLogger;
     expect(runtimeLogger).toEqual(expect.objectContaining({ source: 'explicit', custom: explicitLogger }));
 
     activeApp.register.mockClear();
     await createServer({ config: minimalConfig, serviceRegistry: dummyRegistry, fastify: activeApp });
-    runtimeLogger = activeApp.register.mock.calls[1]?.[1]?.runtimeLogger;
+    runtimeLogger = activeApp.register.mock.calls[0]?.[1]?.runtimeLogger;
     expect(runtimeLogger).toEqual(expect.objectContaining({ source: 'fastify', custom: activeFastifyLogger }));
 
     const silentApp = { register: vi.fn(async () => undefined), log: { ...activeFastifyLogger, level: 'silent' } } as any;
     await createServer({ config: minimalConfig, serviceRegistry: dummyRegistry, fastify: silentApp });
-    runtimeLogger = silentApp.register.mock.calls[1]?.[1]?.runtimeLogger;
+    runtimeLogger = silentApp.register.mock.calls[0]?.[1]?.runtimeLogger;
     expect(runtimeLogger).toEqual(expect.objectContaining({ source: 'fallback', custom: undefined }));
   });
 
@@ -347,10 +355,13 @@ describe('createServer', () => {
 
     await createServer({ config: minimalConfig, serviceRegistry: dummyRegistry, fastify: app });
 
-    expect(app.register.mock.calls[1]?.[1]?.runtimeLogger).toEqual(expect.objectContaining({ source: 'fallback', custom: undefined }));
+    expect(app.register.mock.calls[0]?.[1]?.runtimeLogger).toEqual(expect.objectContaining({ source: 'fallback', custom: undefined }));
   });
 
-  it('when a Fastify instance is provided, returns only { net } (no app) and still registers plugins', async () => {
+  // RFC 0010 delta: a caller-owned host previously received the banner plugin as well as the SSR
+  // plugin. The banner is now τjs-created-host presentation, so a supplied instance receives exactly
+  // one registration - the encapsulated SSR scope - and no `onReady` hook or `showBanner` decoration.
+  it('when a Fastify instance is provided, returns only { net } (no app) and registers only the encapsulated SSR plugin', async () => {
     const { createServer } = await importer();
 
     const externalFastify = { register: vi.fn(registerMock) } as any;
@@ -363,8 +374,10 @@ describe('createServer', () => {
 
     expect(result).toEqual({ net: netResolved });
 
-    expect(registerMock).toHaveBeenNthCalledWith(1, bannerPluginMock, expect.any(Object));
-    expect(registerMock).toHaveBeenNthCalledWith(2, SSRServerPlugin, expect.any(Object));
+    expect(registerMock).toHaveBeenCalledTimes(1);
+    expect(registerMock).toHaveBeenNthCalledWith(1, SSRServerPlugin, expect.any(Object));
+    expect(registerMock).not.toHaveBeenCalledWith(bannerPluginMock, expect.anything());
+    expect(ssrServerPluginCalls.at(-1)).toEqual({ callerOwnedHost: true });
   });
 
   it('sets logger minLevel to "info" in production NODE_ENV', async () => {

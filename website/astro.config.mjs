@@ -28,6 +28,7 @@ export default defineConfig({
           items: [
             { label: "Overview", slug: "guides/getting-started" },
             { label: "Architecture", slug: "guides/architecture" },
+            { label: "Host Ownership", slug: "guides/host-ownership" },
             {
               label: "Incremental Migration",
               slug: "guides/incremental-migration",

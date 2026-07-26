@@ -21,6 +21,14 @@ import type { DebugConfig, Logs } from '../core/logging/types';
  */
 export type SetupDevServerOptions = {
   app: FastifyInstance;
+  /**
+   * RFC 0010. Embedded development only. Owns the single caller-root `onRequest` hook which
+   * delegates otherwise-unmatched requests to the τjs-owned Vite server, because root-level hooks
+   * are the only ones Fastify runs for a URL it did not route. Omitted on every other path, where
+   * the hook lands on `app` exactly as before. It must not be used for routing, policy, tracing,
+   * errors or lifecycle. Narrowed to `addHook` so that restriction is enforced by the compiler.
+   */
+  viteRequestHookOwner?: Pick<FastifyInstance, 'addHook'>;
   /** The shared client base root (dev `root` invariant + framework alias base). */
   clientRoot: string;
   /** Programmatic escape-hatch alias (`createServer({ alias })`) - the TOP alias layer (VS5). */
@@ -169,7 +177,7 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
 
   overrideCSSHMRConsoleError();
 
-  app.addHook('onRequest', async (request, reply) => {
+  (options.viteRequestHookOwner ?? app).addHook('onRequest', async (request, reply) => {
     await new Promise<void>((resolve) => {
       viteDevServer.middlewares(request.raw, reply.raw, () => {
         if (!reply.sent) resolve();
