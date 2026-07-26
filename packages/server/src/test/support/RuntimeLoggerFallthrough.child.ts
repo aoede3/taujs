@@ -54,17 +54,27 @@ try {
     projectRoot: fixtureRoot,
   });
 
+  // RFC 0010: this child supplies its own Fastify, so τjs owns only its declared page routes. The
+  // logger-lineage evidence therefore rides a τjs-owned response rather than the implicit shell,
+  // which a caller-owned host no longer installs.
   const response = await app.inject({
     method: 'GET',
-    url: '/unmatched-page',
+    url: '/',
     headers: { 'x-trace-id': traceId },
   });
-  const record = records.find((candidate) => candidate.message === 'Sending not-found fallback HTML');
+  const record = records.find((candidate) => candidate.message === 'ssr requested');
+
+  // The same request matrix now also proves the ruled ownership delta: an unmatched URL is the
+  // caller's, gets no τjs shell and opens no τjs trace episode.
+  const unmatched = await app.inject({ method: 'GET', url: '/unmatched-page', headers: { 'x-trace-id': traceId } });
+
   const result = {
     status: response.statusCode,
     responseTraceId: response.headers['x-trace-id'],
     record,
-    recordCount: records.filter((candidate) => candidate.message === 'Sending not-found fallback HTML').length,
+    recordCount: records.filter((candidate) => candidate.message === 'ssr requested').length,
+    unmatchedStatus: unmatched.statusCode,
+    unmatchedTraceId: unmatched.headers['x-trace-id'],
   };
 
   process.stdout.write(`${RESULT_PREFIX}${JSON.stringify(result)}\n`);
@@ -77,8 +87,10 @@ try {
     record?.level === 'debug' &&
     record.bindings.traceId === traceId &&
     record.bindings.reqId === 'fallthrough-fastify-request' &&
-    record.bindings.url === '/unmatched-page' &&
-    record.bindings.method === 'GET';
+    record.bindings.url === '/' &&
+    record.bindings.method === 'GET' &&
+    result.unmatchedStatus === 404 &&
+    result.unmatchedTraceId === undefined;
 
   process.exit(passed ? 0 : 1);
 } catch (error) {

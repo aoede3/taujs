@@ -18,7 +18,7 @@ vi.mock('../core/introspection/EmitGraph', () => {
 });
 
 vi.mock('../SSRServer', () => ({
-  SSRServer: { __id: 'ssr-server-plugin' },
+  ssrServerPlugin: () => ({ __id: 'ssr-server-plugin' }),
 }));
 
 vi.mock('../network/Network', () => ({
@@ -72,7 +72,17 @@ describe('createServer — graph emission wiring (structural gate)', () => {
     expect(app.addHook).not.toHaveBeenCalled();
   });
 
-  it('development boot lazy-loads the module and registers emission with config + registry + logger', async () => {
+  // RFC 0010 delta: boot-graph emission used to be wired here, on whatever instance `createServer`
+  // was handed - which on a caller-owned host meant an `onListen` hook on the caller's root. It now
+  // registers inside the scope τjs owns, next to the dev files and recorder that share its
+  // lifecycle, so `createServer` neither loads the emission module nor registers a hook.
+  //
+  // This file can only prove the negative half, because it mocks the SSR plugin out. The positive
+  // half - that the owned scope acquired the registration and emits exactly once after a real
+  // `listen()` - is proved by `HostOwnershipDevelopment.test.ts` against a real Vite boot and the
+  // real graph artefact. Without that pairing, deleting the registration outright would leave every
+  // assertion here green.
+  it('development boot no longer wires emission here: the owned scope owns it', async () => {
     process.env.NODE_ENV = 'development';
     vi.resetModules();
     const { createServer } = await import('../CreateServer');
@@ -81,13 +91,9 @@ describe('createServer — graph emission wiring (structural gate)', () => {
 
     await createServer({ config, fastify: app, serviceRegistry });
 
-    expect(hoisted.emitGraphEvaluations).toBe(1);
-    expect(hoisted.registerBootGraphEmission).toHaveBeenCalledTimes(1);
-    const [calledApp, calledConfig, calledRegistry, calledLogger] = hoisted.registerBootGraphEmission.mock.calls[0]!;
-    expect(calledApp).toBe(app);
-    expect(calledConfig).toBe(config);
-    expect(calledRegistry).toBe(serviceRegistry);
-    expect(calledLogger).toBeTruthy();
+    expect(hoisted.emitGraphEvaluations).toBe(0);
+    expect(hoisted.registerBootGraphEmission).not.toHaveBeenCalled();
+    expect(app.addHook).not.toHaveBeenCalled();
   });
 
   it('a failing emission module degrades to a warning, never a failed boot', async () => {

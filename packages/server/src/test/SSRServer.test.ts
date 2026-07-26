@@ -69,7 +69,10 @@ const {
   const handleNotFoundMock = vi.fn(async (_req: any, reply: any) => {
     reply.status(200).send('OK:notFound');
   });
-  const setupDevServerMock = vi.fn(async () => ({ name: 'vite-dev' }));
+  // RFC 0010: τjs creates the Vite server, so τjs closes it on Fastify closure. The double models
+  // that contract - a real `ViteDevServer` always has `close()`, and the product deliberately calls
+  // it unguarded so a missing close surfaces here rather than passing vacuously.
+  const setupDevServerMock = vi.fn(async () => ({ name: 'vite-dev', close: vi.fn(async () => undefined) }));
   const toHttpMock = vi.fn((_e: any) => ({ status: 499, body: { message: 'safe' } }));
   const resolveRouteDataMock = vi.fn<() => Promise<Record<string, unknown>>>(async () => ({ userId: 123, name: 'Test' }));
 
@@ -147,7 +150,12 @@ vi.mock('../utils/VitePlugins', () => ({
   reservedPluginMessage: (d: any) => `reserved:${d.name}`,
 }));
 
-import { SSRServer, TEMPLATE } from '../SSRServer';
+import { ssrServerPlugin, TEMPLATE } from '../SSRServer';
+
+// RFC 0010: this suite predates the ownership split and was written against the root-installing
+// plugin, so every registration below uses the τjs-created form. Caller-owned behaviour is proved
+// by the permanent ownership regressions, which drive the real public `createServer` path.
+const SSRServer = ssrServerPlugin({ callerOwnedHost: false });
 import { loadAssets } from '../utils/AssetManager';
 import { createAuthHook } from '../security/Auth';
 import { createLogger } from '../logging/Logger';
