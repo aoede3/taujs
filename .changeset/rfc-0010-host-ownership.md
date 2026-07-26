@@ -31,9 +31,14 @@ These previously applied to your whole server and now apply only to τjs-owned r
   ordinary τjs page and now also owns asset-like URLs it matches.
 - **Configured τjs CSP no longer applies to your routes.** Host-wide policy belongs to Fastify;
   τjs CSP, nonces and route-level `merge`/`replace` continue to apply to τjs pages.
-- **`x-trace-id` no longer appears on your routes**, and no τjs trace episode opens for them. τjs
-  still adopts an inbound `x-trace-id` or your Fastify `req.id` for its own responses, so one
-  correlation identity spans both.
+- **`x-trace-id` no longer appears on your routes**, and no τjs trace episode opens for them. For
+  its own responses τjs still adopts an inbound `x-trace-id`, or otherwise your Fastify `req.id`,
+  so your records and τjs's join on one identity in the logs. The shared value is not on the wire:
+  your routes carry no trace header.
+
+`req.id` adoption now also accepts a numeric `genReqId`. Previously only a string identity was
+adopted and a counter-based `genReqId` silently fell through to an unrelated random UUID, breaking
+that correlation without warning.
 
 Two boot failures are also fixed: supplying an instance that already owns a not-found handler, or
 that has already registered `@fastify/static`, previously prevented τjs from booting.

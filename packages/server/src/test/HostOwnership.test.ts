@@ -21,6 +21,7 @@ import {
   CALLER_ASSET_PATH,
   CALLER_CSP,
   CALLER_REQUEST_ID,
+  NUMERIC_REQUEST_ID,
   OWNER,
   PATHS,
   TAUJS_ASSET_PATH,
@@ -30,6 +31,7 @@ import {
   createDefaultNotFoundHost,
   createEmbeddedHost,
   createExplicitLoggerHost,
+  createNumericRequestIdHost,
   createStaticCoexistenceHost,
   createStrictHost,
   observe,
@@ -207,6 +209,20 @@ describe('RFC 0010 - caller-owned host', () => {
     const host = await createStaticCoexistenceHost({ wildcard: true });
 
     await expect(host.activate(createServer, taujsConfig({ wildcard: true }))).rejects.toMatchObject({ code: 'FST_ERR_DUPLICATED_ROUTE' });
+  });
+
+  it('adopts the host request identity for its trace, including a numeric genReqId', async () => {
+    // Correlation is the point: a caller's own records bind `reqId`, τjs binds the same value as
+    // `traceId`, so the two sides join. A counter-based `genReqId` returns a number, and a
+    // string-only guard silently substituted a random UUID here.
+    const host = await createNumericRequestIdHost();
+    await host.activate(createServer);
+
+    const page = observe(await host.app.inject(PATHS.taujsPage));
+
+    expect(page.traceId).toBe(String(NUMERIC_REQUEST_ID));
+    expect(page.traceId).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
+    expect(JSON.stringify(host.logs)).toContain(String(NUMERIC_REQUEST_ID));
   });
 
   it('keeps route payloads out of the selected logger', async () => {

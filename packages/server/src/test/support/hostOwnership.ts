@@ -45,6 +45,8 @@ export const PATHS = Object.freeze({
 export const CALLER_CSP = "default-src 'rfc0010-caller'";
 export const TAUJS_CSP_DIRECTIVE = "default-src 'rfc0010-taujs'";
 export const CALLER_REQUEST_ID = 'rfc0010-caller-request-id';
+/** A numeric request identity, which `genReqId` may legitimately return. */
+export const NUMERIC_REQUEST_ID = 4242;
 
 export type Observation = {
   status: number;
@@ -219,6 +221,7 @@ type CallerHostShape = {
   callerNotFound?: boolean;
   callerCsp?: boolean;
   explicitLogger?: boolean;
+  numericRequestId?: boolean;
 };
 
 const buildCallerHost = async (shape: CallerHostShape): Promise<CallerHost> => {
@@ -227,7 +230,7 @@ const buildCallerHost = async (shape: CallerHostShape): Promise<CallerHost> => {
   const app = track(
     fastify({
       logger: false,
-      genReqId: () => CALLER_REQUEST_ID,
+      genReqId: shape.numericRequestId ? () => NUMERIC_REQUEST_ID as unknown as string : () => CALLER_REQUEST_ID,
       ...(shape.strictErrorHandler ? { allowErrorHandlerOverride: false } : {}),
     }),
   );
@@ -288,6 +291,15 @@ export const createStrictHost = (): Promise<CallerHost> => buildCallerHost({ str
 
 /** A caller-owned host passing an explicit τjs logger, which must win over any Fastify logger. */
 export const createExplicitLoggerHost = (): Promise<CallerHost> => buildCallerHost({ explicitLogger: true });
+
+/**
+ * A caller-owned host whose `genReqId` returns a number.
+ *
+ * τjs adopts the host's request identity so both sides' records join on one value. A string-only
+ * guard used to fall through to a random UUID here, silently breaking that correlation, which is
+ * exactly the case a counter-based `genReqId` produces.
+ */
+export const createNumericRequestIdHost = (): Promise<CallerHost> => buildCallerHost({ numericRequestId: true, explicitLogger: true });
 
 /**
  * A caller-owned host with NO not-found handler of its own, and no caller static mount.

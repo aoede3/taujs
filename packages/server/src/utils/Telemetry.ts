@@ -20,7 +20,13 @@ export function createRequestContext<L extends Logs>(
   deriveLogger?: (bindings: Record<string, unknown>) => L,
 ): RequestContext<L> {
   const raw = typeof req.headers['x-trace-id'] === 'string' ? req.headers['x-trace-id'] : '';
-  const traceId = raw && REGEX.SAFE_TRACE.test(raw) ? raw : typeof (req as any).id === 'string' ? (req as any).id : crypto.randomUUID();
+  // RFC 0010: τjs adopts the host's request identity rather than inventing a parallel one, so a
+  // caller's logs and τjs's records join on the same value. `genReqId` may legitimately return a
+  // number - an incrementing counter is a common choice - and a string-only guard silently fell
+  // through to a random UUID there, breaking correlation with no warning. Coerce both primitive
+  // shapes; anything else is not a usable identity and still gets a fresh UUID.
+  const hostRequestId = typeof (req as any).id === 'string' || typeof (req as any).id === 'number' ? String((req as any).id) : '';
+  const traceId = raw && REGEX.SAFE_TRACE.test(raw) ? raw : hostRequestId || crypto.randomUUID();
 
   reply.header('x-trace-id', traceId);
 

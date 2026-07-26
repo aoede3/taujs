@@ -92,7 +92,9 @@ Host-wide policy belongs to Fastify. Register your preferred CSP plugin on your 
 
 τjs opens a trace episode only for responses it owns, so your routes carry no `x-trace-id` and start no recorder episode.
 
-Correlation still spans both sides. τjs adopts an inbound `x-trace-id` header if present, and otherwise your Fastify `req.id`, so a request identity you set with `genReqId` flows into τjs logs and traces without any wiring.
+Correlation still works, in your logs. τjs adopts an inbound `x-trace-id` header if present, and otherwise your Fastify `req.id`, whether `genReqId` returns a string or a number. Your own records bind that value as `reqId` and τjs binds the same value as `traceId`, so the two sides join on one identity with no wiring.
+
+The shared identity appears in log records, not on the wire: your routes carry no `x-trace-id` response header, because τjs opens a trace episode only for responses it owns.
 
 ### Two boot failures are fixed
 
