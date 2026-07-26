@@ -198,7 +198,14 @@ Those native options govern τjs routes and host-owned Fastify routes alike. Use
 
 This is a deliberate product boundary: the server package is Node/Fastify-native. The renderer packages retain their standalone uses, but the integrated server does not carry a second runtime-neutral HTTP or router abstraction.
 
-Route paths therefore use Fastify route syntax, not regular expressions. An exact path may be declared by only one τjs app. Ordinary Fastify routes can coexist beside τjs page routes, while unmatched document URLs continue through the τjs application-shell fallback.
+Route paths therefore use Fastify route syntax, not regular expressions. An exact path may be declared by only one τjs app. Ordinary Fastify routes can coexist beside τjs page routes.
+
+Who answers an unmatched URL depends on who owns the host, including in the example above, since supplying an instance is itself an ownership decision:
+
+- **τjs created the Fastify instance** - unmatched document URLs continue through the τjs application-shell fallback.
+- **You supplied the Fastify instance** - your own not-found policy owns unmatched URLs, unless you declare an explicit τjs terminal wildcard page (`path: '/*'`).
+
+See [Host Ownership](/guides/host-ownership/) for the full split and the embedded-host migration notes.
 
 When migrating an existing config, replace path-to-regexp-only forms such as
 `/app{/:feature}{/:id}`, `/app/:page*` and `/docs/*slug`. τjs rejects these known stale forms at

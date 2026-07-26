@@ -25,9 +25,14 @@ set Fastify options such as `routerOptions` or `genReqId`. In that case you stil
 shell, whole-server τjs CSP and `x-trace-id` on your own routes.
 
 τjs deliberately does not try to infer intent from how the instance was configured, because that
-guess would be unreliable. If you want τjs options *and* the complete experience, let τjs create the
-instance and configure what you need through `config.server`, or accept host ownership and declare a
-terminal wildcard page as described below.
+guess would be unreliable. There are two accurate ways forward:
+
+- **If those native options are not essential**, omit `fastify` entirely and keep the complete
+  τjs-created experience. Note that `config.server` covers only `host`, `port` and `hmrPort`; it is
+  not a place to configure `routerOptions`, `genReqId` or other Fastify construction options.
+- **If they are essential**, keep supplying the instance, accept host ownership, and establish the
+  behaviour you want explicitly: declare a terminal wildcard page for a shell, register host-wide
+  CSP on your own instance, and set your own request identity and tracing.
 :::
 
 ## What each side owns
