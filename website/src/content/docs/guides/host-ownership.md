@@ -96,10 +96,6 @@ Correlation still works, in your logs. τjs adopts an inbound `x-trace-id` heade
 
 The shared identity appears in log records, not on the wire: your routes carry no `x-trace-id` response header, because τjs opens a trace episode only for responses it owns.
 
-### Two boot failures are fixed
-
-Supplying an instance that already had a not-found handler, or that had already registered `@fastify/static`, previously stopped τjs from booting. Both now work.
-
 ## Running τjs inside another runtime
 
 Because a supplied instance keeps its own lifecycle, τjs is usable as a subsystem of a larger Fastify application without special support. It never calls `listen()`, never touches process lifecycle, and releases what it owns, including the development Vite server, through ordinary `app.close()`.
