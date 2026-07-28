@@ -1,332 +1,220 @@
 ---
-title: τjs' Architecture
-description: How τjs structures rendering, orchestration, and build-time composition.
+title: τjs Architecture
+description: How Fastify dispatch, application contracts, renderers and build-time composition fit together.
 ---
 
-τjs is a **request-oriented orchestration system** for frontend applications.
+τjs is an application-response orchestration layer built on Fastify and Vite. It coordinates the
+work needed to turn a declared application route into HTML, then hands framework-specific rendering
+to React, Vue or Solid.
 
-It is not a framework in the traditional sense.
-It does not attempt to optimise for local component ergonomics or hide system-level complexity.
+Its central boundary is straightforward:
 
-Instead, τjs introduces **explicit authority boundaries** for:
+> Fastify owns HTTP dispatch and the host lifecycle. τjs owns the declared application response
+> after Fastify selects a τjs route.
 
-- how data for initial render is loaded
-- how rendering strategies are chosen
-- how multiple applications are composed
-- how systems degrade when orchestration is removed
-  (i.e. τjs can be stepped out without collapsing the application)
+That boundary is what lets τjs add data orchestration, policy, rendering and introspection without
+becoming a replacement HTTP server or a client-side application framework.
 
-The following explains those boundaries and why they exist.
+## The ownership layers
 
----
+| Layer | Owns | Does not own |
+| --- | --- | --- |
+| Fastify host | HTTP route dispatch and lifecycle mechanics, listening, shutdown and host routes | Application rendering decisions |
+| τjs application scope | Declared page routes, policy, response-owned data, rendering strategy and response traces | Caller routes or component-local work |
+| Renderer package | Framework SSR, streaming, hydration and framework-native Suspense integration | Route discovery, service selection or host policy |
+| Application UI | Components, client routing, interaction, mutations and UI-local async work | Host routing or τjs response-owned work |
 
-## Core Problem τjs Solves
+When τjs creates Fastify, its application scope is the root and its defaults can cover the whole
+server. When a caller supplies Fastify, τjs installs into an encapsulated application scope and
+leaves the caller's routes and lifecycle alone. Development adds one root Vite delegation hook so
+unrouted module requests can reach the τjs-owned dev server; production does not.
 
-In many frontend systems, it becomes unclear **who owns the authority for what happens before first paint**.
+See [Host Ownership](/guides/host-ownership) for the complete installation boundary.
 
-Common failure modes include:
+## Request flow
 
-- components fetching data during SSR without the route knowing
-- regressions appearing long after the change that caused them
-- multiple teams contributing UI without a shared orchestration model
-- debugging “what this route actually does” requiring reading the component tree
-- SSR becoming fragile because orchestration is implicit
+Every configured page path is registered as a real Fastify route. Fastify selects the route and
+decodes its parameters; there is no second τjs matcher inside a catch-all handler.
 
-The root issue is not rendering - it is **ownership**.
-
-τjs addresses this directly with a clearly defined server-side core layer, responsible for:
-
-- request lifecycle ownership
-- route-level orchestration
-- data/service coordination
-- rendering strategy selection
-
----
-
-## Core Invariant
-
-> **If data is required for first paint, it is declared at the route boundary.**
-
-Not in components.  
-Not in hooks.  
-Not implicitly through composition.
-
-Routes either:
-
-- opt into orchestration explicitly
-- or opt out explicitly
-
-There is no silent fallback.
-
-This invariant is the foundation for everything else τjs does.
-
----
-
-## Request-Owned Orchestration
-
-In τjs, the **request** is the unit of authority.
-
-The route declares:
-
-- what data is needed for initial render
-- how that data is obtained
-- whether hydration occurs
-- the output policy: SSR, streaming SSR, or CSR  
-  _(a rendering decision, not an orchestration decision)_
-
-Components do not decide what runs before first paint.  
-They consume what the request already owns.
-
-### Without request ownership
-
-```ts
-function UserProfile({ id }) {
-  const { data } = useQuery(["user", id], fetchUser);
-  return <div>{data.name}</div>;
-}
-
-app.get("/users/:id", (req, res) => {
-  res.render(<UserProfile id={req.params.id} />);
-});
+```text
+HTTP request
+    -> Fastify route selection
+    -> τjs route identity and request context
+    -> CSP and authentication policy
+    -> head, initial data and deferred work
+    -> selected renderer
+    -> HTML stream or SSR document
+    -> optional hydration
 ```
 
-- orchestration emerges from component usage
-- the route has no visibility
-- SSR behaviour is implicit
-- waterfalls are easy to introduce
+Once the route is selected, τjs resolves the application contract from `taujs.config.ts`. The
+contract can state:
 
-### With τjs
+- which application and renderer own the route;
+- whether rendering is `ssr` or `streaming`;
+- whether the result hydrates;
+- static metadata and dynamic head data;
+- authentication and CSP policy;
+- critical initial data and named deferred data;
+- declared service relationships.
 
-```ts
-// taujs.config.ts
-{
-  path: "/users/:id",
-  attr: {
-    data: async (params) => ({
-      serviceName: "UserService",
-      serviceMethod: "getUser",
-      args: { id: params.id },
-    }),
-    render: "ssr",
-  },
-}
+The renderer consumes the result of that orchestration. It does not discover the contract by
+walking the component tree.
+
+## Governed data and application-local data
+
+τjs does not require every data read to move out of components. It distinguishes work the server is
+asked to govern from work the application owns locally.
+
+| Data work | Timing | τjs responsibility |
+| --- | --- | --- |
+| `attr.head` | Resolves before rendering | Makes dynamic head values available before the shell |
+| `attr.data` | Declared initial snapshot | Supplies SSR or the renderer's streaming data channel |
+| `attr.deferred` | Starts before rendering and is not awaited first | Owns named streaming work through completion, failure or abort |
+| Component or client fetch | Starts from the UI or after hydration | Outside the τjs request contract |
+
+Deferred data preserves the declaration boundary while allowing progressive delivery. The loader is
+known before rendering, starts once per request and reaches the selected framework through its
+native Suspense mechanism. The frameworks differ in their rendering primitives, but the host
+contract remains the same.
+
+Deferred outcomes are not HTTP statuses. A deferred value may settle after headers have committed,
+so work that must prevent or redirect the response belongs in a pre-commit request phase. See
+[Request Contracts and Data Ownership](/guides/request-contracts) and
+[Data Loading](/guides/data-loading) for the detailed lifecycle.
+
+Async work started by a component remains valid. It is simply not presented as a declared service
+edge, cancelled as τjs deferred work or recorded as a deferred outcome. The distinction is about
+ownership and evidence, not permission.
+
+## Contracts become artefacts
+
+The application configuration is a declarative, statically enumerable record, although its handler
+functions still execute at request time. τjs uses that distinction to produce two complementary
+forms of evidence.
+
+### Request graph
+
+The request graph describes what the configured system can do without executing a renderer. It can
+include applications, Fastify paths, render and hydration choices, policy, declared data edges,
+deferred keys and configuration warnings.
+
+A branded `serviceData()` declaration gives the graph a static service edge. An arbitrary handler
+or dynamic `ctx.call()` remains supported, but the concrete call is runtime evidence rather than a
+statically declared relationship.
+
+Development emits the live graph under `node_modules/.taujs/`; builds emit a structure-only graph
+under `dist/.taujs/`.
+
+### Request trace
+
+Development request traces describe what one response actually did: the selected route, service
+calls, stream phases, deferred outcomes, hydration evidence and terminal result. Production does
+not load the development recorder.
+
+The [MCP server](/reference/mcp) reads the graph and live traces as artefacts. It does not infer route
+ownership or request behaviour by guessing from component source.
+
+## Renderer boundary
+
+A renderer belongs to an application, not an individual route. One document response selects one
+application, one renderer root and one request-owned data scope.
+
+Within that boundary:
+
+- routes choose SSR or streaming and whether to hydrate;
+- the renderer package owns framework compilation and server rendering;
+- the application owns its component tree and client router;
+- services and policy can remain renderer-neutral.
+
+Moving a URL area from React to Vue or Solid means moving it to an application that declares that
+renderer. It does not mean switching frameworks halfway through one response. See
+[Incremental Migration](/guides/incremental-migration) for the practical boundary.
+
+## Build-time multi-app composition
+
+A τjs configuration can declare several applications under one server contract. Each application
+gets its own client build, SSR build, assets and renderer root. Fastify routes each request to the
+owning application, and the browser receives only that application's bundle.
+
+```text
+τjs server
+├── storefront-react  -> /, /products/*
+├── account-solid     -> /account/*
+└── admin-vue         -> /admin/*
 ```
 
-```ts
-function UserProfile() {
-  const { user } = useSSRStore();
-  return <div>{user.name}</div>;
-}
-```
+The applications are separate build units inside one coordinated build and deployment. τjs does
+not load several application bundles into one browser runtime, negotiate shared dependencies at
+runtime or preserve in-memory state across application boundaries.
 
-- orchestration is explicit
-- SSR behaviour is declarative
-- the route owns responsibility
-- components are consumers, not decision-makers
+Navigation between applications is a full document navigation. Navigation within one application
+shell can remain client-side. This makes the URL boundary the composition seam and avoids a runtime
+federation layer. See [Micro-Frontends](/guides/micro-frontend) for build, routing and transition
+patterns.
 
-This is not about preventing client-side fetching.
-It is about **making initial render orchestration visible and attributable**.
+## Application shells and undeclared screens
 
-The service descriptor shown above is resolved by the service registry:
+A client-routed screen does not need its own τjs data contract. It needs a server route or fallback
+that delivers the application shell:
 
-- [Services](/guides/services)
-- [Request contracts and data ownership](/guides/request-contracts)
+- a τjs-created host provides an implicit shell for unmatched document-like URLs;
+- a caller-owned host requires an explicit terminal `/*` page when the application should own
+  those URLs.
+
+The shell loads the client bundle and the client router can take over. This is how τjs supports
+incremental adoption without pretending every client screen has declared request orchestration. See
+[App Shell Architecture](/reference/app-shell-pattern) for the complete pattern.
+
+## Failure and cancellation boundaries
+
+Ownership continues through failure handling:
+
+- Fastify owns malformed requests and host-route failures;
+- τjs owns errors raised while producing a τjs response;
+- renderers own framework rendering and hydration failures;
+- deferred work is classified once as `complete`, `failed` or `aborted`;
+- response-owned work is released when the response finishes or the client disconnects.
+
+Once a streaming response has committed, no framework can rewrite its status line or replace bytes
+already sent. τjs records and terminates according to the current response state instead of
+pretending every failure can become a fresh 500 document.
+
+## Adoption and removal
+
+τjs can be adopted incrementally:
+
+- begin with one application and ordinary client-side fetching;
+- declare initial data only where server coordination provides value;
+- introduce the service registry when named edges and shared request context are useful;
+- move a coherent URL area to another renderer without changing its service contract.
+
+Removing τjs is possible, but not free. A replacement must take over the Fastify page routes,
+renderer bootstraps, SSR and streaming integration, initial-data transport, security policy and any
+introspection the application uses. Components, domain services and explicit API endpoints can
+remain, but the orchestration layer must be replaced rather than simply deleted.
+
+That is the intended trade-off: τjs owns a visible architectural layer, not hidden component
+behaviour.
+
+## What τjs is not
+
+τjs is not:
+
+- a client-side router;
+- a runtime module-federation system;
+- a replacement for Fastify;
+- a cross-framework component runtime;
+- a provider-specific hosting integration;
+- a substitute for application APIs or post-hydration data libraries.
+
+It provides a server-owned contract for composing application responses. The browser framework and
+the Fastify host remain first-class parts of the system.
+
+## Read next
+
+- [Request Contracts and Data Ownership](/guides/request-contracts)
+- [Host Ownership](/guides/host-ownership)
 - [Data Loading](/guides/data-loading)
-
----
-
-## Build-Time Microfrontend Composition
-
-Request orchestration is one pillar of τjs.
-**Build-time microfrontend composition** is the other.
-
-They solve different problems.
-
-### Coordinated Multi-App Architecture
-
-τjs treats applications as coordinated build units with shared routing, not as runtime fragments or npm packages.
-
-Unlike runtime federation (Module Federation, import maps) or package-based sharing, τjs apps:
-
-- Build together to ensure compatibility
-- Deploy as one coordinated artifact
-- Route at the HTTP layer
-
-Each app maintains its own bundle, but the build process coordinates their integration.
-
-τjs coordinates route configuration, rendering strategies, and security policies across apps - not just code compilation.
-
-**τjs build-time MFEs (coordinated apps):**
-
-```typescript
-// taujs.config.ts
-apps: [
-  { appId: "customer", entryPoint: "app" }, // Separate app
-  { appId: "admin", entryPoint: "admin" }, // Separate app
-];
-```
-
-Apps are coordinated at build time, routed at request time.
-
----
-
-### What build-time MFEs are for
-
-Build-time MFEs exist when you need any of:
-
-- multiple frontend applications with independent deployment
-- multiple frontend teams owning separate codebases
-- independent release cadences
-- a shared URL surface
-- consistent infrastructure (security, telemetry, rendering)
-- variation by tenant, region, or feature flag
-- determinism at deploy time, not runtime
-
-This is not about rendering performance.
-It is about **organisational boundaries**.
-
-- [Build / Deployment](/guides/build-deployment)
-
----
-
-### Why not runtime federation?
-
-Runtime federation composes applications **in the browser**, meaning multiple independently deployed apps can end up sharing a single runtime graph (dependencies, globals, and service clients).
-
-A concrete failure mode is **behavioural contract drift under shared composition**:
-
-- Team A deploys App A that upgrades the auth or service client to:
-
-  - refresh credentials on `401` and retry
-
-- Team B deploys App B that still expects:
-
-  - `401` to trigger a logout flow
-
-- Both apps are loaded through runtime composition.
-- The effective behaviour can depend on load order, caching, and which bundle initialises first.
-
-Result: users experience intermittent “you’ve been logged out” flows mid-session, even though no token expired - because production behaviour becomes **order-dependent**, not explicitly defined.
-
-Build-time composition moves this failure earlier:
-incompatible combinations fail in CI/build, producing deployable artifacts with a known, testable contract surface.
-
----
-
-### What τjs composes at build time
-
-τjs treats applications as **build units**, not runtime fragments.
-
-At build time, you define:
-
-- which apps exist
-- which routes they participate in
-- which variants may apply (tenant, flag, region)
-- which combinations produce deployable artifacts
-
-The output is a **finite, testable set of artifacts** with known behaviour.
-
-No runtime negotiation.
-No dynamic assembly.
-No indeterminate graphs.
-
 - [Micro-Frontends](/guides/micro-frontend)
-
----
-
-## τjs Works at Any Scale
-
-τjs’ model scales down cleanly.
-
-If you:
-
-- SSR a single route
-- want visibility into what it loads
-- want to control hydration explicitly
-- want the option to grow later without rewriting
-
-You still benefit.
-
-Using τjs for one route is still a win.
-
-The system is:
-
-- route-scoped
-- opt-in
-- incremental
-
-You can stop at any point.
-
----
-
-## Failure Modes (Explicitly)
-
-τjs does not prevent misuse.
-
-If teams:
-
-- bypass route orchestration
-- fetch data in components for first paint
-- treat contracts as optional
-- hide orchestration behind abstractions
-
-Nothing breaks.
-
-You simply lose:
-
-- observability
-- auditability
-- coordination clarity
-
-τjs will not stop you.
-It will just stop helping you.
-
----
-
-## Exit Cost Is Minimal
-
-If you decide to remove τjs from your codebase:
-
-- **Routes** become plain Fastify route handlers
-- **SSR** is handled by your existing React entry-server (or CSR if preferred)
-- **Data** reverts to direct service calls or component-level fetching
-- **Orchestration** disappears
-
-Service implementations remain unchanged.
-Components remain unchanged.
-Business logic remains unchanged.
-
-You lose the orchestration layer, not your application.
-
-There is no runtime lock-in.
-
----
-
-## When τjs Adds Cost Without Benefit
-
-τjs is not a universal default.
-
-It adds cost if you:
-
-- have a small app with no coordination pressure
-- want maximum component autonomy
-- do not care about SSR behaviour consistency
-- are optimising purely for speed of iteration
-
-In those cases, don’t use it.
-
----
-
-## What to Read Next
-
-**If this model resonates:**
-
-- [Data Loading](/guides/data-loading)
-- [Services](/guides/services)
-- [Micro-Frontends](/guides/micro-frontend)
-- [Getting Started](/guides/getting-started)
-
-**If it doesn’t, that’s fine too.**
-
-τjs exists to make responsibility explicit.
-It is a pattern enforcer, not a runtime dependency.
+- [Incremental Migration](/guides/incremental-migration)
