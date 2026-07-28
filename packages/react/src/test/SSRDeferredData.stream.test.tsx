@@ -233,7 +233,9 @@ describe('@taujs/react deferred adapter - failure legs (renderer contract 6, 7)'
     expect(seen).toEqual([]);
   });
 
-  it('leg 3 - a manual abort releases the holder: later reads report the released holder, never a fetch', async () => {
+  // The RENDERER's release is proven by the later read in SSRDeferredData.release.test.tsx; this
+  // cell holds the abort leg itself - a caller abort is a benign terminal, never a fatal one.
+  it('leg 3 - a manual abort is a BENIGN terminal and the boundary never falls back to a fetch', async () => {
     let holderRead!: (key: string) => unknown;
     const Probe = () => {
       const useDeferred = createDeferredAccessor<{ reviews: { count: number } }>();
@@ -535,7 +537,9 @@ describe('@taujs/react deferred adapter - typed facade', () => {
 });
 
 describe('@taujs/react deferred adapter - retention', () => {
-  it('releases the holder on a NORMAL terminal', async () => {
+  // The HOLDER's own contract. That the RENDERER invokes it on a terminal is the separate,
+  // mutation-checked claim in SSRDeferredData.release.test.tsx.
+  it('release drops every reference and refuses later reads', async () => {
     const { createDeferredHolder } = await import('../SSRDeferredData');
     const registry = deferredRegistry({ reviews: Promise.resolve({ count: 1 }) });
     const holder = createDeferredHolder(registry);

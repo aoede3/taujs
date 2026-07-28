@@ -3,12 +3,13 @@
 // @vue/server-renderer and a REAL PassThrough.
 import { PassThrough } from 'node:stream';
 
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, inject } from 'vue';
 import { describe, it, expect, vi } from 'vitest';
 
 import { createRenderer, type StreamOptions } from '../SSRRender';
-import { createDeferredAccessor, createDeferredHolder, DeferredDataError, useDeferredData, useDeferredDataResult } from '../SSRDeferredData';
+import { createDeferredAccessor, createDeferredHolder, DeferredDataError, DEFERRED_DATA_KEY, useDeferredData, useDeferredDataResult } from '../SSRDeferredData';
 
+import type { DeferredHolder } from '../SSRDeferredData';
 import type { Component } from 'vue';
 
 const settle = (ms = 60) => new Promise<void>((r) => setTimeout(r, ms));
@@ -323,15 +324,35 @@ describe('@taujs/vue deferred adapter - retention (renderer contract 8)', () => 
     expect(() => holder.result('reviews')).toThrow(/read after the response terminal/);
   });
 
-  it('a manual abort releases the holder through the controller’s single cleanup path', async () => {
+  it('the RENDERER releases the holder at a terminal: a later read of the INJECTED holder is refused', async () => {
+    // The holder is captured from inside the render, through the adapter's own injection key, so
+    // the assertion reads the SAME holder the production path provided - the test never releases
+    // it, so deleting the renderer's cleanup call fails this cell.
+    let captured: DeferredHolder | undefined;
+    const Capture = defineComponent({
+      name: 'Capture',
+      async setup() {
+        captured = inject(DEFERRED_DATA_KEY, undefined);
+        const result = await useDeferredDataResult<{ count: number }>('reviews');
+
+        return () => h('p', { id: 'reviews' }, result.status === 'complete' ? `reviews: ${result.value.count}` : `reviews unavailable (${result.status})`);
+      },
+    });
+
     const writable = new PassThrough();
     const registry = deferredRegistry({ reviews: new Promise<Record<string, unknown>>(() => {}) });
-    const { renderStream } = createRenderer({ appComponent: page(ReviewsResult), headContent: () => '' });
+    const { renderStream } = createRenderer({ appComponent: page(Capture), headContent: () => '' });
     const handle = renderStream(writable, { onHead: () => {} }, {}, '/x', undefined, {}, undefined, { deferredData: registry });
     await settle(40);
+    expect(captured).toBeDefined();
+
     handle.abort();
 
+    // A caller abort is a BENIGN terminal, never a fatal one.
     await expect(handle.done).resolves.toBeUndefined();
+    await settle(20);
+
+    expect(() => captured!.result('reviews')).toThrow(/read after the response terminal/);
   });
 });
 
