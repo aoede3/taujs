@@ -41,11 +41,11 @@ describe('dev trace retention of deferred outcomes (RFC 0007 R5)', () => {
     );
   });
 
-  it('resolves FINALIZED traces too - the client-disconnect ordering R5 exists to explain', () => {
+  it('resolves FINALISED traces too - the client-disconnect ordering R5 exists to explain', () => {
     const dev = createDevIntrospection();
 
     dev.recorder.requestStart({ traceId: 'disconnect', url: '/product/42', method: 'GET' });
-    // The host records the benign abort (finalizing the trace) BEFORE the abort reaches the registry.
+    // The host records the benign abort (finalising the trace) BEFORE the abort reaches the registry.
     dev.recorder.aborted({ traceId: 'disconnect', phase: 'stream' });
     dev.recorder.deferredData({ traceId: 'disconnect', key: 'reviews', ms: 4, outcome: 'aborted' });
 
@@ -86,7 +86,7 @@ describe('dev trace retention of deferred outcomes (RFC 0007 R5)', () => {
       });
       expect(await readFile(tracesPath, 'utf8')).not.toContain('deferredData');
 
-      // The outcome arrives AFTER the trace was finalized and persisted.
+      // The outcome arrives AFTER the trace was finalised and persisted.
       dev.recorder.deferredData({ traceId: 'late-disk', key: 'reviews', ms: 7, outcome: 'aborted' });
 
       await vi.waitFor(async () => {

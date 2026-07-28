@@ -25,7 +25,7 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
   const flush = async (): Promise<void> => {
     const stats = introspection.stats();
 
-    // `tracesRevision` advances for a NEW finalized trace and for an in-place amendment of one
+    // `tracesRevision` advances for a NEW finalised trace and for an in-place amendment of one
     // (RFC 0007 R5: a deferred outcome arriving after the terminal), so a late outcome reaches the
     // on-disk artefact through this same bounded rewrite rather than lagging until the next request.
     if (stats.tracesRevision !== last.tracesRevision) {

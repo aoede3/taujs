@@ -85,7 +85,7 @@ export type DevIntrospection = {
   findTrace: (traceId: string) => TraceRecord | undefined;
   /**
    * Cumulative counters for change detection by the file emitter. `tracesRevision` also advances
-   * when an ALREADY-FINALIZED trace is amended in place (RFC 0007 R5: a deferred outcome arriving
+   * when an ALREADY-FINALISED trace is amended in place (RFC 0007 R5: a deferred outcome arriving
    * after the terminal), which `traces` alone cannot express - without it a late outcome would be
    * visible in memory and absent from the on-disk NDJSON, and therefore from MCP.
    */
@@ -204,10 +204,10 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     },
 
     deferredData(e) {
-      // RFC 0007 (R5) retention. FINALIZED traces are looked up too (the `clientHydration` idiom):
-      // on a client disconnect the host records the benign abort - finalizing the trace - BEFORE
+      // RFC 0007 (R5) retention. FINALISED traces are looked up too (the `clientHydration` idiom):
+      // on a client disconnect the host records the benign abort - finalising the trace - BEFORE
       // the abort reaches the registry, so the per-key outcomes for exactly the case R5 exists to
-      // explain would otherwise be dropped. An amendment to a finalized trace bumps
+      // explain would otherwise be dropped. An amendment to a finalised trace bumps
       // `tracesRevision`, which is what carries it into the on-disk NDJSON.
       const finalized = pending.get(e.traceId) === undefined;
       const trace = pending.get(e.traceId) ?? traces.find((t) => t.traceId === e.traceId);
