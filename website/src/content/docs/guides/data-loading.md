@@ -105,7 +105,7 @@ Data loads completely before rendering:
 
 ### Streaming SSR
 
-Shell sent immediately, data may load progressively:
+Renderer output can stream progressively after its required pre-shell work:
 
 ```typescript
 {
@@ -126,14 +126,14 @@ Shell sent immediately, data may load progressively:
 
 **Characteristics:**
 
-- Faster Time to First Byte
-- Route `data` may not be ready when `headContent` runs - never depend on it for streamed heads
-- Static `meta` is required (the fallback layer that survives degradation)
-- For DYNAMIC head values, declare `attr.head` - its loader resolves before the shell and reaches
-  `headContent` as `headData`
+- Renderer output can begin before all streamed boundaries have completed
+- React and Vue may build the head before route `data` settles; Solid waits for critical data
+- Static `meta` is required and is available as input to `headContent`
+- For portable dynamic head values, declare `attr.head`; its loader resolves before rendering and
+  reaches `headContent` as `headData`
 
-See [Head Management](/guides/head-management) for the full model (`meta` static, `attr.head`
-dynamic) and the degradation taxonomy.
+See [Head Management](/guides/head-management/) for the renderer timing, the `meta` and `attr.head`
+roles, and the degradation taxonomy.
 
 ### Deferred route data (streaming only)
 
@@ -254,8 +254,8 @@ export const { renderSSR, renderStream } = createRenderer<
     <AppBootstrap location={location} routeContext={routeContext} />
   ),
   headContent: ({ data, meta, routeContext }) => {
-    // `data` is resolved on ssr routes; for STREAMED heads read `headData`/`meta` instead
-    // (see the head-management guide).
+    // React may build a streamed head before `data` settles. Read `headData`/`meta` for
+    // portable streamed-head values (see the head-management guide).
     const anyData = data as { title?: string; description?: string };
 
     const baseTitle =
