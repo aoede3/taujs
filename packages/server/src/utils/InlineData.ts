@@ -70,6 +70,22 @@ const toError = (err: unknown): Error => {
  */
 const PROTO_KEY_MARKER = '"__proto__"';
 
+/**
+ * The representational half of the boundary: JSON TEXT -> the EXECUTABLE JAVASCRIPT expression that
+ * evaluates to the same value inside an inline script. Byte-identical to what `serializeInlineData`
+ * always emitted (it now calls this); the split exists so a caller holding ALREADY-SERIALISED bytes
+ * (RFC 0007's stable settlement snapshot) can derive the safe inline form from THOSE bytes instead
+ * of serialising a second time.
+ *
+ * The result is JAVASCRIPT SOURCE, not JSON: it must be written into a script, and NEVER parsed back
+ * with `JSON.parse`, `eval` or `new Function`.
+ */
+export const inlineJsFromJson = (json: string): string =>
+  // ESC-3: a `__proto__` KEY at any depth (or the exact string value `"__proto__"`) - emit via
+  // `JSON.parse` so it round-trips as an own data property instead of setting the created
+  // object's prototype.
+  json.includes(PROTO_KEY_MARKER) ? `JSON.parse(${JSON.stringify(json).replace(/</g, '\\u003c')})` : json.replace(/</g, '\\u003c');
+
 export const serializeInlineData = (value: unknown): SerializedInlineData => {
   try {
     const json = JSON.stringify(value);
@@ -79,14 +95,40 @@ export const serializeInlineData = (value: unknown): SerializedInlineData => {
       return { ok: false, error: new Error('Value is not JSON-serializable (JSON.stringify returned undefined)') };
     }
 
-    // ESC-3: a `__proto__` KEY at any depth (or the exact string value `"__proto__"`) — emit via
-    // `JSON.parse` so it round-trips as an own data property instead of setting the created
-    // object's prototype.
-    if (json.includes(PROTO_KEY_MARKER)) {
-      return { ok: true, js: `JSON.parse(${JSON.stringify(json).replace(/</g, '\\u003c')})` };
+    return { ok: true, js: inlineJsFromJson(json) };
+  } catch (err) {
+    return { ok: false, error: toError(err) };
+  }
+};
+
+/**
+ * RFC 0007 (failure semantics item 2) - the STABLE SNAPSHOT taken when a deferred loader settles.
+ *
+ * EXACTLY ONE serialisation attempt is made here, and everything downstream is derived from its
+ * bytes:
+ *   - `json` - the retained bytes. The end-of-stream envelope splices this VALUE FRAGMENT verbatim
+ *     (the enclosing key/status structure is assembled at the terminal, then the whole assembled
+ *     text goes through `inlineJsFromJson` once, exactly like the public snapshot).
+ *   - `value` - `JSON.parse` of those same bytes, so the renderer consumes a fresh graph sharing no
+ *     identity with the loader's object. Server render, trace and hydration therefore cannot
+ *     disagree: members JSON drops are absent from BOTH surfaces, a later mutation of the loader's
+ *     object affects NEITHER, and an unstable `toJSON`/getter is invoked by this one attempt only.
+ *
+ * A failure is a DELIVERY failure for that key: detail-free `failed` on every surface. The error is
+ * for host-side logging only - `JSON.stringify` names the offending property in its
+ * circular-reference message, so it must never cross to the client.
+ */
+export type InlineSnapshot = { ok: true; json: string; value: unknown } | { ok: false; error: Error };
+
+export const snapshotInlineData = (value: unknown): InlineSnapshot => {
+  try {
+    const json = JSON.stringify(value);
+    if (json === undefined) {
+      return { ok: false, error: new Error('Value is not JSON-serializable (JSON.stringify returned undefined)') };
     }
 
-    return { ok: true, js: json.replace(/</g, '\\u003c') };
+    // Parsing the bytes τjs itself just produced - never caller text, never `eval`/`new Function`.
+    return { ok: true, json, value: JSON.parse(json) };
   } catch (err) {
     return { ok: false, error: toError(err) };
   }

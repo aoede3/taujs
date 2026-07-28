@@ -79,6 +79,15 @@ export type HeadAttributes<Params extends RouteParams = RouteParams, L extends L
   optional?: boolean;
 };
 
+/**
+ * RFC 0007 (R1): the flat, STREAMING-ONLY record of route-owned deferred loaders. Values are the
+ * existing `DataHandler` shape (`serviceData()` sugar included) - no new helper, no dependencies
+ * between entries, and no optionality: `deferred` describes timing, not whether a value may be
+ * missing. Keys are stable route-local identifiers matching `^[A-Za-z][A-Za-z0-9_]*$`, validated at
+ * boot beside the other extract-routes checks.
+ */
+export type DeferredDataAttributes<Params extends RouteParams = RouteParams, L extends Logs = Logs> = Readonly<Record<string, DataHandler<Params, L>>>;
+
 export type RouteAttributes<Params extends RouteParams = RouteParams, Middleware = BaseMiddleware, L extends Logs = Logs> =
   | {
       render: 'ssr';
@@ -94,6 +103,10 @@ export type RouteAttributes<Params extends RouteParams = RouteParams, Middleware
       meta: Record<string, unknown>;
       middleware?: Middleware;
       data?: DataHandler<Params, L>;
+      // RFC 0007 (R1): the streaming arm ONLY. `deferred` on an `ssr` route is a type error here
+      // AND a boot hard error for untyped input - data required by a non-streamed response belongs
+      // in `data`.
+      deferred?: DeferredDataAttributes<Params, L>;
       head?: HeadAttributes<Params, L>;
     };
 
@@ -131,6 +144,30 @@ export type HeadDataOf<R> = R extends { attr?: infer A }
       : H extends (...args: any) => infer Ret
         ? DescriptorMemberToRecord<Awaited<Ret>>
         : unknown
+    : undefined
+  : undefined;
+
+/**
+ * RFC 0007: the type a renderer's deferred accessor receives for a route, following `HeadDataOf`'s
+ * three arms exactly:
+ * - `serviceData()` sugar: the SELECTED METHOD's resolved result, read from the phantom brand;
+ * - closure handler: its resolved return type (descriptor returns collapse to
+ *   `Record<string, unknown>` - the dispatch result is untyped for hand-built descriptors);
+ * - no `attr.deferred`: `undefined`.
+ *
+ * Note the inferred type describes the loader's DECLARED result. What arrives is that value's JSON
+ * snapshot (failure semantics item 2) - the same caveat that already applies to `attr.data`
+ * crossing `__INITIAL_DATA__`.
+ */
+export type DeferredDataOf<R> = R extends { attr?: infer A }
+  ? A extends { deferred: infer D }
+    ? {
+        [K in keyof D]: D[K] extends { readonly [SERVICE_RESULT]: infer Res }
+          ? Res
+          : D[K] extends (...args: any) => infer Ret
+            ? DescriptorMemberToRecord<Awaited<Ret>>
+            : unknown;
+      }
     : undefined
   : undefined;
 

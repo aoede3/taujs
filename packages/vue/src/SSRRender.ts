@@ -2,10 +2,12 @@ import { createSSRApp, h, type App, type Component, type VNode } from 'vue';
 import { renderToSimpleStream, renderToString, type SimpleReadable, type SSRContext } from '@vue/server-renderer';
 
 import { createSSRStore, SSRStoreProvider, type SSRStore } from './SSRDataStore.js';
+import { createDeferredHolder, provideDeferredHolder } from './SSRDeferredData.js';
 import { escapeHtml } from './utils/Html.js';
 import { createUILogger } from './utils/Logger.js';
 
 import type { Writable } from 'node:stream';
+import type { DeferredDataRegistry, DeferredHolder } from './SSRDeferredData.js';
 import type { LoggerLike } from './utils/Logger.js';
 
 import { createStreamController, isBenignStreamErr, startShellTimer, wireWritableGuards } from './utils/Streaming.js';
@@ -33,6 +35,25 @@ export type StreamOptions = {
    * boundaries — there is no React-style shell phase, so this guards first-byte latency.
    */
   shellTimeoutMs?: number;
+  /**
+   * RFC 0007 (decision 18): the ONE response-level deferred completion deadline.
+   *
+   * Measured from `renderStream` ENTRY, armed at shell commit (the first streamed chunk) with
+   * whatever remains of the budget, never reset per key, and LATCHED - a boundary whose first read
+   * arrives after expiry is born `aborted` rather than starting a fresh unbounded wait. Vue streams
+   * strictly in order and has no client-render instruction, so the Vue spelling of "abandon the
+   * boundary" is to settle every still-pending consumed read as `aborted`: the application's own
+   * `aborted` branch renders INTO the response, the stream resumes and the document terminates
+   * normally. The stream controller is never touched - abandoning a boundary is a normal
+   * completion, not a stream failure.
+   *
+   * POSITIVE FINITE only, validated at the factory - there is no disable sentinel, because this
+   * deadline is what keeps "bounded total response time" true. Default 15_000ms: `@taujs/vue`
+   * declares no finite post-shell fatal backstop for it to halve (`shellTimeoutMs` bounds the
+   * pre-shell phase only and is stopped before this deadline is armed). FACTORY-ONLY: there is no
+   * per-call form, because a per-call seam is not boot.
+   */
+  deferredTimeoutMs?: number;
 };
 
 /**
@@ -73,7 +94,10 @@ type SSRResult = {
   teleports?: Record<string, string>;
 };
 
-type StreamCallOptions<R> = StreamOptions & {
+// RFC 0007 (decision 18): `deferredTimeoutMs` is OMITTED rather than silently ignored. The deferred
+// deadline is "one latched deadline per response, positive finite only, VALIDATED AT BOOT" - a
+// per-call seam is not boot, so there is no per-call form of it and the call bag must not offer one.
+type StreamCallOptions<R> = Omit<StreamOptions, 'deferredTimeoutMs'> & {
   logger?: LoggerLike;
   // RFC 0004 (H6): broad at the contract boundary; narrowed to R/H at the internal seams.
   routeContext?: unknown;
@@ -82,9 +106,16 @@ type StreamCallOptions<R> = StreamOptions & {
   // shouldHydrate is the host-resolved hydration policy.
   cspNonce?: string;
   shouldHydrate?: boolean;
+  // RFC 0007 (decision 14): the host's request-local deferred registry - present ONLY when the
+  // route declares `attr.deferred`. Already started, already pre-observed; the renderer neither
+  // starts nor re-observes them, it only projects them onto Vue's async-`setup()` model.
+  deferredData?: DeferredDataRegistry;
 };
 
 const NOOP = () => {};
+
+/** RFC 0007 (decision 18): the deferred deadline's default, and the cap on any derivation of it. */
+const DEFERRED_TIMEOUT_DEFAULT_MS = 15_000;
 
 function normalizeRootComponent(root: Component | ((props: any) => VNode), props: any): Component {
   // Treat as render function if it doesn't look like a Vue component
@@ -97,13 +128,25 @@ function normalizeRootComponent(root: Component | ((props: any) => VNode), props
   return { name: 'TauJsRoot', render: () => h(root as any, props) };
 }
 
-function createAppWithStore<T>(store: SSRStore<T>, root: Component | ((props: any) => VNode), rootProps: any): ReturnType<typeof createSSRApp> {
+function createAppWithStore<T>(
+  store: SSRStore<T>,
+  root: Component | ((props: any) => VNode),
+  rootProps: any,
+  // RFC 0007: applied ONLY when the host passed a registry, and as an APP-LEVEL provide rather than
+  // a wrapper component, so a route declaring deferred entries adds no node and no markup (see
+  // `provideDeferredHolder`).
+  deferred?: DeferredHolder,
+): ReturnType<typeof createSSRApp> {
   const Root = normalizeRootComponent(root, rootProps);
 
-  return createSSRApp({
+  const app = createSSRApp({
     name: 'TauJsSSR',
     render: () => h(SSRStoreProvider, { store }, { default: () => h(Root) }),
   });
+
+  if (deferred) provideDeferredHolder(app, deferred);
+
+  return app;
 }
 
 /**
@@ -160,7 +203,15 @@ export function createRenderer<
    */
   setupApp?: (app: App) => void;
 }) {
-  const { shellTimeoutMs = 10_000 } = streamOptions;
+  const { shellTimeoutMs = 10_000, deferredTimeoutMs = DEFERRED_TIMEOUT_DEFAULT_MS } = streamOptions;
+
+  // RFC 0007 (decision 18): POSITIVE FINITE only - there is no 0/Infinity disable sentinel, because
+  // this deadline is what bounds the response.
+  if (!(typeof deferredTimeoutMs === 'number' && Number.isFinite(deferredTimeoutMs) && deferredTimeoutMs > 0)) {
+    throw new TypeError(
+      `createRenderer: streamOptions.deferredTimeoutMs must be a positive finite number of milliseconds (received ${String(deferredTimeoutMs)})`,
+    );
+  }
 
   // RFC 0004 (H6): contract-facing parameter types are BROAD (the H2 regularisation model) so a
   // renderer instantiated with non-default generics stays assignable to the host contracts under
@@ -258,8 +309,37 @@ export function createRenderer<
     // The R narrowing seam (RFC 0004 H6).
     const routeContext = opts?.routeContext as R | undefined;
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
+    // RFC 0007 (decision 18): the deadline's time ORIGIN. It is armed later (at shell commit) but
+    // measured from here, so the bound is a property of the configuration rather than of how long
+    // the first chunk happened to take.
+    const renderStartedAt = Date.now();
 
     const controller = createStreamController(writable, { log, warn, error });
+
+    // RFC 0007. Declared ABOVE the guards-cleanup composition below, so EVERY terminal the
+    // controller owns disarms the deadline and releases the holder.
+    let deferredHolder: DeferredHolder | undefined;
+    let deferredTimer: ReturnType<typeof setTimeout> | undefined;
+    const stopDeferredDeadline = () => {
+      if (deferredTimer !== undefined) clearTimeout(deferredTimer);
+      deferredTimer = undefined;
+    };
+    const armDeferredDeadline = () => {
+      if (!deferredHolder || deferredTimer !== undefined) return;
+
+      deferredTimer = setTimeout(
+        () => {
+          deferredTimer = undefined;
+          if (controller.isAborted) return;
+
+          // LATCH FIRST, unconditionally: a read registering later must be born `aborted` rather
+          // than start a fresh unbounded wait. The count only decides whether to say anything.
+          const abandoned = deferredHolder?.expire() ?? 0;
+          if (abandoned > 0) warn(`Deferred data not ready after ${deferredTimeoutMs}ms; abandoning the pending boundaries`, { location, abandoned });
+        },
+        Math.max(deferredTimeoutMs - (Date.now() - renderStartedAt), 1),
+      );
+    };
 
     // Advisory observers are ISOLATED (hardening-lessons §1): a throw is logged and swallowed - it
     // must never enter the fatal path, escape the framework boundary (these run inside Vue's
@@ -317,7 +397,22 @@ export function createRenderer<
       fatalAbort: (err) => fail(err),
       onFinish: () => controller.complete('Stream finished (normal completion)'),
     });
-    controller.setGuardsCleanup(guardsCleanup);
+    // RFC 0007 (renderer contract item 8): release the holder on every terminal, composed into the
+    // controller's existing single cleanup path. Release also SETTLES anything still pending as
+    // `aborted`, so a mid-flight `unrollBuffer` await is never left waiting on a promise nothing
+    // will settle.
+    controller.setGuardsCleanup(() => {
+      try {
+        guardsCleanup();
+      } catch {}
+      try {
+        stopDeferredDeadline();
+      } catch {}
+      try {
+        deferredHolder?.release();
+      } catch {}
+      deferredHolder = undefined;
+    });
 
     // Time-to-first-content watchdog: fires only if no chunk is produced before it expires.
     const stopShellTimer = startShellTimer(effectiveShellTimeout, () => {
@@ -381,6 +476,10 @@ export function createRenderer<
             stopShellTimer();
           } catch {}
           log('Shell ready:', location);
+          // RFC 0007 (decision 18): armed at shell commit, with the remainder of a budget measured
+          // from renderStream entry. Before the shell there is no document to complete, and a
+          // pre-shell stall is the shell timer's to report.
+          armDeferredDeadline();
           try {
             cb.onShellReady();
           } catch (cbErr) {
@@ -411,7 +510,10 @@ export function createRenderer<
       // strategy's T narrowing seam (RFC 0004 H6).
       const s = createSSRStore(initialData as T | Promise<T> | (() => Promise<T>));
       store = s;
-      const app = createAppWithStore(s, appComponent, { location, routeContext });
+      // RFC 0007: the holder exists ONLY when the host passed a registry, so a no-deferred route
+      // builds the identical tree and emits identical bytes.
+      deferredHolder = opts?.deferredData ? createDeferredHolder(opts.deferredData) : undefined;
+      const app = createAppWithStore(s, appComponent, { location, routeContext }, deferredHolder);
 
       // App-instance customization before render (a throw is caught by this try and routed
       // through fail → onError + fatal abort).

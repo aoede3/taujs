@@ -135,6 +135,46 @@ Shell sent immediately, data may load progressively:
 See [Head Management](/guides/head-management) for the full model (`meta` static, `attr.head`
 dynamic) and the degradation taxonomy.
 
+### Deferred route data (streaming only)
+
+A streaming route can also declare work it starts but does **not** await. `attr.deferred` is a flat
+record of named loaders whose values are allowed to arrive after rendering begins:
+
+```typescript
+{
+  path: '/products/:id',
+  attr: {
+    render: 'streaming',
+    meta: { title: 'Product' },
+
+    // critical: the response waits for this
+    data: serviceData('catalogue', 'product', ({ id }) => ({ id })),
+
+    // response-owned, started without being awaited
+    deferred: {
+      reviews: serviceData('reviews', 'forProduct', ({ id }) => ({ id })),
+    },
+  },
+}
+```
+
+Entries use the same handler shape as `attr.data`. Because the work is *declared*, τjs starts it
+once per request outside the component tree, cancels it with the request, records `complete` /
+`failed` / `aborted` on the trace, and shows it in the request graph - none of which is true of
+async work a component starts for itself. `deferred` describes timing, not optionality: there is no
+per-entry timeout, retry or dependency.
+
+Deferred entries are not HTTP-status-bearing: their outcome may arrive after the response has
+committed, so anything that must prevent the response, redirect it or set its status belongs in
+critical resolution (`attr.data`, middleware) - never in `deferred`. `complete` / `failed` /
+`aborted` are trace outcomes, not HTTP statuses.
+
+See [Deferred Route Data](/reference/taujs-config#deferred-route-data) for the full rules and the
+renderer guides for the component-facing accessors:
+[React](/renderers/react#deferred-route-data),
+[Vue](/renderers/vue#deferred-route-data),
+[Solid](/renderers/solid#deferred-route-data).
+
 ## Using Data on the Client
 
 ### SSR Store

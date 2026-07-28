@@ -17,6 +17,14 @@ export const contentService = defineService({
     ['__proto__']: { polluted: 'YES' },
   }),
 
+  // RFC 0007: a route-owned DEFERRED loader. It settles well after the shell, so the boundary that
+  // reads it is the one the deferred delivery path is observable through.
+  reviews: async (_params: {}) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    return { count: 3, top: 'a genuinely deferred review' };
+  },
+
   streaming: async (_params: {}) => {
     // A deliberate delay so the streaming route visibly blocks at the async boundary. Under the
     // snapshot bridge the adapter gates the render on route readiness, so this delays the SHELL -

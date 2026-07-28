@@ -59,7 +59,19 @@ describe('slice 6 - the runtime author surface (`@taujs/solid`)', () => {
   it('exports exactly the frozen runtime API', async () => {
     const rootModule = await import('../index.js');
 
-    expect(Object.keys(rootModule).sort()).toEqual(['createRenderer', 'createSSRStore', 'escapeHtml', 'hydrateApp', 'useSSRStore']);
+    // RFC 0007 (decision 19) adds exactly three runtime symbols to this frozen enumeration. The
+    // gate exists so growth is a conscious act - the deferred transport's carrier, holders, store
+    // seam and hydration reader are asserted ABSENT by the leak test below.
+    expect(Object.keys(rootModule).sort()).toEqual([
+      'DeferredDataError',
+      'createDeferredAccessor',
+      'createRenderer',
+      'createSSRStore',
+      'escapeHtml',
+      'hydrateApp',
+      'useDeferredData',
+      'useSSRStore',
+    ]);
   });
 
   it('does NOT export solidRenderer - the root-vs-subpath split is frozen', async () => {
@@ -82,6 +94,13 @@ describe('slice 6 - the runtime author surface (`@taujs/solid`)', () => {
       'provideSSRStore',
       'detachStore',
       'brandRenderFunctions',
+      // RFC 0007 private transport (decision 10).
+      'DEFERRED_STATE_CARRIER',
+      'createDeferredHolder',
+      'createHydrationHolder',
+      'takeDeferredHydrationState',
+      'attachDeferredData',
+      'getDeferredData',
     ]) {
       expect(rootModule[leaked], `${leaked} leaked from the root entry`).toBeUndefined();
     }

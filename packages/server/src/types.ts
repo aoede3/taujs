@@ -3,6 +3,7 @@ import type { Writable } from 'node:stream';
 import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 'fastify';
 
 import type { CoreTaujsConfig, Route, RouteParams } from './core/config/types';
+import type { DeferredDataRegistry } from './core/routes/DeferredData';
 import type { DebugConfig, Logs } from './core/logging/types';
 import type { ServiceRegistry } from './core/services/DataServices';
 
@@ -144,6 +145,17 @@ export type RenderOptions = {
   headData?: Record<string, unknown>;
   cspNonce?: string;
   shouldHydrate?: boolean;
+  /**
+   * RFC 0007 (decision 14): the request-local registry of declared `attr.deferred` entries -
+   * present ONLY when a streaming route declares them, and conditionally spread exactly like
+   * `headData`. This is the accepted INTERNAL host-to-renderer transport, NOT a public application
+   * API: every promise is already started and already pre-observed by the host, a resolved entry
+   * is the host's settlement snapshot (parsed JSON, no identity relationship to the loader's
+   * object), and a value that could not be snapshotted arrives as a detail-free rejection. The
+   * renderer projects each named promise onto its native Suspense/resource primitive and starts
+   * nothing.
+   */
+  deferredData?: DeferredDataRegistry;
 };
 
 export type RenderSSR = (

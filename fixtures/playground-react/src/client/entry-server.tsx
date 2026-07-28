@@ -4,7 +4,7 @@ import { App } from './App';
 type HeadData = { ogTitle?: string; ogDescription?: string };
 
 export const { renderSSR, renderStream } = createRenderer<Record<string, unknown>, unknown, HeadData>({
-  appComponent: () => <App />,
+  appComponent: ({ location }) => <App location={location} />,
   // RFC 0004: headData is the route's attr.head payload (undefined when a route declares none,
   // or when the head loader degraded) - meta stays the static fallback layer.
   headContent: ({ headData, meta }) => `

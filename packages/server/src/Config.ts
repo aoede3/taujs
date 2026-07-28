@@ -72,6 +72,11 @@ export type RouteData<C extends TaujsConfig = TaujsConfig, P extends string = st
 // loaders); `ServiceDataHandler` is `serviceData()`'s branded return type.
 export type { HeadAttributes, HeadDataOf, RouteParams, ServiceDataHandler } from './core/config/types';
 
+// RFC 0007 (decision 19): the config-side deferred-data surface, beside `HeadDataOf`.
+// `DeferredDataOf<R>` infers what a renderer's deferred accessor receives for a route;
+// `DeferredDataAttributes` is the streaming arm's `attr.deferred` record type.
+export type { DeferredDataAttributes, DeferredDataOf } from './core/config/types';
+
 // RFC 0005 (VS2): the public, allowlisted Vite surface. Exported here (the `./config` entry,
 // alongside `defineConfig`/`TaujsConfig`) so the `vite.shared.ts satisfies TaujsViteConfig` recipe
 // resolves from the same place users import `defineConfig`.

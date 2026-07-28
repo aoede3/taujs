@@ -33,6 +33,13 @@ export type TraceRecord = {
   url: { pathname: string; queryKeys: string[]; queryValuesRedacted: true };
   timeline: TraceTimeline;
   serviceCalls: { service: string; method: string; ms: number; ok: boolean }[];
+  /**
+   * RFC 0007 (R5): per-key deferred outcomes, in arrival order. ADDITIVE-OPTIONAL and ABSENT for
+   * any trace with no deferred events, so existing trace bytes and older readers are unaffected.
+   * Bounded by construction - one entry per DECLARED key per request, and declared keys are static
+   * configuration - so it carries no cap of its own, exactly like `serviceCalls`.
+   */
+  deferredData?: { key: string; outcome: 'complete' | 'failed' | 'aborted'; ms: number }[];
   client: { hydrated: boolean; hydrationMs: number | null; error: string | null } | null;
   error: { kind: string; message: string } | null;
 };
@@ -76,8 +83,13 @@ export type DevIntrospection = {
   getObservations: () => ObservationsDocument;
   /** Finalized-or-pending trace lookup — used by the beacon endpoint's duplicate check. */
   findTrace: (traceId: string) => TraceRecord | undefined;
-  /** Cumulative counters for change detection by the file emitter. */
-  stats: () => { traces: number; logs: number; observationsUpdatedAt: string | null };
+  /**
+   * Cumulative counters for change detection by the file emitter. `tracesRevision` also advances
+   * when an ALREADY-FINALISED trace is amended in place (RFC 0007 R5: a deferred outcome arriving
+   * after the terminal), which `traces` alone cannot express - without it a late outcome would be
+   * visible in memory and absent from the on-disk NDJSON, and therefore from MCP.
+   */
+  stats: () => { traces: number; tracesRevision: number; logs: number; observationsUpdatedAt: string | null };
 };
 
 type PendingTrace = TraceRecord & { t0: number; done: boolean };
@@ -133,6 +145,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
   const edges = new Map<string, ObservedEdge & { routeIds: Set<string> }>();
   let observationsChangedAt: string | null = null;
   let totalTraces = 0;
+  let tracesRevision = 0;
   let totalLogs = 0;
 
   const finalize = (trace: PendingTrace, outcome: TraceRecord['outcome']): void => {
@@ -144,6 +157,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     const { t0: _t0, done: _done, ...record } = trace;
     traces.push(record);
     totalTraces += 1;
+    tracesRevision += 1;
     if (traces.length > TRACE_RING_CAP) traces.shift();
   };
 
@@ -187,6 +201,19 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       const dataEnd = +(now() - trace.t0).toFixed(1);
       trace.timeline.dataEnd = dataEnd;
       trace.timeline.dataStart = +(dataEnd - e.ms).toFixed(1);
+    },
+
+    deferredData(e) {
+      // RFC 0007 (R5) retention. FINALISED traces are looked up too (the `clientHydration` idiom):
+      // on a client disconnect the host records the benign abort - finalising the trace - BEFORE
+      // the abort reaches the registry, so the per-key outcomes for exactly the case R5 exists to
+      // explain would otherwise be dropped. An amendment to a finalised trace bumps
+      // `tracesRevision`, which is what carries it into the on-disk NDJSON.
+      const finalised = pending.get(e.traceId) === undefined;
+      const trace = pending.get(e.traceId) ?? traces.find((t) => t.traceId === e.traceId);
+      if (!trace) return;
+      (trace.deferredData ??= []).push({ key: e.key, outcome: e.outcome, ms: e.ms });
+      if (finalised) tracesRevision += 1;
     },
 
     serviceCall(e) {
@@ -323,6 +350,6 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       }
       return traces.find((t) => t.traceId === traceId);
     },
-    stats: () => ({ traces: totalTraces, logs: totalLogs, observationsUpdatedAt: observationsChangedAt }),
+    stats: () => ({ traces: totalTraces, tracesRevision, logs: totalLogs, observationsUpdatedAt: observationsChangedAt }),
   };
 };

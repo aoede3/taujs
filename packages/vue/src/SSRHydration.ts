@@ -1,8 +1,10 @@
 import { createApp, createSSRApp, h, nextTick, type App, type Component, type VNode } from 'vue';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore.js';
+import { createHydrationHolder, provideDeferredHolder, takeDeferredHydrationState } from './SSRDeferredData.js';
 import { createUILogger, createVueErrorHandler } from './utils/Logger.js';
 
+import type { DeferredHolder } from './SSRDeferredData.js';
 import type { LoggerLike } from './utils/Logger.js';
 
 // Dev-only introspection hook, set by the server-injected dev script (never by users).
@@ -100,7 +102,12 @@ export function hydrateApp<T>({
     return appComponent as Component;
   };
 
-  const mountCSR = (rootEl: HTMLElement, initialData: T) => {
+  // RFC 0007 (R4): the holder is provided APP-LEVEL and ONLY when the private envelope was present,
+  // so a page whose route declared nothing builds exactly the tree it builds today and one that did
+  // adds no node (a wrapper component would add Fragment anchors the server markup does not have).
+  // Every seeded entry is ALREADY SETTLED, so a hydrating boundary's `await` resolves on the first
+  // microtask: no loader (there is none on this side), no refetch, no second data phase.
+  const mountCSR = (rootEl: HTMLElement, initialData: T, deferred?: DeferredHolder) => {
     rootEl.innerHTML = '';
 
     const store = createSSRStore(initialData);
@@ -109,6 +116,8 @@ export function hydrateApp<T>({
       name: 'TauJsCSR',
       render: () => h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
     });
+
+    if (deferred) provideDeferredHolder(app, deferred);
 
     try {
       // Same setupApp runs on the CSR path so it works whether the client hydrates or falls
@@ -131,7 +140,7 @@ export function hydrateApp<T>({
     }
   };
 
-  const startHydration = (rootEl: HTMLElement, initialData: T) => {
+  const startHydration = (rootEl: HTMLElement, initialData: T, deferred?: DeferredHolder) => {
     // Lifecycle messages only - the route-data payload and the store object are NOT logged, so debug
     // logging cannot disclose request data through a supplied (e.g. Pino) logger.
     if (enableDebug) log('Hydration started');
@@ -163,6 +172,8 @@ export function hydrateApp<T>({
         name: 'TauJsHydration',
         render: () => h(SSRStoreProvider, { store }, { default: () => h(normalizeRoot()) }),
       });
+
+      if (deferred) provideDeferredHolder(app, deferred);
 
       // R4: configure the app (setupApp) before notifying, so onStart/onSuccess and the
       // mount all see a fully-configured app. A throw here is caught below and routed to
@@ -240,14 +251,26 @@ export function hydrateApp<T>({
 
     const data = (window as any)[dataKey] as T | undefined;
 
+    // RFC 0007 (R4): read the private envelope at the EXACT rendezvous `window[dataKey]` is already
+    // read at, and drop the carrier - one synchronous property access, no event, no listener, no
+    // network. `taujs:data-ready` is deliberately NOT used: it dispatches before this code runs.
+    //
+    // VUE DIVERGENCE FROM REACT, and it is load-bearing: @taujs/vue writes its bootstrap tag as
+    // `<script type="module" async>` BEFORE the host appends the data script, so an `async` module
+    // can execute while the document is still parsing. `bootstrap()` runs from the existing
+    // DOMContentLoaded deferral below, which is the only point at which BOTH scripts are guaranteed
+    // to have executed. React's module-evaluation-time reasoning must not be copied here.
+    const deferredState = takeDeferredHydrationState();
+    const deferred = deferredState ? createHydrationHolder(deferredState) : undefined;
+
     if (data === undefined) {
       const empty = {} as T;
       if (enableDebug) warn(`No initial SSR data at window["${dataKey}"]. Mounting CSR.`);
-      mountCSR(rootEl, empty);
+      mountCSR(rootEl, empty, deferred);
       return;
     }
 
-    startHydration(rootEl, data);
+    startHydration(rootEl, data, deferred);
   };
 
   if (document.readyState !== 'loading') {

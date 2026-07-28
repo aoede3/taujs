@@ -284,6 +284,9 @@ describe('throwing-recorder isolation through the real render path', () => {
       dataFetch() {
         throw new Error('hostile');
       },
+      deferredData() {
+        throw new Error('hostile');
+      },
       serviceCall() {
         throw new Error('hostile');
       },

@@ -29,6 +29,9 @@ A lightweight, Vue 3 SSR library with streaming capabilities, built for modern T
 - [Consuming SSR data](#consuming-ssr-data)
   - [Suspense (recommended)](#suspense-recommended)
   - [Fallback rendering](#fallback-rendering)
+- [Deferred route data](#deferred-route-data)
+  - [Where to place a deferred boundary](#where-to-place-a-deferred-boundary)
+  - [Failure semantics](#failure-semantics)
 - [API Reference](#api-reference)
   - [Server-side rendering](#server-side-rendering)
   - [Client-side hydration](#client-side-hydration)
@@ -190,6 +193,76 @@ This idiom is a good fit for `ssr` routes, where the server has already resolved
 
 ---
 
+## Deferred route data
+
+A `streaming` route may declare `attr.deferred` alongside `attr.data` - named, route-owned work whose value is allowed to arrive after rendering begins (see [Route configuration](/reference/taujs-config#deferred-route-data)). τjs starts each named loader once per request, outside the component tree, and `@taujs/vue` projects the named promise onto Vue's own async `setup()` + `<Suspense>` model. The component starts nothing and refetches nothing.
+
+```vue
+<script setup lang="ts">
+import { createDeferredAccessor } from "@taujs/vue";
+
+// `export type ProductDeferredData = DeferredDataOf<typeof productRoute>` beside the route:
+// a type-only import, so the client bundle pulls in no server code.
+import type { ProductDeferredData } from "../server/routes/product";
+
+// Typed from the route config alone - the payload shape is never re-declared here.
+const deferred = createDeferredAccessor<ProductDeferredData>();
+
+// Called synchronously in setup(), before the first await: the accessor injects.
+const outcome = await deferred.result("reviews");
+</script>
+
+<template>
+  <p v-if="outcome.status === 'complete'">{{ outcome.value.count }} reviews</p>
+  <p v-else-if="outcome.status === 'failed'">Reviews are unavailable.</p>
+  <p v-else>Reviews did not arrive in time.</p>
+</template>
+```
+
+`createDeferredAccessor<D>()` returns two reads, and both must be called synchronously in `setup()` before the first `await`:
+
+- `deferred.result(key)` returns `Promise<DeferredResult<T>>` - a promise that never rejects for a declared key, resolving to `{ status: 'complete', value }`, `{ status: 'failed' }` or `{ status: 'aborted' }`. This is the **primary Vue read**: a handled failure branch completes the response, and server and client render the identical branch from the identical detail-free outcome.
+- `deferred.data(key)` returns `Promise<T>` and rejects with a `DeferredDataError` (carrying `key` and `outcome`) when the value never arrived. The rejection follows Vue's native error channel (`onErrorCaptured`, `app.config.errorHandler`).
+
+The untyped forms `useDeferredData(key)` and `useDeferredDataResult(key)` are exported for cases where no route type is to hand; prefer the typed façade.
+
+<Aside type="caution" title="Place deferred boundaries AFTER the content that should stream immediately">
+Vue streaming is **in-order** (see [Streaming semantics](#streaming-semantics)). A `<Suspense>` boundary awaiting a deferred value **stalls every byte behind it** until that value settles - there is no out-of-order shell that fills the boundary in later.
+
+So in an in-order renderer, **place deferred boundaries after the independent content that should stream immediately**. Put your header, navigation, and the content resolved from `attr.data` ahead of the deferred boundary in document order, and the deferred boundary last. Order the template that way and the shell reaches the browser without waiting; order it the other way and declaring the work as `deferred` buys you nothing.
+</Aside>
+
+### Where to place a deferred boundary
+
+```vue
+<template>
+  <!-- Everything independent of the deferred value comes FIRST. -->
+  <SiteHeader />
+  <ProductSummary />
+
+  <!-- The deferred boundary comes LAST: nothing behind it is stalled. -->
+  <Suspense>
+    <DeferredReviews />
+    <template #fallback><p>Loading reviews…</p></template>
+  </Suspense>
+</template>
+```
+
+<Aside type="tip" title="This is a Vue authoring rule, not a τjs one">
+React's out-of-order streaming makes boundary placement largely cosmetic; Vue's honest in-order stream makes it load-bearing. The same route configuration is correct on all three renderers - only the template ordering matters here.
+</Aside>
+
+### Failure semantics
+
+Every declared entry settles as exactly one of `complete`, `failed` or `aborted`, recorded once on the request trace. Two points worth knowing when you read the outcomes:
+
+- An **unconsumed** entry whose loader rejects after the response terminal reads as `aborted`, not `failed` - the response had already finished, so nothing was waiting on the value.
+- `complete` means *deliverable*. A value that resolves but cannot cross the hydration boundary is classified `failed` uniformly across the server render, the trace and hydration, so all three always agree.
+
+Outcomes for the boundaries a component actually read are seeded into hydration from a private internal carrier written beside `window.__INITIAL_DATA__`; every seeded entry is already settled, so hydration re-executes no loader and issues no refetch. Under `hydrate: false` no carrier is emitted and the value still streams into the server-rendered HTML.
+
+---
+
 ## API Reference
 
 ### Server-side rendering
@@ -257,6 +330,7 @@ function createRenderer<
 - `appComponent`: Your Vue root. Pass the component directly (it receives `{ location, routeContext? }` as props) or a render function returning a VNode.
 - `headContent`: Generates HTML head content from `{ data, headData?, meta, routeContext? }`. **Note:** in streaming mode the data snapshot is usually still pending when the head is built - guard optional `data` fields, lean on `meta`/`routeContext`, or declare `attr.head` on the route so the host resolves DYNAMIC head data before the render and passes it as `headData` (typed by `createRenderer`'s third generic `H`). `headData` is `undefined` when the route declares no `attr.head` and when the head loader degraded (deadline expiry, or an `optional` loader failure) - always handle it. Vue's head stays SINGLE-BUILD, pre-render; `headData` widens what that one build can see. Escape every `headData`/`data`-derived value with `escapeHtml`.
 - `streamOptions.shellTimeoutMs`: Time-to-first-content watchdog in ms (default `10000`). See [Streaming semantics](#streaming-semantics).
+- `streamOptions.deferredTimeoutMs`: The one response-level completion deadline for [deferred route data](#deferred-route-data). Default `15000`. The general derivation is `min(15000, fatal backstop / 2)`, but `@taujs/vue` declares no finite post-shell fatal backstop for it to halve - `shellTimeoutMs` bounds the pre-shell phase only and is stopped before this deadline is armed - so the Vue default is the flat cap. It is measured from `renderStream` **entry** and armed at **shell commit** (the first streamed chunk) with whatever remains of that budget; a budget already spent arms at 1ms rather than never. It is never reset per key and it latches: a boundary whose first read arrives after expiry is born `aborted` rather than starting a fresh unbounded wait. Vue streams strictly in order and has no client-render instruction, so the Vue spelling of "abandon the boundary" is to settle every still-pending consumed read as `aborted`: the application's own `aborted` branch renders **into** the response, the stream resumes and the document terminates normally. The stream controller is never touched, so an abandoned boundary is a normal completion, not a stream failure. The value must be a **positive finite** number of milliseconds - there is no `0`/`Infinity` disable sentinel, because this deadline is what keeps total response time bounded - and any other value throws a `TypeError` from `createRenderer`. It is **factory-only**: unlike `shellTimeoutMs` it has no per-call form.
 - `logger`: Custom logger implementation (`LoggerLike`).
 - `enableDebug`: Enable detailed logging (default `false`).
 - `setupApp`: Configure the per-request `App` instance (`app.use`, directives, provides). See [App customisation](#app-customisation-with-setupapp).
@@ -335,6 +409,11 @@ type RenderCallbacks<T> = {
 type StreamOptions = {
   /** Time-to-first-content watchdog, in ms (default 10000). */
   shellTimeoutMs?: number;
+  /**
+   * The one response-level deferred-data completion deadline, in ms (default 15000).
+   * Positive finite only, validated by createRenderer; factory-only, with no per-call form.
+   */
+  deferredTimeoutMs?: number;
 };
 ```
 
@@ -463,7 +542,7 @@ Both methods accept a final `opts` argument:
 
 - `logger`: Optional per-call logger (overrides the one passed to `createRenderer`).
 - `routeContext`: Per-request route context forwarded into `appComponent` and `headContent`.
-- `renderStream` additionally accepts `shellTimeoutMs` here to override the renderer default per call.
+- `renderStream` additionally accepts `shellTimeoutMs` here to override the renderer default per call. `deferredTimeoutMs` is deliberately absent from the per-call options: the deferred deadline is a boot-validated bound on the whole response, so it is configured once on `createRenderer` and never per request.
 
 **Cancellation and lifecycle**
 

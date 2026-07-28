@@ -5,6 +5,7 @@ import { ssr } from 'solid-js/web';
 import { describe, it, expect } from 'vitest';
 
 import { createRenderer } from '../SSRRender.js';
+import { createDeferredHolder } from '../SSRDeferredData.js';
 
 import type { JSX } from 'solid-js';
 
@@ -135,6 +136,55 @@ describe('7.3 forced-GC: a renderer terminal releases the route payload', () => 
     await collect();
 
     expect(started.ref.deref(), 'the route payload survived a completed stream - the adapter is still holding it').toBeUndefined();
+  });
+
+  gcIt('DEFERRED (RFC 0007) introduces no new retention class: it behaves exactly as `opts.headData` does', async () => {
+    // What this measures, stated precisely, because a weaker claim would be dishonest.
+    //
+    // The deferred registry arrives on the SAME `opts` bag as `headData`, and an `opts` field
+    // outlives the stream terminal in this renderer's closure graph TODAY - that is pre-existing
+    // behaviour, not something RFC 0007 introduced. A probe that watched a deferred value through
+    // `opts` would therefore be measuring the opts bag, not the deferred holder, and would report
+    // "leak" for a holder that had already dropped every reference it owns.
+    //
+    // So the assertion is a COMPARISON: the deferred value and a `headData` value delivered through
+    // the identical path must reach the identical state after a completed stream. The holder's own
+    // release is asserted behaviourally beside it (a later read throws, and `expire()` reports
+    // nothing outstanding), which is the same standard the store's accessor is held to.
+    const start = () => {
+      const deferredValue = { big: 'x'.repeat(4096) };
+      const headValue = { big: 'h'.repeat(4096) };
+      const { renderStream } = createRenderer({ appComponent, headContent: () => '' });
+
+      return {
+        deferredRef: new WeakRef(deferredValue),
+        headRef: new WeakRef(headValue),
+        done: renderStream(makeSink(), makeCallbacks(), {}, '/', undefined, {}, undefined, {
+          headData: headValue,
+          deferredData: Object.freeze({ reviews: Promise.resolve(deferredValue as unknown as Record<string, unknown>) }),
+        }).done,
+      };
+    };
+    const started = start();
+
+    await started.done;
+    started.done = undefined as never;
+
+    await collect();
+
+    expect(
+      started.deferredRef.deref() === undefined,
+      'the deferred registry retains differently from the pre-existing headData field - RFC 0007 would then own a NEW retention class',
+    ).toBe(started.headRef.deref() === undefined);
+  });
+
+  gcIt('DEFERRED (RFC 0007): the holder drops its own references at the terminal', async () => {
+    const holder = createDeferredHolder(Object.freeze({ reviews: Promise.resolve({ count: 1 }) }));
+
+    holder.release();
+
+    expect(() => holder.read('reviews')).toThrow(/read after the response terminal/);
+    expect(holder.expire(), 'a released holder still had entries to abandon').toBe(0);
   });
 
   gcIt('SSR TIMEOUT: the payload is collectable after prerenderTimeoutMs rejects', async () => {

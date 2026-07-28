@@ -1,18 +1,12 @@
-import { callServiceMethod, ensureServiceCaller, isServiceDescriptor } from '../services/DataServices';
+import { callServiceMethod } from '../services/DataServices';
 import { AppError } from '../errors/AppError';
+import { prepareDataContext, resolveDataHandler } from './ResolveRouteData';
 
-import type { ServiceContext, ServiceRegistry } from '../services/DataServices';
+import type { ServiceRegistry } from '../services/DataServices';
 import type { Logs } from '../logging/types';
-import type { RouteAttributes, RouteParams, RequestServiceContext } from '../config/types';
+import type { RouteAttributes, RouteParams } from '../config/types';
 import type { RequestContext } from '../telemetry/Telemetry';
-
-type CallServiceOn<R extends ServiceRegistry> = (
-  registry: R,
-  serviceName: string,
-  methodName: string,
-  params: Record<string, unknown>,
-  ctx: ServiceContext,
-) => Promise<Record<string, unknown>>;
+import type { CallServiceOn } from './ResolveRouteData';
 
 export const calculateSpecificity = (path: string): number => {
   let score = 0;
@@ -34,8 +28,6 @@ export const calculateSpecificity = (path: string): number => {
   return score;
 };
 
-const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
-
 /**
  * RFC 0004 (H1): resolve `attr.head.data` - the same dispatch shape as `fetchInitialData`
  * (handler -> `ServiceDescriptor` ? service call : plain object), returning `undefined` when the
@@ -53,29 +45,20 @@ export const fetchHeadData = async <Params extends RouteParams, R extends Servic
   const headHandler = attr?.head?.data;
   if (!headHandler || typeof headHandler !== 'function') return undefined;
 
-  const ctxForData: RequestServiceContext<L> = {
-    ...ctx,
-    headers: ctx.headers ?? {},
-  } as const;
+  const ctxForData = prepareDataContext(serviceRegistry, ctx);
 
-  ensureServiceCaller(serviceRegistry, ctxForData as ServiceContext & Partial<{ call: typeof ctxForData.call }>);
-
-  const result = await headHandler(
+  const step = await resolveDataHandler(
+    headHandler,
     params,
-    ctxForData as unknown as RequestServiceContext<L> & {
-      call: NonNullable<RequestServiceContext<L>['call']>;
-    } & { [key: string]: unknown },
+    serviceRegistry,
+    ctxForData,
+    callServiceMethodImpl,
+    'attr.head.data must return a plain object or a ServiceDescriptor',
   );
 
-  if (isServiceDescriptor(result)) {
-    const { serviceName, serviceMethod, args } = result;
-
-    return callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {}, ctxForData);
-  }
-
-  if (isPlainObject(result)) return result;
-
-  throw AppError.badRequest('attr.head.data must return a plain object or a ServiceDescriptor');
+  // Awaited here, exactly as before: this path has no classification block for a dispatch
+  // rejection to escape, so the await placement is observably identical.
+  return step.kind === 'dispatch' ? step.dispatch() : step.value;
 };
 
 export const fetchInitialData = async <Params extends RouteParams, R extends ServiceRegistry, L extends Logs = Logs>(
@@ -88,30 +71,21 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
   const dataHandler = attr?.data;
   if (!dataHandler || typeof dataHandler !== 'function') return {};
 
-  const ctxForData: RequestServiceContext<L> = {
-    ...ctx,
-    headers: ctx.headers ?? {},
-  } as const;
-
-  ensureServiceCaller(serviceRegistry, ctxForData as ServiceContext & Partial<{ call: typeof ctxForData.call }>);
+  const ctxForData = prepareDataContext(serviceRegistry, ctx);
 
   try {
-    const result = await dataHandler(
+    const step = await resolveDataHandler(
+      dataHandler,
       params,
-      ctxForData as unknown as RequestServiceContext<L> & {
-        call: NonNullable<RequestServiceContext<L>['call']>;
-      } & { [key: string]: unknown },
+      serviceRegistry,
+      ctxForData,
+      callServiceMethodImpl,
+      'attr.data must return a plain object or a ServiceDescriptor',
     );
 
-    if (isServiceDescriptor(result)) {
-      const { serviceName, serviceMethod, args } = result;
-
-      return callServiceMethodImpl(serviceRegistry, serviceName, serviceMethod, args ?? {}, ctxForData);
-    }
-
-    if (isPlainObject(result)) return result;
-
-    throw AppError.badRequest('attr.data must return a plain object or a ServiceDescriptor');
+    // RETURNED, never `return await`ed: a service-call rejection escapes this classification block
+    // exactly as it always did (only a handler rejection or an invalid result is classified here).
+    return step.kind === 'dispatch' ? step.dispatch() : step.value;
   } catch (err: unknown) {
     let e = AppError.from(err);
 

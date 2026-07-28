@@ -1,7 +1,8 @@
 import { generateHydrationScript, renderToStream, renderToStringAsync } from 'solid-js/web';
 
 import { createSSRStore, provideSSRStore } from './SSRDataStore.js';
-import { detachStore, getStoreReadiness, getStoreState } from './internal.js';
+import { createDeferredHolder } from './SSRDeferredData.js';
+import { attachDeferredData, detachDeferredData, detachStore, getStoreReadiness, getStoreState } from './internal.js';
 import { brandRenderFunctions, SOLID_RENDERER_KEY } from './renderContract.js';
 import { escapeHtml } from './utils/Html.js';
 import { SanitisedErrorPlugin } from './utils/SanitiseError.js';
@@ -10,6 +11,7 @@ import { createStreamController, startTimer, wireWritableGuards } from './utils/
 
 import type { JSX } from 'solid-js';
 import type { Writable } from 'node:stream';
+import type { DeferredDataRegistry } from './SSRDeferredData.js';
 import type { SolidLogger } from './utils/Logger.js';
 
 /**
@@ -61,6 +63,12 @@ export type RenderOptions = {
   headData?: Record<string, unknown>;
   cspNonce?: string;
   shouldHydrate?: boolean;
+  /**
+   * RFC 0007 (decision 14): the host's request-local registry of declared deferred entries. Present
+   * ONLY when the route declares `attr.deferred`; every promise is already started and already
+   * pre-observed by the host. Streaming-only - `renderSSR` deliberately ignores it (R1).
+   */
+  deferredData?: DeferredDataRegistry;
 };
 
 export type InitialDataInput = Record<string, unknown> | Promise<Record<string, unknown>> | (() => Promise<Record<string, unknown>>);
@@ -98,6 +106,29 @@ export type StreamOptions = {
   shellTimeoutMs?: number;
   /** Bound on the WHOLE renderStream lifecycle (default 30_000). Every terminal clears it. */
   completionTimeoutMs?: number;
+  /**
+   * RFC 0007 (decision 18): the ONE response-level deferred completion deadline.
+   *
+   * A separate number from `completionTimeoutMs` on purpose. That one is FATAL (destroy the sink,
+   * reject `done`) because a stalled render is a delivery failure; abandoning a deferred boundary
+   * is a normal, COMPLETE document with the application's own fallback UI in it.
+   *
+   * Measured from `renderStream` entry - the same origin as `completionTimeoutMs`, so their
+   * ordering is a property of the CONFIGURATION rather than of how fast the shell committed - and
+   * armed at shell commit with whatever remains of the budget (a budget already spent arms at 1ms).
+   * It LATCHES: a boundary whose first read arrives after expiry is born abandoned. Abandonment is
+   * NATIVE - the adapter rejects its OWN wrapper, so Solid errors those boundaries through its
+   * ordinary channel, renders the application's `<ErrorBoundary>` fallback INTO the response and
+   * ends the stream itself. τjs writes no framework-patch bytes and never touches the host's
+   * response-owned promise.
+   *
+   * POSITIVE FINITE only, validated at the factory - there is no disable sentinel, because this
+   * deadline is what keeps "bounded total response time" true. Default
+   * `min(15_000, completionTimeoutMs / 2)`, and a finite value must be STRICTLY LESS than a finite
+   * `completionTimeoutMs`: at or above it the fatal watchdog always wins the race and graceful
+   * abandonment is unreachable.
+   */
+  deferredTimeoutMs?: number;
 };
 
 export type SSROptions = {
@@ -106,6 +137,13 @@ export type SSROptions = {
 };
 
 const NOOP = () => {};
+
+/**
+ * RFC 0007 (decision 18): the cap on the DERIVED default `deferredTimeoutMs`. The default is
+ * `min(this, completionTimeoutMs / 2)` so the ordering is derived rather than asserted by
+ * coincidence.
+ */
+const DEFERRED_TIMEOUT_DEFAULT_CAP_MS = 15_000;
 
 /**
  * Design 4 (R1). `shouldHydrate` is the host-RESOLVED policy (`attr.hydrate !== false`), delivered
@@ -170,6 +208,14 @@ export function createRenderer<
   logger?: SolidLogger;
 }) {
   const { shellTimeoutMs = 10_000, completionTimeoutMs = 30_000 } = streamOptions;
+  // RFC 0007 (decision 18): DERIVED, not a literal - half the fatal backstop's budget, capped at
+  // 15s, so the graceful deferred terminal is reachable for whatever `completionTimeoutMs` an
+  // application configures rather than only for the stock one.
+  const deferredTimeoutMs =
+    streamOptions.deferredTimeoutMs ??
+    (Number.isFinite(completionTimeoutMs) && completionTimeoutMs > 0
+      ? Math.min(DEFERRED_TIMEOUT_DEFAULT_CAP_MS, completionTimeoutMs / 2)
+      : DEFERRED_TIMEOUT_DEFAULT_CAP_MS);
   const { prerenderTimeoutMs = 10_000 } = ssrOptions;
 
   // Validate ONCE, at the factory. `startTimer` arms only for finite positive values, so without
@@ -185,6 +231,26 @@ export function createRenderer<
   assertTimeout(shellTimeoutMs, 'streamOptions.shellTimeoutMs');
   assertTimeout(completionTimeoutMs, 'streamOptions.completionTimeoutMs');
   assertTimeout(prerenderTimeoutMs, 'ssrOptions.prerenderTimeoutMs');
+
+  // RFC 0007 (decision 18): POSITIVE FINITE only - unlike the watchdogs above there is no
+  // 0/Infinity sentinel, because this deadline is what keeps "bounded total response time" true.
+  if (!(typeof deferredTimeoutMs === 'number' && Number.isFinite(deferredTimeoutMs) && deferredTimeoutMs > 0)) {
+    throw new TypeError(
+      `createRenderer: streamOptions.deferredTimeoutMs must be a positive finite number of milliseconds (received ${String(deferredTimeoutMs)})`,
+    );
+  }
+
+  // The ORDERING rule. Both are measured from `renderStream` entry, so at or above the fatal
+  // watchdog the deferred one can never abandon a boundary: the document would be destroyed and
+  // `done` rejected instead. That is a DEAD option, not a marginal configuration, so it is a
+  // factory error rather than a silent surprise at request time. Either sentinel on
+  // `completionTimeoutMs` ("no bound") switches the race off, so no ordering is required there.
+  if (Number.isFinite(completionTimeoutMs) && completionTimeoutMs > 0 && deferredTimeoutMs >= completionTimeoutMs) {
+    throw new TypeError(
+      `createRenderer: streamOptions.deferredTimeoutMs (${deferredTimeoutMs}) must be strictly less than streamOptions.completionTimeoutMs (${completionTimeoutMs}); ` +
+        'both are measured from renderStream entry, so at or above it the fatal completion watchdog always fires first and the deferred deadline can never abandon a boundary',
+    );
+  }
 
   // ---------------------------------------------------------------------------------------------
   // renderSSR - the `ssr` strategy. A SINGLE promise; deliberately no stream vocabulary (INDEX
@@ -326,6 +392,12 @@ export function createRenderer<
 
     const controller = createStreamController(sink, { log, warn, error });
 
+    // RFC 0007 (decision 18): the SHARED time origin for the two whole-response watchdogs. The
+    // deferred deadline is armed later (at shell commit) but measured from HERE, so the
+    // factory-enforced `deferredTimeoutMs < completionTimeoutMs` is sufficient for it to land first
+    // on every request, whatever the shell cost.
+    const renderStartedAt = Date.now();
+
     /**
      * The single fatal site. Claims the terminal FIRST, then runs the host's isolated `onError`:
      * the host callback may synchronously abort the very AbortSignal wired to `benignAbort`, and a
@@ -395,9 +467,34 @@ export function createRenderer<
 
       return { abort: NOOP, done: controller.done };
     }
+    // RFC 0007: the holder exists ONLY when the host declared entries, so a no-deferred route
+    // renders the identical tree and emits identical bytes. It starts nothing - the registry's
+    // promises are already running and already pre-observed. `onAbandon` fires for BOTH abandonment
+    // routes: the deadline sweep, and a boundary whose first read arrives after it.
+    const deferredHolder = opts?.deferredData
+      ? createDeferredHolder(opts.deferredData, (abandoned) =>
+          warn(`Deferred data not ready after ${deferredTimeoutMs}ms; abandoning [${abandoned.join(', ')}]`),
+        )
+      : undefined;
+    // Carried ON THE STORE, not in a provider of its own: an extra `createComponent` would open a
+    // nested hydration context and shift every context id in the subtree (see internal.ts
+    // STORE_DEFERRED). The tree, and therefore the emitted bytes, are unchanged.
+    if (deferredHolder) attachDeferredData(store, deferredHolder);
+
     // M1: every terminal releases τjs-owned request state, exactly once (the controller enforces
-    // the once-ness across all terminal kinds).
-    controller.setDetach(() => detachStore(store));
+    // the once-ness across all terminal kinds). RFC 0007 renderer contract item 8: the deferred
+    // holder is released on the SAME terminal, under the same retention standard as the store.
+    controller.setDetach(() => {
+      detachStore(store);
+
+      if (deferredHolder) {
+        deferredHolder.release();
+        // Releasing empties the holder; this drops the STORE -> holder edge too, which is what
+        // `attachDeferredData`'s `configurable: true` exists for. The response's retained graph is a
+        // no-deferred route's again.
+        detachDeferredData(store);
+      }
+    });
 
     const readiness = getStoreReadiness(store) ?? Promise.resolve();
 
@@ -574,6 +671,22 @@ export function createRenderer<
             }
 
             controller.markShellCommitted();
+
+            // RFC 0007 (decision 18): arm the deferred deadline at shell commit - before the shell
+            // there is no document to complete, and a pre-shell stall is the shell timer's fault to
+            // report - with what REMAINS of a budget measured from `renderStartedAt`.
+            if (deferredHolder) {
+              const stopDeferredTimer = startTimer(Math.max(deferredTimeoutMs - (Date.now() - renderStartedAt), 1), () => {
+                if (controller.terminated) return;
+                // LATCH FIRST, unconditionally: a read registering later must be born abandoned
+                // rather than start a fresh unbounded wait. Abandonment is NATIVE - rejecting the
+                // adapter's own wrapper makes Solid error those boundaries through its ordinary
+                // channel, render the app's `<ErrorBoundary>` fallback into the RESPONSE and end
+                // the stream itself. A deadline that abandons nothing is silent and costs nothing.
+                deferredHolder.expire();
+              });
+              controller.addCleanup(stopDeferredTimer);
+            }
 
             try {
               cb.onShellReady();

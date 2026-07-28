@@ -26,6 +26,7 @@ A lightweight, React SSR library with streaming capabilities, built for modern T
 - [Overview](#overview)
 - [Installation](#installation)
 - [Core Concepts](#core-concepts)
+- [Deferred route data](#deferred-route-data)
 - [API Reference](#api-reference)
   - [Server-Side Rendering](#server-side-rendering)
   - [Client-Side Hydration](#client-side-hydration)
@@ -98,6 +99,53 @@ Client-side hydration automatically:
 - Creates a synchronised store
 - Hydrates the React tree
 - Falls back to CSR if no SSR data exists
+
+---
+
+## Deferred route data
+
+A `streaming` route may declare `attr.deferred` alongside `attr.data` - named, route-owned work whose value is allowed to arrive after rendering begins (see [Route configuration](/reference/taujs-config#deferred-route-data)). τjs starts each named loader once per request, outside the component tree, and `@taujs/react` projects the named promise onto React's own `use()` + `<Suspense>` model. The component starts nothing and refetches nothing, and React's own out-of-order streaming delivers the late HTML - τjs emits no patch protocol of its own.
+
+```tsx
+import { Suspense } from "react";
+import { createDeferredAccessor, useDeferredDataResult } from "@taujs/react";
+
+// `export type ProductDeferredData = DeferredDataOf<typeof productRoute>` beside the route:
+// a type-only import, so the client bundle pulls in no server code.
+import type { ProductDeferredData } from "../server/routes/product";
+
+// Typed from the route config alone - the payload shape is never re-declared here.
+const useDeferred = createDeferredAccessor<ProductDeferredData>();
+
+function Reviews() {
+  const reviews = useDeferred("reviews"); // suspends this boundary and nothing else
+  return <p>{reviews.count} reviews</p>;
+}
+
+export function ProductPage() {
+  return (
+    <main>
+      <ProductSummary />
+      <Suspense fallback={<p>Loading reviews…</p>}>
+        <Reviews />
+      </Suspense>
+    </main>
+  );
+}
+```
+
+Two reads are available:
+
+- `useDeferredData(key)` (and the typed `createDeferredAccessor` façade above) returns the value. It suspends the nearest `<Suspense>` while the entry is pending and **throws** a `DeferredDataError` - carrying `key` and `outcome` - when the value never arrived. `react-dom/server` has no server-side error boundaries, so a thrown read errors the nearest boundary and React hands it to the client to render.
+- `useDeferredDataResult(key)` returns a `DeferredResult<T>` value: `{ status: 'complete', value }`, `{ status: 'failed' }` or `{ status: 'aborted' }`. It still suspends natively while pending, then returns the outcome, so a handled fallback is rendered **into the streamed document**. Reach for this read for any entry that can fail.
+
+`failed` and `aborted` carry no value, message, stack or cause. An unknown key is a deterministic developer error naming the declared set, never a suspended boundary and never `undefined`.
+
+**Boundary placement.** React streams out of order, so a deferred boundary anywhere in the tree emits its fallback immediately and is patched in place once the value settles. Placement is a layout choice here, not a performance one. (This is not true of `@taujs/vue`, whose in-order stream makes placement load-bearing.)
+
+**Failure semantics.** Every declared entry settles as exactly one of `complete`, `failed` or `aborted`, recorded once on the request trace. An **unconsumed** entry whose loader rejects after the response terminal reads as `aborted`, not `failed` - the response had already finished, so nothing was waiting on the value. `complete` means *deliverable*: a value that resolves but cannot cross the hydration boundary is classified `failed` uniformly across the server render, the trace and hydration.
+
+**Hydration.** Outcomes for the boundaries a component actually read are seeded from a private internal carrier written beside `window.__INITIAL_DATA__` and read synchronously in document order by the bootstrap. Every seeded entry is already settled, so `use()` returns or throws synchronously: no second render pass, no loader re-execution, no refetch. Under `hydrate: false` no carrier is emitted and the value still streams into the server-rendered HTML.
 
 ---
 
@@ -174,6 +222,7 @@ function createRenderer<
 - `streamOptions`: Streaming configuration
   - `shellTimeoutMs`: Timeout for the initial shell render (default: `10000`)
   - `dataTimeoutMs`: Timeout for route data to settle after React has finished rendering (default: `30000`). Bounds the stream so a never-settling loader cannot hold the response open indefinitely.
+  - `deferredTimeoutMs`: The one response-level completion deadline for [deferred route data](#deferred-route-data). Default `min(15000, dataTimeoutMs / 2)`, so `15000` with the stock `dataTimeoutMs`, and half of any smaller fatal backstop you configure. It is measured from `renderStream` **entry** - the same origin `dataTimeoutMs` is compared against - and armed at **shell commit** with whatever remains of that budget, because a deferred boundary can only be pending once the shell has committed (a budget already spent arms at 1ms rather than never). It is never reset per key and it latches: a boundary whose first read arrives after expiry is born `aborted` rather than starting a fresh unbounded wait. On expiry the still-pending boundaries a component actually read are abandoned through React's **own** `stream.abort`, which emits React's client-render instruction for each and finishes the document; the host then records those keys as `aborted` on the trace and in the hydration envelope. The value must be a **positive finite** number of milliseconds - there is no `0`/`Infinity` disable sentinel, because this deadline is what keeps total response time bounded - and any other value throws a `TypeError` from `createRenderer`. It must also be **strictly less** than a finite `dataTimeoutMs`, or `createRenderer` throws: at or above the fatal route-data backstop, that backstop pre-empts graceful abandonment and the response fails instead of completing. Unlike the other stream timeouts it has **no per-call form** (see the per-call options below).
 - `ssrOptions`: Static SSR configuration
   - `prerenderTimeoutMs`: Deadline for the `ssr` strategy's complete-HTML render (default: `10000`; `0` or `Infinity` = wait forever; anything else must be a positive finite number or `createRenderer` throws). See `renderSSR()` for the expiry behaviour.
 - `identifierPrefix`: React's `useId` prefix, passed to both rendering paths. Must match the value passed to `hydrateApp` for the same root. Set it when rendering more than one taujs root on a page so `useId` values are collision-free.
@@ -194,8 +243,13 @@ Both methods accept a final `opts` argument:
 - `headData`: The route's resolved `attr.head` payload. With `@taujs/server` this is passed for
   you (only when the route declares `attr.head` and its loader resolved); standalone hosts may
   pass their own pre-resolved head data. Reaches `headContent` typed as `H`.
-- `renderStream` only: any `StreamOptions` field (`shellTimeoutMs`, `dataTimeoutMs`) may also be
-  overridden per call.
+- `renderStream` only: the per-call `StreamOptions` timeouts `shellTimeoutMs` and `dataTimeoutMs`
+  may also be overridden here. `deferredTimeoutMs` is the one exception: it is **factory-only** and
+  has no per-call form, because it is a boot-validated bound on the whole response rather than a
+  per-request knob. A per-call `dataTimeoutMs` at or below the configured deferred deadline
+  re-derives that deadline as `dataTimeoutMs / 2` for that response, so the ordering against the
+  fatal backstop holds without losing the graceful terminal; it can only ever move the graceful
+  terminal earlier, never later.
 
 **Worked example: dynamic head data on a streamed route**
 

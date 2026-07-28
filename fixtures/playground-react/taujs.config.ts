@@ -1,6 +1,7 @@
 import { defineConfig } from '@taujs/server/config';
 import { reactRenderer } from '@taujs/react/renderer';
 
+import { deferredRoute } from './src/server/routes/deferred.ts';
 import { serviceData } from './src/server/services/registry.ts';
 
 // Every route exists to exercise a specific part of the introspection substrate — see
@@ -8,9 +9,25 @@ import { serviceData } from './src/server/services/registry.ts';
 // (/spa/anything is the SPA-path example).
 export default defineConfig({
   server: {
-    port: 5173,
+    // The real-browser suite boots this fixture on its own port (5301) so it never collides with a
+    // developer's dev server; everything else keeps the fixture's stable default.
+    port: Number(process.env.TAUJS_PORT ?? 5173),
     host: 'localhost',
     hmrPort: 5174,
+  },
+  // An ENFORCED CSP (not report-only), so the browser acceptance runs against a real policy rather
+  // than merely observing nonce attributes. `script-src` carries no 'unsafe-inline', so any inline
+  // script the renderer emits WITHOUT the request nonce is blocked by the browser and raises a
+  // securitypolicyviolation - which is exactly what the browser suite asserts never happens.
+  security: {
+    csp: {
+      defaultMode: 'merge',
+      directives: {
+        'default-src': ["'self'"],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'img-src': ["'self'", 'data:'],
+      },
+    },
   },
   apps: [
     {
@@ -42,6 +59,9 @@ export default defineConfig({
             head: { data: serviceData('catalog', 'getProductHead', (p) => ({ id: String(p.id) })) },
           },
         },
+        // RFC 0007: the deferred example route, declared in `src/server/routes/deferred.ts` so the
+        // client can name its inferred payload type (`DeferredDataOf<typeof deferredRoute>`).
+        deferredRoute,
         {
           path: '/legacy',
           attr: {

@@ -37,6 +37,13 @@ export type GraphRoute = {
   specificity: number;
   middleware: { auth: { declared: boolean }; csp: GraphRouteCSP };
   data: GraphRouteData;
+  /**
+   * RFC 0007 (R5): declared `attr.deferred` entries, key-sorted. ABSENT when the route declares
+   * none, per spec 02's additive-optional-fields rule - routes without the declaration keep
+   * byte-identical graph emission and older readers are unaffected. `kind: 'none'` is not valid
+   * here: an entry exists only when declared.
+   */
+  deferred?: { key: string; data: GraphRouteData }[];
 };
 
 export type GraphUsedBy = { routeId: string; appId: string; path: string };
@@ -68,6 +75,9 @@ export type CreateRequestGraphOptions = {
 };
 
 const isMatchAllWildcard = (path: string): boolean => path === '/*' || path === '*';
+
+const isServiceEdge = (edge: GraphRouteData, service: string, method: string): boolean =>
+  edge.kind === 'service' && edge.service === service && edge.method === method;
 
 // Pure, deterministic, no I/O. Serialises the resolved config into spec 02 schema v1 —
 // nothing here executes data handlers or touches a server instance; declared route → service
@@ -127,6 +137,25 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
         data = meta ? { kind: 'service', service: meta.serviceName, method: meta.serviceMethod } : { kind: 'dynamic' };
       }
 
+      // RFC 0007 (R5): derivation mirrors the data edge exactly. OWN enumerable keys only, and the
+      // same non-function guard the registry applies, so the graph and the runtime agree on which
+      // entries exist.
+      const declaredDeferred = (attr as { deferred?: Record<string, unknown> } | undefined)?.deferred;
+      const deferred =
+        declaredDeferred && typeof declaredDeferred === 'object'
+          ? Object.keys(declaredDeferred)
+              .filter((key) => typeof declaredDeferred[key] === 'function')
+              .sort()
+              .map((key) => {
+                const meta = getServiceDataMetadata(declaredDeferred[key] as (...args: never[]) => unknown);
+
+                return {
+                  key,
+                  data: meta ? ({ kind: 'service', service: meta.serviceName, method: meta.serviceMethod } as const) : ({ kind: 'dynamic' } as const),
+                };
+              })
+          : [];
+
       routes.push({
         id,
         appId: app.appId,
@@ -136,6 +165,7 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
         specificity: calculateSpecificity(route.path),
         middleware: { auth: { declared: Boolean(attr?.middleware?.auth) }, csp: cspBlock },
         data,
+        ...(deferred.length > 0 ? { deferred } : {}),
       });
 
       if (renderDefaulted) {
@@ -190,8 +220,15 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
               name: methodName,
               params: { ...(meta?.params ?? { declared: false }) },
               result: { ...(meta?.result ?? { declared: false }) },
+              // RFC 0007 (R5): a DECLARED deferred service entry contributes exactly as the `data`
+              // edge does. The predicate is per-route, so a route declaring the same method both
+              // critically and deferred (or under two deferred keys) still appears at most once -
+              // the routeId dedupe, with the existing deterministic route order preserved.
               usedBy: routes
-                .filter((r) => r.data.kind === 'service' && r.data.service === serviceName && r.data.method === methodName)
+                .filter(
+                  (r) =>
+                    isServiceEdge(r.data, serviceName, methodName) || (r.deferred ?? []).some((entry) => isServiceEdge(entry.data, serviceName, methodName)),
+                )
                 .map((r) => ({ routeId: r.id, appId: r.appId, path: r.path })),
             };
           }),

@@ -29,6 +29,7 @@ A lightweight Solid SSR library with streaming and hydration support, built for 
 - [Consuming SSR data](#consuming-ssr-data)
   - [Route data (the store)](#route-data-the-store)
   - [App-owned async (Suspense + createResource)](#app-owned-async-suspense--createresource)
+- [Deferred route data](#deferred-route-data)
 - [API Reference](#api-reference)
   - [Server-side rendering](#server-side-rendering)
   - [Client-side hydration](#client-side-hydration)
@@ -190,8 +191,59 @@ function DeferredNote() {
 ```
 
 <Aside type="note" title="Route data and createResource are different, on purpose">
-Route data is resolved by τjs at the request boundary and travels in `window.__INITIAL_DATA__`; it never streams through Solid's `$df` channel (see [The snapshot data bridge](#the-snapshot-data-bridge)). `createResource` under `<Suspense>` is the other case - application-owned async the component starts itself. So a `streaming` route whose page reads only route data emits no deferred-patch machinery: there is nothing to defer, and that is correct. Deferred patches are the mechanism for component-local async; they are not a way to move governed route data off the request boundary.
+Critical route data (`attr.data`) is resolved by τjs at the request boundary and travels in `window.__INITIAL_DATA__`; it never streams through Solid's `$df` channel (see [The snapshot data bridge](#the-snapshot-data-bridge)). `createResource` under `<Suspense>` is the other case - application-owned async the component starts itself. So a `streaming` route whose page reads only route data emits no deferred-patch machinery: there is nothing to defer, and that is correct. `$df` patches are the mechanism for work that settles after the shell; they are not a way to move the critical route snapshot off the request boundary.
+
+There is a third, governed case between the two: [deferred route data](#deferred-route-data), declared as `attr.deferred` on the route. It is response-owned like `attr.data` and starts outside the component tree, but it settles after rendering begins, so its value does travel as a `$df` patch.
 </Aside>
+
+---
+
+## Deferred route data
+
+A `streaming` route may declare `attr.deferred` alongside `attr.data` - named, route-owned work whose value is allowed to arrive after rendering begins (see [Route configuration](/reference/taujs-config#deferred-route-data)). This is the governed counterpart to `createResource`: τjs starts each named loader once per request, outside the component tree, and knows its service, its cancellation and its outcome. `@taujs/solid` projects the named promise onto Solid's own resource model, and Solid's native `$df` transport delivers the value once it settles.
+
+```tsx
+import { ErrorBoundary, Suspense } from "solid-js";
+import { createDeferredAccessor } from "@taujs/solid";
+
+// `export type ProductDeferredData = DeferredDataOf<typeof productRoute>` beside the route:
+// a type-only import, so the client bundle pulls in no server code.
+import type { ProductDeferredData } from "../server/routes/product";
+
+// Typed from the route config alone - the payload shape is never re-declared here.
+const useDeferred = createDeferredAccessor<ProductDeferredData>();
+
+function Reviews() {
+  const reviews = useDeferred("reviews"); // Accessor<T | undefined>
+  return <p>{reviews()?.count} reviews</p>;
+}
+
+export function ProductPage() {
+  return (
+    <main>
+      <ProductSummary />
+      <Suspense fallback={<p>Loading reviews…</p>}>
+        {/* The ErrorBoundary sits INSIDE the Suspense - see below. */}
+        <ErrorBoundary fallback={<p>Reviews are unavailable.</p>}>
+          <Reviews />
+        </ErrorBoundary>
+      </Suspense>
+    </main>
+  );
+}
+```
+
+`createDeferredAccessor<D>()` returns a typed reader; the untyped `useDeferredData<T>(key)` is exported for cases where no route type is to hand. Both return `Accessor<T | undefined>` - `undefined` while pending, the value once it settles - and both suspend the nearest `<Suspense>` on read.
+
+**Failures use Solid's own error boundary.** When an entry never arrives the accessor throws a `DeferredDataError` (carrying `key` and `outcome`) on read, and Solid's SSR engine has real server-side error boundaries, so a wrapping `<ErrorBoundary>` renders its fallback **into the response**. That is why `@taujs/solid` carries no separate result-shaped accessor: the throwing read already completes the response. Wrap any entry that can fail.
+
+<Aside type="caution" title="Put the ErrorBoundary inside the Suspense">
+The `<ErrorBoundary>` must sit **inside** the `<Suspense>` boundary that the read suspends. Outside it, the response still completes and the rejection is still redacted, but the fallback renders on the client instead of in the streamed HTML.
+</Aside>
+
+**Failure semantics.** Every declared entry settles as exactly one of `complete`, `failed` or `aborted`, recorded once on the request trace. An **unconsumed** entry whose loader rejects after the response terminal reads as `aborted`, not `failed` - the response had already finished, so nothing was waiting on the value. `complete` means *deliverable*: a value that resolves but cannot cross the hydration boundary is classified `failed` uniformly across the server render, the trace and hydration.
+
+**Hydration.** Outcomes for the boundaries a component actually read are also seeded from a private internal carrier written beside `window.__INITIAL_DATA__` and read once by the bootstrap, so hydration re-executes no loader and issues no refetch. Under `hydrate: false` no carrier is emitted and the value still streams into the server-rendered HTML natively.
 
 ---
 
@@ -259,11 +311,14 @@ function createRenderer<
 - `renderId`: A stable namespace for Solid's hydration markers and the serialised data. It must be the **same** value you pass to `hydrateApp` (see [Client-side hydration](#client-side-hydration)). Keep it in one shared constant imported by both entries.
 - `streamOptions.shellTimeoutMs`: Shell-readiness watchdog in ms (default `10000`).
 - `streamOptions.completionTimeoutMs`: Bound on the whole `renderStream` lifecycle in ms (default `30000`). Every terminal clears it.
+- `streamOptions.deferredTimeoutMs`: The one response-level completion deadline for [deferred route data](#deferred-route-data). Default `min(15000, completionTimeoutMs / 2)`, so `15000` with the stock `completionTimeoutMs`, and half of any smaller fatal watchdog you configure. It is measured from `renderStream` **entry** - the same origin as `completionTimeoutMs`, so their ordering is a property of the configuration rather than of how long the shell happened to take - and armed at **shell commit** with whatever remains of that budget, because before the shell there is no document to complete and a pre-shell stall is `shellTimeoutMs`'s to report; a budget already spent arms at 1ms rather than never. It is never reset per key and it latches: a boundary whose first read arrives after expiry is born abandoned rather than starting a fresh unbounded wait. Abandonment is native: the adapter's own wrapper is rejected, so Solid errors those boundaries through its ordinary channel, renders the application's `<ErrorBoundary>` fallback **into** the response and ends the stream itself; the host then records those keys as `aborted`. The value must be a **positive finite** number of milliseconds - unlike the two watchdogs above there is no `0`/`Infinity` sentinel, because this deadline is what keeps total response time bounded - and any other value throws a `TypeError` from `createRenderer`. It must also be **strictly less** than a finite `completionTimeoutMs`, or `createRenderer` throws: at or above the fatal watchdog, that watchdog always wins the race and graceful abandonment becomes unreachable. It is **factory-only** and has no per-call form.
 - `ssrOptions.prerenderTimeoutMs`: Bound on the `ssr` strategy's single render promise in ms (default `10000`).
 - `logger`: Custom logger implementation (`SolidLogger`).
 
 <Aside type="note" title="Timeout values are validated at the factory">
 `shellTimeoutMs`, `completionTimeoutMs` and `prerenderTimeoutMs` must each be a positive finite number of milliseconds, or one of the sentinels `0` or `Infinity`. Any other value (a negative number, `NaN`, a stray string from untyped JS) throws a `TypeError` from `createRenderer` rather than silently disabling the watchdog.
+
+`deferredTimeoutMs` is validated at the factory too, but more strictly: it must be positive **and** finite, with no sentinel form, and strictly less than a finite `completionTimeoutMs`.
 </Aside>
 
 **Returns** an object with two rendering methods: `renderSSR` (static, returns `{ headContent, appHtml }`) and `renderStream` (streaming, pipes to a writable).
@@ -303,6 +358,9 @@ type RenderOptions = {
 type StreamOptions = {
   shellTimeoutMs?: number; // default 10000
   completionTimeoutMs?: number; // default 30000
+  // The one response-level deferred-data deadline. Default min(15000, completionTimeoutMs / 2);
+  // positive finite only, strictly less than a finite completionTimeoutMs; no per-call form.
+  deferredTimeoutMs?: number;
 };
 
 type SSROptions = {
@@ -389,8 +447,8 @@ await done;
 
 `onAllReady` is **two-latch**: it fires once *and only once*, after the route data is ready **and** Solid has finished rendering. A fatal, incomplete delivery never calls `onAllReady`, so it never seeds a truncated document. A pre-shell fatal also never calls `onShellReady`; a post-shell fatal necessarily occurs after `onShellReady` has already reported that the shell was committed. The resolved route data is delivered to `onAllReady` and serialised into `window.__INITIAL_DATA__`.
 
-- `shellTimeoutMs` bounds shell readiness; `completionTimeoutMs` bounds the whole lifecycle and is cleared by every terminal (normal completion, abort, or fatal).
-- App-owned `createResource` work under `<Suspense>` streams as Solid `$df` deferred patches once it settles; route data does not (see [The snapshot data bridge](#the-snapshot-data-bridge)).
+- `shellTimeoutMs` bounds shell readiness; `completionTimeoutMs` bounds the whole lifecycle and is cleared by every terminal (normal completion, abort, or fatal). `deferredTimeoutMs` is the graceful counterpart to that fatal watchdog: it is armed at shell commit, abandons only the still-pending deferred boundaries, and lets the document terminate normally.
+- App-owned `createResource` work under `<Suspense>`, and route-declared [deferred route data](#deferred-route-data), stream as Solid `$df` deferred patches once they settle; the critical route snapshot does not (see [The snapshot data bridge](#the-snapshot-data-bridge)).
 
 **Cancellation and lifecycle.** `renderStream` accepts an `AbortSignal` (a triggered signal is a benign cancel) and returns `{ abort, done }`: `abort()` performs a manual benign abort, and `done` resolves on normal completion or rejects on a fatal error. Client disconnects are classified benign and never surface as fatal errors. Every terminal releases the renderer's request-scoped state exactly once.
 
@@ -586,12 +644,12 @@ export default defineConfig({
 
 A τjs response renders **one selected app and root**: the host matches the URL to a single app by `appId` and loads that app's renderer for the response. So `window.__INITIAL_DATA__` is that response's single route-data authority - one root hydrates one payload, and no second app's data shares the document.
 
-The server commits the resolved route data into the store before rendering and serialises the same payload into `__INITIAL_DATA__`; the client seeds the store from it during hydration. Route data therefore never travels through Solid's `$df` deferred-patch channel, on any strategy.
+The server commits the resolved route data into the store before rendering and serialises the same payload into `__INITIAL_DATA__`; the client seeds the store from it during hydration. The critical route snapshot (`attr.data`) therefore never travels through Solid's `$df` deferred-patch channel, on any strategy.
 
 The practical consequences:
 
 - **`ssr` routes:** the store is committed before render, so `store.data()` is populated in the server HTML with no `<Suspense>` needed for route data.
-- **`streaming` routes:** route data is already in `__INITIAL_DATA__`, so a page that reads only route data emits no deferred patches. Application-owned `createResource` work under `<Suspense>` is what flows as `$df` patches (see [App-owned async](#app-owned-async-suspense--createresource)).
+- **`streaming` routes:** route data is already in `__INITIAL_DATA__`, so a page that reads only route data emits no deferred patches. What flows as `$df` patches is work that settles after the shell: application-owned `createResource` under `<Suspense>` (see [App-owned async](#app-owned-async-suspense--createresource)), and route-declared [deferred route data](#deferred-route-data), whose settled outcomes are additionally seeded from their own private carrier at end of stream.
 - **The client never re-runs your route loader.** It hydrates from the snapshot; there is exactly one route-data seed per response.
 
 ---
@@ -879,8 +937,8 @@ const logger: ServerLogger = {
 
 ## Best practices
 
-1. **Know your two data kinds.** Route data comes from the store (`store.data()`) and is committed before render; app-owned async uses `createResource` under `<Suspense>`. Only the latter streams.
-2. **Streaming carries application-owned async.** Route data is resolved at the request boundary and travels in the snapshot; `createResource` under `<Suspense>` is component-owned work that streams as deferred patches. Use it for UI-local async, not to move governed route data off the request boundary.
+1. **Know your three data kinds.** The critical route snapshot comes from the store (`store.data()`) and is committed before render; route-declared [deferred route data](#deferred-route-data) is response-owned work that settles after rendering begins; app-owned async uses `createResource` under `<Suspense>`. Only the last two stream.
+2. **Declare response-owned work, do not fetch it from a component.** If τjs should know the service, cancel it with the request and record its outcome, declare it as `attr.deferred` on the route. Keep `createResource` for genuinely UI-local async, not as a way to move governed route data off the request boundary.
 3. **Share one `renderId`.** Keep it in a single constant imported by `entry-server` and `entry-client`; a drift between the two is a hydration bug.
 4. **Head data: `meta` for static, `attr.head` for dedicated dynamic head work.** The Solid adapter waits for route data before it renders, so `data` is committed when `headContent` runs. `headData` remains optional because a route may omit `attr.head`, or its loader may degrade under the configured policy. Escape every interpolated value with `escapeHtml`. The renderer appends the hydration bootstrap itself; do not emit it from `headContent`.
 5. **Let the managed compiler own the plugin.** Register `solidRenderer({ project })` and point `project` at a disjoint tsconfig; do not add `vite-plugin-solid` to your app yourself under τjs.

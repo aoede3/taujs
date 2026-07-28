@@ -2,8 +2,10 @@ import React from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore.js';
+import { createHydrationHolder, DeferredDataProvider, takeDeferredHydrationState } from './SSRDeferredData.js';
 import { createUILogger } from './utils/Logger.js';
 
+import type { DeferredHolder } from './SSRDeferredData.js';
 import type { LoggerLike } from './utils/Logger.js';
 
 // Dev-only introspection hook, set by the server-injected dev script (never by users).
@@ -200,22 +202,29 @@ export function hydrateApp<T>({
 
   // The tree React renders. The commit reporter WRAPS the app (adds tree depth only, no DOM and no
   // `useId` shift — see CommitReporter); its effect calls the single `reportSuccess`.
-  const buildTree = (store: ReturnType<typeof createSSRStore<T>>) => (
-    <React.StrictMode>
-      <SSRStoreProvider store={store}>
-        <CommitReporter onCommit={reportSuccess}>{appComponent}</CommitReporter>
-      </SSRStoreProvider>
-    </React.StrictMode>
-  );
+  //
+  // RFC 0007 (R4): the deferred provider is inserted ONLY when the private envelope was present, so
+  // a page whose route declared nothing builds exactly the tree it builds today. Every seeded entry
+  // is ALREADY SETTLED, so the boundary read is synchronous: no suspension during hydration, no
+  // second render pass, no loader (there is none on this side) and no refetch.
+  const buildTree = (store: ReturnType<typeof createSSRStore<T>>, deferred?: DeferredHolder) => {
+    const reported = <CommitReporter onCommit={reportSuccess}>{appComponent}</CommitReporter>;
 
-  const mountCSR = (rootEl: HTMLElement, initialData: T) => {
+    return (
+      <React.StrictMode>
+        <SSRStoreProvider store={store}>{deferred ? <DeferredDataProvider holder={deferred}>{reported}</DeferredDataProvider> : reported}</SSRStoreProvider>
+      </React.StrictMode>
+    );
+  };
+
+  const mountCSR = (rootEl: HTMLElement, initialData: T, deferred?: DeferredHolder) => {
     // emitBeacons stays false: the CSR path reports onSuccess/onHydrationError but no beacons.
     rootEl.innerHTML = '';
     const store = createSSRStore(initialData);
 
     try {
       const root = createRoot(rootEl, rootErrorOptions);
-      root.render(buildTree(store));
+      root.render(buildTree(store, deferred));
     } catch (err) {
       // Sync belt: invalid container / synchronous setup throw.
       error('CSR mount error:', err);
@@ -223,7 +232,7 @@ export function hydrateApp<T>({
     }
   };
 
-  const startHydration = (rootEl: HTMLElement, initialData: T) => {
+  const startHydration = (rootEl: HTMLElement, initialData: T, deferred?: DeferredHolder) => {
     emitBeacons = true; // hydrate path: emit hydration:start/success/error beacons
 
     if (enableDebug) log('Hydration started');
@@ -235,7 +244,7 @@ export function hydrateApp<T>({
     const store = createSSRStore(initialData);
 
     try {
-      hydrateRoot(rootEl, buildTree(store), rootErrorOptions);
+      hydrateRoot(rootEl, buildTree(store, deferred), rootErrorOptions);
     } catch (err) {
       // Sync belt: invalid container / synchronous setup throw (async render errors arrive via
       // onUncaughtError above, not here).
@@ -258,15 +267,23 @@ export function hydrateApp<T>({
 
     const data = (window as any)[dataKey] as T | undefined;
 
+    // RFC 0007 (R4): read the private envelope SYNCHRONOUSLY here, in document order, and drop the
+    // carrier. The host writes it inside the same nonced end-of-stream script that assigns
+    // `__INITIAL_DATA__`, and this bootstrap runs after it - so the read needs no event, no
+    // listener and no network. `taujs:data-ready` is deliberately NOT used: it dispatches before
+    // this code runs. An absent carrier is the ordinary case, never a reason to fetch.
+    const deferredState = takeDeferredHydrationState();
+    const deferred = deferredState ? createHydrationHolder(deferredState) : undefined;
+
     if (data === undefined) {
       const csrData = {} as T;
       if (enableDebug) warn(`No initial SSR data at window["${dataKey}"]. Mounting CSR.`);
-      mountCSR(rootEl, csrData);
+      mountCSR(rootEl, csrData, deferred);
 
       return;
     }
 
-    startHydration(rootEl, data);
+    startHydration(rootEl, data, deferred);
   };
 
   if (document.readyState !== 'loading') {

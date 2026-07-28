@@ -1,6 +1,8 @@
 import { hydrate, render } from 'solid-js/web';
 
 import { createSSRStore, provideSSRStore } from './SSRDataStore.js';
+import { createHydrationHolder, takeDeferredHydrationState } from './SSRDeferredData.js';
+import { attachDeferredData } from './internal.js';
 import { createUILogger } from './utils/Logger.js';
 
 import type { JSX } from 'solid-js';
@@ -128,6 +130,13 @@ export function hydrateApp({
     }
 
     const initialData = (window as { __INITIAL_DATA__?: Record<string, unknown> }).__INITIAL_DATA__;
+    // RFC 0007 (R4): read the private envelope synchronously, in DOCUMENT ORDER, and drop the
+    // carrier - on EVERY path (CSR fallback included), so it can never survive bootstrap on a page
+    // that took a different branch. No event and no listener: `bootstrap()` runs after
+    // `DOMContentLoaded` or with `readyState !== 'loading'`, i.e. strictly after the host's
+    // end-of-stream script. `taujs:data-ready` is deliberately NOT used - it dispatches first.
+    const deferredState = takeDeferredHydrationState();
+    const deferredHolder = deferredState ? createHydrationHolder(deferredState) : undefined;
     const location = window.location.pathname + window.location.search;
 
     // Missing initial data falls back to CSR (design 4): a CSR mount is NOT a hydration, so it emits
@@ -139,6 +148,7 @@ export function hydrateApp({
       try {
         rootElement.innerHTML = '';
         const store = createSSRStore<Record<string, unknown>>({});
+        if (deferredHolder) attachDeferredData(store, deferredHolder);
         render(() => provideSSRStore(store, () => app({ location })), rootElement);
         reportSuccess('CSR mount succeeded');
       } catch (err) {
@@ -156,6 +166,9 @@ export function hydrateApp({
 
     try {
       const store = createSSRStore(initialData);
+      // Mirrors the server exactly: carried on the store, so the hydrated tree has the SAME shape
+      // and the SAME context-id walk as the rendered one, envelope or no envelope.
+      if (deferredHolder) attachDeferredData(store, deferredHolder);
       hydrate(() => provideSSRStore(store, () => app({ location })), rootElement, renderId ? { renderId } : undefined);
       reportSuccess('Hydration succeeded');
     } catch (err) {
