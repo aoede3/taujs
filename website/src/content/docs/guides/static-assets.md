@@ -1,74 +1,65 @@
 ---
 title: Static Assets
-description: How τjs handles static file serving
+description: Development, production and host-owned static file serving
 ---
 
-How τjs handles static file serving in development and production.
+τjs uses Vite for development assets and `@fastify/static` for its default production assets. The
+static facility belongs to the same Fastify scope as the τjs applications, so it follows the
+created-host versus caller-owned-host boundary.
 
-τjs includes `@fastify/static` as a dependency and **automatically registers it in production** unless you explicitly opt out. This means static assets "just work" for standard setups.
+## Default behaviour
 
-You can:
+When `clientRoot` is omitted, τjs resolves:
 
-- Use the default auto-registration (zero config)
-- customise `@fastify/static` options via `staticAssets`
-- Use a different plugin entirely
-- Disable Fastify static serving (for CDN/Nginx setups)
-
-τjs focuses on orchestration and SSR. Auto-registration covers the common case, but how you ultimately serve static files is up to you.
-
-## Default Behaviour
-
-If you don’t configure static assets:
-
-```ts
-import { createServer } from "@taujs/server";
-
-await createServer({
-  fastify,
-  config,
-  serviceRegistry,
-  // staticAssets not specified
-});
-```
-
-**What happens:**
-
-1. τjs initialises its SSR server
-2. **DEV**: `clientRoot` auto-resolves to `<cwd>/client` (source files) and Vite dev server handles all assets via HMR middleware (no static plugin needed)
-3. **PROD**: τjs automatically registers `@fastify/static`. `clientRoot` auto-resolves to `<cwd>/dist/client` (built files). Assets load from `/assets/...` paths in your HTML
-4. τjs loads manifests and templates from `clientRoot`
-
-### Disabling Auto-Registration
-
-To explicitly disable static serving (e.g., using CDN/Nginx):
+| Environment | Root | Asset owner |
+| --- | --- | --- |
+| Development | `<cwd>/src/client` | τjs-owned Vite server |
+| Production | `<cwd>/dist/client` | τjs-owned `@fastify/static` registration |
 
 ```ts
 await createServer({
   fastify,
   config,
   serviceRegistry,
-  staticAssets: false, // No static plugin registered
 });
 ```
 
-τjs still loads manifests for SSR, but Fastify won't serve the files.
+In production the default registration uses:
 
-## Customising Static Assets
+```ts
+{
+  root: clientRoot,
+  prefix: "/",
+  index: false,
+  wildcard: false,
+}
+```
 
-### Using `@fastify/static` with Options
+`wildcard: false` matters. Static files receive concrete Fastify routes instead of a catch-all
+`GET /*`, so τjs can also register an explicit terminal application-shell route.
 
-Override the default auto-registration with custom options:
+On a τjs-created host the facility is installed at the created root. On a supplied Fastify instance
+it is encapsulated with the τjs applications. A caller's own static routes remain the caller's
+responsibility.
+
+:::caution[`staticAssets: false` is not currently a production opt-out]
+The public option accepts `false`, but the current production registration treats a falsy value the
+same as omission and installs the default static plugin. Do not rely on `false` to disable static
+serving. A product correction is tracked separately from this documentation pass.
+:::
+
+## Custom static registration
+
+Pass a plugin and options when the defaults do not fit:
 
 ```ts
 import fastifyStatic from "@fastify/static";
-import { createServer } from "@taujs/server";
 import path from "node:path";
 
-// Use process.cwd() for predictable paths (see Troubleshooting)
-const isDev = process.env.NODE_ENV === "development";
-const clientRoot = isDev
-  ? path.join(process.cwd(), "client")
-  : path.join(process.cwd(), "dist", "client");
+const clientRoot = path.resolve(
+  process.cwd(),
+  process.env.NODE_ENV === "production" ? "dist/client" : "src/client",
+);
 
 await createServer({
   fastify,
@@ -83,10 +74,12 @@ await createServer({
       index: false,
       wildcard: false,
       decorateReply: false,
-      setHeaders: (res, filePath) => {
-        // Custom cache headers
+      setHeaders: (response, filePath) => {
         if (/[.-][a-f0-9]{8,}\./.test(filePath)) {
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          response.setHeader(
+            "Cache-Control",
+            "public, max-age=31536000, immutable",
+          );
         }
       },
     },
@@ -94,321 +87,218 @@ await createServer({
 });
 ```
 
-### Multiple Static Mounts
+τjs supplies `root`, `prefix`, `index` and `wildcard` defaults before applying your options. An
+explicit option wins.
 
-You can mount multiple static plugins or prefixes:
+`decorateReply: false` is useful when the host already has an `@fastify/static` instance and the τjs
+scope only needs routes, not another `reply.sendFile` decoration.
 
-```ts
-await createServer({
-  fastify,
-  config,
-  clientRoot,
+### Multiple mounts
 
-  staticAssets: [
-    {
-      // App assets
-      plugin: fastifyStatic,
-      options: {
-        root: path.join(clientRoot, "app"),
-        prefix: "/app/",
-      },
-    },
-    {
-      // Admin assets
-      plugin: fastifyStatic,
-      options: {
-        root: path.join(clientRoot, "admin"),
-        prefix: "/admin/",
-      },
-    },
-  ],
-});
-```
-
-τjs sorts entries by prefix depth, so more specific prefixes are registered first.
-
-## Public Directory
-
-τjs expects a project-level `public/` directory for non-bundled assets:
-
-```txt
-project/
-├── public/
-│   ├── favicon.ico
-│   ├── robots.txt
-│   └── app/
-│       └── logo.svg
-└── client/
-    ├── app/
-    └── admin/
-```
-
-**During build:**
-
-- **Client build:** copies `public/` contents into `dist/client/`
-- **SSR build:** uses `publicDir: false` (no extra copying)
-
-**Result after build:**
-
-```txt
-dist/client/
-├── favicon.ico
-├── robots.txt
-├── app/
-│   ├── logo.svg
-│   └── assets/
-└── admin/
-    └── assets/
-```
-
-These files are then served by whatever static setup you’ve chosen (Fastify, CDN, proxy).
-
-## App-Specific Assets
-
-You can namespace assets per app:
-
-```txt
-public/
-├── app/
-│   ├── logo.svg
-│   └── favicon.ico
-└── admin/
-    ├── logo.svg
-    └── favicon.ico
-```
-
-References in HTML:
-
-```html
-<!-- Customer app -->
-<img src="/app/logo.svg" />
-
-<!-- Admin app -->
-<img src="/admin/logo.svg" />
-```
-
-As long as your static middleware (or CDN/proxy) serves `dist/client/` at `/`, these URLs resolve correctly.
-
-## Static Caching Pattern
-
-τjs does **not** implement full static site generation (SSG). There is no build-time HTML export or separate "static" data API. Instead, you can get **SSG-like** behaviour for suitable routes by combining:
-
-- SSR
-- `hydrate: false` (no client-side JS)
-- Proper static asset caching
-- HTML caching at the CDN / proxy level
-
-This is a runtime caching problem, not a build pipeline problem.
-
-### 1. Mark routes that are safe to treat as static
-
-Typical candidates:
-
-- Marketing pages (`/`, `/about`, `/pricing`)
-- Documentation
-- Blog posts that don't depend on the logged-in user
-
-In `taujs.config.ts`:
+`staticAssets` may be an array:
 
 ```ts
-export default defineConfig({
-  apps: [
-    {
-      appId: "web",
-      entryPoint: "",
-      routes: [
-        {
-          path: "/",
-          attr: {
-            render: "ssr",
-            hydrate: false, // no client JS needed
-            data: async () => ({
-              hero: {
-                title: "τjs – Orchestrated SSR",
-                subtitle: "Build-time composition, server-side rendering.",
-              },
-            }),
-          },
-        },
-      ],
-    },
-  ],
-});
-```
-
-**Constraints for "SSG-like" pages:**
-
-- Do **not** rely on `ctx.user` or per-request auth
-- Treat data as global / shared, not user-specific
-- Be comfortable with caching the response at the edge
-
-### 2. Cache static assets aggressively
-
-You can set cache headers using `setHeaders` in your `staticAssets` configuration. A simple hashed vs non-hashed strategy is usually enough:
-
-```ts
-import fastifyStatic from "@fastify/static";
-
-await createServer({
-  fastify,
-  config,
-  serviceRegistry,
-  staticAssets: {
+staticAssets: [
+  {
     plugin: fastifyStatic,
     options: {
-      root: clientRoot,
-      prefix: "/",
-      setHeaders: (res, filePath) => {
-        // Crude check: filenames that contain a hash
-        const isHashed = /[.-][a-f0-9]{8,}\./.test(filePath);
-
-        if (isHashed) {
-          // JS/CSS bundles, images, etc. with content hashes
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        } else if (filePath.endsWith(".html")) {
-          // HTML entry points – keep reasonably fresh
-          res.setHeader(
-            "Cache-Control",
-            "public, max-age=60, stale-while-revalidate=300"
-          );
-        } else {
-          // Fallback for other assets
-          res.setHeader("Cache-Control", "public, max-age=3600");
-        }
-      },
+      root: path.join(clientRoot, "customer"),
+      prefix: "/customer/",
+      wildcard: false,
+      decorateReply: false,
     },
   },
+  {
+    plugin: fastifyStatic,
+    options: {
+      root: path.join(clientRoot, "admin"),
+      prefix: "/admin/",
+      wildcard: false,
+      decorateReply: false,
+    },
+  },
+];
+```
+
+τjs sorts mounts by prefix depth before registration so a more specific prefix is registered first.
+Fastify still rejects exact route collisions at boot.
+
+## Caller-owned Fastify and terminal wildcards
+
+A supplied host may register its own `@fastify/static` before τjs. That works when the route shapes do
+not collide.
+
+The caller plugin's own default is `wildcard: true`, which claims `GET /*`. If a τjs application also
+declares `/*` as its shell route, Fastify correctly fails with `FST_ERR_DUPLICATED_ROUTE`. Registration
+order cannot resolve two owners of the same method and path.
+
+Use one of these arrangements:
+
+```ts
+// Concrete file routes can coexist with a τjs terminal shell route.
+await fastify.register(fastifyStatic, {
+  root: path.resolve("dist/client"),
+  prefix: "/",
+  wildcard: false,
 });
 ```
 
-This gives you:
+```ts
+// Or keep host assets on a non-overlapping prefix.
+await fastify.register(fastifyStatic, {
+  root: path.resolve("public-assets"),
+  prefix: "/host-assets/",
+});
+```
 
-- Long-lived caching for hashed assets (`immutable`)
-- Short-lived but cacheable HTML
-- Reasonable defaults for everything else
+See [Host Ownership](/guides/host-ownership/#application-shell-and-unmatched-urls) for shell and
+not-found behaviour.
 
-### 3. Cache HTML at the edge
+## Public directories
 
-Please see [CDN for Static Assets in deployment section](/guides/build-deployment/#option-b-cdn-for-static-assets)
+Vite resolves `public/` against each application's root, not once from the repository root.
 
-τjs returns HTML like any other SSR server. To make it feel like SSG:
+For `entryPoint: "customer"` and the default `clientBaseDir`, use:
 
-- Put a CDN / proxy (Cloudflare, CloudFront, Fastly, Nginx, etc.) in front
-- Cache responses for "safe" routes (`/`, `/about`, `/pricing`, etc.)
-- Use a shorter TTL for HTML than assets
+```text
+src/client/customer/
+├── entry-client.tsx
+├── entry-server.tsx
+└── public/
+    ├── favicon.svg
+    └── images/
+        └── logo.svg
+```
 
-For example (CloudFront / generic CDN strategy):
+The client build copies those files to the root of that application's output:
 
-- Assets under `/assets/`: `max-age=31536000, immutable`
-- HTML (entry routes): `max-age=60, stale-while-revalidate=300`
+```text
+dist/client/customer/
+├── favicon.svg
+├── images/
+│   └── logo.svg
+└── assets/
+```
 
-To the end user:
+When `entryPoint` is empty, the application root is `src/client` and its public directory is
+`src/client/public`.
 
-- First request hits τjs and renders SSR
-- Next requests hit the CDN and serve cached HTML + cached assets
-- The experience is effectively "static" without a separate SSG pipeline
+SSR builds set `publicDir: false`; they do not copy public files a second time. See
+[Build & Deployment](/guides/build-deployment/#publicdir-behavior).
 
-### What τjs does _not_ do
+## Asset URLs in rendered HTML
 
-- No "static props" / "server side props" split
-- No HTML export or "build-time routes" concept
-- No implicit caching or magic headers
+Each build uses the application entry point as its base. Prefer manifest-derived asset references
+from the renderer and root-relative URLs for known public files:
 
-You keep a single data model (`attr.data`) and control caching via:
+```html
+<img src="/customer/images/logo.svg" alt="Customer" />
+```
 
-- Static asset configuration (`staticAssets` / Fastify)
-- CDN / proxy configuration for HTML
+Confirm the production URL against the built output and chosen static prefix. A public file is copied,
+not imported, so Vite does not hash or transform it.
 
-### Per-route cache headers (optional pattern)
+Imported images, fonts, CSS and JavaScript belong to the Vite module graph and normally receive
+hashed output names. Do not hard-code those generated names.
 
-If you want to drive cache policy from your own routing rules, do it at the Fastify layer rather than inside τjs:
+## Caching
+
+Static files and rendered HTML have different owners.
+
+### Hashed assets
+
+Hashed client assets are suitable for long immutable caching:
+
+```text
+Cache-Control: public, max-age=31536000, immutable
+```
+
+Set that header in `staticAssets.options.setHeaders`, the CDN or the reverse proxy. Keep unhashed
+public files on a shorter policy unless their URLs are versioned.
+
+### Rendered HTML
+
+`@fastify/static` does not serve τjs-rendered HTML. Configure HTML caching on the Fastify response,
+reverse proxy or CDN instead.
+
+Only cache a route publicly when its entire response is safe to share. Authenticated content,
+session-dependent output, personalised CSP, cookies and per-request data normally rule out a public
+cache.
+
+A simple host-level Fastify policy can target known public pages:
 
 ```ts
-fastify.addHook("onSend", (req, reply, payload, done) => {
-  const path = req.raw.url?.split("?")[0] ?? "";
+fastify.addHook("onSend", async (request, reply, payload) => {
+  const pathname = request.raw.url?.split("?")[0] ?? "";
 
-  if (path === "/" || path === "/about" || path === "/pricing") {
+  if (pathname === "/" || pathname === "/pricing") {
     reply.header(
       "Cache-Control",
-      "public, max-age=60, stale-while-revalidate=300"
+      "public, max-age=60, stale-while-revalidate=300",
     );
   }
 
-  done();
+  return payload;
 });
 ```
+
+τjs does not provide static-site generation, build-time HTML export or automatic cache headers.
+`hydrate: false` removes the client application from a rendered route; it does not make the HTML
+cache-safe by itself.
+
+## CDN-owned assets
+
+A CDN or reverse proxy may serve `dist/client` before requests reach Fastify. The HTML server still
+needs the manifests and SSR modules required to generate correct asset references.
+
+Because the current `staticAssets: false` path does not disable default production registration, a
+CDN-only deployment should verify that the additional Fastify static routes do not conflict with host
+routes. Treat a true opt-out as pending product work rather than relying on undocumented behaviour.
 
 ## Troubleshooting
 
-### Using `__dirname` with Relative Paths
+### Wrong root after bundling the server
 
-A common mistake when explicitly setting `clientRoot`
-
-```ts
-import { fileURLToPath } from "node:url";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const clientRoot = isDev
-  ? path.resolve(__dirname, "../client")
-  : path.resolve(__dirname, "../dist/client"); // Breaks after build!
-```
-
-You will end up with something not unlike in production:
+Paths derived from source-file `__dirname` often gain an extra `dist` segment after the server is
+bundled. Prefer an explicit path from the process working directory:
 
 ```ts
-ENOENT: no such file or directory, open '.../dist/dist/client/index.html'
+const clientRoot = path.resolve(process.cwd(), "dist/client");
 ```
 
-Use `process.cwd()` as directory where you **run** your server. Or alternatively use τjs auto-resolvers to client directory
+Or omit `clientRoot` when the process starts from the project root and use the environment defaults.
 
-### Assets Not Loading
+### Asset returns the application shell
 
-Check one of the following is true:
+Check whether a terminal wildcard page owns the asset URL. An explicit `/*` page renders every URL it
+matches, including asset-like misses. Use a narrower page prefix and a separate asset prefix when
+missing files must remain 404 responses.
 
-- You configured `staticAssets` with a valid plugin (e.g. `@fastify/static`), **or**
-- You have a CDN / proxy correctly pointing at your built `dist/client/` directory.
+### Boot fails with `FST_ERR_DUPLICATED_ROUTE`
 
-Verify the files actually exist:
+List the method and path claimed by each static and page registration. The common collision is a
+caller-owned wildcard static mount and a τjs `/*` page. Set the caller mount to `wildcard: false` or
+separate the prefixes.
+
+### Wrong MIME type
+
+First confirm the response came from the static route rather than a shell or not-found handler. If a
+real file needs an override, set the header in that mount's `setHeaders` callback.
+
+### Files are missing
+
+Verify both the source location and built output:
 
 ```bash
-ls dist/client/app/assets/
-# Should show built JS/CSS chunks
+ls src/client/customer/public
+ls dist/client/customer
 ```
 
-### Wrong MIME Types
+A selective client build cleans `dist/`, so an artefact assembly pipeline must restore the outputs for
+other configured applications before deployment.
 
-If your static plugin needs MIME overrides, configure them in the plugin options:
+Related guides:
 
-```ts
-import fastifyStatic from "@fastify/static";
-
-await createServer({
-  fastify,
-  config,
-  clientRoot,
-  staticAssets: {
-    plugin: fastifyStatic,
-    options: {
-      root: "./dist/client",
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith(".js")) {
-          res.setHeader("Content-Type", "application/javascript");
-        }
-      },
-    },
-  },
-});
-```
-
-### HTML doesn't feel static
-
-If pages still feel "dynamic":
-
-- Confirm the route doesn't depend on per-user data
-- Ensure `hydrate: false` is set where appropriate
-- Check CDN / proxy cache rules for HTML
-- Check that `staticAssets.setHeaders` isn't forcing `no-cache` on HTML files
-
-```
-
-```
+- [Host Ownership](/guides/host-ownership/) for Fastify scope and shell ownership
+- [Build & Deployment](/guides/build-deployment/) for output and selective builds
+- [Micro-Frontends](/guides/micro-frontend/) for per-application artefacts

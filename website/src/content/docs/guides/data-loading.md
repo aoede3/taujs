@@ -1,279 +1,267 @@
 ---
 title: Data Loading
-description: How to load data for routes in τjs
+description: Critical and deferred route data for SSR and streaming responses
 ---
 
-τjs provides a route-first, declarative way to load data for SSR and streaming. This page builds on the request contract model / data ownership described earlier, but can be read independently.
+τjs declares initial-response data at the route boundary. The server can therefore see which work is
+critical, which work is deferred, which service edges are involved and which response owns the work.
 
-Data loading happens at the route level through the `attr.data` function. This function:
+There are three separate inputs:
 
-- Runs on the server
-- Receives route parameters and request context
-- Returns data that's injected into your page
+| Input | Purpose | Timing |
+| --- | --- | --- |
+| `attr.data` | Critical page data | Must settle before its renderer can complete the required pre-shell work |
+| `attr.head` | Dynamic head data | Settles before rendering and reaches `headContent` as `headData` |
+| `attr.deferred` | Named non-status-bearing data | Starts with the response and may settle after streaming begins |
 
-## Basic Data Loading
+Component-started fetching remains useful after hydration, but it is outside this response contract.
 
-```typescript
-// taujs.config.ts
-{
-  path: '/users/:id',
-  attr: {
-    render: 'ssr',
-    data: async (params, ctx) => {
-      const res = await fetch(`https://api.example.com/users/${params.id}`);
-      return await res.json();
-    }
-  }
-}
-```
+## Critical route data
 
-## Request Context
-
-Your data handler receives a context object:
-
-```typescript
-type RequestContext = {
-  traceId: string; // Request trace ID
-  logger: Logger; // Scoped logger
-  headers: Record<string, string>; // Request headers
-};
-```
-
-**Example:**
-
-```typescript
-data: async (params, ctx) => {
-  ctx.logger.info({ userId: params.id }, "Loading user");
-
-  const res = await fetch(`/api/users/${params.id}`, {
-    headers: {
-      "x-trace-id": ctx.traceId,
-      authorization: ctx.headers.authorization || "",
-    },
-  });
-
-  return await res.json();
-};
-```
-
-## Service Descriptors
-
-Delegate to registered services for better separation:
-
-```typescript
-{
-  path: '/users/:id',
-  attr: {
-    render: 'ssr',
-    data: async (params) => ({
-      serviceName: 'UserService',
-      serviceMethod: 'getUser',
-      args: { id: params.id }
-    })
-  }
-}
-```
-
-τjs calls the service automatically and returns the result. [See the Services section for further information](/guides/services).
-
-## Rendering Modes
-
-### SSR (Server-Side Rendering)
-
-Data loads completely before rendering:
-
-```typescript
-{
-  path: '/products',
-  attr: {
-    render: 'ssr',
-    data: async () => {
-      const products = await db.products.findAll();
-      return { products };
-    }
-  }
-}
-```
-
-**Characteristics:**
-
-- Data fully available in `headContent`
-- Complete HTML in single response
-- Best for SEO-critical pages
-
-**Performance tip:** For content that doesn't change per-user (marketing pages, documentation), you can combine SSR with edge caching to serve essentially static pages. See [Edge-Cached Static Pages](/guides/static-assets/#static-caching-pattern).
-
-### Streaming SSR
-
-Renderer output can stream progressively after its required pre-shell work:
-
-```typescript
-{
-  path: '/dashboard',
-  attr: {
-    render: 'streaming',
-    meta: {  // Required for streaming
-      title: 'Dashboard',
-      description: 'User dashboard'
-    },
-    data: async () => {
-      const metrics = await fetchMetrics();
-      return { metrics };
-    }
-  }
-}
-```
-
-**Characteristics:**
-
-- Renderer output can begin before all streamed boundaries have completed
-- React and Vue may build the head before route `data` settles; Solid waits for critical data
-- Static `meta` is required and is available as input to `headContent`
-- For portable dynamic head values, declare `attr.head`; its loader resolves before rendering and
-  reaches `headContent` as `headData`
-
-See [Head Management](/guides/head-management/) for the renderer timing, the `meta` and `attr.head`
-roles, and the degradation taxonomy.
-
-### Deferred route data (streaming only)
-
-A streaming route can also declare work it starts but does **not** await. `attr.deferred` is a flat
-record of named loaders whose values are allowed to arrive after rendering begins:
-
-```typescript
-{
-  path: '/products/:id',
-  attr: {
-    render: 'streaming',
-    meta: { title: 'Product' },
-
-    // critical: the response waits for this
-    data: serviceData('catalogue', 'product', ({ id }) => ({ id })),
-
-    // response-owned, started without being awaited
-    deferred: {
-      reviews: serviceData('reviews', 'forProduct', ({ id }) => ({ id })),
-    },
-  },
-}
-```
-
-Entries use the same handler shape as `attr.data`. Because the work is *declared*, τjs starts it
-once per request outside the component tree, cancels it with the request, records `complete` /
-`failed` / `aborted` on the trace, and shows it in the request graph - none of which is true of
-async work a component starts for itself. `deferred` describes timing, not optionality: there is no
-per-entry timeout, retry or dependency.
-
-Deferred entries are not HTTP-status-bearing: their outcome may arrive after the response has
-committed, so anything that must prevent the response, redirect it or set its status belongs in
-critical resolution (`attr.data`, middleware) - never in `deferred`. `complete` / `failed` /
-`aborted` are trace outcomes, not HTTP statuses.
-
-See [Deferred Route Data](/reference/taujs-config#deferred-route-data) for the full rules and the
-renderer guides for the component-facing accessors:
-[React](/renderers/react#deferred-route-data),
-[Vue](/renderers/vue#deferred-route-data),
-[Solid](/renderers/solid#deferred-route-data).
-
-## Using Data on the Client
-
-### SSR Store
-
-Access server data in your components:
-
-```typescript
-// client/App.tsx
-import { useSSRStore } from "@taujs/react";
-
-export function App() {
-  const data = useSSRStore<{ products: Product[] }>();
-
-  return (
-    <div>
-      {data.products.map((product) => (
-        <ProductCard key={product.id} product={product} />
-      ))}
-    </div>
-  );
-}
-```
-
-## Client-side updates after SSR
-
-τjs only defines how data is loaded for the initial render (`attr.data`) and how that data is made available to your renderer (for example via `useSSRStore()`).
-
-For updates after hydration (refreshing a dashboard, polling, user-triggered reloads), use standard client-side data fetching patterns (TanStack Query, SWR, custom hooks) against **explicit API or service endpoints**.
-
-A common pattern is to reuse the same underlying “use case” or service logic in both places:
-
-- `attr.data` calls into domain/service code for the initial render
-- an `/api/*` endpoint calls the same domain/service code for client refresh
-- the client fetches from `/api/*` using your preferred data library
-
-This keeps SSR orchestration separate from client API concerns and avoids implicitly exposing server route logic to the browser.
-
-## Advanced: RouteContext
-
-- `attr.data(params, ctx)` enable you to fetch data.
-- Components read that data via `useSSRStore<YourType>()`.
-
-`RouteContext` exists for a narrower job: **making your renderer and `<head>` logic route-aware without the need of a client-side router**.
-
-### What RouteContext gives you
-
-Each request gets a `routeContext` object built from your `taujs.config.ts`, including things like:
-
-- `appId`
-- matched route definition (`path`, `attr`, etc.)
-- `params`
-- resolved data key (for debugging / telemetry)
-
-You can thread that into `@taujs/react` so your renderer can do things like:
-
-- tweak `<title>` / meta based on the matched route
-- change logging / telemetry behaviour per route
-- handle “families” of routes (e.g. all `/admin/*`) without bolting that logic into your components
-- Zero client-side routing but still wanting route-aware rendering
-
-### Wiring RouteContext into the renderer
+A critical loader runs on the server and must resolve to a plain object:
 
 ```ts
-// client/entry-server.tsx
-import { createRenderer } from "@taujs/react";
+// taujs.config.ts
+{
+  path: "/products/:id",
+  attr: {
+    render: "ssr",
+    data: async ({ id }, ctx) => {
+      ctx.logger.info({ productId: id }, "Loading product");
 
-import { AppBootstrap } from "./AppBootstrap";
-import config from "../taujs.config";
+      const response = await fetch(
+        `https://catalogue.example.test/products/${encodeURIComponent(String(id))}`,
+        { signal: ctx.signal },
+      );
 
-import type { RouteContext } from "@taujs/server";
+      if (!response.ok) {
+        throw new Error(`Catalogue returned ${response.status}`);
+      }
 
-export const { renderSSR, renderStream } = createRenderer<
-  Record<string, unknown>,
-  RouteContext<typeof config>
->({
-  appComponent: ({ location, routeContext }) => (
-    <AppBootstrap location={location} routeContext={routeContext} />
-  ),
-  headContent: ({ data, meta, routeContext }) => {
-    // React may build a streamed head before `data` settles. Read `headData`/`meta` for
-    // portable streamed-head values (see the head-management guide).
-    const anyData = data as { title?: string; description?: string };
-
-    const baseTitle =
-      anyData.title ?? (meta.title as string | undefined) ?? "My App";
-
-    const section = routeContext?.path.startsWith("/admin")
-      ? " · Admin"
-      : routeContext?.path.startsWith("/docs")
-      ? " · Docs"
-      : "";
-
-    return `<title>${baseTitle}${section}</title>`;
+      return { product: await response.json() };
+    },
   },
-});
+}
 ```
 
-<!--
-## What's Next?
+Critical data is appropriate when the result is needed to render the initial response. Any
+condition that must prevent, redirect or choose the status of the response belongs in middleware or
+critical resolution rather than deferred data. As with every streamed response, an error after bytes
+have committed cannot rewrite the status already sent.
 
-- [Services](/guides/services) - Organise data access
-- [Head Management](/guides/head-management) - Use data in `<head>` -->
+Do not return a primitive, array or class instance as the root value. Route data crosses the SSR
+serialisation boundary and must be a plain JSON-compatible record.
+
+## Loader context
+
+A route loader receives route parameters and a request-scoped context. The useful public fields are:
+
+```ts
+type LoaderContext = {
+  traceId: string;
+  logger: Logs;
+  headers: Record<string, string>;
+  signal?: AbortSignal;
+  call: RegistryCaller;
+};
+```
+
+- `traceId` and `logger` use the τjs request identity and selected logger lineage.
+- `headers` contains normalised request-header values. Treat credentials as sensitive.
+- `signal` aborts with the response lifecycle.
+- `call` invokes a registered service with the same request context.
+
+The Fastify authentication decorator may attach `req.user`, but τjs does not copy it into this
+context automatically. Resolve identity explicitly in trusted server code when a loader needs it.
+See [Authentication](/guides/authentication/#identity-in-route-data-and-services).
+
+## Declared service data
+
+For a direct route-to-service edge, create a typed `serviceData` helper from the registry:
+
+```ts
+// src/server/services/registry.ts
+import {
+  createServiceData,
+  defineServiceRegistry,
+} from "@taujs/server/config";
+
+export const serviceRegistry = defineServiceRegistry({
+  catalogue: CatalogueService,
+  reviews: ReviewsService,
+});
+
+export const serviceData = createServiceData<typeof serviceRegistry>();
+```
+
+```ts
+{
+  path: "/products/:id",
+  attr: {
+    render: "ssr",
+    data: serviceData("catalogue", "product", ({ id }) => ({
+      id: String(id),
+    })),
+  },
+}
+```
+
+The helper checks service and method names, validates mapped parameter types and records the declared
+route-to-service edge without executing the loader. This is more useful to the request graph than a
+promise discovered inside a component.
+
+Use `ctx.call` when a route must coordinate several service calls or transform their results:
+
+```ts
+data: async ({ id }, ctx) => {
+  const product = await ctx.call("catalogue", "product", {
+    id: String(id),
+  });
+  const stock = await ctx.call("catalogue", "stock", {
+    id: String(id),
+  });
+
+  return { product, stock };
+};
+```
+
+See [Services](/guides/services/) for registry, composition and error semantics.
+
+## SSR and streaming
+
+### SSR
+
+An SSR route resolves its critical data before rendering the document:
+
+```ts
+{
+  path: "/products",
+  attr: {
+    render: "ssr",
+    data: serviceData("catalogue", "listProducts", () => ({})),
+  },
+}
+```
+
+The renderer receives the settled value, emits the HTML and serialises the same snapshot for
+hydration when hydration is enabled.
+
+### Streaming
+
+A streaming route can begin sending renderer output before every streamed boundary settles:
+
+```ts
+{
+  path: "/dashboard",
+  attr: {
+    render: "streaming",
+    meta: { title: "Dashboard" },
+    data: async (_params, ctx) => ({
+      metrics: await loadMetrics({ signal: ctx.signal }),
+    }),
+  },
+}
+```
+
+Static `meta` is required for streaming. React and Vue may construct the head before critical
+`attr.data` settles; Solid waits for critical data. Use `attr.head` for portable dynamic head values
+rather than relying on critical page data. See [Head Management](/guides/head-management/).
+
+Renderer-native ordering governs the body stream. Deferred work must not delay independent initial
+shell content, but later byte ordering differs between React, Vue and Solid.
+
+## Deferred route data
+
+`attr.deferred` is a flat record available only on streaming routes:
+
+```ts
+{
+  path: "/products/:id",
+  attr: {
+    render: "streaming",
+    meta: { title: "Product" },
+
+    data: serviceData("catalogue", "product", ({ id }) => ({
+      id: String(id),
+    })),
+
+    deferred: {
+      reviews: serviceData("reviews", "forProduct", ({ id }) => ({
+        id: String(id),
+      })),
+    },
+  },
+}
+```
+
+Each entry uses the same loader shape as `attr.data`. τjs:
+
+- starts each declared entry once per response
+- exposes the named promise to the selected renderer
+- aborts response-owned work on disconnect or response termination
+- records `complete`, `failed` or `aborted` once per key
+- includes the declared edge in the request graph
+- seeds hydration from the terminal server result without a client refetch
+
+Deferred means later, not optional. There is one response-level deadline, not a retry or timeout per
+entry. A deferred result cannot redirect, prevent the response or choose its HTTP status. Put any
+status-bearing condition in middleware or critical data.
+
+A component cannot promote its own async work into the registry. Work started in the component tree
+remains UI-local and does not receive τjs cancellation, trace or hydration guarantees.
+
+See [Deferred Route Data](/reference/taujs-config/#deferred-route-data) for validation and lifecycle
+rules. The renderer guides document their native accessors:
+[React](/renderers/react/#deferred-route-data),
+[Vue](/renderers/vue/#deferred-route-data) and
+[Solid](/renderers/solid/#deferred-route-data).
+
+## Reading initial data
+
+The renderer packages intentionally follow their framework idioms:
+
+| Renderer | Initial-data read |
+| --- | --- |
+| React | `useSSRStore<T>()` returns the resolved value |
+| Vue | `await useSSRDataAsync<T>()`, or `useSSRData<T>()` for a guarded computed value |
+| Solid | `useSSRStore<T>().data()` returns the reactive value |
+
+Use the matching renderer guide for complete provider, Suspense and hydration examples. Do not build a
+cross-framework store wrapper solely to make these spellings identical.
+
+## Client updates after hydration
+
+Route data owns the initial response. It does not replace the application's client data layer.
+Continue to use explicit API routes and the framework's normal client-fetching tools for:
+
+- mutations and user-triggered actions
+- polling and live updates
+- reads that depend on browser-only state
+- refreshes after the initial snapshot
+
+A common arrangement is:
+
+```text
+initial critical/deferred data  -> τjs route contract
+subsequent reads                -> client query library + explicit API
+mutations                       -> application endpoints
+```
+
+Reuse underlying domain or service functions where helpful, but do not expose a route loader as an
+automatic replayable data endpoint.
+
+## Choosing critical or deferred
+
+Use critical data when a failure must stop the response, when the value determines status or redirect,
+or when the initial shell cannot render meaningfully without it.
+
+Use deferred data when the shell can render independently and the value belongs to this response but
+may arrive later. Keep component-owned fetching for work that truly begins from post-hydration UI
+interaction.
+
+Related guides:
+
+- [Request Contracts & Data](/guides/request-contracts/) for ownership by declaration
+- [Services](/guides/services/) for mediated server work
+- [Head Management](/guides/head-management/) for head timing
+- [Logging & Telemetry](/guides/logging-telemetry/) for request identity and trace outcomes

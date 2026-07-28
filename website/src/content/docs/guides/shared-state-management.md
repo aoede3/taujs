@@ -138,7 +138,7 @@ new request and resolves that application's contract again.
 
 Deferred work is still declared in `taujs.config.ts`; a component cannot promote its own promise into
 the response registry. Each renderer exposes the declared entry through its native asynchronous
-primitive. See [Data Loading](/guides/data-loading/#deferred-route-data-streaming-only) and the renderer reference for the
+primitive. See [Data Loading](/guides/data-loading/#deferred-route-data) and the renderer reference for the
 accessor used by that application.
 
 The registry, delivery envelope and result are scoped to the one selected application and response.

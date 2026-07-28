@@ -1,176 +1,184 @@
 ---
 title: Logging & Telemetry
-description: Structured logging with request tracing and debug categories
+description: Logger ownership, request identity and τjs development traces
 ---
 
-How τjs provides structured logging with request tracing and debug categories.
+τjs produces two related forms of operational evidence:
 
-τjs includes a flexible logging system that integrates with popular Node.js loggers (Pino, Winston) while also providing its own structured logger. The system supports:
+- structured log records delivered through the selected logger
+- development request traces describing how τjs resolved and rendered a response
 
-- Request-scoped logging with trace IDs
-- Debug categories for granular control
-- Integration with Fastify's logger
-- Child loggers for contextual logging
+They share request correlation, but they are not the same system. A log sink is an operational stream;
+a τjs trace is a bounded application-response record for local introspection and MCP tools.
 
-## Using Fastify's Logger
+## Logger selection
 
-The recommended approach is to use Fastify's built-in Pino logger:
-
-```typescript
-// server/index.ts
-import Fastify from "fastify";
-import pino from "pino";
-import { createServer } from "@taujs/server";
-
-const fastify = Fastify({
-  logger: pino({
-    level: process.env.NODE_ENV === "production" ? "info" : "debug",
-    transport:
-      process.env.NODE_ENV !== "production"
-        ? {
-            target: "pino-pretty",
-            options: { colorize: true },
-          }
-        : undefined,
-  }),
-});
-
-await createServer({
-  fastify,
-  config,
-  serviceRegistry,
-  clientRoot: "./client",
-});
-```
-
-When you supply a logging-enabled Fastify instance, τjs uses Fastify's logger
-for its runtime records. Request records inherit from `request.log`, so they
-retain Fastify's request ID, serializers, redaction rules, transport and
-destination.
-
-The complete precedence is:
+The runtime resolves one logger in this order:
 
 ```text
 createServer({ logger })
           ↓ otherwise
-active fastify.log / request.log
+active fastify.log and request.log
           ↓ otherwise
-τjs console logger
+τjs console fallback
 ```
 
-An explicit `createServer({ logger })` is authoritative for τjs records. An
-active Fastify logger means that `fastify.log` has a non-empty level other than
-`silent`. When neither source is available, τjs uses its standalone formatted
-console logger.
+An active Fastify logger has a non-empty level other than `silent`. An explicit `logger` passed to
+`createServer()` is authoritative for τjs records. τjs does not change the selected sink's level,
+serialisers, redaction, transport or destination.
 
-τjs does not alter the selected logger's level, serializers, redaction,
-transport or destination.
+### Fastify logger
 
-## Request Tracing
+For a caller-owned host, configure logging directly on Fastify:
 
-### Fastify request IDs and τjs trace IDs
+```ts
+import Fastify from "fastify";
 
-These IDs describe related but different things:
-
-- `reqId` is Fastify's identity for the HTTP request.
-- `traceId` is τjs's identity for correlating route resolution, services,
-  rendering and the response.
-
-Request-scoped τjs records carry both. They also carry the request URL and
-method as structured bindings. The fields are bound once rather than repeated
-inside a nested logging context.
-
-### Automatic Trace ID Generation
-
-τjs's SSR handler generates or extracts trace IDs for request correlation:
-
-**Trace ID priority:**
-
-1. `x-trace-id` header (if valid)
-2. `req.id` from Fastify
-3. Generated via `crypto.randomUUID()`
-
-**Validation:** Trace IDs must be alphanumeric with hyphens, underscores, dots, or colons, max 128 characters.
-
-### Trace ID in Response
-
-For SSR routes, τjs automatically adds the trace ID to response headers:
-
-```typescript
-// Automatic for τjs SSR routes
-'x-trace-id': 'abc123-def456-...'
-```
-
-### Accessing Trace ID
-
-In data handlers:
-
-```typescript
-{
-  path: '/users/:id',
-  attr: {
-    render: 'ssr',
-    data: async (params, ctx) => {
-      ctx.logger.info({ userId: params.id }, 'Fetching user');
-
-      // Pass to downstream services
-      const res = await fetch(`/api/users/${params.id}`, {
-        headers: {
-          'x-trace-id': ctx.traceId
-        }
-      });
-
-      return await res.json();
-    }
-  }
-}
-```
-
-In services:
-
-```typescript
-export const UserService = defineService({
-  getUser: async (params: { id: string }, ctx) => {
-    ctx.logger?.info(
-      { userId: params.id, traceId: ctx.traceId },
-      "Loading user from database"
-    );
-
-    const user = await db.users.findById(params.id);
-    return { user };
+const fastify = Fastify({
+  logger: {
+    level: process.env.NODE_ENV === "production" ? "info" : "debug",
+    redact: [
+      "req.headers.authorization",
+      "req.headers.cookie",
+      "params.password",
+      "params.token",
+    ],
+    transport:
+      process.env.NODE_ENV === "production"
+        ? undefined
+        : {
+            target: "pino-pretty",
+            options: { colorize: true },
+          },
   },
 });
-```
 
-## Debug Categories
-
-τjs supports granular debug logging through categories:
-
-**Available categories:**
-
-- `auth` - Authentication hooks and verification
-- `routes` - Route matching and resolution
-- `errors` - Error handling and recovery
-- `vite` - Vite dev server integration
-- `network` - Network interface detection
-- `ssr` - SSR rendering pipeline
-
-### Enabling Debug Categories
-
-**Enable all:**
-
-```typescript
 await createServer({
   fastify,
   config,
   serviceRegistry,
-  debug: true, // or { all: true }
 });
 ```
 
-**Enable specific categories:**
+τjs runtime records use `fastify.log`. Request records derive from `request.log`, retaining the host
+request ID, bindings, redaction, serialisers and destination.
 
-```typescript
+A τjs-created Fastify instance has logging disabled by default, so τjs uses its standalone console
+logger unless an explicit `createServer({ logger })` is supplied. The fallback is intentionally not
+silent: records still reach the process console even though caller-owned hosts receive no τjs
+presentation banner.
+
+## Structured records
+
+External sinks receive a semantic message and metadata. τjs does not prepend its console timestamp or
+`[level]` label before handing a record to Fastify, Pino, Winston or a custom logger. The selected sink
+owns framing.
+
+Application code uses metadata first and message second:
+
+```ts
+ctx.logger.info(
+  { productId: params.id, operation: "load" },
+  "Loading product",
+);
+```
+
+Request bindings are installed through a child logger and are not repeated in a nested context field.
+Typical bindings include `traceId`, Fastify `reqId`, URL and method.
+
+Service dispatch creates another child with `component: "service-call"`, service name and method. Do
+not manually repeat these fields on every service record unless the local value is genuinely
+different.
+
+## Request identity
+
+Fastify and τjs retain two field names:
+
+- `reqId` is the identity Fastify assigned to the HTTP request
+- `traceId` is the correlation value τjs uses for its response lifecycle
+
+τjs chooses `traceId` in this order:
+
+1. a valid inbound `x-trace-id`
+2. Fastify `req.id`, converted from string or number
+3. `crypto.randomUUID()`
+
+Accepted inbound values contain letters, numbers, hyphens, underscores, dots or colons and are no
+longer than 128 characters.
+
+When no valid inbound header overrides it, `traceId` and the string form of `reqId` are equal. When a
+valid inbound header is present, τjs preserves Fastify's `reqId` and uses the header as `traceId`.
+Correlation therefore works without rewriting host identity.
+
+This is application request correlation, not a complete OpenTelemetry or W3C trace/span model.
+
+### Response scope
+
+A τjs-created host installs the trace lifecycle at its root, including its implicit shell and
+not-found path. A caller-owned host installs it inside the encapsulated τjs scope. Host routes then
+retain their own logging and do not receive a τjs `x-trace-id` response header.
+
+Every τjs-owned response receives its selected value:
+
+```text
+x-trace-id: request-42
+```
+
+See [Host Ownership](/guides/host-ownership/#request-identity-and-trace-scope) for the installation
+split.
+
+## Logging from loaders and services
+
+A route loader receives the request-scoped logger and identity:
+
+```ts
+data: async ({ id }, ctx) => {
+  ctx.logger.info({ productId: id }, "Fetching product");
+
+  const response = await fetch(
+    `https://catalogue.example.test/products/${encodeURIComponent(String(id))}`,
+    {
+      signal: ctx.signal,
+      headers: { "x-trace-id": ctx.traceId },
+    },
+  );
+
+  return { product: await response.json() };
+};
+```
+
+A service receives the same lineage:
+
+```ts
+export const OrderService = defineService({
+  create: async (params: { accountId: string; items: Item[] }, ctx) => {
+    ctx.logger?.info(
+      { accountId: params.accountId, itemCount: params.items.length },
+      "Creating order",
+    );
+
+    return { order: await orders.create(params) };
+  },
+});
+```
+
+Fastify hooks outside the τjs scope should use `request.log` and `request.id`. Do not assume a τjs
+`traceId` property is attached to the Fastify request object.
+
+## Debug categories
+
+The supported categories are:
+
+- `auth`
+- `routes`
+- `errors`
+- `vite`
+- `network`
+- `ssr`
+
+Enable selected categories:
+
+```ts
 await createServer({
   fastify,
   config,
@@ -179,9 +187,9 @@ await createServer({
 });
 ```
 
-**Enable all except specific:**
+Or enable all with exclusions:
 
-```typescript
+```ts
 await createServer({
   fastify,
   config,
@@ -194,532 +202,205 @@ await createServer({
 });
 ```
 
-**Using environment variables:**
+A comma-separated string is also accepted, so a host may pass `process.env.DEBUG` explicitly.
 
-```bash
-DEBUG=ssr,routes,auth npm run dev
-```
+Debug output is admitted by the strictest combination of:
 
-```typescript
-await createServer({
-  fastify,
-  config,
-  serviceRegistry,
-  debug: process.env.DEBUG, // τjs parses comma-separated string
-});
-```
+1. the τjs category configuration
+2. the τjs runtime minimum level
+3. the selected sink's level
 
-Debug output is admitted by the strictest combination of three controls:
+The production runtime minimum is currently `info`. Setting Fastify or Pino to `debug` in production
+does not independently enable τjs debug records. Debug category names are retained in structured
+metadata as `category`.
 
-1. the τjs debug category must be enabled;
-2. τjs's runtime minimum must allow debug output;
-3. the selected logger's level must allow it.
+## Explicit and custom loggers
 
-The current production runtime minimum is `info`. Setting Pino to `debug` in
-production therefore does not independently enable τjs debug records.
+### Winston
 
-## Child Loggers
+Use the supplied message-first adapter:
 
-### In Data Handlers
-
-Data handlers receive a request-scoped child logger:
-
-```typescript
-{
-  path: '/users/:id',
-  attr: {
-    render: 'ssr',
-    data: async (params, ctx) => {
-      // ctx.logger is a child logger with traceId bound
-      ctx.logger.info({ userId: params.id }, 'Loading user data');
-
-      try {
-        const user = await db.users.findById(params.id);
-        return { user };
-      } catch (err) {
-        ctx.logger.error({ userId: params.id, error: err }, 'Failed to load user');
-        throw err;
-      }
-    }
-  }
-}
-```
-
-### In Services
-
-Service methods receive a child logger with context:
-
-```typescript
-export const OrderService = defineService({
-  createOrder: async (params: { userId: string; items: any[] }, ctx) => {
-    ctx.logger?.info({ userId: params.userId }, "Creating order");
-
-    const order = await db.orders.create({
-      userId: params.userId,
-      items: params.items,
-    });
-
-    ctx.logger?.info({ orderId: order.id }, "Order created successfully");
-
-    return { order };
-  },
-});
-```
-
-## Structured Logging
-
-Structured sinks receive the semantic message and metadata. τjs does not add
-its console timestamp or `[level]` prefix before handing a record to Pino,
-Winston or a custom logger; the selected sink owns framing and presentation.
-Debug categories remain available as structured metadata, for example
-`{ category: "ssr" }`.
-
-### Log Levels
-
-τjs loggers support standard levels:
-
-```typescript
-// In data handlers or services
-ctx.logger.debug({ detail: "value" }, "Debug message");
-ctx.logger.info({ userId: "123" }, "User logged in");
-ctx.logger.warn({ attempts: 3 }, "Retry limit approaching");
-ctx.logger.error({ error: err }, "Operation failed");
-```
-
-### Metadata First, Message Second
-
-τjs follows the pattern: `logger.level(metadata, message)`
-
-```typescript
-// Correct - metadata first
-ctx.logger.info(
-  { userId: params.id, action: "login" },
-  "User authentication successful"
-);
-
-// Incorrect - message first
-ctx.logger.info("User authentication successful", { userId: params.id });
-```
-
-### Contextual Information
-
-Include relevant context in every log:
-
-```typescript
-export const PaymentService = defineService({
-  processPayment: async (params: { orderId: string; amount: number }, ctx) => {
-    ctx.logger?.info(
-      {
-        orderId: params.orderId,
-        amount: params.amount,
-        userId: ctx.user?.id,
-      },
-      "Processing payment"
-    );
-
-    try {
-      const result = await paymentGateway.charge({
-        amount: params.amount,
-        orderId: params.orderId,
-      });
-
-      ctx.logger?.info(
-        {
-          orderId: params.orderId,
-          transactionId: result.id,
-          status: result.status,
-        },
-        "Payment processed successfully"
-      );
-
-      return { transaction: result };
-    } catch (err) {
-      ctx.logger?.error(
-        {
-          orderId: params.orderId,
-          amount: params.amount,
-          error: err.message,
-          code: err.code,
-        },
-        "Payment processing failed"
-      );
-
-      throw err;
-    }
-  },
-});
-```
-
-## Custom Logger Integration
-
-### Winston Adapter
-
-τjs provides a Winston adapter:
-
-```typescript
+```ts
 import winston from "winston";
-import { winstonAdapter, createServer } from "@taujs/server";
+import { createServer, winstonAdapter } from "@taujs/server";
 
-const winstonLogger = winston.createLogger({
+const sink = winston.createLogger({
   level: "info",
   format: winston.format.combine(
     winston.format.timestamp(),
-    winston.format.json()
+    winston.format.json(),
   ),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: "app.log" }),
-  ],
+  transports: [new winston.transports.Console()],
 });
 
 await createServer({
   config,
   serviceRegistry,
-  logger: winstonAdapter(winstonLogger),
-  debug: ["ssr", "routes"],
+  logger: winstonAdapter(sink),
 });
 ```
 
-### Custom Logger Adapter
+### BaseLogger
 
-For other logging systems, create a simple adapter:
+An explicit logger implements the small metadata-first contract:
 
-```typescript
+```ts
 import type { BaseLogger } from "@taujs/server";
 
-function customLoggerAdapter(customLogger: any): BaseLogger {
-  const wrap =
-    (level: "debug" | "info" | "warn" | "error") =>
-    (meta: Record<string, unknown>, message: string) =>
-      customLogger[level](message, meta);
-
-  return {
-    debug: wrap("debug"),
-    info: wrap("info"),
-    warn: wrap("warn"),
-    error: wrap("error"),
-    child: (ctx) =>
-      customLogger.child
-        ? customLoggerAdapter(customLogger.child(ctx))
-        : customLoggerAdapter(customLogger),
-  };
-}
-
-await createServer({
-  config,
-  serviceRegistry,
-  logger: customLoggerAdapter(myLogger),
-});
+const logger: BaseLogger = {
+  debug: (meta, message) => sink.debug(message, meta),
+  info: (meta, message) => sink.info(message, meta),
+  warn: (meta, message) => sink.warn(message, meta),
+  error: (meta, message) => sink.error(message, meta),
+  child: (bindings) => makeChildLogger(sink, bindings),
+};
 ```
 
-Custom logger adapters receive metadata first and the raw semantic message
-second. If the logger supports `child()`, τjs uses it for request bindings. If
-it does not, τjs retains those bindings as structured metadata.
+Implement `child()` when the sink supports bindings. If it does not, τjs retains request context in
+its wrapper metadata.
 
-## Production Configuration
+## Development request traces
 
-### Pino for Production
+In development, τjs records a bounded trace for each τjs-owned response. A trace includes:
 
-```typescript
-const fastify = Fastify({
-  logger: {
-    level: process.env.NODE_ENV === "production" ? "info" : "debug",
-    // No pretty printing in production
-    transport:
-      process.env.NODE_ENV !== "production"
-        ? {
-            target: "pino-pretty",
-            options: { colorize: true, singleLine: false },
-          }
-        : undefined,
-  },
-});
+- sanitised URL path and query-key names
+- selected app, route and render strategy
+- response outcome and status
+- data, head, shell and completion timing
+- named service calls with duration and outcome
+- optional per-key deferred outcomes
+- client hydration evidence when reported
+- a bounded, redacted error summary
+
+The in-memory rings are mirrored under `node_modules/.taujs/`:
+
+```text
+node_modules/.taujs/
+├── dev.json
+├── graph.json
+├── traces.ndjson
+├── logs.ndjson
+└── observations.json
 ```
 
-### Log Sampling
+`dev.json` describes the current live process and is removed on graceful close. Trace and log mirrors
+remain, with `bootId` distinguishing stale data. Late deferred outcomes advance the trace revision and
+are written to `traces.ndjson`, so MCP reads do not lose results that settle after the main trace
+terminal.
 
-For high-traffic routes, sample verbose logs:
+These artefacts are development evidence, not a production telemetry exporter. See
+[MCP Reference](/reference/mcp/) for the tools that read them.
 
-```typescript
-{
-  path: '/api/metrics',
-  attr: {
-    render: 'ssr',
-    data: async (params, ctx) => {
-      const shouldLog = Math.random() < 0.1;  // 10% sampling
+## Logs and traces
 
-      if (shouldLog) {
-        ctx.logger.debug({ route: '/api/metrics' }, 'Metrics request');
-      }
+Logs answer operational questions over time: what failed, what a dependency reported and what the
+process is doing. Request traces answer one τjs-specific question: how this application response was
+resolved and rendered.
 
-      return { metrics: await getMetrics() };
-    }
-  }
-}
+Use both where they add value:
+
+| Need | Primary evidence |
+| --- | --- |
+| Host lifecycle and infrastructure | Fastify or process logs |
+| One response's app, route and render path | τjs request trace |
+| Downstream failure detail | Structured service log |
+| Declared architecture | Request graph |
+| Deferred key outcome and timing | τjs request trace |
+| Cross-service distributed trace | External telemetry system |
+
+## Sensitive data
+
+τjs does not put route-data payloads, renderer stores, service return values, request bodies or full
+request headers into its normal lifecycle records.
+
+There is one important current behaviour: a failed service call logs its parameter object alongside
+error details. Treat service parameters as loggable identifiers and options, not a place for passwords,
+session tokens or raw credentials. Configure redaction on Fastify, Pino or the explicit sink for
+application-specific sensitive fields.
+
+Application records can disclose anything explicitly passed to them:
+
+```ts
+// suitable
+ctx.logger.info(
+  { accountId: account.id, action: "password-reset-requested" },
+  "Password reset requested",
+);
+
+// unsafe
+ctx.logger.info(
+  { email: input.email, password: input.password, token: sessionToken },
+  "Login attempt",
+);
 ```
 
-### Error Enrichment
+Development traces apply a key-name denylist, depth and length caps, and remove query values. Those
+protections do not excuse unsafe application logging.
 
-Add context to errors:
+## Useful patterns
 
-```typescript
-export const UserService = defineService({
-  updateUser: async (params: { id: string; data: any }, ctx) => {
-    try {
-      const user = await db.users.update({
-        where: { id: params.id },
-        data: params.data,
-      });
+### Authentication
 
-      return { user };
-    } catch (err) {
-      ctx.logger?.error(
-        {
-          kind: "database",
-          operation: "update",
-          table: "users",
-          userId: params.id,
-          error: err.message,
-          stack: err.stack,
-          traceId: ctx.traceId,
-        },
-        "Database update failed"
-      );
+Authentication belongs to Fastify, so log through `request.log`:
 
-      throw err;
-    }
-  },
-});
-```
-
-## Common Patterns
-
-### Authentication Logging
-
-```typescript
-fastify.decorate("authenticate", async function (req, reply) {
+```ts
+fastify.decorate("authenticate", async function (request, reply) {
   try {
-    const user = await verifyAuth(req);
-
-    req.log.info(
-      {
-        event: "auth_success",
-        userId: user.id,
-        path: req.url,
-        method: req.method,
-      },
-      "User authenticated"
-    );
-
-    req.user = user;
-  } catch (err) {
-    req.log.warn(
-      {
-        event: "auth_failure",
-        path: req.url,
-        method: req.method,
-        error: err.message,
-      },
-      "Authentication failed"
-    );
-
+    const user = await verifyAuth(request);
+    request.log.info({ userId: user.id }, "User authenticated");
+    request.user = user;
+  } catch (error) {
+    request.log.warn({ err: error }, "Authentication failed");
     reply.code(401).send({ error: "Unauthorised" });
   }
 });
 ```
 
-### Request Duration Logging
+### External dependency timing
 
-```typescript
-fastify.addHook("onRequest", (req, _reply, done) => {
-  (req as any).startTime = Date.now();
-  done();
-});
-
-fastify.addHook("onResponse", (req, reply, done) => {
-  const duration = Date.now() - (req as any).startTime;
-
-  req.log.info(
-    {
-      method: req.method,
-      url: req.url,
-      statusCode: reply.statusCode,
-      duration,
-      traceId: (req as any).traceId,
-    },
-    "Request completed"
-  );
-
-  done();
-});
-```
-
-### Service Performance Logging
-
-```typescript
-export const DatabaseService = defineService({
-  query: async (params: { sql: string; values: any[] }, ctx) => {
-    const start = Date.now();
+```ts
+export const SearchService = defineService({
+  search: async (params: { query: string }, ctx) => {
+    const startedAt = performance.now();
 
     try {
-      const result = await db.query(params.sql, params.values);
-
-      ctx.logger?.debug(
-        {
-          operation: "query",
-          duration: Date.now() - start,
-          rowCount: result.rows.length,
-        },
-        "Database query completed"
-      );
-
-      return { rows: result.rows };
-    } catch (err) {
-      ctx.logger?.error(
-        {
-          operation: "query",
-          duration: Date.now() - start,
-          error: err.message,
-          sql: params.sql,
-        },
-        "Database query failed"
-      );
-
-      throw err;
-    }
-  },
-});
-```
-
-## Best Practices
-
-### 1. Use Structured Logs
-
-```typescript
-// structured
-ctx.logger.info(
-  { userId: params.id, action: "login", ip: req.ip },
-  "User logged in"
-);
-
-// less ideal - string interpolation
-ctx.logger.info(`User ${params.id} logged in from ${req.ip}`);
-```
-
-### 2. Choose Appropriate Levels
-
-```typescript
-// Debug - detailed flow
-ctx.logger.debug({ route, params }, "Route matched");
-
-// Info - significant events
-ctx.logger.info({ userId }, "User authenticated");
-
-// Warn - recoverable issues
-ctx.logger.warn({ retries: 3 }, "API retry limit approaching");
-
-// Error - failures
-ctx.logger.error({ error, userId }, "Operation failed");
-```
-
-### 3. Don't Log Secrets
-
-τjs does not log route-data payloads, renderer stores, service return values,
-request bodies or complete request headers as part of its runtime lifecycle.
-Application logs can still disclose anything explicitly passed to them, so
-configure sink redaction and keep sensitive values out of metadata.
-
-```typescript
-// redact sensitive data
-ctx.logger.info(
-  {
-    email: user.email.replace(/^(.{2}).*@/, "$1***@"),
-    action: "password_reset",
-  },
-  "Password reset requested"
-);
-
-// less ideal - logging secrets
-ctx.logger.info(
-  {
-    email: user.email,
-    password: params.password, // Never log passwords
-    token: authToken, // Never log tokens
-  },
-  "User login attempt"
-);
-```
-
-### 4. Include Context
-
-```typescript
-// rich context
-ctx.logger.error(
-  {
-    userId: ctx.user?.id,
-    orderId: params.orderId,
-    error: err.message,
-    traceId: ctx.traceId,
-    timestamp: new Date().toISOString(),
-  },
-  "Order processing failed"
-);
-
-// ⚠️ Minimal - harder to debug
-ctx.logger.error("Order failed");
-```
-
-### 5. Log at Boundaries
-
-Log when crossing system boundaries:
-
-```typescript
-export const ExternalApiService = defineService({
-  fetchData: async (params: { endpoint: string }, ctx) => {
-    ctx.logger?.info({ endpoint: params.endpoint }, "Calling external API");
-
-    try {
-      const res = await fetch(`https://api.external.com${params.endpoint}`);
+      const result = await searchClient.search(params.query, {
+        signal: ctx.signal,
+      });
 
       ctx.logger?.info(
-        {
-          endpoint: params.endpoint,
-          status: res.status,
-          duration: res.headers.get("x-response-time"),
-        },
-        "External API call completed"
+        { durationMs: performance.now() - startedAt },
+        "Search completed",
       );
 
-      return await res.json();
-    } catch (err) {
+      return { result };
+    } catch (error) {
       ctx.logger?.error(
-        {
-          endpoint: params.endpoint,
-          error: err.message,
-        },
-        "External API call failed"
+        { durationMs: performance.now() - startedAt, error },
+        "Search failed",
       );
-
-      throw err;
+      throw error;
     }
   },
 });
 ```
 
-## Logs and request traces
+Service dispatch already records its own total duration. Add local timing only when it identifies a
+meaningful sub-operation.
 
-Logs and τjs request traces are complementary:
+## Practical rules
 
-- logs are the operational stream delivered through Fastify, Pino, Winston or
-  the standalone console logger;
-- request traces are τjs's structured evidence of how a response was resolved
-  and rendered.
+- Configure logging on a supplied Fastify host and let τjs inherit it.
+- Use metadata first and semantic message second.
+- Prefer existing child bindings over repeating `traceId` and service names.
+- Use `request.log` for host hooks and `ctx.logger` for route and service work.
+- Keep secrets out of log metadata and service parameters; configure sink redaction.
+- Treat τjs traces as development response evidence, not an OpenTelemetry replacement.
+- Use the request graph for declarations and traces for observed execution.
 
-They share request correlation, but one is not a substitute for the other.
+Related guides:
 
-<!--
-## What's Next?
-
-- [Services](/guides/services) - Use structured logging in services
-- [Authentication](/guides/authentication) - Log auth events
-- [Multi-App Architecture](/guides/micro-frontends) - Organise logging in larger applications -->
+- [Host Ownership](/guides/host-ownership/) for logger and trace scope
+- [Services](/guides/services/) for service records and errors
+- [Authentication](/guides/authentication/) for the Fastify auth boundary
+- [Data Loading](/guides/data-loading/) for critical and deferred trace outcomes
