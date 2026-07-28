@@ -7,4 +7,12 @@ export const contentService = defineService({
     heading: 'τjs playground',
     blurb: 'One small bootable app the introspection effort drives against.',
   }),
+
+  // RFC 0007: a route-owned DEFERRED loader. It settles well after the shell, so the boundary that
+  // reads it is the one the deferred delivery path is observable through.
+  reviews: async (_params: {}) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    return { count: 3, top: 'a genuinely deferred review' };
+  },
 });

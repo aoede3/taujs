@@ -1,6 +1,7 @@
 import { defineConfig } from '@taujs/server/config';
 import { vueRenderer } from '@taujs/vue/renderer';
 
+import { deferredRoute } from './src/server/routes/deferred.ts';
 import { serviceData } from './src/server/services/registry.ts';
 
 // The Vue twin of fixtures/playground-react: one bootable app that exercises @taujs/vue end to end
@@ -9,9 +10,25 @@ import { serviceData } from './src/server/services/registry.ts';
 // SFCs need in dev and build.
 export default defineConfig({
   server: {
-    port: 5273,
+    // The real-browser suite boots this fixture on its own port (5302) so it never collides with a
+    // developer's dev server; everything else keeps the fixture's stable default.
+    port: Number(process.env.TAUJS_PORT ?? 5273),
     host: 'localhost',
     hmrPort: 5274,
+  },
+  // An ENFORCED CSP (not report-only), so the browser acceptance runs against a real policy rather
+  // than merely observing nonce attributes. `script-src` carries no 'unsafe-inline', so any inline
+  // script the renderer emits WITHOUT the request nonce is blocked by the browser and raises a
+  // securitypolicyviolation - which is exactly what the browser suite asserts never happens.
+  security: {
+    csp: {
+      defaultMode: 'merge',
+      directives: {
+        'default-src': ["'self'"],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'img-src': ["'self'", 'data:'],
+      },
+    },
   },
   apps: [
     {
@@ -44,6 +61,9 @@ export default defineConfig({
             head: { data: serviceData('content', 'greetHead', () => ({ name: 'Vue' })) },
           },
         },
+        // RFC 0007: the deferred example route, declared in `src/server/routes/deferred.ts` so the
+        // client can name its inferred payload type (`DeferredDataOf<typeof deferredRoute>`).
+        deferredRoute,
       ],
     },
   ],

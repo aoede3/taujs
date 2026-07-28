@@ -54,6 +54,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.0
         version: 19.2.3(@types/react@19.2.17)
+      playwright-core:
+        specifier: 1.44.1
+        version: 1.44.1
       tsx:
         specifier: ^4.19.3
         version: 4.23.0
@@ -63,6 +66,9 @@ importers:
       vite:
         specifier: ^7.3.6
         version: 7.3.6(@types/node@20.19.43)(tsx@4.23.0)
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@20.19.43)(@vitest/ui@3.2.7)(happy-dom@20.11.0)(jsdom@25.0.1)(tsx@4.23.0)
 
   fixtures/playground-solid:
     dependencies:
@@ -125,6 +131,9 @@ importers:
       '@vitejs/plugin-vue':
         specifier: ^6.0.0
         version: 6.0.7(vite@7.3.6(@types/node@20.19.43)(tsx@4.23.0))(vue@3.5.39(typescript@5.9.3))
+      playwright-core:
+        specifier: 1.44.1
+        version: 1.44.1
       tsx:
         specifier: ^4.19.3
         version: 4.23.0
@@ -134,6 +143,9 @@ importers:
       vite:
         specifier: ^7.1.11
         version: 7.3.6(@types/node@20.19.43)(tsx@4.23.0)
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@20.19.43)(@vitest/ui@3.2.7)(happy-dom@20.11.0)(jsdom@25.0.1)(tsx@4.23.0)
       vue-tsc:
         specifier: ^2.1.10
         version: 2.2.12(typescript@5.9.3)

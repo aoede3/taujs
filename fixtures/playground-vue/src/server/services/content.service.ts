@@ -13,6 +13,14 @@ export const contentService = defineService({
     ogTitle: `Hello ${params.name} | τjs Vue playground`,
     ogDescription: `Live head data for ${params.name}`,
   }),
+  // RFC 0007: a route-owned DEFERRED loader. It settles well after the shell, so the boundary that
+  // reads it is the one the deferred delivery path is observable through.
+  reviews: async (_params: {}) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    return { count: 3, top: 'a genuinely deferred review' };
+  },
+
   greet: async (params: { name: string }) => {
     // A deliberate delay so the streaming route visibly blocks at the async boundary.
     await new Promise((resolve) => setTimeout(resolve, 400));
