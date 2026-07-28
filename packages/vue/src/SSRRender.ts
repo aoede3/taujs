@@ -50,7 +50,8 @@ export type StreamOptions = {
    * POSITIVE FINITE only, validated at the factory - there is no disable sentinel, because this
    * deadline is what keeps "bounded total response time" true. Default 15_000ms: `@taujs/vue`
    * declares no finite post-shell fatal backstop for it to halve (`shellTimeoutMs` bounds the
-   * pre-shell phase only and is stopped before this deadline is armed).
+   * pre-shell phase only and is stopped before this deadline is armed). FACTORY-ONLY: there is no
+   * per-call form, because a per-call seam is not boot.
    */
   deferredTimeoutMs?: number;
 };
@@ -93,7 +94,10 @@ type SSRResult = {
   teleports?: Record<string, string>;
 };
 
-type StreamCallOptions<R> = StreamOptions & {
+// RFC 0007 (decision 18): `deferredTimeoutMs` is OMITTED rather than silently ignored. The deferred
+// deadline is "one latched deadline per response, positive finite only, VALIDATED AT BOOT" - a
+// per-call seam is not boot, so there is no per-call form of it and the call bag must not offer one.
+type StreamCallOptions<R> = Omit<StreamOptions, 'deferredTimeoutMs'> & {
   logger?: LoggerLike;
   // RFC 0004 (H6): broad at the contract boundary; narrowed to R/H at the internal seams.
   routeContext?: unknown;
@@ -305,13 +309,6 @@ export function createRenderer<
     // The R narrowing seam (RFC 0004 H6).
     const routeContext = opts?.routeContext as R | undefined;
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
-    // RFC 0007 (decision 18): the deferred deadline is NOT per-call overridable. It is "one latched
-    // deadline per response, positive finite only, VALIDATED AT BOOT" - and a per-call seam is not
-    // boot, so honouring `opts.deferredTimeoutMs` would put an unvalidated value (0, -1, NaN,
-    // Infinity, a string from untyped JS) straight into the timer and the operator warning. The
-    // factory-validated value is the only one this renderer uses; Solid takes no override either.
-    // The field remains legal on the call bag only because `StreamCallOptions` intersects
-    // `StreamOptions`; it is deliberately ignored here.
     // RFC 0007 (decision 18): the deadline's time ORIGIN. It is armed later (at shell commit) but
     // measured from here, so the bound is a property of the configuration rather than of how long
     // the first chunk happened to take.

@@ -86,7 +86,9 @@ export type StreamOptions = {
    * POSITIVE FINITE only, validated at the factory - there is no disable sentinel, because this
    * deadline is what keeps "bounded total response time" true. Default `min(15_000,
    * dataTimeoutMs / 2)`; an explicit value must be STRICTLY LESS than a finite `dataTimeoutMs`, or
-   * the fatal backstop could pre-empt graceful abandonment.
+   * the fatal backstop could pre-empt graceful abandonment. FACTORY-ONLY: there is no per-call form
+   * (a per-call seam is not boot), and a per-call `dataTimeoutMs` that would invert the ordering
+   * re-derives this deadline as `dataTimeoutMs / 2` for that response rather than losing it.
    */
   deferredTimeoutMs?: number;
 };
@@ -131,7 +133,10 @@ export type HeadContext<
 
 type SSRResult = { headContent: string; appHtml: string; aborted: boolean };
 
-type StreamCallOptions<R> = StreamOptions & {
+// RFC 0007 (decision 18): `deferredTimeoutMs` is OMITTED rather than silently ignored. The deferred
+// deadline is "one latched deadline per response, positive finite only, VALIDATED AT BOOT" - a
+// per-call seam is not boot, so there is no per-call form of it and the call bag must not offer one.
+type StreamCallOptions<R> = Omit<StreamOptions, 'deferredTimeoutMs'> & {
   logger?: LoggerLike;
   // RFC 0004 (H2): broad at the contract boundary (same contravariance reality as headData/T);
   // narrowed to `R` at the single read below. `R` remains the app-facing type via HeadContext
@@ -378,13 +383,17 @@ export function createRenderer<
     // Merge renderer defaults with per-call overrides
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
     const effectiveDataTimeout = opts?.dataTimeoutMs ?? dataTimeoutMs;
-    // RFC 0007 (decision 18): the deferred deadline is NOT per-call overridable. It is "one latched
-    // deadline per response, positive finite only, VALIDATED AT BOOT" - and a per-call seam is not
-    // boot, so honouring `opts.deferredTimeoutMs` would put an unvalidated value (0, -1, NaN,
-    // Infinity, a string from untyped JS) straight into the timer and the operator warning. The
-    // factory-validated value is the only one this renderer uses; Solid takes no override either.
-    // The field remains legal on the call bag only because `StreamCallOptions` intersects
-    // `StreamOptions`; it is deliberately ignored here.
+    // RFC 0007 (decision 18): the deferred deadline is NOT per-call overridable (it is omitted from
+    // `StreamCallOptions` above), but the FATAL backstop it must precede still is. Decision 18's
+    // ordering rule - "an explicitly configured deferred deadline must precede a finite fatal
+    // backstop" - is a property of the response, not only of the factory, so a per-call
+    // `dataTimeoutMs` at or below the boot-validated deferred deadline is brought back into the
+    // relationship using the SAME derivation the default uses (`fatal / 2`). It can only ever move
+    // the graceful terminal EARLIER, never later, so the response stays bounded either way.
+    const effectiveDeferredTimeout =
+      Number.isFinite(effectiveDataTimeout) && effectiveDataTimeout > 0 && deferredTimeoutMs >= effectiveDataTimeout
+        ? effectiveDataTimeout / 2
+        : deferredTimeoutMs;
     // RFC 0007 (decision 18): the deferred deadline's time ORIGIN. It is armed later (at shell
     // commit) but measured from here, so its ordering against the fatal backstop is a property of
     // the configuration rather than of how long the shell happened to take.
@@ -700,17 +709,17 @@ export function createRenderer<
                   const abandoned = deferredHolder?.expire() ?? 0;
                   if (abandoned === 0) return;
 
-                  warn(`Deferred data not ready after ${deferredTimeoutMs}ms; abandoning the pending boundaries`, { location, abandoned });
+                  warn(`Deferred data not ready after ${effectiveDeferredTimeout}ms; abandoning the pending boundaries`, { location, abandoned });
                   try {
                     // React's OWN abort: it emits a client-render instruction per abandoned
                     // boundary and finishes the document. τjs writes no framework-patch bytes and
                     // never touches the host's response-owned promise.
-                    stream.abort(new Error(`Deferred data not ready after ${deferredTimeoutMs}ms`));
+                    stream.abort(new Error(`Deferred data not ready after ${effectiveDeferredTimeout}ms`));
                   } catch (abortErr) {
                     error('Deferred deadline abort failed:', abortErr);
                   }
                 },
-                Math.max(deferredTimeoutMs - (Date.now() - renderStartedAt), 1),
+                Math.max(effectiveDeferredTimeout - (Date.now() - renderStartedAt), 1),
               );
             }
 
