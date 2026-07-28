@@ -311,11 +311,14 @@ function createRenderer<
 - `renderId`: A stable namespace for Solid's hydration markers and the serialised data. It must be the **same** value you pass to `hydrateApp` (see [Client-side hydration](#client-side-hydration)). Keep it in one shared constant imported by both entries.
 - `streamOptions.shellTimeoutMs`: Shell-readiness watchdog in ms (default `10000`).
 - `streamOptions.completionTimeoutMs`: Bound on the whole `renderStream` lifecycle in ms (default `30000`). Every terminal clears it.
+- `streamOptions.deferredTimeoutMs`: The one response-level completion deadline for [deferred route data](#deferred-route-data). Default `min(15000, completionTimeoutMs / 2)`, so `15000` with the stock `completionTimeoutMs`, and half of any smaller fatal watchdog you configure. It is measured from `renderStream` **entry** - the same origin as `completionTimeoutMs`, so their ordering is a property of the configuration rather than of how long the shell happened to take - and armed at **shell commit** with whatever remains of that budget, because before the shell there is no document to complete and a pre-shell stall is `shellTimeoutMs`'s to report; a budget already spent arms at 1ms rather than never. It is never reset per key and it latches: a boundary whose first read arrives after expiry is born abandoned rather than starting a fresh unbounded wait. Abandonment is native: the adapter's own wrapper is rejected, so Solid errors those boundaries through its ordinary channel, renders the application's `<ErrorBoundary>` fallback **into** the response and ends the stream itself; the host then records those keys as `aborted`. The value must be a **positive finite** number of milliseconds - unlike the two watchdogs above there is no `0`/`Infinity` sentinel, because this deadline is what keeps total response time bounded - and any other value throws a `TypeError` from `createRenderer`. It must also be **strictly less** than a finite `completionTimeoutMs`, or `createRenderer` throws: at or above the fatal watchdog, that watchdog always wins the race and graceful abandonment becomes unreachable. It is **factory-only** and has no per-call form.
 - `ssrOptions.prerenderTimeoutMs`: Bound on the `ssr` strategy's single render promise in ms (default `10000`).
 - `logger`: Custom logger implementation (`SolidLogger`).
 
 <Aside type="note" title="Timeout values are validated at the factory">
 `shellTimeoutMs`, `completionTimeoutMs` and `prerenderTimeoutMs` must each be a positive finite number of milliseconds, or one of the sentinels `0` or `Infinity`. Any other value (a negative number, `NaN`, a stray string from untyped JS) throws a `TypeError` from `createRenderer` rather than silently disabling the watchdog.
+
+`deferredTimeoutMs` is validated at the factory too, but more strictly: it must be positive **and** finite, with no sentinel form, and strictly less than a finite `completionTimeoutMs`.
 </Aside>
 
 **Returns** an object with two rendering methods: `renderSSR` (static, returns `{ headContent, appHtml }`) and `renderStream` (streaming, pipes to a writable).
@@ -355,6 +358,9 @@ type RenderOptions = {
 type StreamOptions = {
   shellTimeoutMs?: number; // default 10000
   completionTimeoutMs?: number; // default 30000
+  // The one response-level deferred-data deadline. Default min(15000, completionTimeoutMs / 2);
+  // positive finite only, strictly less than a finite completionTimeoutMs; no per-call form.
+  deferredTimeoutMs?: number;
 };
 
 type SSROptions = {
@@ -441,7 +447,7 @@ await done;
 
 `onAllReady` is **two-latch**: it fires once *and only once*, after the route data is ready **and** Solid has finished rendering. A fatal, incomplete delivery never calls `onAllReady`, so it never seeds a truncated document. A pre-shell fatal also never calls `onShellReady`; a post-shell fatal necessarily occurs after `onShellReady` has already reported that the shell was committed. The resolved route data is delivered to `onAllReady` and serialised into `window.__INITIAL_DATA__`.
 
-- `shellTimeoutMs` bounds shell readiness; `completionTimeoutMs` bounds the whole lifecycle and is cleared by every terminal (normal completion, abort, or fatal).
+- `shellTimeoutMs` bounds shell readiness; `completionTimeoutMs` bounds the whole lifecycle and is cleared by every terminal (normal completion, abort, or fatal). `deferredTimeoutMs` is the graceful counterpart to that fatal watchdog: it is armed at shell commit, abandons only the still-pending deferred boundaries, and lets the document terminate normally.
 - App-owned `createResource` work under `<Suspense>`, and route-declared [deferred route data](#deferred-route-data), stream as Solid `$df` deferred patches once they settle; the critical route snapshot does not (see [The snapshot data bridge](#the-snapshot-data-bridge)).
 
 **Cancellation and lifecycle.** `renderStream` accepts an `AbortSignal` (a triggered signal is a benign cancel) and returns `{ abort, done }`: `abort()` performs a manual benign abort, and `done` resolves on normal completion or rejects on a fatal error. Client disconnects are classified benign and never surface as fatal errors. Every terminal releases the renderer's request-scoped state exactly once.

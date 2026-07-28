@@ -137,8 +137,8 @@ dynamic) and the degradation taxonomy.
 
 ### Deferred route data (streaming only)
 
-A streaming route can also declare work it does **not** wait for. `attr.deferred` is a flat record
-of named loaders whose values are allowed to arrive after rendering begins:
+A streaming route can also declare work it starts but does **not** await. `attr.deferred` is a flat
+record of named loaders whose values are allowed to arrive after rendering begins:
 
 ```typescript
 {
@@ -150,7 +150,7 @@ of named loaders whose values are allowed to arrive after rendering begins:
     // critical: the response waits for this
     data: serviceData('catalogue', 'product', ({ id }) => ({ id })),
 
-    // response-owned, but the shell does not wait for it
+    // response-owned, started without being awaited
     deferred: {
       reviews: serviceData('reviews', 'forProduct', ({ id }) => ({ id })),
     },

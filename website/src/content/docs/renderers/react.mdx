@@ -222,6 +222,7 @@ function createRenderer<
 - `streamOptions`: Streaming configuration
   - `shellTimeoutMs`: Timeout for the initial shell render (default: `10000`)
   - `dataTimeoutMs`: Timeout for route data to settle after React has finished rendering (default: `30000`). Bounds the stream so a never-settling loader cannot hold the response open indefinitely.
+  - `deferredTimeoutMs`: The one response-level completion deadline for [deferred route data](#deferred-route-data). Default `min(15000, dataTimeoutMs / 2)`, so `15000` with the stock `dataTimeoutMs`, and half of any smaller fatal backstop you configure. It is measured from `renderStream` **entry** - the same origin `dataTimeoutMs` is compared against - and armed at **shell commit** with whatever remains of that budget, because a deferred boundary can only be pending once the shell has committed (a budget already spent arms at 1ms rather than never). It is never reset per key and it latches: a boundary whose first read arrives after expiry is born `aborted` rather than starting a fresh unbounded wait. On expiry the still-pending boundaries a component actually read are abandoned through React's **own** `stream.abort`, which emits React's client-render instruction for each and finishes the document; the host then records those keys as `aborted` on the trace and in the hydration envelope. The value must be a **positive finite** number of milliseconds - there is no `0`/`Infinity` disable sentinel, because this deadline is what keeps total response time bounded - and any other value throws a `TypeError` from `createRenderer`. It must also be **strictly less** than a finite `dataTimeoutMs`, or `createRenderer` throws: at or above the fatal route-data backstop, that backstop pre-empts graceful abandonment and the response fails instead of completing. Unlike the other stream timeouts it has **no per-call form** (see the per-call options below).
 - `ssrOptions`: Static SSR configuration
   - `prerenderTimeoutMs`: Deadline for the `ssr` strategy's complete-HTML render (default: `10000`; `0` or `Infinity` = wait forever; anything else must be a positive finite number or `createRenderer` throws). See `renderSSR()` for the expiry behaviour.
 - `identifierPrefix`: React's `useId` prefix, passed to both rendering paths. Must match the value passed to `hydrateApp` for the same root. Set it when rendering more than one taujs root on a page so `useId` values are collision-free.
@@ -242,8 +243,13 @@ Both methods accept a final `opts` argument:
 - `headData`: The route's resolved `attr.head` payload. With `@taujs/server` this is passed for
   you (only when the route declares `attr.head` and its loader resolved); standalone hosts may
   pass their own pre-resolved head data. Reaches `headContent` typed as `H`.
-- `renderStream` only: any `StreamOptions` field (`shellTimeoutMs`, `dataTimeoutMs`) may also be
-  overridden per call.
+- `renderStream` only: the per-call `StreamOptions` timeouts `shellTimeoutMs` and `dataTimeoutMs`
+  may also be overridden here. `deferredTimeoutMs` is the one exception: it is **factory-only** and
+  has no per-call form, because it is a boot-validated bound on the whole response rather than a
+  per-request knob. A per-call `dataTimeoutMs` at or below the configured deferred deadline
+  re-derives that deadline as `dataTimeoutMs / 2` for that response, so the ordering against the
+  fatal backstop holds without losing the graceful terminal; it can only ever move the graceful
+  terminal earlier, never later.
 
 **Worked example: dynamic head data on a streamed route**
 

@@ -330,6 +330,7 @@ function createRenderer<
 - `appComponent`: Your Vue root. Pass the component directly (it receives `{ location, routeContext? }` as props) or a render function returning a VNode.
 - `headContent`: Generates HTML head content from `{ data, headData?, meta, routeContext? }`. **Note:** in streaming mode the data snapshot is usually still pending when the head is built - guard optional `data` fields, lean on `meta`/`routeContext`, or declare `attr.head` on the route so the host resolves DYNAMIC head data before the render and passes it as `headData` (typed by `createRenderer`'s third generic `H`). `headData` is `undefined` when the route declares no `attr.head` and when the head loader degraded (deadline expiry, or an `optional` loader failure) - always handle it. Vue's head stays SINGLE-BUILD, pre-render; `headData` widens what that one build can see. Escape every `headData`/`data`-derived value with `escapeHtml`.
 - `streamOptions.shellTimeoutMs`: Time-to-first-content watchdog in ms (default `10000`). See [Streaming semantics](#streaming-semantics).
+- `streamOptions.deferredTimeoutMs`: The one response-level completion deadline for [deferred route data](#deferred-route-data). Default `15000`. The general derivation is `min(15000, fatal backstop / 2)`, but `@taujs/vue` declares no finite post-shell fatal backstop for it to halve - `shellTimeoutMs` bounds the pre-shell phase only and is stopped before this deadline is armed - so the Vue default is the flat cap. It is measured from `renderStream` **entry** and armed at **shell commit** (the first streamed chunk) with whatever remains of that budget; a budget already spent arms at 1ms rather than never. It is never reset per key and it latches: a boundary whose first read arrives after expiry is born `aborted` rather than starting a fresh unbounded wait. Vue streams strictly in order and has no client-render instruction, so the Vue spelling of "abandon the boundary" is to settle every still-pending consumed read as `aborted`: the application's own `aborted` branch renders **into** the response, the stream resumes and the document terminates normally. The stream controller is never touched, so an abandoned boundary is a normal completion, not a stream failure. The value must be a **positive finite** number of milliseconds - there is no `0`/`Infinity` disable sentinel, because this deadline is what keeps total response time bounded - and any other value throws a `TypeError` from `createRenderer`. It is **factory-only**: unlike `shellTimeoutMs` it has no per-call form.
 - `logger`: Custom logger implementation (`LoggerLike`).
 - `enableDebug`: Enable detailed logging (default `false`).
 - `setupApp`: Configure the per-request `App` instance (`app.use`, directives, provides). See [App customisation](#app-customisation-with-setupapp).
@@ -408,6 +409,11 @@ type RenderCallbacks<T> = {
 type StreamOptions = {
   /** Time-to-first-content watchdog, in ms (default 10000). */
   shellTimeoutMs?: number;
+  /**
+   * The one response-level deferred-data completion deadline, in ms (default 15000).
+   * Positive finite only, validated by createRenderer; factory-only, with no per-call form.
+   */
+  deferredTimeoutMs?: number;
 };
 ```
 
@@ -536,7 +542,7 @@ Both methods accept a final `opts` argument:
 
 - `logger`: Optional per-call logger (overrides the one passed to `createRenderer`).
 - `routeContext`: Per-request route context forwarded into `appComponent` and `headContent`.
-- `renderStream` additionally accepts `shellTimeoutMs` here to override the renderer default per call.
+- `renderStream` additionally accepts `shellTimeoutMs` here to override the renderer default per call. `deferredTimeoutMs` is deliberately absent from the per-call options: the deferred deadline is a boot-validated bound on the whole response, so it is configured once on `createRenderer` and never per request.
 
 **Cancellation and lifecycle**
 
