@@ -305,7 +305,13 @@ export function createRenderer<
     // The R narrowing seam (RFC 0004 H6).
     const routeContext = opts?.routeContext as R | undefined;
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
-    const effectiveDeferredTimeout = opts?.deferredTimeoutMs ?? deferredTimeoutMs;
+    // RFC 0007 (decision 18): the deferred deadline is NOT per-call overridable. It is "one latched
+    // deadline per response, positive finite only, VALIDATED AT BOOT" - and a per-call seam is not
+    // boot, so honouring `opts.deferredTimeoutMs` would put an unvalidated value (0, -1, NaN,
+    // Infinity, a string from untyped JS) straight into the timer and the operator warning. The
+    // factory-validated value is the only one this renderer uses; Solid takes no override either.
+    // The field remains legal on the call bag only because `StreamCallOptions` intersects
+    // `StreamOptions`; it is deliberately ignored here.
     // RFC 0007 (decision 18): the deadline's time ORIGIN. It is armed later (at shell commit) but
     // measured from here, so the bound is a property of the configuration rather than of how long
     // the first chunk happened to take.
@@ -332,9 +338,9 @@ export function createRenderer<
           // LATCH FIRST, unconditionally: a read registering later must be born `aborted` rather
           // than start a fresh unbounded wait. The count only decides whether to say anything.
           const abandoned = deferredHolder?.expire() ?? 0;
-          if (abandoned > 0) warn(`Deferred data not ready after ${effectiveDeferredTimeout}ms; abandoning the pending boundaries`, { location, abandoned });
+          if (abandoned > 0) warn(`Deferred data not ready after ${deferredTimeoutMs}ms; abandoning the pending boundaries`, { location, abandoned });
         },
-        Math.max(effectiveDeferredTimeout - (Date.now() - renderStartedAt), 1),
+        Math.max(deferredTimeoutMs - (Date.now() - renderStartedAt), 1),
       );
     };
 
