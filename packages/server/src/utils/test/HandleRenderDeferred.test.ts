@@ -342,6 +342,83 @@ describe('handleRender deferred terminals (R2 item 8)', () => {
     expect(entrySignal!.aborted).toBe(true);
   });
 
+  it('a response ALREADY ENDED at the finish tick is still a terminal: signalled, classified exactly once, retaining nothing', async () => {
+    const { seen, recorder } = events();
+    const signals: Record<string, AbortSignal | undefined> = {};
+    const req = mkReq('/product/42', recorder);
+    const reply = mkReply();
+
+    // `writableEnded` is a prototype getter on the real stream; an own accessor lets this test
+    // stage the two ticks the listener sees - ended (the early return) and not ended (the write
+    // site) - without destroying the pipe the head commit established.
+    let ended = false;
+    Object.defineProperty(reply.raw, 'writableEnded', { configurable: true, get: () => ended });
+
+    // The host attaches its 'finish' listener AFTER `renderStream` returns, so capturing `on`
+    // here hands the test the real listener to fire on a later tick, exactly as the emitter would.
+    let finish: (() => void) | undefined;
+    const stalled = {
+      renderStream: vi.fn((writable: PassThrough, cb: any) => {
+        cb.onHead('<title>p</title>');
+        cb.onShellReady();
+        const on = writable.on.bind(writable);
+        (writable as any).on = (event: string, handler: any) => {
+          if (event === 'finish') {
+            finish = handler;
+            return writable;
+          }
+          return on(event, handler);
+        };
+        return { abort: () => {}, done: Promise.resolve() };
+      }),
+    };
+
+    const pending = (key: string) => async (_p: unknown, ctx: any) => {
+      signals[key] = ctx.signal;
+      return new Promise<any>(() => {});
+    };
+
+    await handleRender(
+      req,
+      reply,
+      route({ render: 'streaming', meta: {}, deferred: { reviews: pending('reviews'), blurb: pending('blurb') } }) as any,
+      configs,
+      {} as any,
+      maps(stalled),
+      { logger: mkLogger() },
+    );
+
+    // Nothing has terminated yet: the release must come from the finish listener itself.
+    expect(seen).toEqual([]);
+    expect(signals['reviews']!.aborted).toBe(false);
+
+    ended = true;
+    expect(() => finish!()).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The bytes are gone, so no envelope can be emitted - but the work is signalled and each
+    // pending key is classified `aborted` EXACTLY ONCE.
+    expect(signals['reviews']!.aborted).toBe(true);
+    expect(signals['blurb']!.aborted).toBe(true);
+    expect(seen).toEqual([
+      { key: 'reviews', outcome: 'aborted' },
+      { key: 'blurb', outcome: 'aborted' },
+    ]);
+    expect(reply.chunks.join('')).not.toContain('__TAUJS_DEFERRED_STATE__');
+
+    // Envelope state: the controller retains nothing afterwards. A later write site emits the
+    // EMPTY envelope rather than re-classifying keys already accounted for in the trace.
+    ended = false;
+    expect(() => finish!()).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(reply.chunks.join('')).toContain('window.__TAUJS_DEFERRED_STATE__ = {};');
+    expect(seen).toEqual([
+      { key: 'reviews', outcome: 'aborted' },
+      { key: 'blurb', outcome: 'aborted' },
+    ]);
+  });
+
   it('an UNCONSUMED rejection never raises unhandledRejection and never reverses the completed document', async () => {
     const seenUnhandled: unknown[] = [];
     const onUnhandled = (e: unknown) => seenUnhandled.push(e);

@@ -716,7 +716,16 @@ export const handleRender = async (
         // uncaught throw here becomes an `uncaughtException` → process exit. `serializeInlineData`
         // never throws; the outer try/catch is a belt so nothing else in the listener can either.
         try {
-          if (abortedState.aborted || reply.raw.writableEnded) return;
+          // RFC 0007 (R4): this early return IS a response terminal - the bytes are already gone,
+          // so no envelope can be emitted, but outstanding deferred work must still be signalled
+          // and classified `aborted` here. Releasing is idempotent, so the paths that already
+          // released (the fatal channel, the head terminals) are unaffected.
+          if (abortedState.aborted || reply.raw.writableEnded) {
+            try {
+              deferred?.release();
+            } catch {}
+            return;
+          }
 
           const data = finalData ?? {};
           const serialized = serializeInlineData(data);
