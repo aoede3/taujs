@@ -2,7 +2,7 @@ import { generateHydrationScript, renderToStream, renderToStringAsync } from 'so
 
 import { createSSRStore, provideSSRStore } from './SSRDataStore.js';
 import { createDeferredHolder } from './SSRDeferredData.js';
-import { attachDeferredData, detachStore, getStoreReadiness, getStoreState } from './internal.js';
+import { attachDeferredData, detachDeferredData, detachStore, getStoreReadiness, getStoreState } from './internal.js';
 import { brandRenderFunctions, SOLID_RENDERER_KEY } from './renderContract.js';
 import { escapeHtml } from './utils/Html.js';
 import { SanitisedErrorPlugin } from './utils/SanitiseError.js';
@@ -486,7 +486,14 @@ export function createRenderer<
     // holder is released on the SAME terminal, under the same retention standard as the store.
     controller.setDetach(() => {
       detachStore(store);
-      deferredHolder?.release();
+
+      if (deferredHolder) {
+        deferredHolder.release();
+        // Releasing empties the holder; this drops the STORE -> holder edge too, which is what
+        // `attachDeferredData`'s `configurable: true` exists for. The response's retained graph is a
+        // no-deferred route's again.
+        detachDeferredData(store);
+      }
     });
 
     const readiness = getStoreReadiness(store) ?? Promise.resolve();

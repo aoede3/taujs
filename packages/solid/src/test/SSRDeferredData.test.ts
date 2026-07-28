@@ -8,6 +8,8 @@ import { renderToStringAsync, ssr } from 'solid-js/web';
 import { describe, it, expect } from 'vitest';
 
 import { createRenderer } from '../SSRRender.js';
+import { useSSRStore } from '../SSRDataStore.js';
+import { getDeferredData } from '../internal.js';
 import {
   createDeferredAccessor,
   createDeferredHolder,
@@ -17,6 +19,7 @@ import {
   useDeferredData,
 } from '../SSRDeferredData.js';
 
+import type { DeferredDataHolder } from '../SSRDeferredData.js';
 import type { JSX } from 'solid-js';
 
 const html = (markup: string): JSX.Element => ssr(markup) as never;
@@ -282,6 +285,74 @@ describe('@taujs/solid deferred adapter - retention (renderer contract 8)', () =
     // A read after the terminal is a deterministic developer error, not a silent fresh wait.
     expect(() => holder.read('reviews')).toThrow(/read after the response terminal/);
     expect(holder.expire()).toBe(0);
+  });
+
+  it('leg 3 - a CALLER ABORT releases the holder through the controller’s single detach path', async () => {
+    // The store is captured from inside the render, so the assertions read the SAME holder the
+    // production path attached - not one the test constructed.
+    let captured: unknown;
+    const probe = (): JSX.Element =>
+      createComponent(Suspense, {
+        fallback: html('<p id="pending">loading reviews</p>'),
+        get children() {
+          captured = useSSRStore();
+          useDeferredData<{ count: number }>('reviews');
+
+          return html('<p id="reviews">never</p>');
+        },
+      }) as never;
+
+    const sink = new PassThrough();
+    const chunks: string[] = [];
+    sink.on('data', (c: Buffer) => chunks.push(String(c)));
+    sink.on('error', () => {});
+
+    let resolveReviews!: (value: Record<string, unknown>) => void;
+    const registry = deferredRegistry({ reviews: new Promise<Record<string, unknown>>((r) => (resolveReviews = r)) });
+    const errors: unknown[] = [];
+    const { renderStream } = createRenderer({
+      appComponent: probe,
+      headContent: () => '<title>t</title>',
+      streamOptions: { deferredTimeoutMs: 2_000, completionTimeoutMs: 5_000 },
+    });
+    const handle = renderStream(
+      sink,
+      { onHead: () => {}, onAllReady: () => {}, onError: (e) => errors.push(e) },
+      { critical: 1 },
+      '/product/42',
+      undefined,
+      {},
+      undefined,
+      {
+        deferredData: registry,
+        shouldHydrate: true,
+      },
+    );
+
+    await settle(80);
+    expect(getDeferredData(captured)).toBeDefined();
+    const holder = getDeferredData(captured) as DeferredDataHolder;
+
+    handle.abort();
+
+    // A caller abort is a BENIGN terminal, never a fatal one.
+    await expect(handle.done).resolves.toBeUndefined();
+    await settle(20);
+
+    // The terminal released the holder AND dropped the store's edge to it.
+    expect(() => holder.read('reviews')).toThrow(/read after the response terminal/);
+    expect(getDeferredData(captured)).toBeUndefined();
+
+    // A host promise that settles after the terminal writes nothing more: no late patch, no
+    // envelope, no fatal error.
+    const before = chunks.join('');
+    resolveReviews({ count: 3 });
+    await settle(60);
+
+    expect(chunks.join('')).toBe(before);
+    expect(before).not.toContain('reviews: 3');
+    expect(before).not.toContain('__TAUJS_DEFERRED_STATE__');
+    expect(errors).toEqual([]);
   });
 });
 

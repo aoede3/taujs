@@ -69,6 +69,16 @@ export const attachDeferredData = (store: unknown, holder: unknown): void => {
 
 export const getDeferredData = (store: unknown): unknown => (store as Record<symbol, unknown> | null | undefined)?.[STORE_DEFERRED];
 
+/**
+ * Drop the store -> holder edge at the terminal - which is what `configurable: true` above is for.
+ * Releasing the holder empties it; deleting the property also removes the store's reference to it,
+ * so a deferred response's retained graph returns to a no-deferred route's. Idempotent, and safe on
+ * a non-store value.
+ */
+export const detachDeferredData = (store: unknown): void => {
+  if (store && typeof store === 'object') delete (store as Record<symbol, unknown>)[STORE_DEFERRED];
+};
+
 /** Release the store's τjs-owned payload. Safe to call repeatedly and on a non-store value. */
 export const detachStore = (store: unknown): void => {
   const detach = (store as Record<symbol, unknown> | null | undefined)?.[STORE_DETACH] as (() => void) | undefined;
