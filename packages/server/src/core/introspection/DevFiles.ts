@@ -20,12 +20,15 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
   const filePath = (name: string) => path.join(dir, name);
 
   let timer: NodeJS.Timeout | undefined;
-  let last = { traces: -1, logs: -1, observationsUpdatedAt: null as string | null };
+  let last = { traces: -1, tracesRevision: -1, logs: -1, observationsUpdatedAt: null as string | null };
 
   const flush = async (): Promise<void> => {
     const stats = introspection.stats();
 
-    if (stats.traces !== last.traces) {
+    // `tracesRevision` advances for a NEW finalized trace and for an in-place amendment of one
+    // (RFC 0007 R5: a deferred outcome arriving after the terminal), so a late outcome reaches the
+    // on-disk artefact through this same bounded rewrite rather than lagging until the next request.
+    if (stats.tracesRevision !== last.tracesRevision) {
       const lines = introspection.getTraces().map((t) => JSON.stringify(t));
       await writeTaujsArtifact(dir, 'traces.ndjson', lines.length ? `${lines.join('\n')}\n` : '', logger);
     }

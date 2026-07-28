@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream';
 import { RENDERTYPE } from '../core/constants';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
 import { fetchHeadData, fetchInitialData } from '../core/routes/DataRoutes';
+import { buildDeferredEnvelopeJson, createDeferredData } from '../core/routes/DeferredData';
 import { now } from '../core/telemetry/Telemetry';
 import { resolveEntryFile } from '../Build';
 import { createLogger } from '../logging/Logger';
@@ -21,7 +22,7 @@ import {
   stripDevClientAndStyles,
   applyViteTransform,
 } from './Templates';
-import { serializeInlineData } from './InlineData';
+import { inlineJsFromJson, serializeInlineData } from './InlineData';
 import { assertRenderContract, declaredContractOf, requireRendererContribution } from './RendererContract';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
@@ -29,7 +30,15 @@ import type { ViteDevServer } from 'vite';
 import type { DebugConfig, Logs } from '../core/logging/types';
 import type { SelectedPageRoute } from '../core/routes/FastifyRoutes';
 import type { ServiceRegistry } from '../core/services/DataServices';
+import type { DeferredDataController } from '../core/routes/DeferredData';
 import type { Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../types';
+
+/**
+ * RFC 0007 (R4, decision 15): the PRIVATE deferred-outcome envelope carrier. Undocumented and
+ * unsupported for applications - assigned inside the SAME nonced end-of-stream script as the public
+ * snapshot, only under the host-resolved hydration policy.
+ */
+const DEFERRED_STATE_CARRIER = '__TAUJS_DEFERRED_STATE__';
 
 // R0-02: origin-aware benign classification, textually parallel to `isBenignStreamErr` in
 // packages/react/src/utils/Streaming.ts (the server does not import renderer utils). A
@@ -130,6 +139,13 @@ export const handleRender = async (
   const requestContext = getRequestContext(req) ?? createRequestContext(req, reply, baseLogger);
   const { traceId, logger, headers, recorder } = requestContext;
   const reqLogger = logger;
+
+  // RFC 0007 (R2 item 8): FUNCTION-SCOPED, not block-scoped inside the streaming branch. A
+  // synchronous throw out of `renderStream` - or anything else escaping that branch into the outer
+  // catch - is a response terminal that reaches it with entries already started; without this
+  // binding nothing would classify them, no R5 trace event would fire and their child abort signal
+  // would outlive the response.
+  let deferred: DeferredDataController | undefined;
 
   try {
     const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
@@ -493,6 +509,13 @@ export const handleRender = async (
 
       ctx.signal = ac.signal; // R1-01: propagate into the data context before renderStream fetches it
 
+      // RFC 0007 (R2, decision 2): the declared deferred entries start HERE - immediately after
+      // `ctx.signal` is assigned and BEFORE head resolution, the earliest point at which the
+      // request context is complete. Each handler is invoked exactly once, eagerly, outside the
+      // component tree, with the matched params and the same request service context `attr.data`
+      // uses. The host never awaits an entry and never inspects one mid-stream.
+      deferred = createDeferredData({ attr, params, serviceRegistry, ctx, traceId, recorder });
+
       const writable = new PassThrough();
       writable.on('error', (err) => {
         if (!isBenignSocketError(err)) logger.error({ error: err }, 'PassThrough error:');
@@ -519,6 +542,12 @@ export const handleRender = async (
         // Telemetry is BELTED INDEPENDENTLY of the teardown (gate-review finding 1, same rule as
         // the fatal-stream path): a throwing host logger/recorder must never skip the raw-socket
         // settlement - the outer catch rethrows into Fastify, which no longer owns this response.
+        // RFC 0007 (failure semantics 6): a critical head failure is a response terminal, and
+        // outstanding deferred work is classified and detached on it - BEFORE any telemetry, so a
+        // throwing logger/recorder cannot strand the registry.
+        try {
+          deferred?.release();
+        } catch {}
         try {
           logger.error({ error: safeNormaliseError(err), url: req.url }, 'Head data failed; terminating streaming request');
           recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
@@ -534,6 +563,9 @@ export const handleRender = async (
         return;
       }
       if (headResolution.aborted) {
+        try {
+          deferred?.release();
+        } catch {}
         try {
           if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
         } catch {}
@@ -590,6 +622,11 @@ export const handleRender = async (
             reqLogger.warn({ error: safeNormaliseError(info.error), phase: info.phase, recoverable: info.recoverable, clientRoot, url: req.url }, message);
           },
           onError: (err: unknown) => {
+            // RFC 0007 (R2 item 8): the fatal renderer terminal releases the registry FIRST, before
+            // any telemetry or teardown, on both arms below.
+            try {
+              deferred?.release();
+            } catch {}
             // Gate finding 1: `onError` is the renderer's FATAL channel — the renderer already
             // established origin (benign socket disconnects are handled by the writable guards via
             // `benignAbort`, never routed here). Trust it: the only benign condition is ACTUAL
@@ -660,6 +697,10 @@ export const handleRender = async (
           ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}),
           ...(cspNonce ? { cspNonce } : {}),
           shouldHydrate,
+          // RFC 0007 (decision 14): conditionally spread exactly like `headData` - a route
+          // declaring no deferred entries has no `deferredData` property at all, so its opts bag
+          // and its rendered bytes are unchanged.
+          ...(deferred ? { deferredData: deferred.registry } : {}),
         },
       );
 
@@ -682,6 +723,9 @@ export const handleRender = async (
 
           if (!serialized.ok) {
             abortedState.aborted = true;
+            try {
+              deferred?.release();
+            } catch {}
             logger.error({ error: safeNormaliseError(serialized.error), clientRoot, url: req.url }, 'Failed to serialize streaming initial data');
             recorder?.failed({ traceId, error: { kind: 'serialize', message: String(serialized.error.message) } });
 
@@ -704,9 +748,24 @@ export const handleRender = async (
             return;
           }
 
+          // RFC 0007 (R4): this write site IS the response terminal for deferred work. Classify
+          // everything (anything still pending is `aborted`), then release - the envelope text is
+          // already assembled from the retained settlement bytes, so nothing is serialised here.
+          //
+          // Decision 8: the carrier is emitted ONLY under the host-resolved hydration policy. Under
+          // `hydrate: false` there is no client runtime to seed, so the rest of this script is
+          // byte-for-byte what it has always been while the registry is still settled, classified
+          // and released - R5 outcomes are unaffected either way.
+          let deferredAssignment = '';
+          if (deferred) {
+            const settlements = deferred.settleAll();
+            if (shouldHydrate) deferredAssignment = ` window.${DEFERRED_STATE_CARRIER} = ${inlineJsFromJson(buildDeferredEnvelopeJson(settlements))};`;
+            deferred.release();
+          }
+
           const initialDataScript = `<script${
             cspNonce ? ` nonce="${cspNonce}"` : ''
-          }>window.__INITIAL_DATA__ = ${serialized.js}; window.dispatchEvent(new Event('taujs:data-ready'));</script>`;
+          }>window.__INITIAL_DATA__ = ${serialized.js};${deferredAssignment} window.dispatchEvent(new Event('taujs:data-ready'));</script>`;
 
           commitHead();
           reply.raw.write(initialDataScript);
@@ -715,6 +774,9 @@ export const handleRender = async (
           recorder?.sent({ traceId, status: 200, mode: 'streaming' });
         } catch (e) {
           // Belt: never let this listener throw — an uncaughtException here would exit the process.
+          try {
+            deferred?.release();
+          } catch {}
           logger.error({ error: safeNormaliseError(e), clientRoot, url: req.url }, 'Streaming finish listener failed');
           try {
             if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
@@ -723,6 +785,12 @@ export const handleRender = async (
       });
     }
   } catch (err) {
+    // RFC 0007: release FIRST, before any telemetry - a throwing recorder or logger must never
+    // strand a started registry (this is the terminal a synchronous `renderStream` throw reaches).
+    try {
+      deferred?.release();
+    } catch {}
+
     recorder?.failed({
       traceId,
       error: { kind: AppError.isAppError(err) ? (err as any).kind : 'internal', message: String((err as any)?.message ?? err ?? '') },

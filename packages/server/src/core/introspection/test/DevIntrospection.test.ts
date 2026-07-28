@@ -241,6 +241,9 @@ describe('recorder isolation (spec 03 invariant 2)', () => {
     dataFetch() {
       throw new Error('hostile');
     },
+    deferredData() {
+      throw new Error('hostile');
+    },
     serviceCall() {
       throw new Error('hostile');
     },

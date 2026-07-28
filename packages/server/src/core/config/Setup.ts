@@ -1,6 +1,12 @@
+import { RENDERTYPE } from '../constants';
 import { now } from '../telemetry/Telemetry';
 
 import type { RouteParams, Route, CoreAppConfig, CoreSecurityConfig, CoreTaujsConfig } from './types';
+
+/** RFC 0007 (R1 rule 1): route-local identifiers - configuration, never user data. */
+const DEFERRED_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+const isPlainRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
 
 export type ExtractSecurityResult<S extends CoreSecurityConfig = CoreSecurityConfig> = {
   security: S;
@@ -90,6 +96,28 @@ export const extractRoutes = (taujsConfig: CoreTaujsConfig): ExtractRoutesResult
         }
         if (head.optional !== undefined && typeof head.optional !== 'boolean') {
           throw new Error(`${at}: attr.head.optional must be a boolean (received ${String(head.optional)})`);
+        }
+      }
+
+      // RFC 0007 (R1, authoring-contract rules 3 + 4): validate `attr.deferred` at BOOT, beside the
+      // head checks. Malformed input is a hard error, never a warning - a declaration the host
+      // cannot start is a configuration defect, and every rule here is decidable statically.
+      const attr = route.attr as { render?: unknown; deferred?: unknown } | undefined;
+      if (attr?.deferred !== undefined) {
+        const at = `Route "${route.path}" (app "${app.appId}")`;
+        if (attr.render !== RENDERTYPE.streaming) {
+          throw new Error(`${at}: attr.deferred is only valid on a "${RENDERTYPE.streaming}" route; data a non-streamed response needs belongs in attr.data`);
+        }
+        if (!isPlainRecord(attr.deferred)) throw new Error(`${at}: attr.deferred must be a plain object of named data handlers`);
+        // OWN enumerable keys only - an inherited property is never trusted (rule 1). The
+        // plain-object check above already rejects a foreign prototype.
+        for (const key of Object.keys(attr.deferred)) {
+          if (!DEFERRED_KEY_PATTERN.test(key)) {
+            throw new Error(`${at}: attr.deferred key "${key}" must match ${DEFERRED_KEY_PATTERN.source}`);
+          }
+          if (typeof (attr.deferred as Record<string, unknown>)[key] !== 'function') {
+            throw new Error(`${at}: attr.deferred."${key}" must be a function (a data handler or serviceData(...) sugar)`);
+          }
         }
       }
 
