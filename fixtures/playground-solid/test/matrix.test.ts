@@ -136,6 +136,10 @@ const CELLS = [
 const runMatrix = (mode: Mode) => {
   describe(`${mode}`, () => {
     beforeAll(async () => {
+      // Freshness guard (docs/followups/fixture-stale-dist-evidence-trap.md): both modes resolve
+      // @taujs/server and @taujs/solid through their gitignored dist, so a stale package build
+      // silently falsifies the evidence. Rebuild both first.
+      execFileSync('pnpm', ['--filter', '@taujs/server', '--filter', '@taujs/solid', 'build'], { cwd: path.join(PROJECT, '..', '..'), stdio: 'pipe' });
       if (mode === 'production') {
         // Build through the project's own script - the user-facing path.
         execFileSync('npm', ['run', 'build'], { cwd: PROJECT, stdio: 'pipe' });
