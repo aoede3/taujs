@@ -1,47 +1,102 @@
 ---
 title: Getting Started with τjs
-description: τjs - start your journey today
+description: Create a Fastify-hosted React, Vue or Solid application with declared routes and response orchestration.
 ---
 
-import { LinkButton } from "@astrojs/starlight/components";
+::::note[Before v1]
+τjs is in active development. Expect breaking changes on the path to v1, and check the release notes when upgrading.
+::::
 
-> **NOTE**  
-> **τjs is in active development. Expect breaking changes on the path to v1. Some features may be evolving or are temporarily missing.**
+τjs registers application routes from `taujs.config.ts` as real Fastify routes. After Fastify dispatches one of those routes, τjs coordinates its policy, data and rendering before handing the response to the React, Vue or Solid renderer selected by the application.
 
-τjs is a _developer-first orchestration layer_ with declarative configuration for building modern web apps with _per-route control_ over CSR, SSR, and Streaming SSR.
+## Create a project
 
-## Scaffolding a new project
+`@taujs/create-taujs` scaffolds a working application and asks which framework and package manager to use:
 
 ```bash
 npx @taujs/create-taujs my-app
+cd my-app
+npm run dev
 ```
 
-> or check out a <a href="https://stackblitz.com/edit/taujs-starter?file=README.md" target="_blank" rel="noopener noreferrer">StackBlitz example project</a> created from `@taujs/create-taujs`
+If you selected another package manager, use the command printed by the scaffolder. You can also open the [StackBlitz starter](https://stackblitz.com/edit/taujs-starter?file=README.md).
 
-## Core Workflow
+The generated project includes:
 
-1. Define frontend apps and routes in `taujs.config.ts`
-2. Choose rendering mode per route (SSR, Streaming SSR, or CSR)
-3. Optionally attach data loaders
-4. Configure security (CSP, authentication)
+- `taujs.config.ts`, containing one application with its renderer and routes
+- server and client entries for the selected framework
+- an SSR route and a streaming route
+- a small service registry and example service
+- development, build and production scripts
 
-τjs handles routing, rendering, and orchestration.
+## The application contract
 
-## Under the Hood
+Each application declares one renderer and any routes whose responses the server should orchestrate. A declared route chooses `ssr` or `streaming`; hydration is a separate decision.
 
-- **Fastify** - Runtime server
-- **Vite** - Frontend builds and HMR in development
-- **React** / **Vue** - UI framework
+```ts
+{
+  appId: "main",
+  entryPoint: "",
+  renderer: reactRenderer({ project: "./tsconfig.json" }),
+  routes: [
+    {
+      path: "/",
+      attr: {
+        render: "ssr",
+        hydrate: true,
+      },
+    },
+    {
+      path: "/products/:id",
+      attr: {
+        render: "streaming",
+        hydrate: true,
+      },
+    },
+  ],
+}
+```
 
-### Development vs Production
+The same application shape works with `vueRenderer()` or `solidRenderer()`. See the [configuration reference](/reference/taujs-config/) for the complete contract.
 
-**Development:**
+A route can also declare head metadata, critical data, deferred data, authentication and Content Security Policy. These declarations are optional: components can still perform UI-local work and client-side fetching when that work does not belong to the server response contract.
 
-- Vite HMR for instant feedback
-- `tsx watch` runs server TypeScript directly
+## CSR by omission
 
-**Production:**
+CSR is per-route control by omission, not a third value of `attr.render`. A URL known to the client router but absent from `taujs.config.ts` remains client-rendered once the application shell has loaded.
 
-- Static assets built by Vite, served by Fastify
-- Fastify runs esbuild/rollup output
-- Zero runtime dependencies beyond your stack
+For a direct request to such a URL, something must still serve that shell:
+
+- a Fastify instance created by τjs supplies the application-shell fallback
+- a Fastify instance supplied by the caller requires an explicit terminal `/*` τjs route when τjs should own unmatched document URLs
+
+See [Request Contracts & Data](/guides/request-contracts/#undeclared-urls-and-client-routing), [Application Shell Pattern](/reference/app-shell-pattern/) and [Host Ownership](/guides/host-ownership/) for the full boundary.
+
+## Request flow
+
+1. Fastify matches the request to a declared τjs route.
+2. τjs resolves route policy, head work and critical data.
+3. The selected renderer produces an SSR or streaming response.
+4. Deferred entries can continue behind native framework boundaries without delaying independent shell content.
+5. Hydration starts from the server snapshot when the route enables it.
+
+The [Architecture](/guides/architecture/) guide explains the ownership boundaries. [Data Loading](/guides/data-loading/) covers critical and deferred loaders.
+
+## Fastify ownership
+
+The scaffold lets τjs create Fastify, then calls `app.listen()` from the server entry. You can instead pass an existing Fastify instance to `createServer`. In that form, the caller owns the host and τjs installs its declared routes and facilities inside an encapsulated scope.
+
+That distinction affects the application shell, host-wide CSP, request identity and not-found handling. Read [Host Ownership](/guides/host-ownership/) before embedding τjs into an existing server.
+
+## Development and production
+
+In development, Vite supplies framework transforms and HMR while the generated server process reloads as its TypeScript changes. τjs also exposes its development request graph and trace tooling.
+
+In production, the application build contains its client assets and server-rendering modules. Fastify dispatches the registered routes and serves the configured static assets; the development recorder and Vite middleware are absent.
+
+## Where to go next
+
+- [Architecture](/guides/architecture/) for the system boundaries
+- [Request Contracts & Data](/guides/request-contracts/) for what belongs in configuration
+- [Incremental Migration](/guides/incremental-migration/) for adopting τjs inside an existing application
+- [Host Ownership](/guides/host-ownership/) for supplying your own Fastify instance
