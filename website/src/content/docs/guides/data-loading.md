@@ -164,6 +164,11 @@ once per request outside the component tree, cancels it with the request, record
 async work a component starts for itself. `deferred` describes timing, not optionality: there is no
 per-entry timeout, retry or dependency.
 
+Deferred entries are not HTTP-status-bearing: their outcome may arrive after the response has
+committed, so anything that must prevent the response, redirect it or set its status belongs in
+critical resolution (`attr.data`, middleware) - never in `deferred`. `complete` / `failed` /
+`aborted` are trace outcomes, not HTTP statuses.
+
 See [Deferred Route Data](/reference/taujs-config#deferred-route-data) for the full rules and the
 renderer guides for the component-facing accessors:
 [React](/renderers/react#deferred-route-data),

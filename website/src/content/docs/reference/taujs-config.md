@@ -697,6 +697,13 @@ tree and before the head resolves, and the selected renderer projects the named 
 Suspense primitive. Because the work is declared, it appears in the request graph (contributing to a
 service's `usedBy`) and each entry records one outcome on the request trace.
 
+Deferred entries are not HTTP-status-bearing. Their outcome may arrive after the response has
+committed - the status line and headers are long gone by the time a deferred loader settles. Any
+condition that must prevent the response, redirect it or determine its status belongs in critical
+route resolution before rendering (`attr.data`, `attr.middleware`, `attr.head`), never in
+`attr.deferred`. `complete`, `failed` and `aborted` are deferred-data outcomes recorded on the
+trace and delivered to the hydration seed - they are not HTTP response statuses.
+
 Component-facing accessors live in the renderer packages:
 [React](/renderers/react#deferred-route-data),
 [Vue](/renderers/vue#deferred-route-data) and
