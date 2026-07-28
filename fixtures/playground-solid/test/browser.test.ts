@@ -148,6 +148,10 @@ const expectNoSecretsInFaults = (faults: PageFaults, secrets: string[]) => {
 
 describe.skipIf(!HAS_PINNED_BROWSER)('slice 7 group C - real browser (production build, enforced CSP)', () => {
   beforeAll(async () => {
+    // Freshness guard (docs/followups/fixture-stale-dist-evidence-trap.md): this fixture resolves
+    // @taujs/server and @taujs/solid through their gitignored dist, so a stale package build
+    // silently falsifies everything proved here. Rebuild both before the fixture build.
+    execFileSync('pnpm', ['--filter', '@taujs/server', '--filter', '@taujs/solid', 'build'], { cwd: path.join(PROJECT, '..', '..'), stdio: 'pipe' });
     execFileSync('npm', ['run', 'build'], { cwd: PROJECT, stdio: 'pipe' });
 
     expect(await isPortFree(PORT), `port ${PORT} in use`).toBe(true);
