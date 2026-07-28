@@ -316,6 +316,47 @@ describe('@taujs/react deferred deadline (decision 18)', () => {
     );
   });
 
+  it('TIME ORIGIN: a costly shell arms what REMAINS of the budget, measured from renderStream ENTRY', async () => {
+    // The magnitude cell above cannot see decision 18's time-ORIGIN clause: with a ~0ms shell the
+    // remaining budget and the full budget are the same number. A CONTROLLED clock (no real waiting)
+    // charges the pre-shell phase exactly 6_000ms of the 15_000 budget, so the arming site must hand
+    // `setTimeout` 9_000. Arming the FULL budget instead would put the graceful terminal at
+    // entry+21s - past the 30_000 fatal backstop's own window in a slower shell, which is precisely
+    // the timer-order accident the shared origin exists to prevent.
+    const base = Date.now();
+    let elapsed = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => base + elapsed);
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    let armed: number[] = [];
+
+    try {
+      await drive(
+        () => {
+          // Runs DURING the shell render - after renderStream entry, before shell commit.
+          elapsed = 6_000;
+          return (
+            <Suspense fallback={<p>loading</p>}>
+              <p>shell</p>
+            </Suspense>
+          );
+        },
+        { deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }), initialData: pendingRouteData(), wait: 300 },
+      );
+      armed = spy.mock.calls.map((call) => Number(call[1]));
+    } finally {
+      spy.mockRestore();
+      clock.mockRestore();
+    }
+
+    expect(armed).toContain(9_000); // 15_000 budget, 6_000 of it already spent before the shell
+    expect(armed.filter((ms) => ms > 14_000 && ms <= 15_000)).toHaveLength(0); // never the full budget
+    // Only the deferred deadline is re-based. The shell timer is armed AT entry and the fatal
+    // route-data backstop owns its own full window, so neither moves - which is what makes the
+    // re-based value attributable to the deferred arming site rather than to a global clock shift.
+    expect(armed).toContain(10_000);
+    expect(armed).toContain(30_000);
+  });
+
   it('a per-call `deferredTimeoutMs` is IGNORED - the boot-validated deadline is the only one armed', async () => {
     // It is omitted from `StreamCallOptions` (a compile-time fact), so this pins the RUNTIME half:
     // an untyped consumer smuggling one through must not reach the timer.

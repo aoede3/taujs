@@ -203,6 +203,46 @@ describe('@taujs/solid deferred deadline (decision 18)', () => {
     );
   });
 
+  it('TIME ORIGIN: a costly shell arms what REMAINS of the budget, measured from renderStream ENTRY', async () => {
+    // The magnitude cell above cannot see decision 18's time-ORIGIN clause: with a ~0ms shell the
+    // remaining budget and the full budget are the same number. A CONTROLLED clock (no real waiting)
+    // charges the pre-shell phase exactly 6_000ms of the 15_000 budget, so the arming site must hand
+    // `startTimer` 9_000. Arming the FULL budget instead breaks the SHARED origin the two watchdogs
+    // rely on: the graceful deadline would land at entry+21s while the fatal completion backstop -
+    // armed AT entry - still fires at entry+30s, so the configured margin survives here only because
+    // the shell happened to be cheap.
+    const base = Date.now();
+    let elapsed = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => base + elapsed);
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    let armed: number[] = [];
+
+    try {
+      // The component body runs DURING the shell render - after renderStream entry, before
+      // `onCompleteShell`.
+      await drive(
+        () => {
+          elapsed = 6_000;
+
+          return page();
+        },
+        { deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }), wait: 300 },
+      );
+      armed = spy.mock.calls.map((call) => Number(call[1]));
+    } finally {
+      spy.mockRestore();
+      clock.mockRestore();
+    }
+
+    expect(armed).toContain(9_000); // 15_000 budget, 6_000 of it already spent before the shell
+    expect(armed.filter((ms) => ms > 14_000 && ms <= 15_000)).toHaveLength(0); // never the full budget
+    // Neither the shell timer nor the fatal completion backstop is re-based - both are armed AT
+    // entry - so the moved value is attributable to the deferred arming site rather than to a global
+    // clock shift.
+    expect(armed).toContain(10_000);
+    expect(armed).toContain(30_000);
+  });
+
   it('derives from a NON-default fatal backstop, so the graceful terminal stays reachable', async () => {
     // A renderer configured with a 5s fatal backstop must derive 2.5s, not 15s - observed at the
     // arming site rather than recomputed here.

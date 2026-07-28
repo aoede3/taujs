@@ -240,6 +240,45 @@ describe('@taujs/vue deferred deadline (decision 18)', () => {
     expect(armed.filter((ms) => ms >= 10_000)).toEqual([10_000, deferred[0]!]);
   });
 
+  it('TIME ORIGIN: a costly shell arms what REMAINS of the budget, measured from renderStream ENTRY', async () => {
+    // The magnitude cell above cannot see decision 18's time-ORIGIN clause: with a ~0ms shell the
+    // remaining budget and the full budget are the same number. A CONTROLLED clock (no real waiting)
+    // charges the pre-shell phase exactly 6_000ms of the 15_000 budget, so the arming site must hand
+    // `setTimeout` 9_000. Arming the FULL budget instead would make the bound a property of how long
+    // the first chunk happened to take rather than of the configuration - the total response time
+    // would run to entry+21s here, and further with a slower shell.
+    const base = Date.now();
+    let elapsed = 0;
+    const inner = page(Reviews);
+    // `setup` runs DURING the shell render - after renderStream entry, before the first chunk.
+    const CostlyPage = defineComponent({
+      name: 'CostlyPage',
+      setup() {
+        elapsed = 6_000;
+
+        return () => h(inner);
+      },
+    });
+
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => base + elapsed);
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    let armed: number[] = [];
+
+    try {
+      await drive(CostlyPage, { deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }), wait: 300 });
+      armed = spy.mock.calls.map((call) => Number(call[1]));
+    } finally {
+      spy.mockRestore();
+      clock.mockRestore();
+    }
+
+    expect(armed).toContain(9_000); // 15_000 budget, 6_000 of it already spent before the shell
+    expect(armed.filter((ms) => ms > 14_000 && ms <= 15_000)).toHaveLength(0); // never the full budget
+    // The shell timer is armed AT entry and is not re-based, so the moved value is attributable to
+    // the deferred arming site rather than to a global clock shift.
+    expect(armed).toContain(10_000);
+  });
+
   it('leg 4 - on expiry the still-pending boundary renders its `aborted` branch INTO the response and the document terminates', async () => {
     const { html, handle } = await drive(page(ReviewsResult), {
       deferredData: deferredRegistry({ reviews: new Promise<Record<string, unknown>>(() => {}) }),
