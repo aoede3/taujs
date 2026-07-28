@@ -4,7 +4,7 @@
 import { PassThrough } from 'node:stream';
 
 import { createComponent, ErrorBoundary, Suspense } from 'solid-js';
-import { ssr } from 'solid-js/web';
+import { renderToStringAsync, ssr } from 'solid-js/web';
 import { describe, it, expect } from 'vitest';
 
 import { createRenderer } from '../SSRRender.js';
@@ -206,24 +206,70 @@ describe('@taujs/solid deferred deadline (decision 18)', () => {
     expect(out).toContain('reviews unavailable');
   });
 
-  it('the deadline LATCHES: a read whose first access arrives after expiry is born `aborted`', async () => {
+  it('the deadline LATCHES: a read whose FIRST access arrives after expiry is born `aborted`', async () => {
+    // The hole the latch closes: a boundary whose first read arrives after the deadline (an
+    // app-owned resource gated it) must NOT start a fresh unbounded wait - it is born abandoned and
+    // reported, so the document τjs is still holding open stays bounded.
     const abandoned: string[][] = [];
     const holder = createDeferredHolder(deferredRegistry({ reviews: new Promise<Record<string, unknown>>(() => {}) }), (keys) => abandoned.push([...keys]));
 
-    expect(holder.expire()).toBe(0); // nothing consumed yet
-    // A later read must not start a fresh unbounded wait: it is born abandoned and reported.
-    holder.read('reviews');
-    expect(abandoned).toEqual([['reviews']]);
-  });
+    expect(holder.expire()).toBe(0); // nothing consumed yet - the latch is set all the same
 
-  it('the deadline is ONE per response, never per key', async () => {
-    const holder = createDeferredHolder(
-      deferredRegistry({ reviews: new Promise<Record<string, unknown>>(() => {}), stock: new Promise<Record<string, unknown>>(() => {}) }),
+    // Read inside a REAL render: `createResource` requires a render context, which is the only
+    // context an application ever reads from.
+    const out = await renderToStringAsync(() =>
+      createComponent(Suspense, {
+        fallback: html('<p id="reviews-pending">loading</p>'),
+        get children() {
+          return createComponent(ErrorBoundary, {
+            fallback: () => html('<p id="reviews-error">reviews unavailable</p>'),
+            get children() {
+              const reviews = holder.read<{ count: number }>('reviews');
+
+              return html(`<p id="reviews">reviews: ${String(reviews()?.count ?? '')}</p>`);
+            },
+          });
+        },
+      }),
     );
 
-    holder.read('reviews');
-    holder.read('stock');
-    expect(holder.expire()).toBe(2);
+    expect(abandoned).toEqual([['reviews']]);
+    expect(out).toContain('reviews unavailable');
+  });
+
+  it('the deadline is ONE per response, never per key: two pending boundaries are abandoned together', async () => {
+    const twoKeys = (): JSX.Element =>
+      [
+        html('<div id="shell">shell</div>'),
+        ...(['reviews', 'stock'] as const).map((key) =>
+          createComponent(Suspense, {
+            fallback: html(`<p id="${key}-pending">loading</p>`),
+            get children() {
+              return createComponent(ErrorBoundary, {
+                fallback: () => html(`<p id="${key}-error">${key} unavailable</p>`),
+                get children() {
+                  const value = useDeferredData<{ count: number }>(key);
+
+                  return html(`<p id="${key}">${key}: ${String(value()?.count ?? '')}</p>`);
+                },
+              });
+            },
+          }),
+        ),
+      ] as never;
+
+    const { html: out, handle } = await drive(twoKeys, {
+      deferredData: deferredRegistry({
+        reviews: new Promise<Record<string, unknown>>(() => {}),
+        stock: new Promise<Record<string, unknown>>(() => {}),
+      }),
+      streamOptions: { deferredTimeoutMs: 80, completionTimeoutMs: 5_000 },
+      wait: 3_000,
+    });
+
+    await expect(handle.done).resolves.toBeUndefined();
+    expect(out).toContain('reviews unavailable');
+    expect(out).toContain('stock unavailable');
   });
 });
 
@@ -231,10 +277,11 @@ describe('@taujs/solid deferred adapter - retention (renderer contract 8)', () =
   it('release drops every reference and refuses later reads', () => {
     const holder = createDeferredHolder(deferredRegistry({ reviews: Promise.resolve({ count: 1 }) }));
 
-    holder.read('reviews');
     holder.release();
 
+    // A read after the terminal is a deterministic developer error, not a silent fresh wait.
     expect(() => holder.read('reviews')).toThrow(/read after the response terminal/);
+    expect(holder.expire()).toBe(0);
   });
 });
 
@@ -254,11 +301,13 @@ describe('@taujs/solid deferred adapter - hydration (R4)', () => {
   it('the client holder seeds from the envelope and never fetches', () => {
     const holder = createHydrationHolder({ reviews: { status: 'complete', value: { count: 3 } }, stock: { status: 'aborted' } });
 
-    expect(typeof holder.read('reviews')).toBe('function');
     // `aborted` must NOT reach Solid's slot - the server terminated with that promise pending, so
     // the read throws deterministically into the app's ErrorBoundary instead of hanging forever.
+    // (The `complete` path goes through Solid's own resource machinery and is proved end to end by
+    // the playground-solid browser suite, which runs it inside a real hydration context.)
     expect(() => (holder.read('stock') as () => unknown)()).toThrow(DeferredDataError);
     expect(() => holder.read('nope')).toThrow(/unknown deferred data key/);
+    expect(holder.keys).toEqual(['reviews', 'stock']);
   });
 });
 
