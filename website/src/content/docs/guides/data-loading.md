@@ -135,6 +135,41 @@ Shell sent immediately, data may load progressively:
 See [Head Management](/guides/head-management) for the full model (`meta` static, `attr.head`
 dynamic) and the degradation taxonomy.
 
+### Deferred route data (streaming only)
+
+A streaming route can also declare work it does **not** wait for. `attr.deferred` is a flat record
+of named loaders whose values are allowed to arrive after rendering begins:
+
+```typescript
+{
+  path: '/products/:id',
+  attr: {
+    render: 'streaming',
+    meta: { title: 'Product' },
+
+    // critical: the response waits for this
+    data: serviceData('catalogue', 'product', ({ id }) => ({ id })),
+
+    // response-owned, but the shell does not wait for it
+    deferred: {
+      reviews: serviceData('reviews', 'forProduct', ({ id }) => ({ id })),
+    },
+  },
+}
+```
+
+Entries use the same handler shape as `attr.data`. Because the work is *declared*, τjs starts it
+once per request outside the component tree, cancels it with the request, records `complete` /
+`failed` / `aborted` on the trace, and shows it in the request graph - none of which is true of
+async work a component starts for itself. `deferred` describes timing, not optionality: there is no
+per-entry timeout, retry or dependency.
+
+See [Deferred Route Data](/reference/taujs-config#deferred-route-data) for the full rules and the
+renderer guides for the component-facing accessors:
+[React](/renderers/react#deferred-route-data),
+[Vue](/renderers/vue#deferred-route-data),
+[Solid](/renderers/solid#deferred-route-data).
+
 ## Using Data on the Client
 
 ### SSR Store

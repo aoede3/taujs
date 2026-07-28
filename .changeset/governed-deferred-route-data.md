@@ -53,4 +53,12 @@ issues no client refetch. Hydration is seeded from the existing end-of-stream wr
 - Each package gains one response-level `streamOptions.deferredTimeoutMs` deadline: positive
   finite only, validated at renderer construction, defaulting to 15000ms.
 
+**Authoring notes**
+
+- Vue streams in order, so in an in-order renderer place deferred boundaries AFTER the independent
+  content that should stream immediately - a boundary awaiting a deferred value stalls every byte
+  behind it. React streams out of order and is unaffected.
+- An unconsumed entry whose loader rejects after the response terminal reads as `aborted`, not
+  `failed`.
+
 Routes that declare no `deferred` are unchanged, byte for byte.

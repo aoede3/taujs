@@ -535,6 +535,7 @@ Routes define URL patterns, rendering strategies, and data requirements.
 | `meta`       | `Record<string, unknown>` | `{}`        | Metadata for head   |
 | `middleware` | `Middleware`              | `undefined` | Auth and CSP        |
 | `data`       | `DataHandler`             | `undefined` | Data loader         |
+| `deferred`   | `DeferredDataAttributes`  | `undefined` | **`streaming` only.** A flat record of named route-owned loaders whose values may arrive after rendering begins. See [Deferred Route Data](#deferred-route-data) |
 | `head`       | `HeadAttributes`          | `undefined` | Dynamic head data loader: `{ data, timeoutMs?, optional? }`, resolved before the render starts on both strategies and passed to `headContent` as `headData`. `timeoutMs` must be positive finite (default 3000 ms); `optional: true` degrades loader failures to `headData: undefined` instead of failing the request |
 
 ## Rendering Strategies
@@ -663,6 +664,76 @@ data: async (params, ctx) => {
   return { user: await getUser(params.id) };
 };
 ```
+
+### Deferred Route Data
+
+A `streaming` route may additionally declare `attr.deferred`: a flat record of named loaders whose
+values are allowed to arrive after rendering has begun. `attr.data` remains the critical snapshot
+the response cannot start without; `deferred` declares response-owned work the shell does not wait
+for.
+
+```typescript
+{
+  path: '/products/:id',
+  attr: {
+    render: 'streaming',
+    meta: { title: 'Product' },
+
+    // critical: the response waits for this
+    data: serviceData('catalogue', 'product', ({ id }) => ({ id })),
+
+    // response-owned, but the shell does not wait for it
+    deferred: {
+      reviews: serviceData('reviews', 'forProduct', ({ id }) => ({ id })),
+    },
+  },
+}
+```
+
+Entries are the ordinary `DataHandler` shape, `serviceData()` sugar included - there is no new
+helper and no wrapper. τjs starts each named loader exactly once per request, outside the component
+tree and before the head resolves, and the selected renderer projects the named promise onto its own
+Suspense primitive. Because the work is declared, it appears in the request graph (contributing to a
+service's `usedBy`) and each entry records one outcome on the request trace.
+
+Component-facing accessors live in the renderer packages:
+[React](/renderers/react#deferred-route-data),
+[Vue](/renderers/vue#deferred-route-data) and
+[Solid](/renderers/solid#deferred-route-data).
+
+**Rules, all enforced at boot:**
+
+- `deferred` is valid on `render: 'streaming'` only. On an `ssr` route it is both a type error and a
+  boot error: data a non-streamed response needs belongs in `attr.data`.
+- the value must be a plain object whose members are functions, and each key must match
+  `^[A-Za-z][A-Za-z0-9_]*$`.
+- there is no per-entry timeout, retry, optionality or dependency between entries. `deferred`
+  describes **timing**, not policy - an optional business outcome is expressed by the loader's own
+  result (for example `{ available: false }`).
+
+**Outcomes.** Every entry settles as exactly one of `complete`, `failed` or `aborted`, recorded once
+on the request trace and readable through the existing MCP reader. `complete` means *deliverable*: a
+resolved value that cannot cross the hydration boundary is classified `failed` on every surface at
+once, with a single payload-free warning (`Deferred data could not cross the hydration boundary
+key=<key>`) explaining why. An entry that no component read, whose loader rejects after the response
+terminal, reads as `aborted` rather than `failed` - the response had already finished, so nothing
+was waiting on the value. An unread rejection never turns a completed document into a 500; a failure
+of critical `attr.data` (or of a non-optional `attr.head`) aborts and detaches deferred work that has
+already started. No deferred work outlives the response as τjs-owned background work.
+
+**Hydration.** Outcomes for the boundaries a component actually read travel in a private, internal
+carrier written beside `window.__INITIAL_DATA__` at end of stream, read once by the client bootstrap
+and then deleted. The public `__INITIAL_DATA__` shape is unchanged, no loader re-executes in the
+browser, and no client refetch is issued. Under `hydrate: false` no carrier is emitted at all - the
+value still streams into the server-rendered HTML natively.
+
+**Types.** `DeferredDataOf<typeof route>` (exported from `@taujs/server/config`) infers the payload
+of every declared entry from the route configuration alone, following the same three arms as
+`HeadDataOf`: the selected method's result for `serviceData()` sugar, the resolved return type for a
+closure handler, and `undefined` when a route declares no `deferred`. Applications therefore never
+re-declare a deferred payload shape. The inferred type describes the loader's declared result; what
+arrives is that value's JSON snapshot, the same caveat that already applies to `attr.data` crossing
+`__INITIAL_DATA__`.
 
 ## Security Configuration
 
