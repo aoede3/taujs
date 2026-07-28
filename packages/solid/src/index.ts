@@ -17,6 +17,14 @@ export { createSSRStore, useSSRStore } from './SSRDataStore.js';
 export { hydrateApp } from './SSRHydration.js';
 export { escapeHtml } from './utils/Html.js';
 
+// RFC 0007 (decision 19, renderer contract item 9): the package's PUBLIC surface for this feature
+// is the COMPONENT-FACING ACCESSORS and their result/error types, and nothing else. The carrier
+// name, both holders, the store seam and the envelope/registry transport shapes are private
+// transport and stay unexported - `PublicSurface.test.ts` asserts both halves against the BUILT
+// dist. Solid's engine HAS server-side error boundaries, so under the need-based ruling
+// (decision 13) it carries no result accessor: the throwing read already completes the response.
+export { createDeferredAccessor, DeferredDataError, useDeferredData } from './SSRDeferredData.js';
+
 export type {
   HeadContext,
   InitialDataInput,
@@ -30,5 +38,6 @@ export type {
   StreamOptions,
 } from './SSRRender.js';
 export type { SSRStore } from './SSRDataStore.js';
+export type { DeferredAccessor } from './SSRDeferredData.js';
 export type { HydrateAppOptions } from './SSRHydration.js';
 export type { ServerLogger, SolidLogger, UILogger } from './utils/Logger.js';

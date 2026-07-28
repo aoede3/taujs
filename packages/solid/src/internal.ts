@@ -28,6 +28,19 @@ export const STORE_DETACH: unique symbol = Symbol('taujs.solid.storeDetach');
 /** Internal read of the store's settled state, so the adapter never guesses from `data()`. */
 export const STORE_STATE: unique symbol = Symbol('taujs.solid.storeState');
 
+/**
+ * RFC 0007: the request's deferred-data holder, carried on the STORE rather than in a provider of
+ * its own.
+ *
+ * This is not a stylistic choice. Solid's `createComponent` opens a NESTED hydration context and
+ * consumes a context id, so an extra provider component shifts every `createUniqueId`, resource id
+ * and Suspense-fragment key in the whole subtree - a conditional one would make a `deferred`
+ * route's bytes differ from a non-deferred route's for reasons unrelated to the deferred content,
+ * and would make hydration depend on the client inserting exactly the same conditional wrapper.
+ * Riding on the store the adapter ALREADY provides costs zero components and zero ids on both sides.
+ */
+export const STORE_DEFERRED: unique symbol = Symbol('taujs.solid.storeDeferred');
+
 export type StoreState = {
   /** `pending` until the seed settles or `setData` commits. */
   status: 'pending' | 'success' | 'error';
@@ -45,6 +58,16 @@ export const getStoreState = (store: unknown): StoreState | undefined => {
 
   return typeof read === 'function' ? read() : undefined;
 };
+
+/**
+ * Attach the request's deferred holder to the store. `configurable` so the terminal can drop it.
+ * `unknown` rather than the holder type: `internal.ts` must stay free of module cycles.
+ */
+export const attachDeferredData = (store: unknown, holder: unknown): void => {
+  Object.defineProperty(store as object, STORE_DEFERRED, { value: holder, enumerable: false, configurable: true });
+};
+
+export const getDeferredData = (store: unknown): unknown => (store as Record<symbol, unknown> | null | undefined)?.[STORE_DEFERRED];
 
 /** Release the store's τjs-owned payload. Safe to call repeatedly and on a non-store value. */
 export const detachStore = (store: unknown): void => {
