@@ -1,5 +1,7 @@
 import { createResource, createSignal, ErrorBoundary, Show, Suspense } from 'solid-js';
-import { useSSRStore } from '@taujs/solid';
+import { createDeferredAccessor, useSSRStore } from '@taujs/solid';
+
+import type { DeferredRouteData } from '../server/routes/deferred.ts';
 
 export type RouteData = {
   title?: string;
@@ -46,6 +48,25 @@ function Counter() {
   );
 }
 
+/**
+ * RFC 0007: the ROUTE-DECLARED deferred read.
+ *
+ * The accessor is typed from the route config alone - `DeferredDataOf<typeof deferredRoute>` - so
+ * the payload shape is never re-declared here. The component starts nothing: the host began this
+ * work before the render, and `useDeferred` only projects the named promise onto Solid's own
+ * resource model, suspending this boundary and nothing else.
+ */
+const useDeferred = createDeferredAccessor<DeferredRouteData>();
+
+function DeferredReviews() {
+  const reviews = useDeferred('reviews');
+  // The annotation is the GATE: `count` is inferred from the route's `serviceData()` brand, so
+  // changing the service's declared result type fails this typecheck rather than shipping.
+  const count = (): number | undefined => reviews()?.count;
+
+  return <p id="reviews">{`reviews: ${String(count() ?? '')} - ${String(reviews()?.top ?? '')}`}</p>;
+}
+
 /** An app-owned resource that REJECTS after the shell, to exercise the sanitiser in a browser. */
 function RejectingNote() {
   const [note] = createResource(async () => {
@@ -86,6 +107,16 @@ export function App(props: { location: string }) {
       <Suspense fallback={<p id="deferred-pending">loading deferred…</p>}>
         <DeferredNote />
       </Suspense>
+
+      <Show when={props.location.startsWith('/deferred')}>
+        {/* PLACEMENT: the ErrorBoundary sits INSIDE the Suspense, which is what makes a `failed` or
+            `aborted` outcome render its fallback INTO the response rather than on the client. */}
+        <Suspense fallback={<p id="reviews-pending">loading reviews…</p>}>
+          <ErrorBoundary fallback={<p id="reviews-error">reviews unavailable</p>}>
+            <DeferredReviews />
+          </ErrorBoundary>
+        </Suspense>
+      </Show>
 
       <Show when={props.location.startsWith('/reject')}>
         <ErrorBoundary fallback={(error: unknown) => <p id="boundary">{`${(error as Error)?.name}: ${(error as Error)?.message}`}</p>}>

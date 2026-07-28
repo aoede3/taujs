@@ -548,4 +548,56 @@ describe.skipIf(!HAS_PINNED_BROWSER)('slice 7 group C - real browser (production
       await page.context().close();
     }
   });
+
+  // ── RFC 0007: route-declared deferred data, end to end ────────────────────────────────────────
+
+  it('a declared deferred entry completes in the browser, hydrates and never refetches', async () => {
+    const { page, faults } = await openPage();
+    const dataRequests: string[] = [];
+    page.on('request', (r) => {
+      if (r.resourceType() === 'fetch' || r.resourceType() === 'xhr') dataRequests.push(r.url());
+    });
+    try {
+      await page.goto(`${BASE}/deferred`, { waitUntil: 'networkidle' });
+
+      await waitForText(page, '#reviews', 'reviews: 3');
+      expect(await page.textContent('#reviews')).toContain('a genuinely deferred review');
+      expect(await page.$('#reviews-pending')).toBeNull();
+      expect(await page.$('#reviews-error')).toBeNull();
+
+      // Hydration seeded the boundary from the private end-of-stream envelope: no client fetch, and
+      // the carrier is read once and deleted, so it must be gone by the time we look.
+      expect(dataRequests, 'hydration issued a data request - the envelope must make that unnecessary').toEqual([]);
+      expect(await page.evaluate(() => '__TAUJS_DEFERRED_STATE__' in window)).toBe(false);
+
+      // Interactivity proves the root really hydrated with the deferred boundary in the tree.
+      await page.click('#counter');
+      await waitForText(page, '#counter', 'count: 1');
+
+      expectClean(await collectFaults(page, faults));
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('under hydrate:false the value still streams natively and NO envelope is emitted (decision 8)', async () => {
+    const { page, faults } = await openPage();
+    try {
+      const bytes = await (await fetch(`${BASE}/deferred-no-hydrate`)).text();
+      expect(bytes, 'native streamed delivery must be unaffected by the hydration policy').toContain('a genuinely deferred review');
+      expect(bytes, 'there is no client runtime to seed, so the carrier must be absent').not.toContain('__TAUJS_DEFERRED_STATE__');
+
+      // The hydrating control, fetched in the same test so the absence above cannot pass vacuously.
+      const hydrating = await (await fetch(`${BASE}/deferred`)).text();
+      expect(hydrating).toContain('__TAUJS_DEFERRED_STATE__');
+      expect(hydrating).toContain('"reviews":{"status":"complete"');
+
+      await page.goto(`${BASE}/deferred-no-hydrate`, { waitUntil: 'networkidle' });
+      expect(await page.textContent('#reviews')).toContain('a genuinely deferred review');
+
+      expectClean(await collectFaults(page, faults));
+    } finally {
+      await page.context().close();
+    }
+  });
 });

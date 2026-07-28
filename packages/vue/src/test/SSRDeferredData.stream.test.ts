@@ -175,6 +175,40 @@ describe('@taujs/vue deferred adapter - failure legs (renderer contract 6, 7)', 
   });
 });
 
+describe('@taujs/vue deferred adapter - CSP and hydration policy (renderer contract 5)', () => {
+  it('every inline script the renderer emits on a deferred route carries the nonce', async () => {
+    const writable = new PassThrough();
+    const chunks: string[] = [];
+    writable.on('data', (c) => chunks.push(c.toString()));
+    const { renderStream } = createRenderer({ appComponent: page(Reviews), headContent: () => '' });
+    const handle = renderStream(writable, { onHead: () => {} }, {}, '/x', '/bootstrap.js', {}, undefined, {
+      deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }),
+      cspNonce: 'NONCE123',
+      shouldHydrate: true,
+    });
+    await Promise.race([handle.done.catch(() => {}), settle(400)]);
+    const html = chunks.join('');
+
+    const scripts = html.match(/<script[^>]*>/g) ?? [];
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const tag of scripts) expect(tag).toContain('nonce="NONCE123"');
+  });
+
+  it('hydrate:false still streams the late boundary natively (the envelope is the host’s concern)', async () => {
+    const writable = new PassThrough();
+    const chunks: string[] = [];
+    writable.on('data', (c) => chunks.push(c.toString()));
+    const { renderStream } = createRenderer({ appComponent: page(Reviews), headContent: () => '' });
+    const handle = renderStream(writable, { onHead: () => {} }, {}, '/x', undefined, {}, undefined, {
+      deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }),
+      shouldHydrate: false,
+    });
+    await Promise.race([handle.done.catch(() => {}), settle(400)]);
+
+    expect(chunks.join('')).toContain('reviews: 3');
+  });
+});
+
 describe('@taujs/vue deferred deadline (decision 18)', () => {
   it('rejects a non positive-finite value at the factory - there is no disable sentinel', () => {
     for (const bad of [0, Infinity, -1, NaN, '5' as unknown as number]) {

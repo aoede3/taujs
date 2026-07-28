@@ -1,6 +1,7 @@
 import { defineConfig } from '@taujs/server/config';
 import { solidRenderer } from '@taujs/solid/renderer';
 
+import { deferredRoute } from './src/server/routes/deferred.ts';
 import { serviceData } from './src/server/services/registry.ts';
 
 // The Solid twin of fixtures/playground-react: one bootable app exercising @taujs/solid end to end
@@ -68,6 +69,19 @@ export default defineConfig({
             // patches require `_$HY` to exist.
             hydrate: false,
             data: serviceData('content', 'streaming'),
+          },
+        },
+        // RFC 0007: the deferred example route, declared in `src/server/routes/deferred.ts` so the
+        // client can name its inferred payload type (`DeferredDataOf<typeof deferredRoute>`).
+        deferredRoute,
+        {
+          // RFC 0007 decision 8: the same declaration with hydration off - native streamed delivery
+          // is unaffected and NO envelope is emitted, because there is no client runtime to seed.
+          path: '/deferred-no-hydrate',
+          attr: {
+            ...deferredRoute.attr,
+            meta: { title: 'τjs Solid playground - deferred, no hydrate' },
+            hydrate: false,
           },
         },
         {
