@@ -11,6 +11,9 @@ import { createDeferredAccessor, DeferredDataError, useDeferredData, useDeferred
 
 const settle = (ms = 60) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** Route data that never settles, so the fatal route-data backstop actually arms at shell commit. */
+const pendingRouteData = () => new Promise<Record<string, unknown>>(() => {});
+
 type Registry = Record<string, Promise<Record<string, unknown>>>;
 
 const deferredRegistry = (entries: Record<string, Promise<Record<string, unknown>>>): Registry => {
@@ -20,7 +23,16 @@ const deferredRegistry = (entries: Record<string, Promise<Record<string, unknown
 
 const drive = async (
   appComponent: (props: { location: string }) => React.ReactElement,
-  opts: { deferredData?: Registry; streamOptions?: StreamOptions; wait?: number; shouldHydrate?: boolean } = {},
+  opts: {
+    deferredData?: Registry;
+    streamOptions?: StreamOptions;
+    wait?: number;
+    shouldHydrate?: boolean;
+    /** Per-CALL overrides, i.e. the seam a standalone consumer reaches (the host sends none). */
+    callOptions?: Record<string, unknown>;
+    /** Left PENDING when a cell needs the fatal route-data backstop to actually arm. */
+    initialData?: Record<string, unknown> | Promise<Record<string, unknown>>;
+  } = {},
 ) => {
   const writable = new PassThrough();
   const chunks: { at: number; text: string }[] = [];
@@ -32,12 +44,12 @@ const drive = async (
   const handle = renderStream(
     writable,
     { onHead: () => {}, onAllReady: () => {}, onError: (e) => errors.push(e) },
-    { critical: 1 },
+    opts.initialData ?? { critical: 1 },
     '/product/42',
     undefined,
     {},
     undefined,
-    { ...(opts.deferredData ? { deferredData: opts.deferredData } : {}), shouldHydrate: opts.shouldHydrate ?? true },
+    { ...(opts.deferredData ? { deferredData: opts.deferredData } : {}), shouldHydrate: opts.shouldHydrate ?? true, ...opts.callOptions },
   );
 
   await Promise.race([handle.done.catch(() => {}), settle(opts.wait ?? 400)]);
@@ -50,7 +62,6 @@ describe('@taujs/react deferred adapter - native projection (renderer contract 1
   it('suspends only the reading boundary: independent shell content precedes the value', async () => {
     let resolveReviews!: (v: Record<string, unknown>) => void;
     const reviews = new Promise<Record<string, unknown>>((r) => (resolveReviews = r));
-    let settledAt = 0;
 
     const Reviews = () => {
       const data = useDeferredData<{ count: number }>('reviews');
@@ -67,12 +78,11 @@ describe('@taujs/react deferred adapter - native projection (renderer contract 1
 
     const driven = drive(App, { deferredData: deferredRegistry({ reviews }) });
     await settle(80);
-    settledAt = Date.now();
     resolveReviews({ count: 3 });
     const { chunks, html } = await driven;
 
-    const shellAt = chunks[0]!.at;
-    expect(shellAt).toBeLessThan(settledAt);
+    // The FIRST chunk carries the independent content and the fallback, and NOT the value - the
+    // shell was committed before the promise settled, which is the whole claim.
     expect(chunks[0]!.text).toContain('unrelated shell content');
     expect(chunks[0]!.text).toContain('loading reviews');
     expect(chunks[0]!.text).not.toContain('reviews: 3');
@@ -273,24 +283,114 @@ describe('@taujs/react deferred deadline (decision 18)', () => {
     }
   });
 
-  it('DEFAULT CONFIGURATION: the derived deferred deadline is 15_000 and strictly precedes the fatal route-data backstop', () => {
-    // The relationship, proven deterministically from the shipped defaults rather than by a
-    // 30-second run: min(15_000, dataTimeoutMs / 2) with dataTimeoutMs defaulting to 30_000.
-    const DEFAULT_DATA_TIMEOUT = 30_000;
-    const derived = Math.min(15_000, DEFAULT_DATA_TIMEOUT / 2);
+  it('DEFAULT CONFIGURATION: the SHIPPED deadlines arm at 15_000 and 30_000, in that order', async () => {
+    // Deterministic (no 30-second run) and it OBSERVES THE MODULE rather than restating its
+    // derivation: both post-shell deadlines are armed at the same site, so the delays handed to
+    // `setTimeout` there ARE the shipped relationship. The cell fails the moment either default -
+    // the 15_000 cap or the 30_000 backstop - moves in either direction.
+    const spy = vi.spyOn(globalThis, 'setTimeout');
 
-    expect(derived).toBe(15_000);
-    expect(derived).toBeLessThan(DEFAULT_DATA_TIMEOUT);
+    await drive(
+      () => (
+        <Suspense fallback={<p>loading</p>}>
+          <p>shell</p>
+        </Suspense>
+      ),
+      { deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }), initialData: pendingRouteData(), wait: 300 },
+    );
+
+    const armed = spy.mock.calls.map((call) => Number(call[1]));
+    spy.mockRestore();
+
+    // Armed at shell commit with what REMAINS of a 15_000 budget measured from renderStream entry.
+    const deferred = armed.filter((ms) => ms > 14_000 && ms <= 15_000);
+    expect(deferred).toHaveLength(1);
+    // The fatal route-data backstop, armed at the same instant, is strictly LATER - so the graceful
+    // terminal is structurally reachable.
+    expect(armed).toContain(30_000);
+    expect(deferred[0]!).toBeLessThan(30_000);
+
     // ...and the factory refuses any configuration that would invert it.
     expect(() => createRenderer({ appComponent: () => <p />, headContent: () => '', streamOptions: { deferredTimeoutMs: 30_000 } })).toThrow(
       /must be strictly less than streamOptions.dataTimeoutMs/,
     );
-    expect(() => createRenderer({ appComponent: () => <p />, headContent: () => '', streamOptions: { dataTimeoutMs: 4_000 } })).not.toThrow();
   });
 
-  it('derives the default from a NON-default fatal backstop, so the graceful terminal stays reachable', () => {
-    // A renderer configured with a 4s fatal backstop must derive 2s, not 15s.
-    expect(Math.min(15_000, 4_000 / 2)).toBe(2_000);
+  it('a per-call `deferredTimeoutMs` is IGNORED - the boot-validated deadline is the only one armed', async () => {
+    // It is omitted from `StreamCallOptions` (a compile-time fact), so this pins the RUNTIME half:
+    // an untyped consumer smuggling one through must not reach the timer.
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+
+    await drive(
+      () => (
+        <Suspense fallback={<p>loading</p>}>
+          <p>shell</p>
+        </Suspense>
+      ),
+      { deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }), callOptions: { deferredTimeoutMs: 50 }, wait: 300 },
+    );
+
+    const armed = spy.mock.calls.map((call) => Number(call[1]));
+    spy.mockRestore();
+
+    expect(armed.filter((ms) => ms > 14_000 && ms <= 15_000)).toHaveLength(1);
+    expect(armed).not.toContain(50);
+  });
+
+  it('a per-call fatal backstop cannot INVERT the ordering: the deferred deadline is brought back below it', async () => {
+    // The fatal backstop IS per-call overridable (pre-existing), and decision 18's ordering rule is
+    // a property of the response, not only of the factory. With stock defaults (deferred 15_000,
+    // fatal 30_000) a call narrowing the fatal to 900ms would otherwise let it pre-empt graceful
+    // abandonment entirely; the deferred deadline is re-derived as fatal/2.
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+
+    await drive(
+      () => (
+        <Suspense fallback={<p>loading</p>}>
+          <p>shell</p>
+        </Suspense>
+      ),
+      {
+        deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }),
+        callOptions: { dataTimeoutMs: 900 },
+        initialData: pendingRouteData(),
+        wait: 300,
+      },
+    );
+
+    const armed = spy.mock.calls.map((call) => Number(call[1]));
+    spy.mockRestore();
+
+    expect(armed.filter((ms) => ms > 14_000 && ms <= 15_000)).toHaveLength(0);
+    expect(armed).toContain(900);
+    expect(armed.filter((ms) => ms > 300 && ms <= 450)).toHaveLength(1);
+  });
+
+  it('derives the default from a NON-default fatal backstop, so the graceful terminal stays reachable', async () => {
+    // A renderer configured with a 4s fatal backstop must derive 2s, not 15s - observed at the
+    // arming site rather than recomputed here.
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+
+    await drive(
+      () => (
+        <Suspense fallback={<p>loading</p>}>
+          <p>shell</p>
+        </Suspense>
+      ),
+      {
+        deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }),
+        streamOptions: { dataTimeoutMs: 4_000 },
+        initialData: pendingRouteData(),
+        wait: 300,
+      },
+    );
+
+    const armed = spy.mock.calls.map((call) => Number(call[1]));
+    spy.mockRestore();
+
+    expect(armed).toContain(4_000);
+    expect(armed.filter((ms) => ms > 1_500 && ms <= 2_000)).toHaveLength(1);
+
     expect(() =>
       createRenderer({ appComponent: () => <p />, headContent: () => '', streamOptions: { dataTimeoutMs: 4_000, deferredTimeoutMs: 2_000 } }),
     ).not.toThrow();

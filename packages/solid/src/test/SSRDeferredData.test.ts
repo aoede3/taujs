@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream';
 
 import { createComponent, ErrorBoundary, Suspense } from 'solid-js';
 import { renderToStringAsync, ssr } from 'solid-js/web';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import { createRenderer } from '../SSRRender.js';
 import { useSSRStore } from '../SSRDataStore.js';
@@ -179,20 +179,47 @@ describe('@taujs/solid deferred deadline (decision 18)', () => {
     }
   });
 
-  it('DEFAULT CONFIGURATION: the derived deadline is 15_000 and strictly precedes the fatal backstop', () => {
-    const DEFAULT_COMPLETION = 30_000;
-    const derived = Math.min(15_000, DEFAULT_COMPLETION / 2);
+  it('DEFAULT CONFIGURATION: the SHIPPED deadlines arm at 15_000 and 30_000, in that order', async () => {
+    // Deterministic (no 30-second run) and it OBSERVES THE MODULE rather than restating its
+    // derivation: the delays handed to `setTimeout` ARE the shipped relationship, so the cell fails
+    // the moment either default - the 15_000 cap or the 30_000 fatal backstop - moves.
+    const spy = vi.spyOn(globalThis, 'setTimeout');
 
-    expect(derived).toBe(15_000);
-    expect(derived).toBeLessThan(DEFAULT_COMPLETION);
+    await drive(page, { deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }), wait: 300 });
+
+    const armed = spy.mock.calls.map((call) => Number(call[1]));
+    spy.mockRestore();
+
+    // Armed at shell commit with what REMAINS of a 15_000 budget measured from renderStream entry.
+    const deferred = armed.filter((ms) => ms > 14_000 && ms <= 15_000);
+    expect(deferred).toHaveLength(1);
+    // The fatal completion backstop, armed at renderStream entry, is strictly LATER - so the
+    // graceful terminal is structurally reachable.
+    expect(armed).toContain(30_000);
+    expect(deferred[0]!).toBeLessThan(30_000);
+
     expect(() => createRenderer({ appComponent: page, headContent: () => '', streamOptions: { deferredTimeoutMs: 30_000 } })).toThrow(
       /must be strictly less than streamOptions.completionTimeoutMs/,
     );
   });
 
-  it('derives from a NON-default fatal backstop, so the graceful terminal stays reachable', () => {
-    expect(Math.min(15_000, 5_000 / 2)).toBe(2_500);
-    expect(() => createRenderer({ appComponent: page, headContent: () => '', streamOptions: { completionTimeoutMs: 5_000 } })).not.toThrow();
+  it('derives from a NON-default fatal backstop, so the graceful terminal stays reachable', async () => {
+    // A renderer configured with a 5s fatal backstop must derive 2.5s, not 15s - observed at the
+    // arming site rather than recomputed here.
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+
+    await drive(page, {
+      deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }),
+      streamOptions: { completionTimeoutMs: 5_000 },
+      wait: 300,
+    });
+
+    const armed = spy.mock.calls.map((call) => Number(call[1]));
+    spy.mockRestore();
+
+    expect(armed).toContain(5_000);
+    expect(armed.filter((ms) => ms > 2_000 && ms <= 2_500)).toHaveLength(1);
+
     expect(() =>
       createRenderer({ appComponent: page, headContent: () => '', streamOptions: { completionTimeoutMs: 5_000, deferredTimeoutMs: 5_000 } }),
     ).toThrow();

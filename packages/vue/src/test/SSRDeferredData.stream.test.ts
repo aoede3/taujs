@@ -4,7 +4,7 @@
 import { PassThrough } from 'node:stream';
 
 import { defineComponent, h } from 'vue';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import { createRenderer, type StreamOptions } from '../SSRRender';
 import { createDeferredAccessor, createDeferredHolder, DeferredDataError, useDeferredData, useDeferredDataResult } from '../SSRDeferredData';
@@ -218,16 +218,26 @@ describe('@taujs/vue deferred deadline (decision 18)', () => {
     }
   });
 
-  it('DEFAULT CONFIGURATION: the deadline is 15_000 and no other post-shell deadline competes with it', () => {
-    // Proven deterministically from the shipped defaults rather than by a 15-second run: the
-    // package's only other bound, `shellTimeoutMs`, guards the PRE-shell phase and is stopped at
-    // the first chunk - which is the exact moment this deadline is armed. They cannot race.
-    const DEFAULT_DEFERRED = 15_000;
-    const DEFAULT_SHELL = 10_000;
+  it('DEFAULT CONFIGURATION: the SHIPPED deadline arms at 15_000, and no other post-shell deadline competes with it', async () => {
+    // Deterministic (no 15-second run) and it OBSERVES THE MODULE rather than restating it: the
+    // delay handed to `setTimeout` at the arming site is the shipped default minus what the shell
+    // already spent, so this cell fails the moment the default moves in EITHER direction.
+    const spy = vi.spyOn(globalThis, 'setTimeout');
 
-    expect(() => createRenderer({ appComponent: page(Reviews), headContent: () => '' })).not.toThrow();
-    expect(DEFAULT_DEFERRED).toBeGreaterThan(0);
-    expect(Number.isFinite(DEFAULT_SHELL)).toBe(true);
+    await drive(page(Reviews), { deferredData: deferredRegistry({ reviews: Promise.resolve({ count: 3 }) }), wait: 300 });
+
+    const armed = spy.mock.calls.map((call) => Number(call[1]));
+    spy.mockRestore();
+
+    // Armed at shell commit with what REMAINS of a 15_000 budget measured from renderStream entry.
+    const deferred = armed.filter((ms) => ms > 14_000 && ms <= 15_000);
+    expect(deferred).toHaveLength(1);
+
+    // The package's only other bound, `shellTimeoutMs`, guards the PRE-shell phase and is stopped at
+    // the first chunk - the exact moment this deadline is armed. They cannot race, and there is no
+    // third armed bound between them.
+    expect(armed).toContain(10_000);
+    expect(armed.filter((ms) => ms >= 10_000)).toEqual([10_000, deferred[0]!]);
   });
 
   it('leg 4 - on expiry the still-pending boundary renders its `aborted` branch INTO the response and the document terminates', async () => {
