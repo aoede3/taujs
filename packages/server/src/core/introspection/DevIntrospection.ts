@@ -209,11 +209,11 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       // the abort reaches the registry, so the per-key outcomes for exactly the case R5 exists to
       // explain would otherwise be dropped. An amendment to a finalised trace bumps
       // `tracesRevision`, which is what carries it into the on-disk NDJSON.
-      const finalized = pending.get(e.traceId) === undefined;
+      const finalised = pending.get(e.traceId) === undefined;
       const trace = pending.get(e.traceId) ?? traces.find((t) => t.traceId === e.traceId);
       if (!trace) return;
       (trace.deferredData ??= []).push({ key: e.key, outcome: e.outcome, ms: e.ms });
-      if (finalized) tracesRevision += 1;
+      if (finalised) tracesRevision += 1;
     },
 
     serviceCall(e) {

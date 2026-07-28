@@ -670,7 +670,7 @@ data: async (params, ctx) => {
 A `streaming` route may additionally declare `attr.deferred`: a flat record of named loaders whose
 values are allowed to arrive after rendering has begun. `attr.data` remains the critical snapshot
 the response cannot start without; `deferred` declares response-owned work that is started but not
-awaited. taujs starts deferred work without awaiting it before invoking the renderer, and
+awaited. τjs starts deferred work without awaiting it before invoking the renderer, and
 subsequent byte ordering follows the renderer's native streaming semantics.
 
 ```typescript
