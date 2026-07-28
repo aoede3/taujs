@@ -378,7 +378,13 @@ export function createRenderer<
     // Merge renderer defaults with per-call overrides
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
     const effectiveDataTimeout = opts?.dataTimeoutMs ?? dataTimeoutMs;
-    const effectiveDeferredTimeout = opts?.deferredTimeoutMs ?? deferredTimeoutMs;
+    // RFC 0007 (decision 18): the deferred deadline is NOT per-call overridable. It is "one latched
+    // deadline per response, positive finite only, VALIDATED AT BOOT" - and a per-call seam is not
+    // boot, so honouring `opts.deferredTimeoutMs` would put an unvalidated value (0, -1, NaN,
+    // Infinity, a string from untyped JS) straight into the timer and the operator warning. The
+    // factory-validated value is the only one this renderer uses; Solid takes no override either.
+    // The field remains legal on the call bag only because `StreamCallOptions` intersects
+    // `StreamOptions`; it is deliberately ignored here.
     // RFC 0007 (decision 18): the deferred deadline's time ORIGIN. It is armed later (at shell
     // commit) but measured from here, so its ordering against the fatal backstop is a property of
     // the configuration rather than of how long the shell happened to take.
@@ -694,17 +700,17 @@ export function createRenderer<
                   const abandoned = deferredHolder?.expire() ?? 0;
                   if (abandoned === 0) return;
 
-                  warn(`Deferred data not ready after ${effectiveDeferredTimeout}ms; abandoning the pending boundaries`, { location, abandoned });
+                  warn(`Deferred data not ready after ${deferredTimeoutMs}ms; abandoning the pending boundaries`, { location, abandoned });
                   try {
                     // React's OWN abort: it emits a client-render instruction per abandoned
                     // boundary and finishes the document. τjs writes no framework-patch bytes and
                     // never touches the host's response-owned promise.
-                    stream.abort(new Error(`Deferred data not ready after ${effectiveDeferredTimeout}ms`));
+                    stream.abort(new Error(`Deferred data not ready after ${deferredTimeoutMs}ms`));
                   } catch (abortErr) {
                     error('Deferred deadline abort failed:', abortErr);
                   }
                 },
-                Math.max(effectiveDeferredTimeout - (Date.now() - renderStartedAt), 1),
+                Math.max(deferredTimeoutMs - (Date.now() - renderStartedAt), 1),
               );
             }
 
