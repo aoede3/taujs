@@ -3,36 +3,34 @@ title: Host Ownership
 description: What τjs owns when you supply your own Fastify instance, and what it owns when it creates one for you.
 ---
 
-τjs has one rule about the server it runs on:
-
-> Bring your own Fastify and τjs respects it. Let τjs create Fastify and it provides the complete experience.
-
-You choose between them by whether you pass `fastify` to `createServer`. There is no ownership option, mode or flag, and nothing extra to configure.
+Whether τjs creates Fastify or receives an existing instance determines the installation boundary.
+When `fastify` is omitted, τjs creates the instance and installs its whole-server defaults. When
+`fastify` is supplied, τjs registers its application routes and supporting facilities inside an
+encapsulated scope. There is no separate ownership option or flag.
 
 ```ts
 // τjs creates Fastify: whole-server shell, CSP and trace
 const { app, net } = await createServer({ config });
 
-// You own Fastify: τjs owns only its declared routes
+// You own Fastify: τjs installs into an encapsulated application scope
 await createServer({ config, fastify: app });
 ```
 
-The boot summary states which mode is in effect, so you never have to infer it.
+The boot summary reports which installation shape is active.
 
 :::caution[Passing an instance is an ownership decision, whatever your reason for passing it]
-Supplying `fastify` always means you own the host, including when you created the instance solely to
-set Fastify options such as `routerOptions` or `genReqId`. In that case you still lose the implicit
-shell, whole-server τjs CSP and `x-trace-id` on your own routes.
+Supplying `fastify` means you own the host, including when you created the instance solely to set
+Fastify options such as `routerOptions` or `genReqId`. The caller-owned column below applies in
+that case: your instance owns not-found handling, host-wide policy and request identity.
 
-τjs deliberately does not try to infer intent from how the instance was configured, because that
-guess would be unreliable. There are two accurate ways forward:
+τjs does not infer intent from how the instance was configured. Choose the installation boundary
+that matches the application:
 
-- **If those native options are not essential**, omit `fastify` entirely and keep the complete
-  τjs-created experience. Note that `config.server` covers only `host`, `port` and `hmrPort`; it is
-  not a place to configure `routerOptions`, `genReqId` or other Fastify construction options.
-- **If they are essential**, keep supplying the instance, accept host ownership, and establish the
-  behaviour you want explicitly: declare a terminal wildcard page for a shell, register host-wide
-  CSP on your own instance, and set your own request identity and tracing.
+- Omit `fastify` to use the τjs-created server and its whole-server defaults. Note that
+  `config.server` covers only `host`, `port` and `hmrPort`; it does not configure
+  `routerOptions`, `genReqId` or other Fastify construction options.
+- Supply `fastify` when those native options or an existing host are required, then configure
+  host-owned concerns on that instance.
 :::
 
 ## What each side owns
@@ -49,19 +47,23 @@ guess would be unreliable. There are two accurate ways forward:
 | Logging | Resolved τjs logger | Your `fastify.log` lineage |
 | Listening and shutdown | You | You |
 
-On a supplied instance τjs installs no root error handler, no root not-found handler, no root CSP or trace hook, claims no root decorator names, and writes no banner or presentation output. It does register under its own name, so it appears in your plugin tree where you would expect a mounted subsystem to be.
+On a supplied instance, production registration stays inside the τjs scope. It registers under its
+own name, so it appears in the Fastify plugin tree as a mounted subsystem.
 
-Development has one deliberate exception: Vite must serve URLs that match no route, such as `/@vite/client` and transformed sources, and only a root-level hook observes those. τjs registers exactly one delegating `onRequest` hook for that purpose. It hands the request to the τjs-owned Vite server and otherwise returns control unchanged. It starts no trace, applies no policy and selects no route, and it does not exist in production.
+In development, Vite must serve URLs that match no route, such as `/@vite/client` and transformed
+sources. Only a root-level hook can observe those requests, so τjs registers one delegating
+`onRequest` hook. It hands the request to the τjs-owned Vite server and otherwise returns control
+unchanged. The hook is not registered in production.
 
-## Migrating an embedded application
+## Using a caller-owned Fastify instance
 
-If you already call `createServer({ fastify })`, three behaviours that used to apply to your whole server now apply only to τjs responses.
+### Application shell and unmatched URLs
 
-### Unmatched URLs are yours again
+On a caller-owned host, URLs that match no Fastify route reach the host's not-found handler. τjs does
+not install an implicit application shell in the caller's root scope.
 
-Previously any URL that matched no route received a τjs HTML shell with status 200. Your own not-found policy now handles them.
-
-If you want τjs to render unmatched URLs, declare a terminal wildcard page. It is an ordinary τjs route with no special casing:
+To send client-routed URLs to a τjs application shell, declare a terminal wildcard page. It is an
+ordinary Fastify route compiled from the τjs application contract:
 
 ```ts
 routes: [
@@ -70,34 +72,48 @@ routes: [
 ];
 ```
 
-Two differences are worth knowing.
+The wildcard is the server route. Child URLs can remain client-routed inside the shell. See
+[App Shell Architecture](/reference/app-shell-pattern) for the complete pattern.
 
-The old implicit shell delegated asset-like misses such as `/logo.png` to a 404, whereas an explicit `/*` owns and renders everything it matches. To keep assets 404ing, declare narrower page patterns instead of `/*`, or serve assets under a prefix the wildcard does not cover.
+The two shell forms have different asset behaviour. The implicit shell on a τjs-created host
+delegates asset-like misses such as `/logo.png` to a 404. An explicit `/*` owns and renders every
+URL it matches. Use narrower page patterns or a separate asset prefix when missing asset-like URLs
+must remain 404 responses.
 
-If you also serve static files from your own instance, check how that mount is configured. `@fastify/static` defaults `wildcard` to `true`, which claims `GET /*` on your root, and Fastify's router is global, so a declared τjs `/*` page is then a genuine duplicate route and boot fails with `FST_ERR_DUPLICATED_ROUTE`. Registration order does not change this. Either register your static mount with `wildcard: false`, or keep the two patterns non-overlapping:
+A caller's `@fastify/static` mount also needs a compatible route shape. Its default
+`wildcard: true` claims `GET /*`, so declaring a τjs `/*` page would be a genuine duplicate route
+and Fastify would stop boot with `FST_ERR_DUPLICATED_ROUTE`. Registration order does not change
+that. Configure the static mount with `wildcard: false`, or keep the patterns non-overlapping:
 
 ```ts
 await app.register(fastifyStatic, { root: assets, prefix: '/', wildcard: false });
 ```
 
-τjs's own static facility already uses `wildcard: false` for exactly this reason, so it never competes for that route.
+τjs's own static facility uses `wildcard: false`, so it does not compete for the terminal page
+route.
 
-### Configured CSP no longer covers your routes
+### CSP scope
 
-`security.csp` now applies to τjs responses. Route-level `merge`, `replace` and `false`, and nonce plumbing, are unchanged.
+`security.csp` applies to τjs responses. Route-level `merge`, `replace` and `false`, and nonce
+plumbing, work the same in either installation shape.
 
-Host-wide policy belongs to Fastify. Register your preferred CSP plugin on your instance and it will cover your routes, while τjs continues to manage policy for the pages it renders.
+If CSP should cover host routes as well, register the host-wide policy on the supplied Fastify
+instance. τjs continues to manage policy for the pages it renders.
 
-### `x-trace-id` no longer appears on your routes
+### Request identity and trace scope
 
-τjs opens a trace episode only for responses it owns, so your routes carry no `x-trace-id` and start no recorder episode.
+τjs opens a trace episode only for responses it owns. Host routes do not receive a τjs
+`x-trace-id` response header and do not start a τjs recorder episode.
 
-Correlation still works, in your logs. τjs adopts an inbound `x-trace-id` header if present, and otherwise your Fastify `req.id`, whether `genReqId` returns a string or a number. Your own records bind that value as `reqId` and τjs binds the same value as `traceId`, so the two sides join on one identity with no wiring.
-
-The shared identity appears in log records, not on the wire: your routes carry no `x-trace-id` response header, because τjs opens a trace episode only for responses it owns.
+τjs records can be correlated with host logs. A valid inbound `x-trace-id` becomes the τjs
+`traceId`; otherwise τjs uses the Fastify `req.id`, including numeric IDs. τjs log bindings retain
+the Fastify value as `reqId` in either case. Exact equality between `reqId` and `traceId` therefore
+depends on the host's request-ID configuration; τjs does not rewrite `req.id`.
 
 ## Running τjs inside another runtime
 
-Because a supplied instance keeps its own lifecycle, τjs is usable as a subsystem of a larger Fastify application without special support. It never calls `listen()`, never touches process lifecycle, and releases what it owns, including the development Vite server, through ordinary `app.close()`.
+Because a supplied instance keeps its own lifecycle, τjs can run as a subsystem of a larger Fastify
+application without special support. It never calls `listen()`, never touches process lifecycle,
+and releases what it owns, including the development Vite server, through ordinary `app.close()`.
 
-That is a property of being a well-behaved Fastify plugin rather than an integration with any particular platform, and τjs ships no provider-specific code.
+This follows Fastify's plugin lifecycle and requires no provider-specific integration.
