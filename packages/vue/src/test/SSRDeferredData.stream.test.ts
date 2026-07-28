@@ -21,11 +21,18 @@ const deferredRegistry = (entries: Record<string, Promise<Record<string, unknown
   return Object.freeze({ ...entries });
 };
 
-const drive = async (appComponent: Component, opts: { deferredData?: Registry; streamOptions?: StreamOptions; wait?: number } = {}) => {
+const drive = async (
+  appComponent: Component,
+  opts: { deferredData?: Registry; streamOptions?: StreamOptions; wait?: number; onChunk?: (text: string) => void } = {},
+) => {
   const writable = new PassThrough();
   const chunks: { at: number; text: string }[] = [];
   const t0 = Date.now();
-  writable.on('data', (c) => chunks.push({ at: Date.now() - t0, text: c.toString() }));
+  writable.on('data', (c) => {
+    const text = c.toString();
+    chunks.push({ at: Date.now() - t0, text });
+    opts.onChunk?.(text);
+  });
 
   const { renderStream } = createRenderer({ appComponent, headContent: () => '<title>t</title>', streamOptions: opts.streamOptions });
   const errors: unknown[] = [];
@@ -79,19 +86,36 @@ describe('@taujs/vue deferred adapter - native projection (renderer contract 1-3
     let resolveReviews!: (v: Record<string, unknown>) => void;
     const reviews = new Promise<Record<string, unknown>>((r) => (resolveReviews = r));
 
-    const driven = drive(page(Reviews), { deferredData: deferredRegistry({ reviews }) });
-    await settle(120);
-    resolveReviews({ count: 3 });
+    // Settlement is GATED on the flushed preceding content, never on a timer: a timed release can
+    // lose the race to Vue's first flush on a slow machine, collapsing everything into one chunk
+    // and turning the ordering assertions into scheduler luck.
+    let sawPreceding = false;
+    const driven = drive(page(Reviews), {
+      deferredData: deferredRegistry({ reviews }),
+      onChunk: (text) => {
+        if (!sawPreceding && text.includes('independent content')) {
+          sawPreceding = true;
+          resolveReviews({ count: 3 });
+        }
+      },
+    });
     const { chunks, html } = await driven;
 
-    const beforeAt = chunks.find((c) => c.text.includes('independent content'))!.at;
-    const valueAt = chunks.find((c) => c.text.includes('reviews: 3'))!.at;
-    const afterAt = chunks.find((c) => c.text.includes('after the boundary'))!.at;
+    expect(sawPreceding).toBe(true);
 
-    expect(beforeAt).toBeLessThan(valueAt);
+    // Chunk INDICES, not timestamps: order is the claim, and a same-millisecond flush after the
+    // gated release would make a time comparison probe clock resolution instead of the stream.
+    const beforeIdx = chunks.findIndex((c) => c.text.includes('independent content'));
+    const valueIdx = chunks.findIndex((c) => c.text.includes('reviews: 3'));
+    const afterIdx = chunks.findIndex((c) => c.text.includes('after the boundary'));
+
+    expect(beforeIdx).toBeGreaterThanOrEqual(0);
+    // The gate released the value only after the preceding-content chunk was already emitted, so
+    // a strictly later chunk must carry it.
+    expect(valueIdx).toBeGreaterThan(beforeIdx);
     // Vue's in-order stream holds everything AFTER an awaited boundary - the honest ordering class,
     // and the reason the authoring rule is "place the boundary last in the region you care about".
-    expect(afterAt).toBeGreaterThanOrEqual(valueAt);
+    expect(afterIdx).toBeGreaterThanOrEqual(valueIdx);
     expect(html).toContain('reviews: 3');
   });
 

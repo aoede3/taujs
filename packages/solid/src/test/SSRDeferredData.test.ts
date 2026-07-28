@@ -58,11 +58,18 @@ const page = (): JSX.Element =>
     html('<p id="tail">tail content, after the boundary</p>'),
   ] as never;
 
-const drive = async (appComponent: () => JSX.Element, opts: { deferredData?: Registry; streamOptions?: Record<string, number>; wait?: number } = {}) => {
+const drive = async (
+  appComponent: () => JSX.Element,
+  opts: { deferredData?: Registry; streamOptions?: Record<string, number>; wait?: number; onChunk?: (text: string) => void } = {},
+) => {
   const sink = new PassThrough();
   const chunks: { at: number; text: string }[] = [];
   const t0 = Date.now();
-  sink.on('data', (c: Buffer) => chunks.push({ at: Date.now() - t0, text: String(c) }));
+  sink.on('data', (c: Buffer) => {
+    const text = String(c);
+    chunks.push({ at: Date.now() - t0, text });
+    opts.onChunk?.(text);
+  });
   sink.on('error', () => {});
 
   const { renderStream } = createRenderer({ appComponent, headContent: () => '<title>t</title>', streamOptions: opts.streamOptions });
@@ -89,11 +96,22 @@ describe('@taujs/solid deferred adapter - native projection (renderer contract 1
     let resolveReviews!: (v: Record<string, unknown>) => void;
     const reviews = new Promise<Record<string, unknown>>((r) => (resolveReviews = r));
 
-    const driven = drive(page, { deferredData: deferredRegistry({ reviews }) });
-    await settle(120);
-    resolveReviews({ count: 3 });
+    // Settlement is GATED on the flushed shell, never on a timer: a timed release can lose the
+    // race to Solid's first flush on a slow machine, and Solid then legitimately renders the
+    // value IN order - the cell would be probing scheduler luck rather than the ordering class.
+    let sawFallback = false;
+    const driven = drive(page, {
+      deferredData: deferredRegistry({ reviews }),
+      onChunk: (text) => {
+        if (!sawFallback && text.includes('loading reviews')) {
+          sawFallback = true;
+          resolveReviews({ count: 3 });
+        }
+      },
+    });
     const { chunks, html: out } = await driven;
 
+    expect(sawFallback).toBe(true);
     expect(chunks[0]!.text).toContain('shell');
     expect(chunks[0]!.text).toContain('loading reviews');
     expect(chunks[0]!.text).toContain('tail content, after the boundary');
@@ -396,7 +414,10 @@ describe('@taujs/solid deferred adapter - retention (renderer contract 8)', () =
       },
     );
 
-    await settle(80);
+    // Bounded poll rather than a fixed wait: the assertion needs the renderer to have reached
+    // the provider, which a slow machine may take longer than any single guessed delay.
+    const captureDeadline = Date.now() + 5_000;
+    while (getDeferredData(captured) === undefined && Date.now() < captureDeadline) await settle(10);
     expect(getDeferredData(captured)).toBeDefined();
     const holder = getDeferredData(captured) as DeferredDataHolder;
 

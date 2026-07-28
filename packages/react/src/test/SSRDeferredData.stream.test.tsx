@@ -32,12 +32,18 @@ const drive = async (
     callOptions?: Record<string, unknown>;
     /** Left PENDING when a cell needs the fatal route-data backstop to actually arm. */
     initialData?: Record<string, unknown> | Promise<Record<string, unknown>>;
+    /** Live chunk observer, for cells that must gate an action on an OBSERVED flush. */
+    onChunk?: (text: string) => void;
   } = {},
 ) => {
   const writable = new PassThrough();
   const chunks: { at: number; text: string }[] = [];
   const t0 = Date.now();
-  writable.on('data', (c) => chunks.push({ at: Date.now() - t0, text: c.toString() }));
+  writable.on('data', (c) => {
+    const text = c.toString();
+    chunks.push({ at: Date.now() - t0, text });
+    opts.onChunk?.(text);
+  });
 
   const { renderStream } = createRenderer({ appComponent, headContent: () => '<title>t</title>', streamOptions: opts.streamOptions });
   const errors: unknown[] = [];
@@ -76,11 +82,22 @@ describe('@taujs/react deferred adapter - native projection (renderer contract 1
       </main>
     );
 
-    const driven = drive(App, { deferredData: deferredRegistry({ reviews }) });
-    await settle(80);
-    resolveReviews({ count: 3 });
+    // Settlement is GATED on the flushed shell, never on a timer: a timed release can lose the
+    // race to React's first flush on a slow machine, and the value would then render inline -
+    // the cell would be probing scheduler luck rather than the boundary-isolation claim.
+    let sawFallback = false;
+    const driven = drive(App, {
+      deferredData: deferredRegistry({ reviews }),
+      onChunk: (text) => {
+        if (!sawFallback && text.includes('loading reviews')) {
+          sawFallback = true;
+          resolveReviews({ count: 3 });
+        }
+      },
+    });
     const { chunks, html } = await driven;
 
+    expect(sawFallback).toBe(true);
     // The FIRST chunk carries the independent content and the fallback, and NOT the value - the
     // shell was committed before the promise settled, which is the whole claim.
     expect(chunks[0]!.text).toContain('unrelated shell content');
