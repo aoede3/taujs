@@ -15,9 +15,11 @@ const { prerenderToNodeStream } = ReactDOMStatic;
 import type { Writable } from 'node:stream';
 
 import { createSSRStore, SSRStoreProvider } from './SSRDataStore.js';
+import { createDeferredHolder, DeferredDataProvider } from './SSRDeferredData.js';
 import { getStoreReadiness } from './internal.js';
 import { createUILogger } from './utils/Logger.js';
 
+import type { DeferredDataRegistry, DeferredHolder } from './SSRDeferredData.js';
 import type { LoggerLike } from './utils/Logger.js';
 
 import { createStreamController, startShellTimer, wireWritableGuards } from './utils/Streaming.js';
@@ -70,6 +72,23 @@ export type StreamOptions = {
    * the response (and its listeners/streams) open indefinitely.
    */
   dataTimeoutMs?: number;
+  /**
+   * RFC 0007 (decision 18): the ONE response-level deferred completion deadline.
+   *
+   * Measured from `renderStream` ENTRY (the same origin the fatal route-data backstop is compared
+   * against), armed at shell commit with whatever remains of the budget, never reset per key, and
+   * LATCHED - a boundary whose first read arrives after expiry is born `aborted` rather than
+   * starting a fresh unbounded wait. On expiry the still-pending consumed boundaries are abandoned
+   * through React's OWN `stream.abort`, which emits React's own client-render instruction for each
+   * and finishes the document; the host then classifies those keys `aborted` in its envelope, and
+   * the client hydrates them deterministically without a refetch.
+   *
+   * POSITIVE FINITE only, validated at the factory - there is no disable sentinel, because this
+   * deadline is what keeps "bounded total response time" true. Default `min(15_000,
+   * dataTimeoutMs / 2)`; an explicit value must be STRICTLY LESS than a finite `dataTimeoutMs`, or
+   * the fatal backstop could pre-empt graceful abandonment.
+   */
+  deferredTimeoutMs?: number;
 };
 
 export type SSROptions = {
@@ -125,9 +144,16 @@ type StreamCallOptions<R> = StreamOptions & {
   // shouldHydrate is the host-resolved hydration policy. Keeps this in step with the host RenderOptions.
   cspNonce?: string;
   shouldHydrate?: boolean;
+  // RFC 0007 (decision 14): the host's request-local deferred registry - present ONLY when the
+  // route declares `attr.deferred`. Already started, already pre-observed; the renderer neither
+  // starts nor re-observes them, it only projects them onto `use()` + `<Suspense>`.
+  deferredData?: DeferredDataRegistry;
 };
 
 const NOOP = () => {};
+
+/** RFC 0007 (decision 18): the cap on the DERIVED default deferred deadline. */
+const DEFERRED_TIMEOUT_DEFAULT_CAP_MS = 15_000;
 
 export function createRenderer<
   T extends Record<string, unknown> = Record<string, unknown>,
@@ -166,7 +192,30 @@ export function createRenderer<
   identifierPrefix?: string;
 }) {
   const { shellTimeoutMs = 10_000, dataTimeoutMs = 30_000 } = streamOptions;
+  // RFC 0007 (decision 18): DERIVED, not a literal - half the fatal route-data backstop's budget,
+  // capped at 15s, so the graceful deferred terminal is structurally reachable for whatever
+  // `dataTimeoutMs` an application configures rather than only for the stock one.
+  const deferredTimeoutMs =
+    streamOptions.deferredTimeoutMs ??
+    (Number.isFinite(dataTimeoutMs) && dataTimeoutMs > 0 ? Math.min(DEFERRED_TIMEOUT_DEFAULT_CAP_MS, dataTimeoutMs / 2) : DEFERRED_TIMEOUT_DEFAULT_CAP_MS);
   const { prerenderTimeoutMs = 10_000 } = ssrOptions;
+
+  // RFC 0007 (decision 18): POSITIVE FINITE only - there is no 0/Infinity disable sentinel, because
+  // this deadline is what bounds the response.
+  if (!(typeof deferredTimeoutMs === 'number' && Number.isFinite(deferredTimeoutMs) && deferredTimeoutMs > 0)) {
+    throw new TypeError(
+      `createRenderer: streamOptions.deferredTimeoutMs must be a positive finite number of milliseconds (received ${String(deferredTimeoutMs)})`,
+    );
+  }
+
+  // Both deadlines bound the POST-SHELL phase, so at or above the fatal one the deferred deadline
+  // could never abandon a boundary gracefully. That is a dead option, not a marginal configuration.
+  if (Number.isFinite(dataTimeoutMs) && dataTimeoutMs > 0 && deferredTimeoutMs >= dataTimeoutMs) {
+    throw new TypeError(
+      `createRenderer: streamOptions.deferredTimeoutMs (${deferredTimeoutMs}) must be strictly less than streamOptions.dataTimeoutMs (${dataTimeoutMs}); ` +
+        'at or above it the fatal route-data deadline pre-empts graceful deferred abandonment',
+    );
+  }
 
   // Gate-review fix: validate ONCE at the factory. The timer site arms only for finite positive
   // values, so without this check every invalid input (-1, NaN, null, a string from untyped JS,
@@ -329,6 +378,11 @@ export function createRenderer<
     // Merge renderer defaults with per-call overrides
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
     const effectiveDataTimeout = opts?.dataTimeoutMs ?? dataTimeoutMs;
+    const effectiveDeferredTimeout = opts?.deferredTimeoutMs ?? deferredTimeoutMs;
+    // RFC 0007 (decision 18): the deferred deadline's time ORIGIN. It is armed later (at shell
+    // commit) but measured from here, so its ordering against the fatal backstop is a property of
+    // the configuration rather than of how long the shell happened to take.
+    const renderStartedAt = Date.now();
 
     // Stream controller centralises cleanup & settlement
     const controller = createStreamController(writable, { log, warn, error });
@@ -379,6 +433,16 @@ export function createRenderer<
     // without emitting 'close', leaving the timer/closure/listener live until dataTimeoutMs).
     let stopDataDeadline: (() => void) | undefined;
 
+    // RFC 0007. Declared at renderStream scope, ABOVE the cleanup composition below, so EVERY
+    // terminal the controller owns (normal finish, benign abort, fatal) releases the holder and
+    // disarms the deadline - the retention standard the data deadline already holds itself to.
+    let deferredHolder: DeferredHolder | undefined;
+    let deferredTimer: ReturnType<typeof setTimeout> | undefined;
+    const stopDeferredDeadline = () => {
+      if (deferredTimer !== undefined) clearTimeout(deferredTimer);
+      deferredTimer = undefined;
+    };
+
     // Writable guards (handles error/close/finish)
     const { cleanup: guardsCleanup } = wireWritableGuards(writable, {
       benignAbort: (why) => controller.benignAbort(why),
@@ -391,6 +455,14 @@ export function createRenderer<
       } catch {}
       try {
         stopDataDeadline?.();
+      } catch {}
+      // RFC 0007 (renderer contract item 8): release the holder on every terminal. The host's
+      // frozen record is a distinct object it releases on its own side; this drops OUR references.
+      try {
+        stopDeferredDeadline();
+      } catch {}
+      try {
+        deferredHolder?.release();
       } catch {}
     });
 
@@ -540,7 +612,17 @@ export function createRenderer<
         },
       };
 
-      const appElement = <SSRStoreProvider store={store}>{appComponent({ location, routeContext })}</SSRStoreProvider>;
+      // RFC 0007: the holder - and the provider - exist ONLY when the host passed a registry, so a
+      // route declaring no deferred entries renders exactly the tree it renders today and its
+      // bytes (including every `useId`) are unchanged.
+      deferredHolder = opts?.deferredData ? createDeferredHolder(opts.deferredData) : undefined;
+
+      const appTree = appComponent({ location, routeContext });
+      const appElement = (
+        <SSRStoreProvider store={store}>
+          {deferredHolder ? <DeferredDataProvider holder={deferredHolder}>{appTree}</DeferredDataProvider> : appTree}
+        </SSRStoreProvider>
+      );
 
       const stream = renderToPipeableStream(appElement, {
         nonce: cspNonce,
@@ -596,6 +678,35 @@ export function createRenderer<
             // (finding 1) — a Suspense consumer whose data never settles keeps React streaming, so
             // React may never call end(); this deadline fires regardless.
             armDataDeadline();
+
+            // RFC 0007 (decision 18): a deferred boundary can only be pending AFTER the shell
+            // committed, so the deadline is armed here - with what REMAINS of a budget measured
+            // from renderStream entry (a budget already spent arms at 1ms rather than never).
+            if (deferredHolder && deferredTimer === undefined) {
+              deferredTimer = setTimeout(
+                () => {
+                  deferredTimer = undefined;
+                  if (controller.isAborted) return;
+
+                  // LATCH FIRST, unconditionally: a later read must be born `aborted` rather than
+                  // start a fresh unbounded wait. Only then decide whether anything needs
+                  // abandoning - a deadline that abandons nothing is silent and costs nothing.
+                  const abandoned = deferredHolder?.expire() ?? 0;
+                  if (abandoned === 0) return;
+
+                  warn(`Deferred data not ready after ${effectiveDeferredTimeout}ms; abandoning the pending boundaries`, { location, abandoned });
+                  try {
+                    // React's OWN abort: it emits a client-render instruction per abandoned
+                    // boundary and finishes the document. τjs writes no framework-patch bytes and
+                    // never touches the host's response-owned promise.
+                    stream.abort(new Error(`Deferred data not ready after ${effectiveDeferredTimeout}ms`));
+                  } catch (abortErr) {
+                    error('Deferred deadline abort failed:', abortErr);
+                  }
+                },
+                Math.max(effectiveDeferredTimeout - (Date.now() - renderStartedAt), 1),
+              );
+            }
 
             // Advisory (design 6): a throw is logged, not fatal.
             try {
