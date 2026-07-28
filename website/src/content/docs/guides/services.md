@@ -172,6 +172,12 @@ type ServiceContext = {
 
 `ServiceContext` is intentionally the base context only.
 
+Although the base type reserves an optional `user` field for application-supplied contexts, the τjs
+route pipeline does not populate it from Fastify `req.user`. A protected route must not assume that
+`ctx.user` exists. Resolve identity explicitly in server-side route data and pass the validated
+identifier as a service parameter. See
+[Authentication](/guides/authentication/#identity-in-route-data-and-services).
+
 If you want typed service-to-service composition, use `TypedServiceContext<R>`:
 
 ```typescript
@@ -209,14 +215,6 @@ export const UserService = defineService({
   updateUser: async (params: { id: string; name: string }, ctx) => {
     ctx.logger?.info({ userId: params.id }, "Updating user");
 
-    if (!ctx.user) {
-      throw new Error("Authentication required");
-    }
-
-    if (ctx.user.id !== params.id && !ctx.user.roles.includes("admin")) {
-      throw new Error("Unauthorised");
-    }
-
     if (ctx.signal?.aborted) {
       throw new Error("Request cancelled");
     }
@@ -230,6 +228,10 @@ export const UserService = defineService({
   },
 });
 ```
+
+Authorisation should happen before this method is called, using an identity established by trusted
+server code. Pass only the identifier or capability the service needs rather than relying on an
+ambient user value.
 
 ## Working with Deadlines
 
@@ -583,10 +585,8 @@ Don't augment `ServiceContext.call.` It creates circular type relationships. Use
 
 For app-wide helpers, tests, or post-registry code, bind `TypedServiceContext` to the full registry.
 
-<!--
-## What's Next?
+## Related guides
 
-- [Authentication](/guides/authentication) - Access authenticated user in services
-- [Logging & Telemetry](/guides/logging-telemetry) - Use structured logging effectively
-- [Multi-App Architecture](/guides/micro-frontends) - Organise services in larger applications
--->
+- [Authentication](/guides/authentication/) for the Fastify authentication boundary and explicit identity flow
+- [Logging & Telemetry](/guides/logging-telemetry/) for service records and trace correlation
+- [Micro-Frontends](/guides/micro-frontend/) for service placement in a multi-application system

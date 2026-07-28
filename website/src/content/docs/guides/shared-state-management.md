@@ -1,417 +1,196 @@
 ---
 title: Shared State Management
-description: How to share state and code between apps in τjs
+description: How code, browser state and server state cross τjs application boundaries
 ---
 
-How τjs handles shared code and state across multiple applications.
+A τjs application owns one browser runtime for the current document. Navigating to another configured
+application starts another document and another runtime. The applications may import the same source
+code, but they do not share an in-memory store instance.
 
-τjs supports sharing code between apps through **build-time composition**. State sharing happens through:
+Start by separating four concerns:
 
-- **Shared code modules** (compiled into each bundle)
-- **Persistent storage** (localStorage, cookies, databases)
-- **Server-side data** (SSR hydration, API calls)
+| Concern | Scope | Suitable mechanism |
+| --- | --- | --- |
+| Shared implementation | Build time | Shared module or workspace package |
+| Ephemeral UI state | Current application document | Framework-native store or component state |
+| Non-sensitive preference | Browser profile | `localStorage` or another browser store |
+| Authoritative or sensitive state | User/session/server | Secure session plus database or service |
 
-**Key principle:** Each app runs in its own runtime. There is no shared memory between apps at runtime.
+## Shared code is not shared memory
 
-## Shared Code Modules
+A utility imported by two applications is built into both application graphs:
 
-### Directory Structure
+```ts
+// src/shared/preferences.ts
+export type ColourScheme = "light" | "dark";
 
-Create a `shared` directory for code used across apps:
+export function readColourScheme(): ColourScheme {
+  const stored = localStorage.getItem("colour-scheme");
+  return stored === "dark" ? "dark" : "light";
+}
 
-```
-client/
-├── shared/
-│   ├── store/              # Shared state stores
-│   │   ├── theme.store.ts
-│   │   └── user.store.ts
-│   ├── components/         # Shared UI components
-│   │   ├── Button.tsx
-│   │   └── Header.tsx
-│   ├── hooks/              # Shared React hooks
-│   │   └── useAuth.ts
-│   └── utils/              # Shared utilities
-│       └── formatting.ts
-├── app/                    # Customer app
-└── admin/                  # Admin app
-```
-
-### Build-Time Compilation
-
-When τjs builds each app:
-
-1. **Shared code is compiled** into each app's bundle
-2. **Tree-shaking removes unused exports**
-3. **Each app gets its own copy** of the compiled code
-4. **No runtime coordination** between apps
-
-**Example:**
-
-```typescript
-// shared/store/theme.store.ts
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-
-export const useThemeStore = create(
-  persist(
-    (set) => ({
-      theme: "light" as "light" | "dark",
-      setTheme: (theme: "light" | "dark") => set({ theme }),
-    }),
-    {
-      name: "app-theme", // localStorage key
-    }
-  )
-);
-```
-
-```typescript
-// client/app/App.tsx
-import { useThemeStore } from "@shared/store/theme.store";
-
-export function App() {
-  const { theme, setTheme } = useThemeStore();
-
-  return (
-    <div className={theme}>
-      <button onClick={() => setTheme(theme === "light" ? "dark" : "light")}>
-        Toggle Theme
-      </button>
-    </div>
-  );
+export function writeColourScheme(value: ColourScheme): void {
+  localStorage.setItem("colour-scheme", value);
 }
 ```
 
-```typescript
-// client/admin/App.tsx
-import { useThemeStore } from "@shared/store/theme.store";
+Both applications can use the same storage key and rules, but each creates its own state objects and
+reads the persisted value when it starts. Updating an in-memory store in one application does not
+update another application that is not currently running.
 
-export function App() {
-  const { theme } = useThemeStore();
+Keep shared code framework-neutral when applications use different renderers. React hooks, Vue
+composables and Solid signals are reusable only within compatible applications; schemas, contracts,
+design tokens and plain functions cross renderer boundaries more cleanly.
 
-  return <div className={theme}>Admin content</div>;
-}
-```
+## Browser persistence
 
-**How it works:**
+Browser storage is useful for non-sensitive preferences such as colour scheme, locale, dismissed UI
+notices or table density.
 
-1. **Build time:** `theme.store.ts` compiled into both bundles
-2. **Runtime:** Each app has its own store instance
-3. **Persistence:** Both stores read/write same localStorage key
-4. **Result:** Theme persists across page navigation between apps
+Treat it as untrusted input:
 
-## State Persistence Strategies
+- validate values when reading them
+- namespace keys and version stored shapes
+- tolerate storage being unavailable
+- do not store access tokens, session identifiers or authoritative permissions there
+- do not rely on a browser storage event as a security or consistency boundary
 
-### localStorage Persistence
+A normal document navigation gives the destination application a chance to read the latest value.
+If two applications are simultaneously open in different tabs, browser storage events can improve UI
+freshness, but the server remains the authority for important state.
 
-Share state via browser localStorage:
+## Sessions and authoritative state
 
-```typescript
-// shared/store/preferences.store.ts
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
+Credentials belong in the host's authentication layer, normally using Secure, HttpOnly and SameSite
+cookies or another server-controlled mechanism. Client code should not need to read a session token
+in order to share state.
 
-interface Preferences {
-  language: string;
-  timezone: string;
-  theme: "light" | "dark";
-}
+For identity-dependent route data, validate the request through application-owned code using the
+trusted request headers available to the handler:
 
-export const usePreferencesStore = create(
-  persist<Preferences>(
-    (set) => ({
-      language: "en",
-      timezone: "UTC",
-      theme: "light",
-      setLanguage: (language: string) => set({ language }),
-      setTimezone: (timezone: string) => set({ timezone }),
-      setTheme: (theme: "light" | "dark") => set({ theme }),
-    }),
-    {
-      name: "user-preferences",
-    }
-  )
-);
-```
+```ts
+async function loadPreferencesForRequest(headers: Record<string, string>) {
+  const session = await verifySession(headers);
 
-**Lifecycle:**
-
-```
-Customer App                localStorage                 Admin App
-────────────                ───────────                 ─────────
-User toggles sidebar    →   Update storage          →   (Not yet loaded)
-Navigate to admin       →   Read storage            →   Sidebar state restored
-```
-
-### Cookie-Based Persistence
-
-For server-accessible state, use cookies:
-
-```typescript
-// shared/utils/cookies.ts
-export function setCookie(name: string, value: string, days: number = 365) {
-  const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  document.cookie = `${name}=${encodeURIComponent(
-    value
-  )}; expires=${expires}; path=/; SameSite=Lax`;
-}
-
-export function getCookie(name: string): string | null {
-  return (
-    document.cookie
-      .split("; ")
-      .find((row) => row.startsWith(`${name}=`))
-      ?.split("=")[1] || null
-  );
-}
-```
-
-```typescript
-// shared/store/session.store.ts
-import { create } from "zustand";
-import { getCookie, setCookie } from "@shared/utils/cookies";
-
-export const useSessionStore = create((set) => ({
-  sessionId: getCookie("session_id"),
-  setSessionId: (sessionId: string) => {
-    setCookie("session_id", sessionId);
-    set({ sessionId });
-  },
-}));
-```
-
-### Server-Side State Hydration
-
-Load state from server on each app load:
-
-```typescript
-// taujs.config.ts
-{
-  path: '/app/*',
-  attr: {
-    render: 'ssr',
-    middleware: { auth: {} },
-    data: async (params, ctx) => ({
-      serviceName: 'UserPreferencesService',
-      serviceMethod: 'getPreferences',
-      args: { userId: ctx.user.id }
-    })
+  if (!session) {
+    throw new Error("Authentication required");
   }
+
+  return preferencesRepository.findForUser(session.userId);
 }
 
+const preferencesData = async (_params, ctx) => ({
+  preferences: await loadPreferencesForRequest(ctx.headers ?? {}),
+});
+```
+
+This example keeps credential interpretation in server code and returns only the preference data the
+page needs. Do not put credentials or unnecessary identity records into initial or deferred data.
+
+A protected τjs route still runs the Fastify `authenticate` decorator before rendering. That
+decorator may attach `req.user` for Fastify hooks and handlers, but τjs does not currently copy
+`req.user` into the route data context or populate `ServiceContext.user` automatically. See
+[Authentication](/guides/authentication/#identity-in-route-data-and-services).
+
+## Critical route data
+
+`attr.data` resolves before rendering and seeds the selected application for that response:
+
+```ts
 {
-  path: '/admin/*',
+  path: "/account",
   attr: {
-    render: 'ssr',
-    middleware: { auth: {} },
-    data: async (params, ctx) => ({
-      serviceName: 'UserPreferencesService',
-      serviceMethod: 'getPreferences',
-      args: { userId: ctx.user.id }
-    })
-  }
-}
-```
-
-```typescript
-// services/user-preferences.service.ts
-export const UserPreferencesService = defineService({
-  getPreferences: async (params: { userId: string }, ctx) => {
-    const prefs = await db.userPreferences.findUnique({
-      where: { userId: params.userId },
-    });
-
-    return {
-      theme: prefs.theme,
-      language: prefs.language,
-      timezone: prefs.timezone,
-    };
+    render: "ssr",
+    data: async (_params, ctx) => ({
+      preferences: await loadPreferencesForRequest(ctx.headers ?? {}),
+    }),
   },
-});
-```
-
-```typescript
-// client/app/App.tsx
-import { useSSRStore } from "@taujs/react";
-import { usePreferencesStore } from "@shared/store/preferences.store";
-import { useEffect } from "react";
-
-export function App() {
-  const serverData = useSSRStore();
-  const { setTheme, setLanguage } = usePreferencesStore();
-
-  // Sync server data to client store
-  useEffect(() => {
-    if (serverData.theme) setTheme(serverData.theme);
-    if (serverData.language) setLanguage(serverData.language);
-  }, [serverData]);
-
-  return <div>App content</div>;
 }
 ```
 
-## What to Share
+Use critical data when the result can redirect, determine HTTP status, prevent the response or is
+required to render the initial application state.
 
-### Good Candidates for Sharing
+The rendered snapshot belongs to this response. A navigation into another τjs application starts a
+new request and resolves that application's contract again.
 
-**UI/UX preferences:**
+## Deferred route data
 
-```typescript
-const useThemeStore = create(/* theme state */);
-const useLanguageStore = create(/* language state */);
-const useLayoutStore = create(/* layout preferences */);
-```
+`attr.deferred` declares response-owned work that may complete after the shell begins streaming:
 
-**Authentication state:**
-
-```typescript
-const useAuthStore = create(/* auth token, user info */);
-```
-
-**Feature flags:**
-
-```typescript
-const useFeatureFlagsStore = create(/* enabled features */);
-```
-
-**Shared UI components:**
-
-```typescript
-export { Button, Card, Modal } from "@shared/components";
-```
-
-**Utility functions:**
-
-```typescript
-export { formatDate, formatCurrency, parseJSON } from "@shared/utils";
-```
-
-### Keep Domain-Specific State Isolated
-
-**Customer app state:**
-
-```typescript
-// client/app/store/cart.store.ts
-const useCartStore = create(/* cart items */);
-```
-
-**Admin app state:**
-
-```typescript
-// client/admin/store/admin-users.store.ts
-const useAdminUsersStore = create(/* admin user list */);
-```
-
-**Why:** Domain-specific state doesn't need to persist between apps.
-
-## Testing Shared State
-
-### Unit Testing Stores
-
-```typescript
-import { useThemeStore } from "@shared/store/theme.store";
-
-describe("ThemeStore", () => {
-  beforeEach(() => {
-    // Reset store before each test
-    useThemeStore.setState({ theme: "light" });
-  });
-
-  it("toggles theme", () => {
-    const { setTheme } = useThemeStore.getState();
-
-    setTheme("dark");
-    expect(useThemeStore.getState().theme).toBe("dark");
-
-    setTheme("light");
-    expect(useThemeStore.getState().theme).toBe("light");
-  });
-});
-```
-
-### Integration Testing Persistence
-
-```typescript
-import { usePreferencesStore } from "@shared/store/preferences.store";
-
-describe("Preferences Persistence", () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it("persists preferences to localStorage", () => {
-    const { setTheme, setLanguage } = usePreferencesStore.getState();
-
-    setTheme("dark");
-    setLanguage("es");
-
-    // Verify localStorage
-    const stored = JSON.parse(localStorage.getItem("user-preferences") || "{}");
-
-    expect(stored.state.theme).toBe("dark");
-    expect(stored.state.language).toBe("es");
-  });
-});
-```
-
-## Best Practices
-
-### 1. Minimise Shared State
-
-Only share what's necessary:
-
-```typescript
-// share UI preferences
-const useThemeStore = create(/* ... */);
-
-// less ideal - sharing domain logic
-const useOrderProcessingStore = create(/* ... */);
-```
-
-### 2. Use Appropriate Storage
-
-```typescript
-// localStorage for client-only
-persist({ name: "ui-preferences" });
-
-// cookies for server-accessible
-setCookie("session_id", value);
-
-// database for important data
-UserPreferencesService.save(preferences);
-```
-
-### 3. Handle Missing Data Gracefully
-
-```typescript
-// fallback values
-const { theme = "light" } = useThemeStore();
-
-// null checks
-const preferences = useSSRStore();
-if (preferences.theme) {
-  setTheme(preferences.theme);
+```ts
+{
+  path: "/account",
+  attr: {
+    render: "streaming",
+    meta: { title: "Account" },
+    data: async (_params, ctx) => ({
+      preferences: await loadPreferencesForRequest(ctx.headers ?? {}),
+    }),
+    deferred: {
+      recommendations: async (_params, ctx) => ({
+        items: await loadRecommendations(ctx.headers ?? {}),
+      }),
+    },
+  },
 }
 ```
 
-### 4. Document Shared State
+Deferred work is still declared in `taujs.config.ts`; a component cannot promote its own promise into
+the response registry. Each renderer exposes the declared entry through its native asynchronous
+primitive. See [Data Loading](/guides/data-loading/#deferred-route-data-streaming-only) and the renderer reference for the
+accessor used by that application.
 
-```typescript
-/**
- * Theme store - shared across all apps
- *
- * Persisted to localStorage as 'app-theme'
- * Used by: customer app, admin app, marketing site
- *
- * @example
- * const { theme, setTheme } = useThemeStore();
- */
-export const useThemeStore = create(/* ... */);
-```
+The registry, delivery envelope and result are scoped to the one selected application and response.
+They do not cross a micro-frontend document boundary. A link to another application creates a new
+registry from that application's declarations.
 
-<!--
-## What's Next?
+Deferred entries are not HTTP-status-bearing. Any condition that must prevent or redirect the
+response, or choose its status, belongs in critical route resolution.
 
-- [Dependency Management](/guides/dependency-management) - How shared code is bundled
-- [Micro-Frontends](/guides/micro-frontends) - How apps are isolated
-- [Build & Deployment](/reference/build-deployment) - Build process details -->
+## Within one application
+
+Component state and a framework-native store are appropriate within one application's client
+runtime. Initialise the store from route data during SSR and hydration, then let client navigation
+inside that application update it normally.
+
+Keep the distinction explicit:
+
+- route data is the server-owned snapshot for a response
+- the client store is mutable UI state after hydration
+- a full-document application boundary discards that store
+- persistence must be deliberate if the next application needs a value
+
+Do not turn every store field into persistent state. Most interaction state, open panels, drafts and
+optimistic updates should remain local. If a draft must survive a document boundary, save it to a
+suitable server-side or browser persistence layer before navigating.
+
+## Cross-application communication
+
+Prefer durable, inspectable mechanisms:
+
+1. Server state and sessions for authoritative data.
+2. URL path and query parameters for navigation intent and shareable state.
+3. Browser storage for small, non-sensitive preferences.
+4. `postMessage` only when applications genuinely coexist in separate browsing contexts such as an
+   iframe, with strict origin and payload validation.
+
+Avoid using window globals, hidden DOM events or a runtime event bus to simulate shared memory across
+separate applications. Those mechanisms reintroduce the client orchestrator that the document
+boundary is intended to avoid.
+
+## Choosing the seam
+
+A document boundary works when the destination can reconstruct what it needs from its URL, route
+contract, server session and explicitly persisted preferences.
+
+If a playing video, live socket, unsaved editor or transaction must survive the transition, keep the
+routes in one application or move the boundary. Persistence can preserve data, but it cannot preserve
+an executing component tree.
+
+Related guides:
+
+- [Micro-Frontends](/guides/micro-frontend/) for build and navigation boundaries
+- [Dependency Management](/guides/dependency-management/) for shared source and bundles
+- [Request Contracts & Data](/guides/request-contracts/) for response ownership
+- [Authentication](/guides/authentication/) for the Fastify authentication boundary
