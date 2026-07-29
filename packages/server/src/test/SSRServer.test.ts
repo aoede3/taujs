@@ -351,6 +351,92 @@ describe('SSRServer', () => {
     expect(res.body).toBe('static-ok');
   });
 
+  // staticAssets tri-state: `undefined` requests the default production registration (proved by
+  // the auto-register tests above); explicit `false` must install NO static plugin anywhere. The
+  // not-found fallthrough is the proof - if any static plugin had claimed the route, the scope's
+  // not-found handler could never answer it.
+  it('staticAssets: false installs no static plugin in production', async () => {
+    devRef.value = false;
+
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [],
+      routes: [],
+      clientRoot: '/client',
+      debug: false,
+      staticAssets: false,
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/auto-default' });
+    expect(res.body).toBe('OK:notFound');
+  });
+
+  it('staticAssets: false installs no static plugin in development', async () => {
+    devRef.value = true;
+
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [],
+      routes: [],
+      clientRoot: '/client',
+      debug: false,
+      staticAssets: false,
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/auto-default' });
+    expect(res.body).toBe('OK:notFound');
+  });
+
+  it('custom staticAssets registers exactly once and suppresses the default in production', async () => {
+    devRef.value = false;
+
+    const impl: FastifyPluginCallback<any> = (inst, _opts, done) => {
+      inst.get('/custom-static', async (_req, reply) => reply.send('custom-ok'));
+      done();
+    };
+    const staticPlugin = vi.fn(impl);
+
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [],
+      routes: [],
+      clientRoot: '/client',
+      debug: false,
+      staticAssets: { plugin: staticPlugin },
+    });
+
+    const custom = await app.inject({ method: 'GET', url: '/custom-static' });
+    expect(custom.body).toBe('custom-ok');
+    expect(staticPlugin).toHaveBeenCalledTimes(1);
+
+    const auto = await app.inject({ method: 'GET', url: '/auto-default' });
+    expect(auto.body).toBe('OK:notFound');
+  });
+
+  it('caller-owned host keeps its own static facilities when τjs opts out', async () => {
+    devRef.value = false;
+
+    const CallerOwnedSSRServer = ssrServerPlugin({ callerOwnedHost: true });
+    app.get('/host-static', async (_req, reply) => reply.send('host-ok'));
+
+    await app.register(CallerOwnedSSRServer, {
+      alias: {},
+      configs: [],
+      routes: [],
+      clientRoot: '/client',
+      debug: false,
+      staticAssets: false,
+    });
+
+    const host = await app.inject({ method: 'GET', url: '/host-static' });
+    expect(host.body).toBe('host-ok');
+
+    // Encapsulated scope: τjs's not-found handler does NOT leak to the caller's root, so an
+    // unclaimed URL gets Fastify's own 404 (RFC 0010) - and no static plugin ever claimed it.
+    const auto = await app.inject({ method: 'GET', url: '/auto-default' });
+    expect(auto.statusCode).toBe(404);
+  });
+
   it('registers CSP reporting when configured', async () => {
     const onViolation = vi.fn();
 

@@ -42,11 +42,9 @@ On a τjs-created host the facility is installed at the created root. On a suppl
 it is encapsulated with the τjs applications. A caller's own static routes remain the caller's
 responsibility.
 
-:::caution[`staticAssets: false` is not currently a production opt-out]
-The public option accepts `false`, but the current production registration treats a falsy value the
-same as omission and installs the default static plugin. Do not rely on `false` to disable static
-serving. A product correction is tracked separately from this documentation pass.
-:::
+Explicit `staticAssets: false` opts out entirely: no static plugin is installed in production or
+development. Omission and `false` are distinct requests - omit the option to receive the default
+registration, pass `false` when another system owns the files.
 
 ## Custom static registration
 
@@ -251,9 +249,8 @@ cache-safe by itself.
 A CDN or reverse proxy may serve `dist/client` before requests reach Fastify. The HTML server still
 needs the manifests and SSR modules required to generate correct asset references.
 
-Because the current `staticAssets: false` path does not disable default production registration, a
-CDN-only deployment should verify that the additional Fastify static routes do not conflict with host
-routes. Treat a true opt-out as pending product work rather than relying on undocumented behaviour.
+Set `staticAssets: false` for a CDN-only deployment: τjs installs no static plugin, so Fastify
+serves documents while the CDN owns the files under `dist/client`.
 
 ## Troubleshooting
 

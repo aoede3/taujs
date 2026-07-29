@@ -243,7 +243,7 @@ The shell stays the same - τjs changes the streaming/SSR/hydration mode.
 
 ### Static assets setup without the boilerplate
 
-Your existing `registerStaticAssets` option lets you plug in your own static handler (like `@fastify/static`) without wiring errors.
+The `staticAssets` option lets you plug in your own static handler (like `@fastify/static`) without wiring errors, or pass `false` to install no static plugin at all.
 
 ### Full SSR and Streaming SSR
 

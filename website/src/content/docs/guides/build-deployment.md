@@ -543,11 +543,11 @@ npm run build:server
 
 **CDN cache rules:**
 
-````
-/assets/*        → max-age=31536000, immutable
-/*.html          → no-cache
-Other files      → no-cache unless hashed
-```#
+```text
+/assets/*        -> max-age=31536000, immutable
+/*.html          -> no-cache
+Other files      -> no-cache unless hashed
+```
 
 For pages that don't need per-user data:
 
@@ -555,20 +555,20 @@ For pages that don't need per-user data:
 - Configure cache headers on static assets
 - Use CDN/edge caching for HTML
 
-See [Edge-Cached Static Pages](/guides/static-assets/#static-caching-pattern) for the full pattern.
+See [CDN-owned assets](/guides/static-assets/#cdn-owned-assets) and [Caching](/guides/static-assets/#caching) for the full pattern.
 
 **Server configuration:**
 
 ```typescript
-// Don't serve static assets - CDN handles them
+// Install no static plugin - the CDN owns the files
 await createServer({
   fastify,
   config,
   serviceRegistry,
   clientRoot: "dist/client", // Still needed for manifests
-  registerStaticAssets: false, // Disable static middleware
+  staticAssets: false,
 });
-````
+```
 
 ### Option C: Reverse Proxy (Nginx)
 

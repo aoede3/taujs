@@ -38,6 +38,7 @@ export type SSRServerOptions = {
   routes: Route<RouteParams>[];
   serviceRegistry?: ServiceRegistry;
   security?: SecurityConfig;
+  /** `undefined` → default production registration; `false` → no static plugin; otherwise the caller's registration. */
   staticAssets?: StaticAssetsRegistration;
   debug?: DebugConfig;
   /** Internal runtime logger selection threaded from createServer; not a public createServer option. */
