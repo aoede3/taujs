@@ -4,7 +4,7 @@ description: Declared routes bring data, policy and rendering into one request c
 template: splash
 hero:
   title: Composing <span>systems</span>
-  tagline: Your routes. Your renderer. One orchestrated response.
+  tagline: "Your routes. Your renderer. One orchestrated response: data, policy and rendering - declared per route, not discovered."
 
 
   image:
@@ -26,9 +26,7 @@ import reactLogo from "../../assets/react.svg";
 import vueLogo from "../../assets/vue.svg";
 import solidLogo from "../../assets/solid.svg";
 
-:::note[Project status]
-τjs is in active development. Expect breaking changes on the path to v1, and check the release notes when upgrading.
-:::
+
 
 <div className="container__logos">
   <a
@@ -90,7 +88,7 @@ The same declaration that coordinates the response also makes the architecture i
 
 [Adopt the model incrementally](/guides/incremental-migration/).
 
-## Your request architecture is declared as data
+## Your architecture is declared, not discovered
 
 A τjs request contract can be inspected without running the component tree: routes, policy,
 rendering and declared service edges exist as configuration. Development traces add what real
@@ -126,10 +124,10 @@ export default defineConfig({
 });
 ```
 
-The product is critical and belongs on the status-bearing path. Reviews are deferred: they start
-with the request, do not delay independent shell content, and values consumed during rendering seed
-hydration without a client refetch. Subsequent byte ordering follows the renderer's native streaming
-semantics.
+The product is critical: it resolves before the response commits, where a failure can still become
+an HTTP error. The reviews are deferred: they start with the request, never delay independent shell
+content, and cannot decide the status. Values consumed during rendering hydrate without a client
+refetch.
 
 Each declared page is a real Fastify route, and a route can also declare head metadata,
 authentication and Content Security Policy. Everything after hydration - mutations, polling,
@@ -143,8 +141,8 @@ all consume the same declaration.
 ## Ask your system what it does
 
 What breaks if you change the catalogue service? In most stacks that means grepping and hoping.
-Here you ask and get the routes the available evidence knows about: `declared` when configuration
-states the edge, and `observed` when a real request has made the call.
+Here you ask, and get back the routes known to use it - `declared` when configuration states the
+call, and `observed` when a real request has made it.
 
 The answers come from artefacts the dev server writes, not from reading source. The request graph
 records what `taujs.config.ts` declares; development traces record what each request actually did.
