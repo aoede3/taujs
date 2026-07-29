@@ -1,6 +1,6 @@
 ---
 title: Composing systems
-description: Each route declares its data, policy and rendering. Fastify and Vite run it. React, Vue or Solid renders it. Even your AI can read it.
+description: Declared routes bring data, policy and rendering into one request contract. Fastify dispatches it. React, Vue or Solid renders it. Graphs, traces and MCP make it inspectable.
 template: splash
 hero:
   title: Composing <span>systems</span>
@@ -75,8 +75,8 @@ import solidLogo from "../../assets/solid.svg";
 
 ## Declare what your routes need
 
-To ordinary Fastify, Vite and framework conventions, τjs adds a declared request boundary: each
-route states its data, policy and rendering.
+τjs adds a declared request boundary to ordinary Fastify, Vite and framework conventions: each
+declared route states its data, policy and rendering.
 
 You don't need to convert an application. Start with what you have, then declare the routes whose
 initial responses benefit from server coordination.
@@ -90,13 +90,14 @@ The same declaration that coordinates the response also makes the architecture i
 
 [Adopt the model incrementally](/guides/incremental-migration/).
 
-## Your architecture is data, not source code
+## Your request architecture is declared as data
 
-A τjs system with its declared request boundary can be read without being run: routes, policy,
-rendering and declared service edges live outside the component tree, as data.
+A τjs request contract can be inspected without running the component tree: routes, policy,
+rendering and declared service edges exist as configuration. Development traces add what real
+requests actually did.
 
-The declaration is plain configuration. A home page that server-renders; a product page that
-streams, with its reviews declared alongside:
+Using the application's typed `serviceData` helper, the declaration can describe a home page that
+server-renders and a product page that streams with its reviews declared alongside:
 
 ```ts
 export default defineConfig({
@@ -125,9 +126,10 @@ export default defineConfig({
 });
 ```
 
-The product is critical: resolved before the response commits, able to set the HTTP status. The
-reviews are deferred: they start with the request, stream when ready, never block the shell, and
-hydrate without a client refetch.
+The product is critical and belongs on the status-bearing path. Reviews are deferred: they start
+with the request, do not delay independent shell content, and values consumed during rendering seed
+hydration without a client refetch. Subsequent byte ordering follows the renderer's native streaming
+semantics.
 
 Each declared page is a real Fastify route, and a route can also declare head metadata,
 authentication and Content Security Policy. Everything after hydration - mutations, polling,
@@ -138,11 +140,11 @@ all consume the same declaration.
 
 [Read about request contracts and data ownership](/guides/request-contracts/).
 
-### Ask your system what it does
+## Ask your system what it does
 
 What breaks if you change the catalogue service? In most stacks that means grepping and hoping.
-Here you ask, and get back every route that uses it - each labelled `declared` when the route
-states the call in its configuration, and `observed` when a real request has actually made it.
+Here you ask and get the routes the available evidence knows about: `declared` when configuration
+states the edge, and `observed` when a real request has made the call.
 
 The answers come from artefacts the dev server writes, not from reading source. The request graph
 records what `taujs.config.ts` declares; development traces record what each request actually did.
@@ -151,7 +153,7 @@ live dev server to ask, the trace tools say so rather than answer from stale dat
 
 [Explore architecture-aware inspection through MCP](/reference/mcp/).
 
-### One architecture, several application shapes
+## One architecture, several application shapes
 
 The same Fastify host can serve, for example, a storefront, an account area and an operations
 console - each a separate application with its own renderer root, module graph and output bundle,
