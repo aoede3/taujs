@@ -73,17 +73,20 @@ import solidLogo from "../../assets/solid.svg";
   </a>
 </div>
 
-## Start with the boundary you need
+## Declare what your routes need
 
-τjs adds one thing to ordinary Fastify, Vite and framework conventions: a declared request
-boundary, where each route states its data, policy and rendering. It does not ask you to convert an
-application. Start with what you have, then declare the routes whose initial responses benefit from
-server coordination.
+To ordinary Fastify, Vite and framework conventions, τjs adds a declared request boundary: each
+route states its data, policy and rendering.
+
+You don't need to convert an application. Start with what you have, then declare the routes whose
+initial responses benefit from server coordination.
 
 - Add critical or deferred data when the server should own the initial read
 - Mediate service access where validation, cancellation and observability matter
 - Choose SSR, streaming and hydration per declared page
 - Move applications between React, Vue and Solid without moving policy and services into components
+
+The same declaration that coordinates the response also makes the architecture inspectable.
 
 [Adopt the model incrementally](/guides/incremental-migration/).
 
@@ -130,12 +133,21 @@ Each declared page is a real Fastify route, and a route can also declare head me
 authentication and Content Security Policy. Everything after hydration - mutations, polling,
 subscriptions, UI-local fetching - stays in your application, where it belongs.
 
+The contract is operational, not descriptive: data loading, rendering, policy, tracing and tooling
+all consume the same declaration.
+
 [Read about request contracts and data ownership](/guides/request-contracts/).
 
-The request graph records the architecture declared in `taujs.config.ts`. Development traces record
-what one request actually selected, called, deferred and delivered. The MCP server exposes both
-forms of evidence to tools and AI agents rather than asking them to infer the system from component
-source.
+### Ask your system what it does
+
+What breaks if you change the catalogue service? In most stacks that means grepping and hoping.
+Here you ask, and get back every route that uses it - each labelled `declared` when the route
+states the call in its configuration, and `observed` when a real request has actually made it.
+
+The answers come from artefacts the dev server writes, not from reading source. The request graph
+records what `taujs.config.ts` declares; development traces record what each request actually did.
+Both are served over MCP, so tools and AI agents work from the same evidence - and when there is no
+live dev server to ask, the trace tools say so rather than answer from stale data.
 
 [Explore architecture-aware inspection through MCP](/reference/mcp/).
 
@@ -143,7 +155,8 @@ source.
 
 The same Fastify host can serve, for example, a storefront, an account area and an operations
 console - each a separate application with its own renderer root, module graph and output bundle,
-and each free to choose its own renderer framework.
+and each free to choose its own renderer framework. Independently developed applications can share
+one server and one operational model without first standardising on a component framework.
 
 Each URL belongs to exactly one application. Left undeclared within the application shell, it
 remains client-rendered.
@@ -181,7 +194,7 @@ service access stay where they are when the renderer changes.
   <Card title="Micro-frontends with τjs" icon="add-document">
     [Compose larger systems](/guides/micro-frontend/)
   </Card>
-  <Card title="Architecture-aware AI" icon="add-document">
-    [Expose declared architecture and runtime evidence through MCP](/reference/mcp/)
+  <Card title="Ask your system what it does" icon="add-document">
+    [Declared architecture and runtime evidence, served over MCP](/reference/mcp/)
   </Card>
 </CardGrid>
