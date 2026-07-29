@@ -157,7 +157,7 @@ describe('createServer', () => {
     process.env.NODE_ENV = 'test';
   });
 
-  it('creates Fastify instance, registers plugins, and defaults staticAssets to false, returns { app, net }', async () => {
+  it('creates Fastify instance, registers plugins, passes omitted staticAssets through as undefined, returns { app, net }', async () => {
     const { createServer } = await importer();
 
     const result = await createServer({
@@ -182,11 +182,16 @@ describe('createServer', () => {
       2,
       SSRServerPlugin,
       expect.objectContaining({
-        staticAssets: false,
         clientRoot: expect.stringContaining('/client'),
         devNet: { host: netResolved.host, hmrPort: netResolved.hmrPort },
       }),
     );
+
+    // Omitted staticAssets must reach SSRServer as `undefined` (request for the default
+    // production registration), NOT be coalesced to `false` (the explicit opt-out).
+    const ssrCallArgs = registerMock.mock.calls[1]?.[1] as any;
+    expect('staticAssets' in ssrCallArgs).toBe(true);
+    expect(ssrCallArgs.staticAssets).toBeUndefined();
 
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[bgGreen:[black: [τjs] ]]'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('configured in 675ms'));

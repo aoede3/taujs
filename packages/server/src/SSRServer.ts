@@ -82,7 +82,10 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     { logger },
   );
 
-  if (!isDevelopment && !opts.staticAssets) {
+  // Tri-state contract: `undefined` installs the default production registration, explicit
+  // `false` installs no static plugin (CDN-owned assets), and a registration object/array is
+  // honoured below. `=== undefined` keeps `false` out of this branch.
+  if (!isDevelopment && opts.staticAssets === undefined) {
     const fastifyStatic = await import('@fastify/static');
 
     await registerStaticAssets(scope, clientRoot, { plugin: fastifyStatic.default });

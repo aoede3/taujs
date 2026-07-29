@@ -38,7 +38,11 @@ type CreateServerOptions = {
   fastify?: FastifyInstance;
   debug?: DebugConfig;
   logger?: BaseLogger;
-  staticAssets?: false | StaticAssetsRegistration;
+  /**
+   * Static assets in production: omit for the default `@fastify/static` registration, pass a
+   * custom registration, or pass `false` to install no static plugin at all (CDN-owned assets).
+   */
+  staticAssets?: StaticAssetsRegistration;
   port?: number;
 };
 
@@ -143,7 +147,9 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       configs,
       routes,
       serviceRegistry: opts.serviceRegistry,
-      staticAssets: opts.staticAssets ?? false,
+      // Passed through verbatim: `undefined` requests the default production registration and
+      // explicit `false` is the opt-out, so coalescing here would erase the distinction.
+      staticAssets: opts.staticAssets,
       debug: opts.debug,
       runtimeLogger,
       alias: opts.alias,
