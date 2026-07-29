@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.16.1
+
+### Patch Changes
+
+- [#47](https://github.com/aoede3/taujs/pull/47) [`0c03792`](https://github.com/aoede3/taujs/commit/0c037924950e387aa58185a9225b8a9241b89eec) Thanks [@aoede3](https://github.com/aoede3)! - Honour `staticAssets: false` as a production opt-out - explicit `false` now installs no static plugin in production or development, while omitting the option keeps the default `@fastify/static` registration. Previously a falsy value was treated the same as omission and the default plugin was installed anyway, so a CDN-only deployment could not disable Fastify static serving.
+
 ## 0.16.0
 
 ### Minor Changes
