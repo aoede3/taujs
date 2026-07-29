@@ -1,191 +1,166 @@
 ---
 title: Services
-description: How τjs's service registry works for organising data access and business logic
+description: Typed server-side service mediation for route data and composition
 ---
 
-How τjs's service registry works for organising data access and business logic.
+The service registry is an optional server-side layer between route contracts and business or data
+access. It becomes useful when named service edges, shared cancellation, structured records, runtime
+validation or service-to-service composition justify the boundary.
 
-τjs provides an optional service registry pattern for separating route handlers from business logic and data access. You can use τjs without it but, it becomes valuable when you need consistent cross-cutting behaviour (logging, auth, tracing, retries) across all data access, or when you expect service boundaries to evolve over time.
+You can use τjs route data without a registry. Services are not controllers and are not exposed as
+HTTP endpoints automatically.
 
-**Key components:**
+## Define a service
 
-- `defineService` - Create typed service definitions from a collection of async methods
-- `defineServiceRegistry` - Register services for runtime dispatch and type inference
-- `ServiceContext` - Base context passed to service methods
-- `TypedServiceContext<R>` - `ServiceContext` plus typed `ctx.call`
-- `RegistryCaller<R>` - Typed caller derived from a service registry
-- `ServiceDescriptor` - Declarative service call specification
-- `ctx.call` - Imperative service composition from routes or other services
+A service is a named collection of async methods:
 
-## Basic Service Definition
+```ts
+// src/server/services/catalogue.ts
+import { AppError, defineService } from "@taujs/server/config";
 
-A service is a plain object of async methods. Each method receives `params` and a `ctx`:
+export const CatalogueService = defineService({
+  product: async (params: { id: string }, ctx) => {
+    ctx.logger?.info({ productId: params.id }, "Loading product");
 
-```typescript
-// services/user.service.ts
-import { defineService } from "@taujs/server/config";
-
-export const UserService = defineService({
-  getUser: async (params: { id: string }, ctx) => {
-    ctx.logger?.info({ userId: params.id }, "Fetching user");
-
-    const user = await db.users.findById(params.id);
-
-    if (!user) {
-      throw new Error(`User ${params.id} not found`);
-    }
-
-    return { user };
-  },
-
-  listUsers: async (params: { limit?: number }, ctx) => {
-    const users = await db.users.findMany({
-      limit: params.limit ?? 10,
+    const product = await catalogueRepository.findById(params.id, {
+      signal: ctx.signal,
     });
 
-    return { users };
+    if (!product) {
+      throw AppError.notFound(`Product ${params.id} not found`);
+    }
+
+    return { product };
   },
 });
 ```
 
-**Service methods receive:**
+A method receives:
 
-1. `params` - Parameters passed by the caller
-2. `ctx` - Context with logging, tracing, auth, cancellation, and optional composition
+1. a plain parameter object
+2. a service context
 
-**Service methods must return:**
+It must resolve to a plain JSON-compatible object. Do not return a primitive, array, class instance,
+`Date`, stream or response object as the root result.
 
-- Plain JSON-serialisable objects
-- Never primitives
-- Never class instances
+## Create the registry
 
-τjs serialises results for SSR hydration; primitives and class instances don't round-trip cleanly across the server/client boundary.
+The registry is the runtime dispatch table and the source of its TypeScript inference:
 
-## Service Registry
-
-Register all services in one place. The registry shape drives all type inference downstream - no separate type declarations needed:
-
-```typescript
-// services/index.ts
-import { defineServiceRegistry } from "@taujs/server/config";
-import { UserService } from "./user.service";
-import { ProductService } from "./product.service";
-import { OrderService } from "./order.service";
+```ts
+// src/server/services/registry.ts
+import {
+  createServiceData,
+  defineServiceRegistry,
+} from "@taujs/server/config";
+import { CatalogueService } from "./catalogue";
+import { ReviewsService } from "./reviews";
 
 export const serviceRegistry = defineServiceRegistry({
-  UserService,
-  ProductService,
-  OrderService,
+  catalogue: CatalogueService,
+  reviews: ReviewsService,
 });
+
+export const serviceData = createServiceData<typeof serviceRegistry>();
 ```
 
-Pass the registry when creating your server:
+Pass the same registry to the server:
 
-```typescript
-// server/index.ts
-import { createServer } from "@taujs/server";
-import { serviceRegistry } from "./services";
-import config from "./taujs.config";
-
+```ts
 await createServer({
   fastify,
   config,
   serviceRegistry,
-  clientRoot: "./client",
+  clientRoot: "./src/client",
 });
 ```
 
-## Using Services from Routes
+`defineServiceRegistry()` freezes the registry and its service objects. It does not start services or
+create a network boundary.
 
-Two ways to call services from route handlers:
+## Use services from route data
 
-### 1. ServiceDescriptor (Declarative)
+### Declared service edge
 
-Return a descriptor object and τjs will call the service for you:
+Use `serviceData()` when one route loader maps directly to one service method:
 
-```typescript
-// taujs.config.ts
+```ts
 {
-  path: "/users/:id",
+  path: "/products/:id",
   attr: {
     render: "ssr",
-    data: async (params) => ({
-      serviceName: "UserService",
-      serviceMethod: "getUser",
-      args: { id: params.id },
-    }),
+    data: serviceData("catalogue", "product", ({ id }) => ({
+      id: String(id),
+    })),
   },
 }
 ```
 
-**What happens:**
+This checks the service name, method and mapper result at compile time. It also stamps
+non-enumerable metadata on the loader so the request graph can show the route-to-service edge without
+executing application code.
 
-1. The route handler returns the descriptor
-2. τjs looks up `UserService` in the registry
-3. τjs calls `UserService.getUser({ id: params.id }, serviceContext)`
-4. The result flows to the renderer
+A hand-written service descriptor remains valid, but loses some inference and static discoverability:
 
-Use this when a route maps directly to a single service call with no coordination logic.
-
-### 2. ctx.call (Imperative)
-
-Call services directly inside the route handler when you need to coordinate multiple calls or apply logic between them:
-
-```typescript
-// taujs.config.ts
-{
-  path: "/users/:id",
-  attr: {
-    render: "ssr",
-    data: async (params, ctx) => {
-      const user = await ctx.call("UserService", "getUser", { id: params.id });
-      const posts = await ctx.call("PostService", "getUserPosts", {
-        userId: params.id,
-      });
-
-      return { user, posts };
-    },
-  },
-}
+```ts
+data: async ({ id }) => ({
+  serviceName: "catalogue",
+  serviceMethod: "product",
+  args: { id: String(id) },
+});
 ```
 
-Prefer `ServiceDescriptor` for simple mappings. Prefer `ctx.call` when the route needs to coordinate, transform, or conditionally fetch data.
+### Coordinate calls with `ctx.call`
 
-## ServiceContext
+Use the route context's typed caller when the route coordinates several methods:
 
-Every service method receives a base `ServiceContext`:
+```ts
+data: async ({ id }, ctx) => {
+  const product = await ctx.call("catalogue", "product", {
+    id: String(id),
+  });
+  const reviews = await ctx.call("reviews", "forProduct", {
+    id: String(id),
+  });
 
-```typescript
-import type { ServiceContext } from "@taujs/server/config";
+  return { product, reviews };
+};
+```
 
+The returned values are the service result objects. In this example `product.product` and
+`reviews.reviews` reflect the records returned by the two methods, so name service result fields with
+composition in mind.
+
+The same `serviceData()` helper can be used under `attr.head.data` and each named `attr.deferred`
+entry. Their lifecycle and failure semantics still belong to the route slot that invoked the service.
+
+## Service context
+
+The base public context is:
+
+```ts
 type ServiceContext = {
   signal?: AbortSignal;
   deadlineMs?: number;
   traceId?: string;
   logger?: Logs;
-  user?: {
-    id: string;
-    roles: string[];
-  } | null;
+  user?: { id: string; roles: string[] } | null;
 };
 ```
 
-`ServiceContext` is intentionally the base context only.
+The route pipeline supplies the request signal, trace identity and request-scoped logger. It installs
+a registry caller on the runtime context for route and service composition.
 
-If you want typed service-to-service composition, use `TypedServiceContext<R>`:
+The optional `user` field is not populated automatically. A Fastify `authenticate` decorator may set
+`req.user`, but τjs does not copy that value into route or service context. Resolve identity in trusted
+server code and pass the validated identifier or capability as an ordinary service parameter. See
+[Authentication](/guides/authentication/#identity-in-route-data-and-services).
 
-```typescript
-import type { TypedServiceContext } from "@taujs/server/config";
-import type { serviceRegistry } from "./services";
+### Application context fields
 
-type AppServiceContext = TypedServiceContext<typeof serviceRegistry>;
-```
+`ServiceContext` is augmentable for contexts your application constructs or enriches:
 
-## Augmenting ServiceContext
-
-Augment `ServiceContext` with your own app-specific fields:
-
-```typescript
+```ts
 // src/taujs-types.d.ts
 declare module "@taujs/server/config" {
   interface ServiceContext {
@@ -195,398 +170,182 @@ declare module "@taujs/server/config" {
 }
 ```
 
-Use this for shared context fields your application adds at runtime.
+Type augmentation does not populate a value at runtime. Do not declare a field and then assume the
+route pipeline supplies it.
 
-> Do not augment `ServiceContext.call` directly.
->
-> If you want a typed `ctx.call`, use `TypedServiceContext<R>`.
-> Augmenting `call` with `RegistryCaller<typeof serviceRegistry>` creates circular type relationships in real applications.
+## Service-to-service composition
 
-## Using Context
+Inside a service, type `ctx.call` against only the services that method depends on:
 
-```typescript
-export const UserService = defineService({
-  updateUser: async (params: { id: string; name: string }, ctx) => {
-    ctx.logger?.info({ userId: params.id }, "Updating user");
-
-    if (!ctx.user) {
-      throw new Error("Authentication required");
-    }
-
-    if (ctx.user.id !== params.id && !ctx.user.roles.includes("admin")) {
-      throw new Error("Unauthorised");
-    }
-
-    if (ctx.signal?.aborted) {
-      throw new Error("Request cancelled");
-    }
-
-    const user = await db.users.update({
-      where: { id: params.id },
-      data: { name: params.name },
-    });
-
-    return { user };
-  },
-});
-```
-
-## Working with Deadlines
-
-Use `withDeadline` to combine a parent signal with a timeout:
-
-```typescript
-import { withDeadline } from "@taujs/server/config";
-
-export const UserService = defineService({
-  slowOperation: async (params: { id: string }, ctx) => {
-    const timeoutSignal = withDeadline(ctx.signal, 5000);
-
-    const response = await fetch(`https://api.example.com/slow/${params.id}`, {
-      signal: timeoutSignal,
-    });
-
-    return await response.json();
-  },
-});
-```
-
-> **Abort reasons**
->
-> `withDeadline` sets a structured reason on the abort signal:
->
-> - If the parent aborts without a reason, τjs uses `Error("Aborted")`
-> - If the deadline fires, τjs uses `Error("DeadlineExceeded")`
->
-> Some APIs do not preserve `AbortSignal.reason` and will still throw a generic `AbortError` or `DOMException`. That does not change the timeout semantics.
-
-## Service Composition
-
-Services can call other services using `ctx.call`.
-
-For service-to-service composition, prefer typing each service against the services it depends on rather than the full app registry. That avoids circular type inference while still giving full autocomplete and type checking.
-
-```typescript
-// services/order.service.ts
-import { defineService } from "@taujs/server/config";
+```ts
 import type { TypedServiceContext } from "@taujs/server/config";
-import { UserService } from "./user.service";
-import { ProductService } from "./product.service";
 
-type OrderServiceDeps = {
-  UserService: typeof UserService;
-  ProductService: typeof ProductService;
+import { CatalogueService } from "./catalogue";
+import { UserService } from "./users";
+
+type OrderDependencies = {
+  catalogue: typeof CatalogueService;
+  users: typeof UserService;
 };
 
 export const OrderService = defineService({
-  getOrderDetails: async (
-    params: { orderId: string },
-    ctx: TypedServiceContext<OrderServiceDeps>,
+  details: async (
+    params: { orderId: string; userId: string; productId: string },
+    ctx: TypedServiceContext<OrderDependencies>,
   ) => {
-    const user = await ctx.call("UserService", "getUser", { id: "user_123" });
-    const products = await ctx.call("ProductService", "getProducts", {
-      ids: ["p1", "p2"],
+    const user = await ctx.call("users", "user", { id: params.userId });
+    const product = await ctx.call("catalogue", "product", {
+      id: params.productId,
     });
 
-    return { user, products };
-  },
-
-  getOrder: async (params: { id: string }, ctx) => {
-    const order = await db.orders.findById(params.id);
-
-    if (!order) {
-      throw new Error(`Order ${params.id} not found`);
-    }
-
-    return { order };
+    return { orderId: params.orderId, user, product };
   },
 });
 ```
 
-## Type-Safe Composition
+Local dependency types avoid circular inference while retaining checked service names, methods,
+parameters and results.
 
-`RegistryCaller<R>` is fully typed from a registry:
+After the full registry exists, an app-level helper or test can use:
 
-- Service names are checked
-- Method names are checked per service
-- Args are checked per method
-- Return types are inferred
-
-### App-Wide Typed Context
-
-Once your registry exists, you can bind a context type to the full registry:
-
-```typescript
-// services/index.ts
-import { defineServiceRegistry } from "@taujs/server/config";
-import { UserService } from "./user.service";
-import { ProductService } from "./product.service";
-import { OrderService } from "./order.service";
-
-export const serviceRegistry = defineServiceRegistry({
-  UserService,
-  ProductService,
-  OrderService,
-});
-```
-
-```typescript
-// services/types.ts
+```ts
 import type { TypedServiceContext } from "@taujs/server/config";
-import type { serviceRegistry } from "./index";
+import type { serviceRegistry } from "./registry";
 
-export type AppServiceContext = TypedServiceContext<typeof serviceRegistry>;
+type AppServiceContext = TypedServiceContext<typeof serviceRegistry>;
 ```
 
-Now `ctx.call` is fully typed anywhere you use `AppServiceContext`:
+Do not augment `ServiceContext.call` with the full registry. That creates circular type relationships;
+use `TypedServiceContext<R>` instead.
 
-```typescript
-import type { AppServiceContext } from "./types";
+## Cancellation and deadlines
 
-declare const ctx: AppServiceContext;
+Service dispatch checks the request signal before invoking a method and passes that signal into the
+method. The service must pass it to cancellable downstream work:
 
-const user = await ctx.call("UserService", "getUser", { id: "123" });
-// service name  ^
-// method name                  ^
-// args type                                      ^
-// result type is inferred from UserService.getUser
+```ts
+const response = await fetch(url, { signal: ctx.signal });
 ```
 
-### Important
+Use `withDeadline()` to combine the parent signal with a service-specific timeout:
 
-Use:
+```ts
+import { withDeadline } from "@taujs/server/config";
 
-```typescript
-declare module "@taujs/server/config" {
-  interface ServiceContext {
-    tenantId?: string;
-  }
-}
+export const SearchService = defineService({
+  search: async (params: { query: string }, ctx) => {
+    const signal = withDeadline(ctx.signal, 2_000);
+    const response = await fetch(
+      `https://search.example.test/?q=${encodeURIComponent(params.query)}`,
+      { signal },
+    );
+
+    return { results: await response.json() };
+  },
+});
 ```
 
-Do not use:
+`withDeadline()` uses `Error("DeadlineExceeded")` when its timer fires. Some downstream APIs replace
+the signal reason with a generic abort error, but cancellation still occurs.
 
-```typescript
-declare module "@taujs/server/config" {
-  interface ServiceContext {
-    call: RegistryCaller<typeof serviceRegistry>;
-  }
-}
-```
+A deferred route entry also has the renderer's response-level deferred deadline. That outer deadline
+and a service-specific deadline solve different problems: response completion versus one downstream
+operation.
 
-The second pattern creates circular type relationships and is not recommended.
+## Runtime validation
 
-## Validation with Parsers
+`defineService()` accepts synchronous parsers for parameters and results. A parser may be a schema
+with `.parse()` or a function `(input: unknown) => value`:
 
-Services support optional runtime validation using parser functions.
-
-### Using Zod
-
-```typescript
+```ts
 import { z } from "zod";
 import { defineService } from "@taujs/server/config";
 
-const UserCreateSchema = z.object({
-  email: z.string().email(),
-  name: z.string().min(1),
-  age: z.number().int().positive().optional(),
-});
-
-const UserCreateResultSchema = z.object({
-  user: z.object({
-    id: z.string(),
-    email: z.string(),
-    name: z.string(),
-  }),
-});
-
 export const UserService = defineService({
-  createUser: {
-    params: (input) => UserCreateSchema.parse(input),
-    result: (output) => UserCreateResultSchema.parse(output),
-    handler: async (params, ctx) => {
-      const user = await db.users.create({
-        email: params.email,
-        name: params.name,
-        age: params.age,
-      });
-
-      return { user };
-    },
+  create: {
+    params: z.object({
+      email: z.string().email(),
+      name: z.string().min(1),
+    }),
+    result: z.object({
+      user: z.object({
+        id: z.string(),
+        email: z.string(),
+        name: z.string(),
+      }),
+    }),
+    handler: async (params) => ({
+      user: await users.create(params),
+    }),
   },
 });
 ```
 
-> Parsers can be Zod schemas with `.parse(...)` or any synchronous function of shape `(u: unknown) => T`.
->
-> Both `params` and `result` are optional.
+Both parsers are optional. They run inside service dispatch, so validation failures follow the same
+error and trace path as method failures.
 
-## Error Handling
+## Errors, records and traces
 
-### Service Method Errors
+Service dispatch creates a child logger with `component`, `service`, `method` and `traceId` bindings.
+It records duration and success or failure in the development request trace.
 
-Errors thrown in service methods are caught by τjs:
+- an existing `AppError` keeps its status and safe-message policy
+- another thrown error is wrapped as an internal `AppError`
+- a non-object result becomes an internal error
+- a critical service failure follows the route renderer's error path; before commit it can produce an
+  HTTP error, while a post-commit stream cannot rewrite its status
+- a deferred service failure becomes that entry's detail-free `failed` outcome after the shell may
+  have committed
 
-```typescript
-export const UserService = defineService({
-  getUser: async (params: { id: string }, ctx) => {
-    const user = await db.users.findById(params.id);
+Current failure records include the service parameter object and error details. Do not put passwords,
+session tokens or other secrets into service parameters. Configure redaction on the selected Fastify,
+Pino or custom logger for sensitive application fields. See
+[Logging & Telemetry](/guides/logging-telemetry/#sensitive-data).
 
-    if (!user) {
-      throw new Error(`User ${params.id} not found`);
-    }
+## Testing
 
-    return { user };
-  },
-});
-```
+Services are plain async functions after `defineService()` normalises them. Test a method with the
+smallest context it needs:
 
-### Structured Errors
+```ts
+import { describe, expect, it, vi } from "vitest";
 
-Use `AppError` for structured framework-aware errors:
-
-```typescript
-import { AppError } from "@taujs/server/config";
-
-export const UserService = defineService({
-  getUser: async (params: { id: string }, ctx) => {
-    const user = await db.users.findById(params.id);
-
-    if (!user) {
-      throw AppError.notFound(`User ${params.id} not found`);
-    }
-
-    return { user };
-  },
-});
-```
-
-## Testing Services
-
-Services are plain async functions, so you can test them without HTTP or route setup.
-
-### Testing a simple service
-
-```typescript
-import { describe, it, expect, vi } from "vitest";
-import { UserService } from "./user.service";
-import type { ServiceContext } from "@taujs/server/config";
-
-describe("UserService", () => {
-  const mockLogger = {
+it("loads a product", async () => {
+  const logger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-    child: vi.fn(function () {
-      return this;
-    }),
   };
 
-  const ctx: ServiceContext = {
-    traceId: "test-trace-id",
-    logger: mockLogger,
-  };
+  const result = await CatalogueService.product(
+    { id: "p1" },
+    { traceId: "test-trace", logger },
+  );
 
-  it("returns user when found", async () => {
-    const result = await UserService.getUser({ id: "123" }, ctx);
-
-    expect(result.user).toBeDefined();
-    expect(result.user.id).toBe("123");
-    expect(mockLogger.info).toHaveBeenCalledWith(
-      { userId: "123" },
-      "Fetching user",
-    );
-  });
+  expect(result.product.id).toBe("p1");
 });
 ```
 
-### Testing a composed service
+For composition, provide a typed `call` spy and assert service, method and parameters. Add an HTTP
+regression when status, headers, auth, cancellation or deferred response behaviour matters; a direct
+method test cannot prove those host-level outcomes.
 
-```typescript
-import { describe, it, expect, vi } from "vitest";
-import { OrderService } from "./order.service";
-import { UserService } from "./user.service";
-import { ProductService } from "./product.service";
-import type { TypedServiceContext } from "@taujs/server/config";
+## Practical rules
 
-type OrderServiceDeps = {
-  UserService: typeof UserService;
-  ProductService: typeof ProductService;
-};
+- Keep request and response concerns in route configuration or Fastify.
+- Keep business and data access in services.
+- Use `serviceData()` for a direct declared edge and `ctx.call` for orchestration.
+- Return plain serialisable records.
+- Pass `ctx.signal` to downstream work.
+- Pass validated identity explicitly rather than relying on ambient `ctx.user`.
+- Type service dependencies locally.
+- Configure logger redaction for sensitive parameter fields.
+- Remember that services are not browser endpoints.
 
-describe("OrderService", () => {
-  it("calls dependent services", async () => {
-    const ctx: TypedServiceContext<OrderServiceDeps> = {
-      call: vi.fn(async (service, method, args) => {
-        if (service === "UserService" && method === "getUser") {
-          return { user: { id: "user_123", name: "Alice" } };
-        }
+Related guides:
 
-        if (service === "ProductService" && method === "getProducts") {
-          return { products: [{ id: "p1" }, { id: "p2" }] };
-        }
-
-        throw new Error(`Unexpected call: ${service}.${method}`);
-      }),
-    };
-
-    const result = await OrderService.getOrderDetails(
-      { orderId: "order_123" },
-      ctx,
-    );
-
-    expect(result.user.user.id).toBe("user_123");
-    expect(result.products.products).toHaveLength(2);
-  });
-});
-```
-
-## Best Practices
-
-### 1. Return serialisable objects only
-
-```typescript
-getUser: async (params, ctx) => {
-  return {
-    user: { id: "123", name: "Alice" },
-    created: new Date().toISOString(),
-  };
-};
-```
-
-τjs serialises service results across the SSR boundary. Primitives and class instances don't round-trip cleanly - always wrap in an object.
-
-### 2. Keep route handlers thin
-
-Routes handle request/response concerns. Services handle business logic and data access. The boundary should be clear.
-
-### 3. Type service dependencies locally
-
-Inside a service, prefer:
-
-```typescript
-type OrderServiceDeps = {
-  UserService: typeof UserService;
-  ProductService: typeof ProductService;
-};
-```
-
-over typing against the full registry while the registry is still being declared.
-
-Inside a service, type `ctx` against only the services it directly depends on (`OrderServiceDeps`) rather than the full app registry. Use `AppServiceContext` only in app-level code written after the registry is fully defined.
-
-
-### 4. Use TypedServiceContext<typeof serviceRegistry> after registry creation
-
-Don't augment `ServiceContext.call.` It creates circular type relationships. Use `TypedServiceContext<R>` for typed composition.
-
-For app-wide helpers, tests, or post-registry code, bind `TypedServiceContext` to the full registry.
-
-<!--
-## What's Next?
-
-- [Authentication](/guides/authentication) - Access authenticated user in services
-- [Logging & Telemetry](/guides/logging-telemetry) - Use structured logging effectively
-- [Multi-App Architecture](/guides/micro-frontends) - Organise services in larger applications
--->
+- [Data Loading](/guides/data-loading/) for critical, head and deferred slots
+- [Authentication](/guides/authentication/) for the Fastify auth boundary
+- [Logging & Telemetry](/guides/logging-telemetry/) for service records and traces
+- [Request Contracts & Data](/guides/request-contracts/) for route ownership

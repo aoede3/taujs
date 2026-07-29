@@ -532,7 +532,7 @@ Routes define URL patterns, rendering strategies, and data requirements.
 | ------------ | ------------------------- | ----------- | ------------------- |
 | `render`     | `'ssr' \| 'streaming'`    | Required    | Rendering strategy  |
 | `hydrate`    | `boolean`                 | `true`      | Hydrate the client renderer |
-| `meta`       | `Record<string, unknown>` | `{}`        | Metadata for head   |
+| `meta`       | `Record<string, unknown>` | `{}`        | Static metadata passed to `headContent` |
 | `middleware` | `Middleware`              | `undefined` | Auth and CSP        |
 | `data`       | `DataHandler`             | `undefined` | Data loader         |
 | `deferred`   | `DeferredDataAttributes`  | `undefined` | **`streaming` only.** A flat record of named route-owned loaders whose values may arrive after rendering begins. See [Deferred Route Data](#deferred-route-data) |
@@ -596,10 +596,11 @@ Progressive HTML delivery:
 
 **Characteristics:**
 
-- Shell sent immediately
-- Content streams as it renders
-- Route `data` may not be ready when `headContent` runs - declare `attr.head` for DYNAMIC head
-  data (resolved before the shell, delivered as `headData`); `meta` remains the static layer
+- Renderer output streams after required pre-shell work
+- Content streams according to the selected renderer semantics
+- React and Vue may build the streamed head before route `data` settles; Solid waits for critical
+  data. Declare `attr.head` for portable dynamic head data, resolved before rendering and delivered
+  as `headData`; `meta` remains available as static input for the application fallback.
 - **Requires `meta` property**
 
 ### Static (No Hydration)

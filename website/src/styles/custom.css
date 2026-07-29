@@ -57,58 +57,16 @@ h1 {
   gap: 2rem;
   justify-content: space-evenly;
   margin: 2em 0;
-
-  a {
-    width: 15%;
-    max-height: 5rem;
-  }
-
-  + p {
-    font-size: 1.1rem;
-    text-align: center;
-  }
 }
 
-.orchestration-layout {
-  align-items: start;
-  display: grid;
-  gap: clamp(2rem, 5vw, 5rem);
-  grid-template-columns: minmax(0, 3fr) minmax(15rem, 1fr);
-  margin-block: 1.5rem 2.5rem;
+.container__logos a {
+  width: 15%;
+  max-height: 5rem;
 }
 
-.orchestration-layout__copy > :first-child,
-.orchestration-layout__flow > :first-child {
-  margin-top: 0;
-}
-
-.orchestration-layout__flow pre {
-  margin: 0;
-}
-
-.orchestration-layout__flow .expressive-code pre > code {
-  line-height: 1;
-}
-
-.orchestration-layout__flow .ec-line .code {
+.container__copy {
+  font-size: 1.05rem;
   text-align: center;
-}
-
-.orchestration-layout__flow .expressive-code :nth-child(1 of .ec-line) .code {
-  padding-inline-end: var(--ec-codePadInl);
-}
-
-.orchestration-layout__flow {
-  margin: 0;
-  overflow-x: auto;
-  white-space: pre;
-}
-
-@media (max-width: 50rem) {
-  .orchestration-layout {
-    gap: 1.5rem;
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .logo {

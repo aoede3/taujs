@@ -1,445 +1,197 @@
 ---
 title: Dependency Management
-description: How τjs resolves and optimises dependencies across applications
+description: How dependencies and shared code are resolved across τjs applications
 ---
 
-How τjs resolves and optimises dependencies across multiple applications.
+τjs gives each configured application its own Vite build. Dependency installation still belongs to
+your package manager, and module resolution still follows normal Vite and Node rules.
 
-τjs uses a **single dependency tree** at the project root. Vite's tree-shaking removes unused code from each bundle at build time. This means:
+The practical model is:
 
-- One `node_modules` directory at project root
-- Each app declares its dependencies in its own `package.json`
-- Dependencies are hoisted to root by package manager
-- Each app bundle only includes what it imports
+- the package manager decides where packages are installed and how workspaces are linked
+- each application's imports determine its Vite module graph
+- the application's `renderer` supplies its managed framework compiler
+- `apps[].plugins`, `config.vite` and `taujsBuild({ vite })` add supported Vite customisation
+- τjs does not create shared runtime dependencies between application bundles
 
-**Key insight:** The sise of `node_modules` doesn't affect bundle sise. Only imports determine what's included in each bundle.
+## Repository layouts
 
-## How It Works
+A single root package is sufficient:
 
-### Dependency Resolution
-
-```
+```text
 project/
-├── package.json              # Root package.json with workspaces
-├── node_modules/             # Single dependency tree (hoisted)
-│   ├── react/
-│   ├── react-dom/
-│   ├── @tanstack/react-query/
-│   ├── zustand/
-│   └── ...
-│
-└── client/
-    ├── app/
-    │   └── package.json      # Declares: react, react-query
-    └── admin/
-        └── package.json      # Declares: react, zustand
+├── package.json
+├── src/
+│   ├── client/
+│   │   ├── customer/
+│   │   └── admin/
+│   └── shared/
+└── taujs.config.ts
 ```
 
-### Build-Time Tree-Shaking
+A workspace is also valid when applications or shared packages need their own publication or
+version boundary:
 
-When τjs builds each app:
-
-1. **Vite analses imports** in app code
-2. **Only includes imported modules** in bundle
-3. **Shared dependencies optimised** automatically
-4. **Unused code removed** from final bundle
-
-**Example:**
-
-```
-Customer App Build:
-─────────────────────────────────────────
-Scans imports in client/app/
-- import React from 'react'                    ✓ Included
-- import { useQuery } from '@tanstack/react-query'  ✓ Included
-- (zustand never imported)                     ✗ Excluded
-
-Bundle: React + react-query
-Size: 1.6MB
-
-Admin App Build:
-─────────────────────────────────────────
-Scans imports in client/admin/
-- import React from 'react'                    ✓ Included
-- import { create } from 'zustand'             ✓ Included
-- (@tanstack/react-query never imported)      ✗ Excluded
-
-Bundle: React + zustand
-Size: 1.3MB
+```text
+project/
+├── package.json
+├── pnpm-workspace.yaml
+├── apps/
+│   ├── customer/
+│   └── admin/
+└── packages/
+    ├── contracts/
+    └── design-system/
 ```
 
-**Result:** Each app only ships code it actually uses.
+τjs does not require one `package.json` per application, dependency hoisting, or one physical
+`node_modules` directory. npm, pnpm and Yarn can each choose a different installation layout while
+Vite resolves the declared imports.
 
-## Workspace Setup
+Declare dependencies in the package that owns the importing source. In a simple repository that may
+be the root package. In a workspace it is normally the application or shared package itself.
 
-### Using npm Workspaces
+## Per-application module graphs
 
-```json
-// package.json (root)
-{
-  "name": "my-project",
-  "workspaces": ["client/*"],
-  "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  }
+Suppose two applications import different libraries:
+
+```ts
+// src/client/customer/queries.ts
+import { useQuery } from "@tanstack/react-query";
+
+// src/client/admin/store.ts
+import { createStore } from "solid-js/store";
+```
+
+The customer build sees React Query because the customer graph imports it. The admin build sees the
+Solid store because the admin graph imports it. A package being installed does not by itself put the
+package into a browser bundle.
+
+That is not a promise that every imported byte survives or disappears. Vite and Rollup also consider
+module side effects, dynamic imports, package metadata and build configuration when they tree-shake
+and split chunks. Inspect production output when bundle size matters.
+
+## Framework dependencies and renderers
+
+Each application declares one renderer:
+
+```ts
+import { reactRenderer } from "@taujs/react/renderer";
+import { solidRenderer } from "@taujs/solid/renderer";
+
+export default defineConfig({
+  apps: [
+    {
+      appId: "customer",
+      entryPoint: "customer",
+      renderer: reactRenderer({ project: "./tsconfig.json" }),
+      routes: [/* ... */],
+    },
+    {
+      appId: "admin",
+      entryPoint: "admin",
+      renderer: solidRenderer({ project: "./tsconfig.solid.json" }),
+      routes: [/* ... */],
+    },
+  ],
+});
+```
+
+The renderer owns the framework-specific compiler integration. Do not add a second React, Vue or
+Solid compiler plugin merely because the framework is installed. Use `apps[].plugins` for additional
+Vite plugins needed by that application.
+
+In development τjs uses one shared Vite server, so application plugin lists are composed and duplicate
+plugin names are resolved by first occurrence. Production builds remain per application. Keep options
+for a shared plugin consistent across the applications that use it. See
+[Build & Deployment](/guides/build-deployment/#vite-plugins-per-app).
+
+## Shared source code
+
+The default aliases include:
+
+- `@client` for the current application's client root
+- `@server` for the project server root
+- `@shared` for the project shared root
+
+A framework-neutral helper can be imported by several applications:
+
+```ts
+// src/shared/currency.ts
+export function formatCurrency(value: number, currency: string): string {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency,
+  }).format(value);
 }
 ```
 
-```json
-// client/app/package.json
-{
-  "name": "@my-project/app",
-  "dependencies": {
-    "@tanstack/react-query": "^5.0.0"
-  }
-}
+```ts
+import { formatCurrency } from "@shared/currency";
 ```
 
-```json
-// client/admin/package.json
-{
-  "name": "@my-project/admin",
-  "dependencies": {
-    "zustand": "^4.0.0"
-  }
-}
+The source is maintained once, but each consuming application processes it as part of its own build.
+It may therefore appear in more than one output. There is no cross-application shared chunk and no
+runtime singleton created by using the same import path.
+
+Framework-specific components and hooks can be shared only by applications using the compatible
+framework and versions. Contracts, schemas, design tokens and plain TypeScript utilities are the
+most portable shared layer.
+
+## Custom aliases
+
+Declare application-facing aliases in `taujs.config.ts`:
+
+```ts
+export default defineConfig({
+  alias: {
+    "@contracts": "./src/shared/contracts",
+    "@design": "./src/shared/design-system",
+  },
+  apps: [/* ... */],
+});
 ```
 
-**Installation:**
+Relative targets resolve from the project root. The aliases are applied to development and builds.
+A `tsconfig.json` path mapping alone does not automatically become a Vite alias, so keep TypeScript
+and τjs alias declarations aligned when both tools need the name.
 
-```bash
-# Install all dependencies
-npm install
+Programmatic aliases supplied to `createServer()` or `taujsBuild()` take precedence over declarative
+aliases. Use that seam for a host or build wrapper, not for ordinary application imports.
 
-# Install app-specific dependency
-cd client/app
-npm install @tanstack/react-query
+## Version coordination
 
-# Install admin-specific dependency
-cd client/admin
-npm install zustand
-```
+Separate builds do not remove the need to coordinate versions:
 
-**How it works:**
+- keep each renderer compatible with its framework peer dependencies
+- use one lockfile or an explicit release policy when several workspaces ship together
+- avoid passing framework objects across application boundaries
+- treat shared package upgrades like normal source changes in every consuming application
 
-- npm hoists dependencies to root `node_modules`
-- Each app's `package.json` declares what it needs
-- Workspace manager links packages together
-- Build time: Vite resolves from root `node_modules`
+Two applications may intentionally use different renderers or framework versions because their
+bundles do not share a runtime. Test document navigation between them and keep shared browser
+contracts framework-neutral.
 
-### Workspace Managers
+## Selective builds
 
-τjs works with any workspace manager:
+`taujsBuild()` accepts application filters through `--app`, `--apps`, `-a`, `TAUJS_APP` and
+`TAUJS_APPS`. Filters match either `appId` or `entryPoint`.
 
-**npm workspaces** (built-in to npm 7+):
+Selective builds reduce work in per-application CI jobs, but they do not by themselves create a
+complete deployable directory. Client builds clean `dist/`, and a server serving several configured
+applications needs all required client and SSR artefacts. Assemble independently produced artefacts
+before publishing them together.
 
-```json
-{
-  "workspaces": ["client/*"]
-}
-```
+See [Micro-Frontends](/guides/micro-frontend/#selective-builds-and-deployment-schedules) for the
+application boundary and [Build & Deployment](/guides/build-deployment/#build-a-single-app-cli) for
+commands.
 
-**pnpm workspaces**:
+## Practical checks
 
-```yaml
-# pnpm-workspace.yaml
-packages:
-  - "client/*"
-```
-
-**Yarn workspaces**:
-
-```json
-{
-  "workspaces": ["client/*"],
-  "packageManager": "yarn@4.0.0"
-}
-```
-
-**All achieve the same goal:** Single dependency tree, per-app declarations.
-
-## Practical Workflow
-
-### Root Dependencies (Shared)
-
-Install dependencies used by all apps at root:
-
-```bash
-# At project root
-npm install react react-dom
-```
-
-```json
-// package.json
-{
-  "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  }
-}
-```
-
-### App-Specific Dependencies
-
-Install dependencies used by specific apps:
-
-```bash
-# Customer app needs react-query
-cd client/app
-npm install @tanstack/react-query
-
-# Admin app needs zustand
-cd client/admin
-npm install zustand
-
-# Both are hoisted to root node_modules
-```
-
-**Result:**
-
-```
-node_modules/
-├── react/                    # Used by both
-├── react-dom/                # Used by both
-├── @tanstack/react-query/    # Only bundled in customer app
-└── zustand/                  # Only bundled in admin app
-```
-
-## Shared Code Between Apps
-
-### Shared Directory
-
-Create a shared directory for code used across apps:
-
-```
-client/
-├── shared/
-│   ├── components/
-│   │   ├── Button.tsx
-│   │   └── Card.tsx
-│   ├── hooks/
-│   │   └── useAuth.ts
-│   └── utils/
-│       └── formatting.ts
-├── app/
-└── admin/
-```
-
-### Path Aliases
-
-Configure aliases to import shared code:
-
-```typescript
-// tsconfig.json
-{
-  "compilerOptions": {
-    "paths": {
-      "@shared/*": ["./client/shared/*"],
-      "@app/*": ["./client/app/*"],
-      "@admin/*": ["./client/admin/*"]
-    }
-  }
-}
-```
-
-τjs automatically resolves these during build.
-
-### Using Shared Code
-
-```typescript
-// client/app/features/Dashboard.tsx
-import { Button } from "@shared/components/Button";
-import { useAuth } from "@shared/hooks/useAuth";
-import { formatDate } from "@shared/utils/formatting";
-
-export function Dashboard() {
-  const { user } = useAuth();
-
-  return (
-    <div>
-      <h1>Welcome, {user.name}</h1>
-      <Button>Click me</Button>
-      <p>Joined: {formatDate(user.createdAt)}</p>
-    </div>
-  );
-}
-```
-
-```typescript
-// client/admin/features/UserList.tsx
-import { Button } from "@shared/components/Button"; // Same component
-import { formatDate } from "@shared/utils/formatting";
-
-export function UserList({ users }) {
-  return (
-    <div>
-      {users.map((user) => (
-        <div key={user.id}>
-          <span>{formatDate(user.createdAt)}</span>
-          <Button>Edit</Button>
-        </div>
-      ))}
-    </div>
-  );
-}
-```
-
-**Build behavior:**
-
-- `Button.tsx` compiled once by Vite
-- Included in both app bundles
-- Optimised automatically
-- No duplication of compiled code
-
-## Dependency Version Management
-
-### Shared Major Versions
-
-Apps should coordinate on major versions of shared dependencies:
-
-```json
-// Root package.json
-{
-  "dependencies": {
-    "react": "^19.0.0", // All apps use React 19
-    "react-dom": "^19.0.0"
-  }
-}
-```
-
-**Why:** Different React versions can cause runtime issues.
-
-### Independent Library Versions
-
-Apps can use different versions of independent libraries:
-
-```json
-// client/app/package.json
-{
-  "dependencies": {
-    "@tanstack/react-query": "^5.0.0"
-  }
-}
-```
-
-```json
-// client/admin/package.json
-{
-  "dependencies": {
-    "@tanstack/react-query": "^4.0.0" // Different version OK
-  }
-}
-```
-
-Package managers handle version resolution - each app gets the version it needs.
-
-## Common Scenarios
-
-### Adding a New Dependency
-
-**To all apps:**
-
-```bash
-# At root
-npm install lodash
-
-# All apps can now import lodash
-```
-
-**To specific app:**
-
-```bash
-# In app directory
-cd client/app
-npm install date-fns
-
-# Only customer app can import date-fns
-# Only customer bundle includes it
-```
-
-### Upgrading a Shared Dependency
-
-```bash
-# At root
-npm install react@latest react-dom@latest
-
-# All apps now use updated React
-# Rebuild to pick up changes
-npm run build
-```
-
-### Removing a Dependency
-
-```bash
-# Remove from app package.json
-cd client/app
-npm uninstall @tanstack/react-query
-
-# Clean install
-cd ../..
-npm install
-
-# Rebuild
-npm run build
-```
-
-## Best Practices
-
-### 1. Declare Dependencies Explicitly
-
-```json
-// app declares what it needs
-{
-  "dependencies": {
-    "@tanstack/react-query": "^5.0.0",
-    "date-fns": "^2.0.0"
-  }
-}
-
-// less ideal - relying on hoisted dependency without declaration
-// (might break if other app removes it)
-```
-
-### 2. Keep Shared Dependencies at Root
-
-```json
-// shared by all apps
-// Root package.json
-{
-  "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  }
-}
-```
-
-### 3. Regular Dependency Audits
-
-```bash
-# Check for outdated dependencies
-npm outdated
-
-# Check for security issues
-npm audit
-
-# Update dependencies
-npm update
-```
-
-### 4. Lock File Discipline
-
-```bash
-# Commit lock file
-git add package-lock.json
-
-# Don't commit node_modules
-echo "node_modules" >> .gitignore
-```
-
-<!--
-## What's Next?
-
-- [Shared State](/guides/shared-state-management) - Share state between apps
-- [Build & Deployment](/reference/build-deployment) - Full build process details
-- [Micro-Frontends](/guides/micro-frontends) - How apps work together -->
+- Declare a dependency where its importing source is owned.
+- Keep shared modules free of application-global side effects.
+- Do not assume a shared import creates shared browser state.
+- Inspect each production application bundle separately.
+- Keep development plugin options compatible across applications.
+- Use explicit aliases rather than relying on undocumented resolver behaviour.
+- Assemble the full artefact set before deploying a multi-application server.

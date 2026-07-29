@@ -6,7 +6,7 @@ export default defineConfig({
   site: "https://taujs.dev",
   integrations: [
     starlight({
-      title: "τjs - Composing systems, not just apps",
+      title: "τjs",
 
       components: {
         Footer: "./src/components/CustomFooter.astro",
@@ -28,14 +28,13 @@ export default defineConfig({
           items: [
             { label: "Overview", slug: "guides/getting-started" },
             { label: "Architecture", slug: "guides/architecture" },
-            { label: "Host Ownership", slug: "guides/host-ownership" },
-            {
-              label: "Incremental Migration",
-              slug: "guides/incremental-migration",
-            },
             {
               label: "Request Contracts & Data",
               slug: "guides/request-contracts",
+            },
+            {
+              label: "Incremental Migration",
+              slug: "guides/incremental-migration",
             },
           ],
         },
@@ -48,7 +47,7 @@ export default defineConfig({
           ],
         },
         {
-          label: "Security ",
+          label: "Security",
           items: [
             { label: "Authentication", slug: "guides/authentication" },
             {
@@ -73,11 +72,12 @@ export default defineConfig({
           ],
         },
         {
-          label: "Operations",
+          label: "Hosting & Operations",
           items: [
-            { label: "Logging & Telemetry", slug: "guides/logging-telemetry" },
-            { label: "Static Assets", slug: "guides/static-assets" },
+            { label: "Host Ownership", slug: "guides/host-ownership" },
             { label: "Build & Deployment", slug: "guides/build-deployment" },
+            { label: "Static Assets", slug: "guides/static-assets" },
+            { label: "Logging & Telemetry", slug: "guides/logging-telemetry" },
           ],
         },
 

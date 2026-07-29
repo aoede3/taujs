@@ -42,9 +42,10 @@ The server, service registry, request policy and route-data model can remain sha
 | Add a request contract | Renderer, component structure and post-hydration client fetching |
 | Introduce mediated services | Route URL, renderer and component consumption |
 | Change SSR to streaming | Renderer framework, service contract and route ownership |
+| Defer non-status-bearing data | Critical data, renderer and route ownership |
 | Move a URL area to another renderer | Services, auth/CSP policy, route-data shape and surrounding server |
 
-Avoid changing all five in one slice. A smaller change gives you a meaningful parity check and a straightforward rollback.
+Avoid changing every axis in one slice. A smaller change gives you a meaningful parity check and a straightforward rollback.
 
 ## A practical migration sequence
 
@@ -93,6 +94,11 @@ export default defineConfig({
 
 At this stage, route components may continue calling their existing APIs after hydration. You do not need to introduce `serviceData()`, a service registry or streaming merely to adopt the host.
 
+URLs omitted from `taujs.config.ts` can remain client-routed, but an undeclared screen still needs an
+HTTP shell owner. A τjs-created host supplies its implicit shell fallback. A caller-owned Fastify host
+needs a declared terminal wildcard for the application, such as `/products/*`, when τjs should serve
+those unmatched client URLs. See [Host Ownership](/guides/host-ownership/#application-shell-and-unmatched-urls).
+
 The renderer contribution owns its framework compiler. Do not also add `pluginReact()`, `pluginVue()` or `pluginSolid()` to the app's `plugins` array. Ordinary, unrelated Vite plugins remain supported there.
 
 See the [React](/renderers/react), [Vue](/renderers/vue) or [Solid](/renderers/solid) guide for the framework-specific entry files.
@@ -101,7 +107,8 @@ This is still a real integration boundary, not a wrapper around arbitrary browse
 
 ### 3. Introduce a request contract on one route
 
-Choose a route whose initial state is important for SEO, first paint, policy or operational visibility. Move only that initial read to `attr.data`:
+Choose a route whose initial state is important for SEO, first paint, status or operational
+visibility. Move only that initial read to `attr.data`:
 
 ```ts
 {
@@ -117,7 +124,9 @@ Choose a route whose initial state is important for SEO, first paint, policy or 
 
 The renderer consumes the resolved initial state through its SSR store. Polling, mutations, user-triggered refreshes and other post-hydration work can continue through the existing client query library and explicit API endpoints.
 
-You are moving ownership of the **initial response**, not replacing the application's client data layer.
+You are moving ownership of the **initial response**, not replacing the application's client data
+layer. Routes you leave undeclared remain outside the request-contract model and can continue as
+client-routed URLs behind the application shell.
 
 ### 4. Mediate service access when it pays off
 
@@ -154,7 +163,40 @@ Changing `ssr` to `streaming` changes response delivery. It does not require a n
 
 Likewise, `hydrate: false` is a route-level delivery decision. Verify that the route genuinely needs no client application before disabling hydration.
 
-### 6. Move a route boundary to another renderer
+### 6. Defer non-status-bearing data
+
+Once streaming works with critical data, move an independently renderable slow dependency to
+`attr.deferred`:
+
+```ts
+{
+  path: "/products/:id",
+  attr: {
+    render: "streaming",
+    meta: { title: "Product" },
+    data: serviceData("catalogue", "getProduct", ({ id }) => ({
+      id: String(id),
+    })),
+    deferred: {
+      reviews: serviceData("reviews", "forProduct", ({ id }) => ({
+        id: String(id),
+      })),
+    },
+  },
+}
+```
+
+Deferral remains part of the route declaration. The work starts once per response outside the
+component tree, and each renderer projects the named result into its native asynchronous primitive.
+Do not replace it with a component-started promise when request ownership, cancellation, traces or
+hydration without a client refetch matter.
+
+A deferred entry cannot redirect, prevent the response or choose its HTTP status. Keep those
+conditions in middleware or critical route resolution. See
+[Data Loading](/guides/data-loading/#deferred-route-data) and the renderer guide for
+the component-facing accessor.
+
+### 7. Move a route boundary to another renderer
 
 When a route or coherent URL area is ready for a UI rewrite, create a second app and move route ownership to it:
 
@@ -194,7 +236,15 @@ export default defineConfig({
       }),
       routes: [
         {
-          path: "/account/:section?",
+          path: "/account",
+          attr: {
+            render: "ssr",
+            middleware: { auth: { roles: ["customer"] } },
+            data: serviceData("accounts", "getAccount"),
+          },
+        },
+        {
+          path: "/account/:section",
           attr: {
             render: "ssr",
             middleware: { auth: { roles: ["customer"] } },
@@ -207,7 +257,11 @@ export default defineConfig({
 });
 ```
 
-The new Solid app rewrites the view and its framework-specific entry points. The account service, auth policy and route-data contract stay at the request boundary.
+The new Solid app rewrites the view and its framework-specific entry points. The account service,
+auth policy and route-data contract stay at the request boundary. The auth hook may attach
+`req.user` for Fastify, but τjs does not copy it into the route-data context automatically. Resolve
+identity explicitly when the account data depends on it. See
+[Authentication](/guides/authentication/#identity-in-route-data-and-services).
 
 Move the route; do not temporarily declare the same URL in both apps. Route ownership should remain unambiguous throughout the migration.
 
@@ -258,7 +312,11 @@ React and Solid both use `.tsx` and `.jsx`, so a shared τjs project needs unamb
 
 Vue remains a first-class renderer but does not participate in JSX ownership algebra; `vueRenderer()` supplies its own Vue plugin pack.
 
-τjs runs these apps through one coordinated development server and build pipeline. A framework migration does not require starting one τjs server per app.
+τjs runs these apps through one coordinated development server. Production output is built per
+application, and selective filters can target one or several apps, but a multi-app deployment must
+still assemble every client and SSR artefact the server will serve. A framework migration does not
+require starting one τjs server per app. See
+[Micro-Frontends](/guides/micro-frontend/#selective-builds-and-deployment-schedules).
 
 ## Verify each migration slice
 
@@ -274,6 +332,7 @@ For every step, check the smallest relevant matrix:
 | Policy | Auth, CSP and redirects behave as before |
 | Assets | The response references the owning app's bundle, not the previous renderer's |
 | Data | Initial data is present once and post-hydration fetching does not duplicate it accidentally |
+| Deferred data | Named entries settle once, hydrate without a client refetch and follow renderer-native ordering |
 | Evidence | The request graph and live trace identify the expected app, route and service call |
 
 The [MCP server](/reference/mcp) can inspect route ownership and live development traces, but it does not replace browser and production-build tests.
@@ -288,6 +347,7 @@ The [MCP server](/reference/mcp) can inspect route ownership and live developmen
 - switch renderers inside one component root;
 - turn `renderer` into a per-route option;
 - require every route to adopt request data or mediated services;
+- promote component-started async work into the declared deferred registry;
 - replace application-specific client navigation, caching or mutation logic.
 
 The promise is narrower and more useful: **τjs lets you evolve your UI boundary independently of your application architecture wherever those concerns are already separated - or separate them incrementally over time.**
@@ -313,9 +373,10 @@ The best first migration is a real boundary, not the smallest component you can 
 
 ## Related guides
 
-- [Architecture](/guides/architecture)
-- [Request contracts and data ownership](/guides/request-contracts)
-- [Micro-frontends](/guides/micro-frontend)
-- [Data Loading](/guides/data-loading)
-- [Services](/guides/services)
-- [Build and Deployment](/guides/build-deployment)
+- [Architecture](/guides/architecture/)
+- [Request contracts and data ownership](/guides/request-contracts/)
+- [Host Ownership](/guides/host-ownership/)
+- [Micro-Frontends](/guides/micro-frontend/)
+- [Data Loading](/guides/data-loading/)
+- [Services](/guides/services/)
+- [Build & Deployment](/guides/build-deployment/)

@@ -1,357 +1,232 @@
 ---
 title: <head> Management
-description: How τjs manages document head content
+description: Build document head content from route metadata, critical data and dedicated head loaders
 ---
 
-τjs provides flexible document `<head>` management through a `headContent` function defined in your `entry-server.tsx`.
+Each renderer accepts a `headContent` callback in its server entry. The callback returns the
+request-specific HTML that τjs places inside the document `<head>`.
 
-:::caution[headContent is a raw-HTML sink]
-Whatever `headContent` returns is written into `<head>` **verbatim** - it is not auto-escaped. Escape
-every value you interpolate that could carry service data, user input, or other untrusted content
-(from **`data`, `headData` or `meta`** - route meta is often built from application data too, and
-`headData` is loader output like any other). Use the
-`escapeHtml` helper exported by `@taujs/react` / `@taujs/vue` for HTML text and quoted attributes; see
-[Escape User Content](#3-escape-user-content) for the important exceptions (JSON-LD / `<script>`, URLs).
-:::
+Route `meta` does not emit tags by itself. It is one input to `headContent`, alongside critical
+`data`, dedicated `headData` and `routeContext`.
 
-## Composition Order
+::::caution[headContent is a raw-HTML sink]
+The returned string is written into `<head>` verbatim. It is not escaped or sanitised. Escape every
+untrusted value at the point where it enters the HTML string, using the correct escaping rule for
+that output context.
+::::
 
-τjs assembles the document head in a fixed, intentional order:
+## How the pieces fit
 
-1. **Template (`index.html`)**
+A rendered document combines three sources:
 
-   - Provides the static baseline:
-     - `<html>`, `<head>`, `<body>`
-     - `<meta charset>`, `<meta viewport>`
-     - global links and static tags
-   - Acts as the structural shell of the document.
+1. `index.html` supplies the static structure and tags shared by the application.
+2. `headContent` produces request-specific tags from the route inputs.
+3. τjs adds any build, development and renderer tags required for the response.
 
-2. **Route Meta (`taujs.config.ts`)**
+The route inputs available to `headContent` are:
 
-   - Declares _intent_ at the routing layer.
-   - Used for SEO-critical, deterministic values:
-     - `title`
-     - `description`
-     - Open Graph defaults
-   - Always available, including in streaming routes.
+| Input          | Source                                  | Use                                                        |
+| -------------- | --------------------------------------- | ---------------------------------------------------------- |
+| `meta`         | `attr.meta`                             | Static route metadata and fallback values                  |
+| `data`         | `attr.data`                             | Critical route data, subject to renderer timing below      |
+| `headData`     | `attr.head.data`                        | Dynamic data resolved before the renderer starts           |
+| `routeContext` | `{ appId, path, attr, params }`         | Route-aware values outside the data snapshot               |
 
-3. **Renderer Head (`headContent` in `entry-server.tsx`)**
-   - Converts `meta`, (optionally) `data`, and (when the route declares `attr.head`) `headData`
-     into actual HTML tags.
-   - Can enrich or override route meta.
-   - Runs:
-     - after data resolution in SSR (`data` is real; `headData` is resolved when declared)
-     - on streaming routes, React builds the head at shell-ready (the `data` snapshot is usually
-       still pending - `headData` is the resolved-before-render exception); Vue performs its
-       single head build before rendering starts
+If two sources produce the same tag, `headContent` decides which value wins. τjs does not merge or
+deduplicate application-provided titles, metadata or links.
 
-This separation ensures:
+## Define headContent
 
-- routing controls _what the page represents_
-- rendering controls _how it becomes HTML_
-- streaming remains safe for SEO
+This React example has the same shape in Vue and Solid. Import `createRenderer` and `escapeHtml`
+from `@taujs/vue` or `@taujs/solid` for those renderers.
 
-## The headContent Function
-
-```typescript
-// entry-server.tsx
+```tsx
 import { createRenderer, escapeHtml } from "@taujs/react";
 import { App } from "./App";
 
 export const { renderSSR, renderStream } = createRenderer({
   appComponent: ({ location }) => <App location={location} />,
-  headContent: ({ data, meta }) => `
-    <title>${escapeHtml(meta?.title || "τjs - Composing systems, not just apps")}</title>
-    <meta name="description" content="${escapeHtml(
-      meta?.description ||
-        data?.message ||
-        "τjs - Composing systems, not just apps",
-    )}">
-  `,
+  headContent: ({ headData, meta }) => {
+    const title = headData?.title ?? meta?.title ?? "My application";
+    const description =
+      headData?.description ?? meta?.description ?? "Application description";
+
+    return `
+      <title>${escapeHtml(title)}</title>
+      <meta name="description" content="${escapeHtml(description)}">
+    `;
+  },
 });
 ```
 
-## Data Sources
+`escapeHtml` is exported by all three renderer packages. It is suitable for HTML text and quoted
+attribute values. It does not validate URL schemes and it is not the right encoding for script
+contents.
 
-### data
+## Choose the right data source
 
-Result from your route's `attr.data` handler:
+Use the narrowest declaration that satisfies the response:
 
-```typescript
-// Route config
-{
-  path: '/products/:id',
-  attr: {
-    render: 'ssr',
-    data: async (params) => {
-      const product = await db.products.findById(params.id);
-      return {
-        title: product.name,
-        description: product.description,
-        image: product.imageUrl
-      };
-    }
-  }
-}
-```
+| Requirement                                           | Put it in                                      |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| Fixed for the route                                   | `attr.meta`                                    |
+| Critical body data                                | `attr.data`                                    |
+| Dynamic value required in a streamed document head    | `attr.head.data`                               |
+| Content allowed to arrive behind a streamed boundary  | `attr.deferred`                                |
+| A change after client-only navigation                 | The client application or router head handling |
 
-### meta
+Deferred values are never passed to `headContent`. Work that can cause a redirect or determine
+response status belongs in critical resolution. A value that must appear in the initial document
+head belongs in `meta`, `data` or `headData`, not `attr.deferred`.
 
-From your route's `attr.meta` configuration:
+## Data availability by rendering strategy
 
-```typescript
-// Route config
-{
-  path: '/about',
-  attr: {
-    render: 'ssr',
-    meta: {
-      title: 'About Us',
-      description: 'Learn about our company'
-    }
-  }
-}
-```
+### SSR
 
-### headData
+On `render: "ssr"`, all three renderers receive fully resolved critical `data`. A declared
+`attr.head` loader runs after critical data resolution and before the renderer starts.
 
-From your route's `attr.head` loader - dynamic head data resolved BEFORE the render starts, on
-both strategies. This is how STREAMED pages get real data into `<head>`:
-
-```typescript
-// Route config
-{
-  path: '/products/:id',
-  attr: {
-    render: 'streaming',
-    meta: { title: 'Products' },            // static fallback layer
-    data: serviceData('catalog', 'getProduct', mapper),          // streams as usual
-    head: {
-      data: serviceData('catalog', 'getProductHead', mapper),    // resolved pre-shell
-      timeoutMs: 3000,   // optional; positive finite only (default 3000)
-      optional: false,   // optional; true degrades loader failures instead of failing the request
-    }
-  }
-}
-```
-
-```typescript
-headContent: ({ headData, meta }) => `
-  <title>${escapeHtml(headData?.ogTitle ?? meta?.title ?? "Products")}</title>
-`;
-```
-
-When head data goes missing there is not one failure - there are four distinct situations, and
-taujs refuses to lump them together:
-
-| What happened                                          | What taujs does                                                    | Why                                                                 |
-| ------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| Client disconnected mid-fetch                          | Benign abort - the request is torn down, rendering never starts    | Never do degraded work for a dead request                            |
-| Loader too slow (deadline hit, request alive)          | Degrade: render with `headData: undefined` + an advisory log       | A slow head fetch should not cost you the page                       |
-| Loader genuinely failed                                | The existing error path - a real 500                               | A thrown error is an application defect; hiding it conceals bugs     |
-| Loader failed but the route said `head.optional: true` | Reclassified as degrade                                            | The route author explicitly decided head data is nice-to-have here   |
-
-`headData` is OPTIONAL in the type, and your callback must handle `undefined`: routes without
-`attr.head` pass nothing, and the loader DEGRADES to `undefined` (with a server-side advisory
-log) when its deadline expires on a live request, or when it fails and the route declared
-`optional: true`. A failing non-optional head loader fails the request through the normal error
-path - real defects stay visible - and a client that disconnects mid-fetch never proceeds into
-the render at all. Head data is never serialised into `__INITIAL_DATA__`; it exists for the
-server-rendered `<head>` only. Keep head loaders cheap - they block the shell.
-
-## Data Availability by Mode
-
-### SSR Mode
-
-Data is **always fully resolved** before `headContent` runs:
-
-```typescript
+```ts
 headContent: ({ data, meta }) => `
-  <title>${escapeHtml(meta?.title || "Products")}</title>
-  <meta name="description" content="${escapeHtml(data.product.description)}">
+  <title>${escapeHtml(data.title ?? meta?.title ?? "Product")}</title>
 `;
 ```
 
-### Streaming Mode
+### Streaming
 
-Route `data` may not be ready when `headContent` runs - do not read it here. Static values come
-from `meta`; DYNAMIC values come from the route's `attr.head` loader, delivered as `headData`
-(resolved before the shell is sent, `undefined` on degrade):
+The availability of critical `data` reflects native renderer behaviour:
 
-```typescript
-headContent: ({ headData, meta }) => {
-  return `
-    <title>${escapeHtml(headData?.title ?? meta?.title ?? "Streaming page")}</title>
-    <meta name="description" content="${escapeHtml(headData?.description ?? meta.description)}">
-    ${
-      headData?.ogImage
-        ? `<meta property="og:image" content="${escapeHtml(headData.ogImage)}">`
-        : ""
-    }
-  `;
-};
+- **React** builds the head at shell readiness from the current snapshot, which may be empty.
+- **Vue** builds the head once before rendering from the current snapshot, which may be empty.
+- **Solid** builds the head after critical route data has settled.
+
+The portable rule is therefore: use `meta` for static values and `attr.head` for dynamic values
+that must be present in a streamed document head. This keeps the declaration correct if an
+application changes renderer and makes the head dependency explicit in the request contract.
+
+Independent shell content is not delayed by deferred data. Head work is different: `attr.head`
+resolves before the renderer starts, so it delays the shell by design.
+
+## Dedicated dynamic head data
+
+`attr.head.data` uses the same handler and service-dispatch contract as `attr.data`. The result is
+passed to `headContent` as `headData` on both rendering strategies.
+
+```ts
+{
+  path: "/products/:id",
+  attr: {
+    render: "streaming",
+    meta: {
+      title: "Products",
+      description: "Product details",
+    },
+    data: (params, ctx) =>
+      ctx.call("catalogue", "getProduct", { id: params.id }),
+    head: {
+      data: (params, ctx) =>
+        ctx.call("catalogue", "getProductHead", { id: params.id }),
+      timeoutMs: 3_000,
+      optional: false,
+    },
+  },
+}
 ```
 
-> The rule: `meta` for static defaults and degradation fallback; `attr.head` -> `headData` for
-> dynamic, head-critical values; `attr.data` for the page body - never depend on it for streamed
-> heads.
+```ts
+headContent: ({ headData, meta }) => `
+  <title>${escapeHtml(headData?.title ?? meta?.title ?? "Product")}</title>
+  <meta
+    name="description"
+    content="${escapeHtml(headData?.description ?? meta?.description ?? "")}">
+`;
+```
 
-## Common Patterns
+The host applies these rules:
 
-Each interpolated value below is passed through `escapeHtml` at the point it enters the HTML
-string. The patterns read `headData` first with `meta` as the fallback, which is correct on BOTH
-strategies (on `ssr` routes you may additionally read `data` - it is fully resolved there; on
-streaming routes it may still be pending, so do not).
+- `timeoutMs` defaults to 3,000 ms and must be a positive finite number.
+- A live-request timeout aborts the head loader where possible, logs an advisory and continues with
+  `headData: undefined`.
+- An ordinary loader rejection fails the request unless `optional: true` is declared.
+- `optional: true` reclassifies an ordinary rejection as degradation and continues with
+  `headData: undefined`.
+- A client disconnect aborts the work and the renderer does not start.
+- `headData` is never included in `__INITIAL_DATA__`; it exists only for server head generation.
 
-### Open Graph Tags
+| Outcome                                    | Response behaviour                                      |
+| ------------------------------------------ | ------------------------------------------------------- |
+| Resolved                                   | `headData` contains the result                          |
+| Deadline while request remains live        | Advisory log, then `headData: undefined`                |
+| Rejection, `optional` omitted or `false`    | Request fails through the normal error path             |
+| Rejection, `optional: true`                 | Advisory log, then `headData: undefined`                |
+| Client disconnect                          | Request work is aborted and rendering does not continue |
 
-```typescript
+Always handle `headData` as optional and keep the loader small. It is intentionally on the
+pre-shell path.
+
+## Client-routed screens
+
+`headContent` runs for a server-rendered τjs route. It is not a client-side head manager.
+
+A screen known only to the client router can stay undeclared and client-rendered, but navigation to
+that screen does not rerun `headContent`. Update `document.title` and any route-specific metadata through the client
+application or router. On a direct document request, the server-selected shell still determines the
+initial head. See [Request Contracts & Data](/guides/request-contracts/#undeclared-urls-and-client-routing)
+for the shell ownership rules.
+
+## Escape by output context
+
+### HTML text and quoted attributes
+
+Use `escapeHtml` for title text and quoted attribute values:
+
+```ts
+import { escapeHtml } from "@taujs/react"; // or @taujs/vue, @taujs/solid
+
 headContent: ({ headData, meta }) => {
   const title = headData?.title ?? meta?.title ?? "Default title";
-  const description = headData?.description ?? meta?.description ?? "";
-  const image = headData?.ogImage ?? meta?.ogImage;
+  const image = headData?.image ?? meta?.image;
 
   return `
     <title>${escapeHtml(title)}</title>
-    <meta property="og:title" content="${escapeHtml(title)}">
-    <meta property="og:description" content="${escapeHtml(description)}">
     ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ""}
   `;
 };
 ```
 
-### Structured Data (JSON-LD)
+`escapeHtml` prevents an untrusted URL from escaping an attribute. It does not make the URL safe.
+For user-influenced canonical or image URLs, parse the value and allow only the schemes and origins
+the application expects.
 
-JSON-LD is written into `<script>` **raw text**, which is a different context from HTML - HTML
-character references are _not_ decoded there, so `escapeHtml` is the wrong tool and would corrupt the
-JSON. `JSON.stringify` alone is **not** safe either: a value containing `</script>` closes the element
-and lets the rest parse as markup. Escape `<` as the JSON unicode escape so the tag can never be
-closed from inside the data:
+### JSON-LD and other script data
 
-```typescript
-// `<` -> `\u003c` keeps valid JSON but prevents `</script>` breakout.
-const jsonForScript = (value: unknown) =>
-  JSON.stringify(value).replace(/</g, "\\u003c");
+HTML escaping corrupts JSON inside a script raw-text element. Serialise the value as JSON and
+escape `<` so an embedded `</script>` cannot terminate the element:
 
-headContent: ({ headData, meta }) => {
-  const jsonLd = headData?.jsonLd ?? meta?.jsonLd;
-
-  return `
-    <title>${escapeHtml(meta?.title || "Page")}</title>
-    ${
-      jsonLd
-        ? `<script type="application/ld+json">${jsonForScript(jsonLd)}</script>`
-        : ""
-    }
-  `;
+```ts
+const jsonForScript = (value: unknown): string => {
+  const json = JSON.stringify(value);
+  if (json === undefined) throw new TypeError("JSON-LD value is not serialisable");
+  return json.replace(/</g, "\\u003c");
 };
+
+headContent: ({ headData }) =>
+  headData?.jsonLd
+    ? `<script type="application/ld+json">${jsonForScript(headData.jsonLd)}</script>`
+    : "";
 ```
 
-If you use CSP with script-src restrictions, inline JSON-LD may require a nonce/hash depending on your policy.
+`headContent` does not receive the request CSP nonce, and τjs does not rewrite application-provided
+head scripts to add one. τjs nonces the scripts it emits itself. If the application CSP requires an
+inline head script to be authorised, account for it explicitly with a policy-supported hash or a
+different delivery strategy.
 
-### Canonical URLs
+## Practical rules
 
-```typescript
-headContent: ({ headData, meta }) => {
-  const canonical = headData?.canonical ?? meta?.canonical;
-
-  return `
-    <title>${escapeHtml(meta.title)}</title>
-    ${
-      canonical
-        ? `<link rel="canonical" href="${escapeHtml(canonical)}">`
-        : ""
-    }
-  `;
-};
-```
-
-> `escapeHtml` stops a URL from breaking out of the `href` attribute, but it does **not** validate the
-> scheme. If the URL is user-influenced, also reject/allow-list schemes (e.g. permit only
-> `https:`/`http:`) so you don't emit `javascript:` or `data:` links.
-
-## Best Practices
-
-### 1. Use `meta` for Static Values and `attr.head` for Dynamic Values
-
-`meta` is cheap, deterministic, and survives head-loader degradation - it is the fallback layer,
-not the answer to dynamic streamed heads. Declare `attr.head` for dynamic head-critical values:
-
-```typescript
-import { escapeHtml } from "@taujs/react"; // or "@taujs/vue"
-
-// correct on both strategies
-headContent: ({ headData, meta }) => `
-  <title>${escapeHtml(headData?.title ?? meta?.title ?? "Default Title")}</title>
-  <meta name="description" content="${escapeHtml(
-    headData?.description ?? meta?.description ?? "Default description",
-  )}">
-  ${
-    headData?.ogImage
-      ? `<meta property="og:image" content="${escapeHtml(headData.ogImage)}">`
-      : ""
-  }
-`;
-```
-
-### 2. Provide Fallbacks
-
-```typescript
-// streaming (and safe everywhere): dynamic -> static -> default
-const title = headData?.title ?? meta?.title ?? "Default Title";
-
-// ssr only: route data is fully resolved, so it may join the chain
-const ssrTitle = data.title ?? meta?.title ?? "Default Title";
-```
-
-### 3. Escape User Content
-
-`headContent` returns **raw HTML** written verbatim into `<head>`, so any value that could carry
-service data or user input - from **`data`, `headData` or `meta`** - must be escaped at the point
-it enters the string. Escape by output **context**, not by property name:
-
-- **HTML text and quoted attributes** → `escapeHtml` (exported by both renderers; escapes
-  `& < > " '`, so it is safe in single- and double-quoted attributes):
-
-  ```typescript
-  import { escapeHtml } from "@taujs/react"; // or "@taujs/vue"
-
-  headContent: ({ headData }) => `
-    <meta property="og:image" content="${escapeHtml(headData?.ogImage ?? "")}">
-  `;
-  ```
-
-- **`<script>` / JSON-LD data** → not `escapeHtml`; escape `<` as `\u003c` in the serialised JSON
-  (see [Structured Data](#structured-data-json-ld)).
-- **URL attributes** → `escapeHtml` prevents attribute breakout but does not validate the scheme;
-  allow-list schemes separately for user-influenced URLs.
-
-`escapeHtml` accepts any value (`String()`-coerced) and is not idempotent - escape each value exactly
-once. If you can't import it, roll your own - but escape `'` too, or single-quoted attributes stay
-vulnerable:
-
-```typescript
-function escapeHtml(value: unknown): string {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-```
-
-### 4. Data-Dependent Heads: SSR Has It Built In; Streaming Declares `attr.head`
-
-On `render: 'ssr'` the route data is fully resolved before the head is built, so `data` is always
-real. On `render: 'streaming'` the data snapshot is usually still pending at head time - declare
-`attr.head` with a head-critical loader and read `headData` in `headContent` instead (resolved
-before the render, bounded by `head.timeoutMs`; `undefined` on degrade - handle it and fall back
-to `meta`).
-
-<!--
-## What's Next?
-
-- [Services](/guides/services) - Learn the service registry pattern
-- [Authentication](/guides/authentication) - Access user context
-- [Data Loading](/guides/data-loading) - Understand data flow -->
+- Use `meta` as static input, not as an automatic tag generator.
+- Use `attr.head` for dynamic streamed-head dependencies.
+- Treat `headData` as optional and provide a static fallback.
+- Keep status-bearing, redirect-bearing and head-critical values out of `attr.deferred`.
+- Escape every dynamic value according to its output context.
+- Keep head loaders fast because they delay the shell.
+- Manage head changes after client-only navigation in the client application.

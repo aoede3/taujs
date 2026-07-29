@@ -127,7 +127,7 @@ if (hasProtectedRoutes && !fastify.hasDecorator("authenticate")) {
 }
 ```
 
-**Current behavior:**
+**Current behaviour:**
 
 - Fails startup if protected routes exist and `authenticate` is missing
 - Surfaces a configuration error before the server starts accepting requests
@@ -281,60 +281,54 @@ fastify.decorate("authenticate", async function (req, reply) {
 }
 ```
 
-## Accessing User in Data Handlers
+## Identity in Route Data and Services
 
-Once authenticated, the user is available in your route's data handler:
+Your `authenticate` decorator may attach identity to `req.user`. That value remains available to
+later Fastify hooks and handlers on the same request.
+
+τjs does not currently copy `req.user` into the route data context, and declaring
+`middleware.auth` does not populate `ServiceContext.user`. Do not write a loader or service on the
+assumption that `ctx.user` appeared automatically.
+
+When rendered data depends on identity, make that server-side resolution explicit. For example, a
+route loader can validate the trusted session headers and pass the resulting identifier to a
+service:
 
 ```typescript
 {
-  path: '/profile',
+  path: "/profile",
   attr: {
-    render: 'ssr',
-    middleware: {
-      auth: {}
-    },
-    data: async (params, ctx) => {
-      // Access authenticated user through context
-      // (Note: exact implementation depends on how you pass user to ctx)
-      const user = await db.users.findById(ctx.user.id);
+    render: "ssr",
+    middleware: { auth: {} },
+    data: async (_params, ctx) => {
+      const session = await verifySession(ctx.headers ?? {});
 
-      return { user };
-    }
-  }
+      if (!session) {
+        throw new Error("Authentication required");
+      }
+
+      return ctx.call("ProfileService", "getCurrentUser", {
+        userId: session.userId,
+      });
+    },
+  },
 }
 ```
 
-## Accessing User in Services
-
-Services receive authenticated user through `ServiceContext`:
+The service receives the identity as an ordinary, validated parameter:
 
 ```typescript
 export const ProfileService = defineService({
-  getCurrentUser: async (params, ctx) => {
-    // ctx.user populated if route has auth middleware
-    if (!ctx.user) {
-      throw new Error("Authentication required");
-    }
-
-    const user = await db.users.findById(ctx.user.id);
-
-    return { user };
-  },
-
-  updateProfile: async (params: { name: string }, ctx) => {
-    if (!ctx.user) {
-      throw new Error("Authentication required");
-    }
-
-    const user = await db.users.update({
-      where: { id: ctx.user.id },
-      data: { name: params.name },
-    });
+  getCurrentUser: async (params: { userId: string }) => {
+    const user = await db.users.findById(params.userId);
 
     return { user };
   },
 });
 ```
+
+Keep credential interpretation in server code. Return only the identity-derived data the page
+needs, and never expose session tokens through critical or deferred route data.
 
 ## Best Practices
 
@@ -401,14 +395,13 @@ fastify.decorate("authenticate", async function (req, reply) {
       "Authentication failed"
     );
 
-    reply.code(401).send({ error: "Unauthorsed" });
+    reply.code(401).send({ error: "Unauthorised" });
   }
 });
 ```
 
-<!--
-## What's Next?
+## Related guides
 
-- [CSP](/guides/content-security-policy) - Configure Content Security Policy headers
-- [Logging & Telemetry](/guides/logging-telemetry) - Log authentication events
-- [Services](/guides/services) - Access authenticated user in services -->
+- [Content Security Policy](/guides/content-security-policy/) for response policy
+- [Logging & Telemetry](/guides/logging-telemetry/) for authentication records
+- [Services](/guides/services/) for explicit service parameters and context
