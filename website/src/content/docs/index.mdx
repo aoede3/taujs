@@ -1,10 +1,11 @@
 ---
-title: Composing Systems, Not Just Apps
-description: A developer-first orchestration layer with explicit, declarative per-route rendering control
+title: Composing systems
+description: Each route declares its data, policy and rendering. Fastify and Vite run it. React, Vue or Solid renders it. Even your AI can read it.
 template: splash
 hero:
-  title: Composing Systems, <span>Not Just Apps</span>
-  tagline: Full control over your whole stack
+  title: Composing <span>systems</span>
+  tagline: Your routes. Your renderer. One orchestrated response.
+
 
   image:
     file: ../../assets/taujs.svg
@@ -12,6 +13,10 @@ hero:
     - text: Get started
       link: /guides/getting-started/
       icon: right-arrow
+    - text: GitHub
+      link: https://github.com/aoede3/taujs
+      icon: external
+      variant: minimal
 ---
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
@@ -20,6 +25,10 @@ import viteLogo from "../../assets/vite.svg";
 import reactLogo from "../../assets/react.svg";
 import vueLogo from "../../assets/vue.svg";
 import solidLogo from "../../assets/solid.svg";
+
+:::note[Project status]
+τjs is in active development. Expect breaking changes on the path to v1, and check the release notes when upgrading.
+:::
 
 <div className="container__logos">
   <a
@@ -64,126 +73,101 @@ import solidLogo from "../../assets/solid.svg";
   </a>
 </div>
 
+## Start with the boundary you need
 
-τjs orchestrates routing, policy, services, data, rendering and trace before handing the resolved response to React, Vue or Solid for interaction. Bring your own Fastify and τjs respects it. Let τjs create Fastify and it provides the complete experience.
+τjs adds one thing to ordinary Fastify, Vite and framework conventions: a declared request
+boundary, where each route states its data, policy and rendering. It does not ask you to convert an
+application. Start with what you have, then declare the routes whose initial responses benefit from
+server coordination.
 
+- Add critical or deferred data when the server should own the initial read
+- Mediate service access where validation, cancellation and observability matter
+- Choose SSR, streaming and hydration per declared page
+- Move applications between React, Vue and Solid without moving policy and services into components
 
+[Adopt the model incrementally](/guides/incremental-migration/).
 
+## Your architecture is data, not source code
 
-## Leverage the ecosystems you already know
+A τjs system with its declared request boundary can be read without being run: routes, policy,
+rendering and declared service edges live outside the component tree, as data.
 
-τjs composes Fastify and Vite with React, Vue or Solid as parts of one coherent system architecture while preserving each ecosystem's native APIs.
+The declaration is plain configuration. A home page that server-renders; a product page that
+streams, with its reviews declared alongside:
 
-- **Fastify** - register plugins, hooks, and decorators on the server instance as you would in any Fastify app
-- **Vite** - use standard Vite plugins directly through τjs's declared plugin channels; the configuration fields τjs owns are documented and protected
-- **React / Vue / Solid** - use the component libraries, rendering model and tooling of the frameworks you're already invested in.
-
-There is no parallel plugin system to learn and no fork to track - when the underlying ecosystems move, τjs moves with them.
-
-## Resolve the response before rendering
-<div className="orchestration-layout">
-  <div className="orchestration-layout__copy">
-
-τjs defines a clear boundary: **everything required for an application response is orchestrated and resolved at the request boundary**.
-
-- Data dependencies are declared before rendering begins
-- Service access is mediated and observable
-- Rendering strategy is resolved before rendering begins, not discovered during rendering
-- Components do not discover data imperatively during SSR
-
-Modern component-driven architectures make it easy to build features. As systems grow, understanding a single application response often means tracing behaviour across the component tree.
-
-τjs deliberately moves orchestration to the request boundary. More is declared up front, so less has to be inferred later. This creates a shared orchestration layer that powers authentication, CSP, tracing and architecture-aware AI from the same request-boundary model.
-
-[Learn how τjs exposes this architecture to AI agents through MCP](/reference/mcp).
-
-  </div>
-  <div className="orchestration-layout__flow">
-
-```text
-Request
-
-│
-▼
-┌───────────────────────┐
-│          τjs          │
-├───────────────────────┤
-│ Route                 │
-│ Policy                │
-│ Data & Services       │
-│ Metadata              │
-│ Render Strategy       │
-├───────────────────────┤
-│ Trace                 │
-└───────────────────────┘
-
-│
-▼
-Application Response
-
-│
-▼
-React • Vue • Solid
-
-│
-▼
-Interactive Application
+```ts
+export default defineConfig({
+  apps: [
+    {
+      appId: "storefront",
+      entryPoint: "",
+      renderer: reactRenderer({ project: "./tsconfig.json" }),
+      routes: [
+        { path: "/", attr: { render: "ssr", hydrate: true } },
+        {
+          path: "/products/:id",
+          attr: {
+            render: "streaming",
+            hydrate: true,
+            meta: { title: "Product" },
+            data: serviceData("catalogue", "product", (p) => ({ id: String(p.id) })),
+            deferred: {
+              reviews: serviceData("reviews", "forProduct", (p) => ({ id: String(p.id) })),
+            },
+          },
+        },
+      ],
+    },
+  ],
+});
 ```
 
-  </div>
-</div>
+The product is critical: resolved before the response commits, able to set the HTTP status. The
+reviews are deferred: they start with the request, stream when ready, never block the shell, and
+hydrate without a client refetch.
 
-## One architecture. Multiple application styles.
+Each declared page is a real Fastify route, and a route can also declare head metadata,
+authentication and Content Security Policy. Everything after hydration - mutations, polling,
+subscriptions, UI-local fetching - stays in your application, where it belongs.
 
-Because orchestration happens at the request boundary, τjs can support multiple application styles within the same system.
+[Read about request contracts and data ownership](/guides/request-contracts/).
 
-- Single-Page Applications (SPA)
-- Multi-Page Applications (MPA)
-- Build-time micro-frontends (MFE)
-- Hybrid per-route composition, where a route can be:
-  - a standalone app,
-  - part of an MPA,
-  - “static" pages via CDN caching of SSR output,
-  - or a build-time MFE inside a larger system
+The request graph records the architecture declared in `taujs.config.ts`. Development traces record
+what one request actually selected, called, deferred and delivered. The MCP server exposes both
+forms of evidence to tools and AI agents rather than asking them to infer the system from component
+source.
 
-### Declarative rendering per route
+[Explore architecture-aware inspection through MCP](/reference/mcp/).
 
-Any route can explicitly define how it renders, independently of how its data is orchestrated:
+### One architecture, several application shapes
 
-- Client-Side Rendering (CSR)
-- Server-Side Rendering (SSR)
-- Streaming SSR
-- Hydration toggle (enable or disable hydration where needed)
+The same Fastify host can serve, for example, a storefront, an account area and an operations
+console - each a separate application with its own renderer root, module graph and output bundle,
+and each free to choose its own renderer framework.
 
-### Start simple. Add orchestration only where you need it.
+Each URL belongs to exactly one application. Left undeclared within the application shell, it
+remains client-rendered.
 
-Start with familiar Fastify, Vite and UI-framework conventions. Routes can remain conventional, adopting declared data, mediated services and explicit render control only where the system benefits from them.
+Applications compose through routes and assembled build output rather than runtime module
+federation. They can be built selectively, while the deployed server artefact receives the bundles
+and manifests it needs to serve the complete system.
 
-Each route can declare its data, service access and render strategy independently at the request boundary.
+[See how multi-app composition works](/guides/micro-frontend/).
 
-- Data dependencies can be declared at the route boundary
-- Service access can be mediated through a registry rather than direct imports
-- The route declares which data and services participate in the application response
-- Render strategy can be introduced independently for each route
-- Client-side fetching and traditional API patterns remain fully supported alongside request contracts
+## Use the ecosystems you already know
 
-#### Incremental by design
+τjs composes existing tools rather than replacing their native APIs:
 
-τjs lets you evolve an application along two independent axes: its architecture and its UI framework.
+- **Fastify** owns HTTP routing, plugins, hooks, decorators and the host lifecycle
+- **Vite** owns the application module graph, development pipeline and production bundles
+- **React, Vue and Solid** keep their component models, streaming semantics and client runtimes
 
-- Adopt orchestration one route at a time
-- [Migrate between React, Vue and Solid](/guides/incremental-migration) without rewriting your application architecture
+There is no second HTTP router or parallel plugin system to learn. Supply your own Fastify instance
+and τjs operates inside an encapsulated scope; omit it and τjs creates and operates the Fastify
+host.
 
-### Modular without runtime complexity
-
-τjs gives you room to grow without adding runtime complexity:
-
-- Compose multiple independently built apps at build time
-- Keep strict boundaries between domains without runtime federation
-- Maintain monolithic-level performance with modular structure
-- Deterministic request resolution - same data, services, and routing state resolved regardless of render strategy
-- Minimal, overridable defaults - entry points, directory layout, rendering modes
-- Clear, granular control over routing, data loading, rendering, and hydration
+The same request boundary holds across all three component models: policy, data orchestration and
+service access stay where they are when the renderer changes.
 
 ## Next steps
 
@@ -191,13 +175,13 @@ Each route can declare its data, service access and render strategy independentl
   <Card title="Get started" icon="open-book">
     [Learn more and get started with τjs](/guides/getting-started/)
   </Card>
-  <Card title="Incremental migration" icon="add-document">
-    [Adopt τjs without rewrites](/guides/incremental-migration)
+  <Card title="Request contracts and data" icon="add-document">
+    [Declare critical, deferred and component-owned work](/guides/request-contracts/)
   </Card>
   <Card title="Micro-frontends with τjs" icon="add-document">
-    [Compose larger systems](/guides/micro-frontend)
+    [Compose larger systems](/guides/micro-frontend/)
   </Card>
   <Card title="Architecture-aware AI" icon="add-document">
-    [Expose your architecture through MCP rathar than relying on AI to infer it](/reference/mcp)
+    [Expose declared architecture and runtime evidence through MCP](/reference/mcp/)
   </Card>
 </CardGrid>

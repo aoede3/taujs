@@ -149,8 +149,9 @@ output behaviour.
 
 ### Within one application
 
-Client routing is available by omission. A URL omitted from `taujs.config.ts` is not a server-owned
-request contract; once the application's shell is served, its client router can own that URL.
+Undeclared URLs stay with the client router. A URL omitted from `taujs.config.ts` is not a
+server-owned request contract; once the application's shell is served, its client router can own
+that URL.
 
 The shell still needs an HTTP owner:
 

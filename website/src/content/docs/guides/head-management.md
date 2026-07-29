@@ -168,8 +168,8 @@ pre-shell path.
 
 `headContent` runs for a server-rendered τjs route. It is not a client-side head manager.
 
-A screen known only to the client router can be CSR by omission, but navigation to that screen does
-not rerun `headContent`. Update `document.title` and any route-specific metadata through the client
+A screen known only to the client router can stay undeclared and client-rendered, but navigation to
+that screen does not rerun `headContent`. Update `document.title` and any route-specific metadata through the client
 application or router. On a direct document request, the server-selected shell still determines the
 initial head. See [Request Contracts & Data](/guides/request-contracts/#undeclared-urls-and-client-routing)
 for the shell ownership rules.

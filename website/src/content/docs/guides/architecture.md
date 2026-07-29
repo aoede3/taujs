@@ -37,14 +37,33 @@ Every configured page path is registered as a real Fastify route. Fastify select
 decodes its parameters; there is no second τjs matcher inside a catch-all handler.
 
 ```text
-HTTP request
-    -> Fastify route selection
-    -> τjs route identity and request context
-    -> CSP and authentication policy
-    -> head, initial data and deferred work
-    -> selected renderer
-    -> HTML stream or SSR document
-    -> optional hydration
+      HTTP request
+           │
+           ▼
+ Fastify route selection
+           │
+           ▼
+┌───────────────────────┐
+│          τjs          │
+├───────────────────────┤
+│ Route                 │
+│ Policy                │
+│ Head & Critical Data  │
+│ Deferred Data         │
+│ Services              │
+│ Render & Hydration    │
+├───────────────────────┤
+│ Trace                 │
+└───────────────────────┘
+           │
+           ▼
+   React • Vue • Solid
+           │
+           ▼
+      HTML response
+           │
+           ▼
+   Optional hydration
 ```
 
 Once the route is selected, τjs resolves the application contract from `taujs.config.ts`. The

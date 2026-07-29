@@ -94,8 +94,8 @@ export default defineConfig({
 
 At this stage, route components may continue calling their existing APIs after hydration. You do not need to introduce `serviceData()`, a service registry or streaming merely to adopt the host.
 
-URLs omitted from `taujs.config.ts` can remain client-routed, but CSR by omission still needs an HTTP
-shell owner. A τjs-created host supplies its implicit shell fallback. A caller-owned Fastify host
+URLs omitted from `taujs.config.ts` can remain client-routed, but an undeclared screen still needs an
+HTTP shell owner. A τjs-created host supplies its implicit shell fallback. A caller-owned Fastify host
 needs a declared terminal wildcard for the application, such as `/products/*`, when τjs should serve
 those unmatched client URLs. See [Host Ownership](/guides/host-ownership/#application-shell-and-unmatched-urls).
 

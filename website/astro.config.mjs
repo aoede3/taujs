@@ -6,7 +6,7 @@ export default defineConfig({
   site: "https://taujs.dev",
   integrations: [
     starlight({
-      title: "τjs - Composing systems, not just apps",
+      title: "τjs",
 
       components: {
         Footer: "./src/components/CustomFooter.astro",

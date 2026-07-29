@@ -61,9 +61,9 @@ The same application shape works with `vueRenderer()` or `solidRenderer()`. See 
 
 A route can also declare head metadata, critical data, deferred data, authentication and Content Security Policy. These declarations are optional: components can still perform UI-local work and client-side fetching when that work does not belong to the server response contract.
 
-## CSR by omission
+## Undeclared routes stay client-rendered
 
-CSR is per-route control by omission, not a third value of `attr.render`. A URL known to the client router but absent from `taujs.config.ts` remains client-rendered once the application shell has loaded.
+Client-side rendering is not a third value of `attr.render`. A URL known to the client router but absent from `taujs.config.ts` stays client-rendered once the application shell has loaded.
 
 For a direct request to such a URL, something must still serve that shell:
 
