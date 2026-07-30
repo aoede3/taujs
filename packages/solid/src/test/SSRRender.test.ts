@@ -277,8 +277,9 @@ describe('renderStream - the ruled error matrix', () => {
     expect(text()).toBe('');
   });
 
-  // The host's streaming terminal identifies an error it has already logged BY IDENTITY, so the
-  // ORIGINAL rejection reason - never a copy or a wrapper - must reach `onError`.
+  // The response terminal recognises the internal classified failure type only when the renderer
+  // preserves the ORIGINAL rejection reason. A copy or wrapper erases that classification and
+  // falls back to the generic fatal record.
   it('route-data rejection reaches onError as the ORIGINAL object', async () => {
     const { sink } = makeSink();
     const cb = makeCallbacks();
