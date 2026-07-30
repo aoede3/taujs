@@ -1,6 +1,7 @@
 import { callServiceMethod } from '../services/DataServices';
 import { AppError } from '../errors/AppError';
-import { prepareDataContext, resolveDataHandler } from './ResolveRouteData';
+import { markErrorLogged } from '../errors/ErrorLogState';
+import { prepareDataContext, runDataHandler } from './ResolveRouteData';
 
 import type { ServiceRegistry } from '../services/DataServices';
 import type { Logs } from '../logging/types';
@@ -47,7 +48,7 @@ export const fetchHeadData = async <Params extends RouteParams, R extends Servic
 
   const ctxForData = prepareDataContext(serviceRegistry, ctx);
 
-  const step = await resolveDataHandler(
+  return runDataHandler(
     headHandler,
     params,
     serviceRegistry,
@@ -55,12 +56,17 @@ export const fetchHeadData = async <Params extends RouteParams, R extends Servic
     callServiceMethodImpl,
     'attr.head.data must return a plain object or a ServiceDescriptor',
   );
-
-  // Awaited here, exactly as before: this path has no classification block for a dispatch
-  // rejection to escape, so the await placement is observably identical.
-  return step.kind === 'dispatch' ? step.dispatch() : step.value;
 };
 
+/**
+ * Resolve `attr.data` and OWN its failure taxonomy: a handler rejection, an invalid result and a
+ * service-dispatch rejection are classified alike, each producing ONE record under
+ * `component: 'fetch-initial-data'`. The classified error is marked as logged, so the response
+ * terminals convert, record and tear down without emitting a second record for the same failure.
+ *
+ * `prepareDataContext` sits outside the classified block: an `ensureServiceCaller` throw is route
+ * wiring rather than a data failure and stays unclassified.
+ */
 export const fetchInitialData = async <Params extends RouteParams, R extends ServiceRegistry, L extends Logs = Logs>(
   attr: RouteAttributes<Params> | undefined,
   params: Params,
@@ -74,7 +80,7 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
   const ctxForData = prepareDataContext(serviceRegistry, ctx);
 
   try {
-    const step = await resolveDataHandler(
+    return await runDataHandler(
       dataHandler,
       params,
       serviceRegistry,
@@ -82,10 +88,6 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
       callServiceMethodImpl,
       'attr.data must return a plain object or a ServiceDescriptor',
     );
-
-    // RETURNED, never `return await`ed: a service-call rejection escapes this classification block
-    // exactly as it always did (only a handler rejection or an invalid result is classified here).
-    return step.kind === 'dispatch' ? step.dispatch() : step.value;
   } catch (err: unknown) {
     let e = AppError.from(err);
 
@@ -98,7 +100,6 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
         ...prevDetails,
         hint: 'api-missing-or-content-type',
         suggestion: 'Register api route so it returns JSON, or return a ServiceDescriptor from attr.data and use the ServiceRegistry.',
-        logged: true,
       });
     }
     const level: 'warn' | 'error' = e.kind === 'domain' || e.kind === 'validation' || e.kind === 'auth' ? 'warn' : 'error';
@@ -111,9 +112,22 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
       ...(e.details ? { details: e.details } : {}),
       ...(params ? { params } : {}),
       traceId: ctx.traceId,
+      // The stack belongs to the unexpected failures only - an expected 4xx stays a single terse
+      // warn line.
+      ...(level === 'error' ? { stack: e.stack } : {}),
     };
 
-    ctx.logger?.[level](meta, e.message);
+    // Belted: a logger that throws (or is absent) forfeits its record but must never change the
+    // error the caller receives, and an error that produced no record must stay unmarked so a
+    // terminal can still report it.
+    try {
+      if (ctx.logger) {
+        ctx.logger[level](meta, e.message);
+        markErrorLogged(e);
+      }
+    } catch {
+      // the classified error below is the response outcome, with or without a record
+    }
 
     throw e;
   }

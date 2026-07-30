@@ -150,6 +150,7 @@ vi.mock('../utils/VitePlugins', () => ({
   reservedPluginMessage: (d: any) => `reserved:${d.name}`,
 }));
 
+import { markErrorLogged } from '../core/errors/ErrorLogState';
 import { ssrServerPlugin, TEMPLATE } from '../SSRServer';
 
 // RFC 0010: this suite predates the ownership split and was written against the root-installing
@@ -766,7 +767,9 @@ describe('SSRServer', () => {
     expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ code: 'E42' }), expect.any(String));
   });
 
-  it('error handler: suppresses duplicate top-level error when details.logged = true', async () => {
+  // `details` is application-controlled data. It never acts as log state, so a handler cannot
+  // silence the terminal by claiming its error was already reported.
+  it('error handler: logs an error whose details claim logged = true', async () => {
     (AppErrorFake.from as Mock).mockImplementation((err: any) =>
       Object.assign(new AppErrorFake(), {
         message: err?.message ?? 'boom',
@@ -778,7 +781,7 @@ describe('SSRServer', () => {
     handleRenderMock.mockImplementationOnce(async () => {
       const err: any = new Error('dup-logged');
       err.httpStatus = 500;
-      err.details = { logged: true, note: 'downstream already logged' };
+      err.details = { logged: true, note: 'application-supplied' };
       throw err;
     });
 
@@ -792,14 +795,42 @@ describe('SSRServer', () => {
 
     const res = await app.inject({ method: 'GET', url: '/dup' });
 
-    expect(mockLogger.error).not.toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ details: { logged: true, note: 'application-supplied' } }), 'dup-logged');
 
     expect(toHttpMock).toHaveBeenCalled();
     expect(res.statusCode).toBe(499);
     expect(res.json()).toEqual({ message: 'safe' });
   });
 
-  it('error handler: does NOT suppress when details is non-object', async () => {
+  // The layer that classified the error owns its record; the terminal drops only the duplicate LOG
+  // and still converts the response.
+  it('error handler: emits no record for an error already logged, and still converts the response', async () => {
+    const classified: any = Object.assign(new AppErrorFake(), { message: 'classified upstream', httpStatus: 500 });
+    markErrorLogged(classified);
+    (AppErrorFake.from as Mock).mockImplementationOnce(() => classified);
+
+    handleRenderMock.mockImplementationOnce(async () => {
+      throw classified;
+    });
+
+    await app.register(SSRServer, {
+      alias: {},
+      configs: [],
+      routes: [{ path: '/marked', appId: 'a', attr: { render: 'ssr' } }],
+      serviceRegistry: {},
+      clientRoot: '/client',
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/marked' });
+
+    expect(mockLogger.error).not.toHaveBeenCalled();
+
+    expect(toHttpMock).toHaveBeenCalledWith(classified);
+    expect(res.statusCode).toBe(499);
+    expect(res.json()).toEqual({ message: 'safe' });
+  });
+
+  it('error handler: logs an unmarked error whose details is a non-object', async () => {
     handleRenderMock.mockImplementationOnce(async () => {
       const err: any = new Error('nonobj-details');
       err.httpStatus = 502;
@@ -821,7 +852,7 @@ describe('SSRServer', () => {
     expect(resA.statusCode).toBe(499);
   });
 
-  it('error handler: does NOT suppress when details.logged is falsy', async () => {
+  it('error handler: logs an unmarked error regardless of its details content', async () => {
     const app2 = fastify();
 
     handleRenderMock.mockImplementationOnce(async () => {

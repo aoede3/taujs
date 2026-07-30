@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 
 import { RENDERTYPE } from '../core/constants';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
+import { wasErrorLogged } from '../core/errors/ErrorLogState';
 import { fetchHeadData, fetchInitialData } from '../core/routes/DataRoutes';
 import { buildDeferredEnvelopeJson, createDeferredData } from '../core/routes/DeferredData';
 import { now } from '../core/telemetry/Telemetry';
@@ -650,7 +651,11 @@ export const handleRender = async (
             // Format defensively and belt the telemetry so teardown always runs.
             try {
               recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
-              logger.error({ error: safeNormaliseError(err), clientRoot, url: req.url }, 'Critical rendering error during stream');
+              // The fatal line is a BACKSTOP record, skipped only for an error whose own layer
+              // already classified and logged it (the renderer forwards that original object
+              // unchanged). The recording above, the aborts and the teardown below stay
+              // unconditional - only the duplicate LOG is suppressed.
+              if (!wasErrorLogged(err)) logger.error({ error: safeNormaliseError(err), clientRoot, url: req.url }, 'Critical rendering error during stream');
             } catch {
               // telemetry formatting must not veto teardown
             }

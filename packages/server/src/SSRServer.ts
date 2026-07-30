@@ -12,6 +12,7 @@ import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
 import { AppError } from './core/errors/AppError';
+import { wasErrorLogged } from './core/errors/ErrorLogState';
 import { fastifyConfigForRoute, selectedRouteFrom } from './core/routes/FastifyRoutes';
 import { isDevelopment } from './System';
 
@@ -289,9 +290,11 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     const e = AppError.from(err);
     const terminalLogger = getRequestContext(req)?.logger ?? logger;
 
-    const alreadyLogged = !!(e as any)?.details && (e as any).details && (e as any).details.logged;
-
-    if (!alreadyLogged) {
+    // The terminal is a BACKSTOP record: a layer that already classified and logged this exact
+    // error object owns its record, so repeating it here would only duplicate. Identity is the
+    // only admissible signal - error `details` are application-controlled and would let any
+    // handler silence the terminal. Response conversion below is unconditional either way.
+    if (!wasErrorLogged(e)) {
       terminalLogger.error(
         {
           kind: e.kind,

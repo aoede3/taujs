@@ -277,6 +277,21 @@ describe('renderStream - the ruled error matrix', () => {
     expect(text()).toBe('');
   });
 
+  // The host's streaming terminal identifies an error it has already logged BY IDENTITY, so the
+  // ORIGINAL rejection reason - never a copy or a wrapper - must reach `onError`.
+  it('route-data rejection reaches onError as the ORIGINAL object', async () => {
+    const { sink } = makeSink();
+    const cb = makeCallbacks();
+    const rejection = new Error('loader failed');
+    const { renderStream } = renderer();
+
+    const handle = renderStream(sink, cb, laterReject(rejection, 5), '/');
+
+    await expect(handle.done).rejects.toBe(rejection);
+    expect(cb.onError).toHaveBeenCalledTimes(1);
+    expect(cb.onError.mock.calls[0]![0]).toBe(rejection);
+  });
+
   it('a synchronously throwing lazy thunk is a PRE-SHELL fatal', async () => {
     const { sink } = makeSink();
     const cb = makeCallbacks();

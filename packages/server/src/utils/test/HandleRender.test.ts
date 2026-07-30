@@ -2,6 +2,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { AppError } from '../../core/errors/AppError';
+import { markErrorLogged } from '../../core/errors/ErrorLogState';
+import { noopTraceRecorder } from '../../core/introspection/TraceRecorder';
 import * as DataRoutes from '../../core/routes/DataRoutes';
 import * as System from '../../System';
 
@@ -1562,6 +1564,39 @@ describe('handleRender', () => {
       expect(mockLogger.warn).toHaveBeenCalledWith({}, 'Client disconnected before stream finished');
       expect(mockLogger.error).not.toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
       expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
+    });
+
+    // The layer that classified a failure owns its record, so the fatal line is dropped for an
+    // already-logged error - and ONLY the line: recording, abort and teardown are unconditional.
+    it('an already-logged error emits no fatal stream line, but is still recorded and torn down', async () => {
+      setupStreamingRoute();
+
+      const failed = vi.fn();
+      vi.mocked(Telemetry.createRequestContext).mockReturnValue({
+        traceId: 'trace-1',
+        logger: mockLogger,
+        headers: { host: 'localhost' },
+        recorder: { ...noopTraceRecorder, failed },
+      } as any);
+
+      const err = new Error('classified by its own layer');
+      markErrorLogged(err);
+
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        writable.on = vi.fn();
+        callbacks.onError?.(err); // request still live: the fatal branch
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockLogger.error).not.toHaveBeenCalledWith(expect.anything(), 'Critical rendering error during stream');
+      expect(failed).toHaveBeenCalledWith(
+        expect.objectContaining({ traceId: 'trace-1', error: expect.objectContaining({ message: 'classified by its own layer' }) }),
+      );
+      expect(abortControllers.some((controller) => controller.abort.mock.calls.length > 0)).toBe(true);
+      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.any(Object));
     });
 
     // Recheck: the fatal onError callback must never throw on a HOSTILE unknown (a component can

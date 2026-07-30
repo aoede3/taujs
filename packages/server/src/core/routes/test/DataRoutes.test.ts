@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { calculateSpecificity, fetchHeadData, fetchInitialData } from '../DataRoutes';
 import { AppError } from '../../errors/AppError';
+import { wasErrorLogged } from '../../errors/ErrorLogState';
 
 describe('calculateSpecificity', () => {
   it('keeps the existing deterministic introspection score', () => {
@@ -222,7 +223,7 @@ describe('fetchInitialData', () => {
     expect(meta.details?.logged).toBeUndefined();
   });
 
-  it('HTML heuristic: merges existing object details and adds hint/suggestion/logged', async () => {
+  it('HTML heuristic: merges existing object details and adds hint/suggestion only', async () => {
     const base = AppError.internal('<!DOCTYPE html>', undefined, { prev: true });
 
     const attr = {
@@ -242,12 +243,13 @@ describe('fetchInitialData', () => {
         prev: true,
         hint: 'api-missing-or-content-type',
         suggestion: expect.stringMatching(/ServiceDescriptor/i),
-        logged: true,
       }),
     );
+    // `details` is application data, never log state - the wrapper contributes no `logged` key.
+    expect(meta.details.logged).toBeUndefined();
   });
 
-  it('HTML heuristic: ignores non-object previous details and still adds hint/suggestion/logged', async () => {
+  it('HTML heuristic: ignores non-object previous details and still adds hint/suggestion', async () => {
     const base = AppError.internal('<html>', undefined, 'oops' as any);
 
     const attr = {
@@ -263,10 +265,10 @@ describe('fetchInitialData', () => {
       expect.objectContaining({
         hint: 'api-missing-or-content-type',
         suggestion: expect.any(String),
-        logged: true,
       }),
     );
     expect(meta.details.prev).toBeUndefined();
+    expect(meta.details.logged).toBeUndefined();
   });
 
   it('HTML heuristic: triggers on "Unexpected token < ... JSON" parser shape', async () => {
@@ -282,9 +284,143 @@ describe('fetchInitialData', () => {
     expect(meta.details).toEqual(
       expect.objectContaining({
         hint: 'api-missing-or-content-type',
-        logged: true,
       }),
     );
+    expect(meta.details.logged).toBeUndefined();
+  });
+
+  // The dominant real-world failure - the service call itself - is classified by this layer, which
+  // is also the only way the HTML hint can fire for the case its text describes.
+  it('classifies a service-dispatch rejection under component fetch-initial-data', async () => {
+    const attr = {
+      data: vi.fn(async () => ({ serviceName: 'svc', serviceMethod: 'greet', args: { name: 'Ada' } })),
+    } as any;
+    const impl = vi.fn(async () => {
+      throw new Error('service down');
+    });
+
+    await expect(fetchInitialData(attr, { id: '7' } as any, registry, mkCtx({ traceId: 'svc-fail' }), impl as any)).rejects.toThrow(/service down/);
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const [meta, msg] = (logger.error as any).mock.calls[0];
+    expect(meta).toEqual(
+      expect.objectContaining({
+        component: 'fetch-initial-data',
+        kind: 'infra',
+        httpStatus: 500,
+        traceId: 'svc-fail',
+        params: { id: '7' },
+      }),
+    );
+    expect(msg).toBe('service down');
+  });
+
+  it('classifies an HTML-shaped service-dispatch rejection with the api-missing hint', async () => {
+    const attr = {
+      data: vi.fn(async () => ({ serviceName: 'svc', serviceMethod: 'greet' })),
+    } as any;
+    const impl = vi.fn(async () => {
+      throw new Error('<!DOCTYPE html><html><body>404</body></html>');
+    });
+
+    await expect(fetchInitialData(attr, {} as any, registry, mkCtx({ traceId: 'svc-html' }), impl as any)).rejects.toThrow(/expected JSON but received HTML/i);
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const [meta, msg] = (logger.error as any).mock.calls[0];
+    expect(msg).toMatch(/expected JSON but received HTML/i);
+    expect(meta.details).toEqual(
+      expect.objectContaining({
+        hint: 'api-missing-or-content-type',
+        suggestion: expect.stringMatching(/ServiceDescriptor/i),
+      }),
+    );
+    expect(meta.details.logged).toBeUndefined();
+  });
+
+  it('produces exactly ONE record for a handler rejection, an invalid result and a dispatch rejection', async () => {
+    const cases: ReadonlyArray<readonly [string, unknown, unknown]> = [
+      [
+        'handler rejection',
+        {
+          data: async () => {
+            throw new Error('handler boom');
+          },
+        },
+        undefined,
+      ],
+      ['invalid result', { data: async () => 42 }, undefined],
+      [
+        'dispatch rejection',
+        { data: async () => ({ serviceName: 'svc', serviceMethod: 'greet' }) },
+        async () => {
+          throw new Error('dispatch boom');
+        },
+      ],
+    ];
+
+    for (const [name, attr, impl] of cases) {
+      logger.warn.mockClear();
+      logger.error.mockClear();
+
+      await expect(fetchInitialData(attr as any, {} as any, registry, mkCtx(), impl as any)).rejects.toThrow();
+
+      expect(logger.warn.mock.calls.length + logger.error.mock.calls.length, name).toBe(1);
+    }
+  });
+
+  it('marks the classified error, so a response terminal can tell it is already reported', async () => {
+    const attr = {
+      data: vi.fn(async () => {
+        throw new Error('marked');
+      }),
+    } as any;
+
+    const e = await fetchInitialData(attr, {} as any, registry, mkCtx()).catch((thrown) => thrown);
+
+    expect(wasErrorLogged(e)).toBe(true);
+  });
+
+  it('a throwing logger forfeits the record without changing the propagated error or marking it', async () => {
+    const down = () => {
+      throw new Error('logger down');
+    };
+    const brokenLogger = { warn: vi.fn(down), error: vi.fn(down) };
+    const boom = AppError.badRequest('still mine');
+    const attr = { data: vi.fn(async () => Promise.reject(boom)) } as any;
+
+    const e = await fetchInitialData(attr, {} as any, registry, mkCtx({ logger: brokenLogger as any })).catch((thrown) => thrown);
+
+    expect(e).toBe(boom);
+    expect(brokenLogger.warn).toHaveBeenCalledTimes(1);
+    expect(wasErrorLogged(e)).toBe(false);
+  });
+
+  it('an expected 4xx is ONE stackless warn; an unexpected failure is ONE error carrying a stack', async () => {
+    const expected = {
+      data: vi.fn(async () => {
+        throw AppError.forbidden('not yours');
+      }),
+    } as any;
+
+    await expect(fetchInitialData(expected, {} as any, registry, mkCtx())).rejects.toThrow(/not yours/);
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+    expect((logger.warn as any).mock.calls[0][0].stack).toBeUndefined();
+
+    logger.warn.mockClear();
+
+    const unexpected = {
+      data: vi.fn(async () => {
+        throw new Error('infra boom');
+      }),
+    } as any;
+
+    await expect(fetchInitialData(unexpected, {} as any, registry, mkCtx())).rejects.toThrow(/infra boom/);
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(typeof (logger.error as any).mock.calls[0][0].stack).toBe('string');
   });
 });
 
@@ -330,5 +466,18 @@ describe('fetchHeadData (RFC 0004 H1)', () => {
     const boom = new Error('head boom');
     const attr = { head: { data: vi.fn(async () => Promise.reject(boom)) } } as any;
     await expect(fetchHeadData(attr, {} as any, registry, mkCtx() as any)).rejects.toBe(boom);
+  });
+
+  it('propagates a service-dispatch rejection raw too - unlogged and unmarked', async () => {
+    const boom = new Error('head service down');
+    const attr = { head: { data: vi.fn(async () => ({ serviceName: 'svc', serviceMethod: 'head' })) } } as any;
+    const impl = vi.fn(async () => Promise.reject(boom));
+    const ctx = mkCtx();
+
+    await expect(fetchHeadData(attr, {} as any, registry, ctx as any, impl as any)).rejects.toBe(boom);
+
+    expect(ctx.logger.error).not.toHaveBeenCalled();
+    expect(ctx.logger.warn).not.toHaveBeenCalled();
+    expect(wasErrorLogged(boom)).toBe(false);
   });
 });
