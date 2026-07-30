@@ -26,6 +26,7 @@ import {
   PATHS,
   TAUJS_ASSET_PATH,
   captureConsole,
+  captureLogger,
   closeAll,
   createCreatedHost,
   createDefaultNotFoundHost,
@@ -223,6 +224,41 @@ describe('RFC 0010 - caller-owned host', () => {
     expect(page.traceId).toBe(String(NUMERIC_REQUEST_ID));
     expect(page.traceId).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
     expect(JSON.stringify(host.logs)).toContain(String(NUMERIC_REQUEST_ID));
+  });
+
+  it('logs a real service-dispatch data failure once at the response boundary', async () => {
+    const host = await createExplicitLoggerHost();
+    const config = taujsConfig();
+    const route = '/rfc0010-service-failure';
+    config.apps[0]!.routes!.push({
+      path: route,
+      attr: { render: 'ssr', data: async () => ({ serviceName: 'catalogue', serviceMethod: 'load', args: {} }) },
+    });
+    const logger = captureLogger(host.logs);
+
+    await createServer({
+      config,
+      fastify: host.app,
+      clientRoot: host.clientRoot,
+      logger,
+      debug: ['ssr'],
+      serviceRegistry: {
+        catalogue: {
+          load: async () => {
+            throw new Error('catalogue unavailable');
+          },
+        },
+      } as any,
+    });
+
+    const response = observe(await host.app.inject(route));
+    const requestRecords = host.logs.filter((record) => record.level === 'warn' || record.level === 'error');
+
+    expect(response.status).toBe(500);
+    expect(requestRecords.filter((record) => record.message === 'Service method failed')).toHaveLength(1);
+    expect(requestRecords.filter((record) => (record.meta as any).component === 'fetch-initial-data')).toHaveLength(1);
+    expect(requestRecords).toHaveLength(2);
+    expect(requestRecords.map((record) => record.message)).not.toContain('Critical rendering error during stream');
   });
 
   it('keeps route payloads out of the selected logger', async () => {

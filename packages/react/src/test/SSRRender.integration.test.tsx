@@ -185,7 +185,6 @@ describe('R1-01 integration (real react-dom/server)', () => {
 
     // App that never reads the store, so nothing suspends → React ends the shell immediately.
     const AppNoConsumer = () => <div>no consumer</div>;
-    const onError = vi.fn();
 
     const { renderStream } = createRenderer<Data>({
       appComponent: () => <AppNoConsumer />,

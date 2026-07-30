@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { AppError } from '../../core/errors/AppError';
+import { InitialDataFailure } from '../../core/errors/InitialDataFailure';
 import { noopTraceRecorder } from '../../core/introspection/TraceRecorder';
 import * as DataRoutes from '../../core/routes/DataRoutes';
 import * as System from '../../System';
@@ -1538,6 +1539,32 @@ describe('handleRender', () => {
         expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
       });
     }
+
+    it('logs an initial-data failure through the streaming response terminal once while still recording and tearing down', async () => {
+      setupStreamingRoute();
+      const failed = vi.fn();
+      vi.mocked(Telemetry.createRequestContext).mockReturnValue({
+        traceId: 'trace-1',
+        logger: mockLogger,
+        headers: { host: 'localhost' },
+        recorder: { ...noopTraceRecorder, failed },
+      } as any);
+      const failure = new InitialDataFailure(AppError.internal('service unavailable'), { id: '42' } as any);
+      const mockRenderStream = vi.fn((writable, callbacks) => {
+        writable.on = vi.fn();
+        callbacks.onError?.(failure);
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ component: 'fetch-initial-data', params: { id: '42' } }), 'service unavailable');
+      expect(mockLogger.error).not.toHaveBeenCalledWith(expect.anything(), 'Critical rendering error during stream');
+      expect(failed).toHaveBeenCalledTimes(1);
+      expect(abortControllers.some((controller) => controller.abort.mock.calls.length > 0)).toBe(true);
+      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.any(Object));
+    });
 
     it('gate finding 1: onError after an ACTUAL client disconnect (abortedState set) is benign', async () => {
       setupStreamingRoute();
