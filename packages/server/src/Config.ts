@@ -77,7 +77,7 @@ export type RouteData<C extends TaujsConfig = TaujsConfig, P extends string = st
 // RFC 0004 (H1): the config-side head-data surface. `HeadDataOf<R>` infers what `headContent`
 // receives as `headData` for a route (the phantom-branded service result for `serviceData()`
 // loaders); `ServiceDataHandler` is `serviceData()`'s branded return type.
-export type { HeadAttributes, HeadDataOf, RouteParams, ServiceDataHandler } from './core/config/types';
+export type { EmptyRouteData, HeadAttributes, HeadDataOf, RouteParams, ServiceDataHandler } from './core/config/types';
 
 // RFC 0007 (decision 19): the config-side deferred-data surface, beside `HeadDataOf`.
 // `DeferredDataOf<R>` infers what a renderer's deferred accessor receives for a route;

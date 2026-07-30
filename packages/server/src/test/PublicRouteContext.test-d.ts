@@ -8,7 +8,7 @@
 // public `RouteData` stays precise on a concrete config and non-degenerate bare.
 // Same idiom as HeadDataOf.test-d.ts: enforced by `pnpm --filter @taujs/server typecheck` (tsc);
 // invariant-Equal so width-subtyping cannot fake a pass.
-import type { AppConfig, RouteContext, RouteData, RouteParams, TaujsConfig } from '../Config';
+import type { AppConfig, EmptyRouteData, RouteContext, RouteData, RouteParams, ServiceDataHandler, TaujsConfig } from '../Config';
 import type { RouteAttributes } from '../core/config/types';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
@@ -75,5 +75,28 @@ type _AttrOptional = Expect<Equal<Extract<PreciseCtx, { path: '/opt' }>['attr'],
 type _RouteDataPrecise = Expect<Equal<RouteData<typeof config, '/products/:id'>, Product>>;
 type _RouteDataHome = Expect<Equal<RouteData<typeof config, '/'>, Home>>;
 type _RouteDataTypo = Expect<Equal<RouteData<typeof config, '/typo'>, never>>;
+type _RouteDataNoData = Expect<Equal<RouteData<typeof config, '/bare'>, EmptyRouteData>>;
 type _RouteDataBareNotNever = Expect<Equal<[RouteData] extends [never] ? true : false, false>>;
 type _RouteDataBroadLiteralPath = Expect<Equal<RouteData<TaujsConfig, '/x'>, never>>;
+
+// --- 7. serviceData() brand arm through the PUBLIC entry (the scaffolder chain, 2026-07-30):
+// a branded route resolves the SELECTED METHOD's result, never the descriptor, and the bare-path
+// form (`RouteData<typeof config>`) - the scaffolder's shared AppData - unions every route's
+// resolved data. ---
+declare const svcConfig: {
+  apps: readonly [
+    {
+      appId: 'scaffold';
+      entryPoint: '';
+      renderer: AppConfig['renderer'];
+      routes: readonly [
+        { path: '/'; attr: { render: 'ssr'; data: ServiceDataHandler<Home> } },
+        { path: '/streaming'; attr: { render: 'streaming'; meta: Record<string, unknown>; data: ServiceDataHandler<Home> } },
+      ];
+    },
+  ];
+};
+
+type _SvcConfigIsTaujsConfig = Expect<typeof svcConfig extends TaujsConfig ? true : false>;
+type _SvcRouteData = Expect<Equal<RouteData<typeof svcConfig, '/'>, Home>>;
+type _SvcAppData = Expect<Equal<RouteData<typeof svcConfig>, Home>>;
