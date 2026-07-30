@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 
 import { RENDERTYPE } from '../core/constants';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
-import { wasErrorLogged } from '../core/errors/ErrorLogState';
+import { logResponseFailure } from '../core/errors/ResponseFailureLog';
 import { fetchHeadData, fetchInitialData } from '../core/routes/DataRoutes';
 import { buildDeferredEnvelopeJson, createDeferredData } from '../core/routes/DeferredData';
 import { now } from '../core/telemetry/Telemetry';
@@ -255,9 +255,7 @@ export const handleRender = async (
     const initialDataInput = async () => {
       const dataT0 = now();
       try {
-        // `requestContext` is the marker's request key - the same stored object the response
-        // terminals key their duplicate-log check on.
-        const out = await fetchInitialData(attr, params, serviceRegistry, ctx, undefined, requestContext);
+        const out = await fetchInitialData(attr, params, serviceRegistry, ctx);
         recorder?.dataFetch({ traceId, ms: +(now() - dataT0).toFixed(1), ok: true });
         return out;
       } catch (err) {
@@ -653,12 +651,13 @@ export const handleRender = async (
             // Format defensively and belt the telemetry so teardown always runs.
             try {
               recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
-              // The fatal line is a BACKSTOP record, skipped only for an error THIS REQUEST's
-              // classification layer already logged AND whose original object the renderer
-              // forwarded unchanged into its fatal channel. The recording above, the aborts and
-              // the teardown below stay unconditional - only the duplicate LOG is suppressed.
-              if (!wasErrorLogged(requestContext, err))
-                logger.error({ error: safeNormaliseError(err), clientRoot, url: req.url }, 'Critical rendering error during stream');
+              logResponseFailure({
+                terminal: 'streaming',
+                logger,
+                error: err,
+                clientRoot,
+                url: req.url,
+              });
             } catch {
               // telemetry formatting must not veto teardown
             }

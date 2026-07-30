@@ -185,6 +185,7 @@ describe('R1-01 integration (real react-dom/server)', () => {
 
     // App that never reads the store, so nothing suspends → React ends the shell immediately.
     const AppNoConsumer = () => <div>no consumer</div>;
+    const onError = vi.fn();
 
     const { renderStream } = createRenderer<Data>({
       appComponent: () => <AppNoConsumer />,
@@ -397,6 +398,7 @@ describe('R1-01 integration (real react-dom/server)', () => {
     const { writable, state } = driveServerSide();
     const boom = new Error('loader exploded');
     const AppNoConsumer = () => <div>no consumer</div>;
+    const onError = vi.fn();
 
     // No store consumer → React finishes immediately and ends the gate; the gate then races the
     // (rejecting) data promise. The store swallows the rejection into status:'error', so readiness
@@ -404,7 +406,7 @@ describe('R1-01 integration (real react-dom/server)', () => {
     // response with empty data (the R2 silent-data-loss class).
     const { done } = createRenderer<Data>({ appComponent: () => <AppNoConsumer />, headContent: () => '<title>x</title>' }).renderStream(
       writable,
-      { onHead: () => {} },
+      { onHead: () => {}, onError },
       () => Promise.reject(boom),
       '/store-error',
       undefined,
@@ -413,7 +415,8 @@ describe('R1-01 integration (real react-dom/server)', () => {
       { dataTimeoutMs: 5_000 },
     );
 
-    await expect(done).rejects.toThrow('loader exploded');
+    await expect(done).rejects.toBe(boom);
+    expect(onError).toHaveBeenCalledWith(boom);
     await settle();
     // The gate fatal-aborted; it did NOT let the writable finish with `{}` serialized as data.
     expect(state.finished).toBe(false);

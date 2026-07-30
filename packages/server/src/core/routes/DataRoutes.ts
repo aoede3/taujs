@@ -1,6 +1,6 @@
 import { callServiceMethod } from '../services/DataServices';
 import { AppError } from '../errors/AppError';
-import { markErrorLogged } from '../errors/ErrorLogState';
+import { InitialDataFailure } from '../errors/InitialDataFailure';
 import { prepareDataContext, runDataHandler } from './ResolveRouteData';
 
 import type { ServiceRegistry } from '../services/DataServices';
@@ -59,12 +59,10 @@ export const fetchHeadData = async <Params extends RouteParams, R extends Servic
 };
 
 /**
- * Resolve `attr.data` and OWN its failure taxonomy: a handler rejection, an invalid result and a
- * service-dispatch rejection are classified alike, each producing ONE record under
- * `component: 'fetch-initial-data'`. The classified error is marked as logged UNDER `requestKey` -
- * the caller's request-context object, shared with the response terminals - so those terminals
- * convert, record and tear down without emitting a second record for the same failure in the same
- * request. Without a key the error stays unmarked and the terminal logs (fail safe).
+ * Resolve `attr.data` and own its failure taxonomy: a handler rejection, an invalid result and an
+ * awaited service-dispatch rejection are classified alike. This function does not log. The response
+ * terminal owns the one response-failure record, while service and renderer diagnostics retain
+ * their separate ownership.
  *
  * `prepareDataContext` sits outside the classified block: an `ensureServiceCaller` throw is route
  * wiring rather than a data failure and stays unclassified.
@@ -75,7 +73,6 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
   serviceRegistry: R,
   ctx: RequestContext<L>,
   callServiceMethodImpl: CallServiceOn<R> = callServiceMethod as CallServiceOn<R>,
-  requestKey?: object,
 ): Promise<Record<string, unknown>> => {
   const dataHandler = attr?.data;
   if (!dataHandler || typeof dataHandler !== 'function') return {};
@@ -92,9 +89,17 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
       'attr.data must return a plain object or a ServiceDescriptor',
     );
   } catch (err: unknown) {
-    let e = AppError.from(err);
+    let e: AppError;
+    try {
+      e = AppError.from(err);
+    } catch {
+      e = AppError.internal('Initial data resolution failed');
+    }
 
-    const msg = String((err as any)?.message ?? '');
+    let msg = '';
+    try {
+      msg = String((err as any)?.message ?? '');
+    } catch {}
     const looksLikeHtml = /<!DOCTYPE/i.test(msg) || /<html/i.test(msg) || /Unexpected token <.*JSON/i.test(msg);
 
     if (looksLikeHtml) {
@@ -105,33 +110,6 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
         suggestion: 'Register api route so it returns JSON, or return a ServiceDescriptor from attr.data and use the ServiceRegistry.',
       });
     }
-    const level: 'warn' | 'error' = e.kind === 'domain' || e.kind === 'validation' || e.kind === 'auth' ? 'warn' : 'error';
-
-    const meta: Record<string, unknown> = {
-      component: 'fetch-initial-data',
-      kind: e.kind,
-      httpStatus: e.httpStatus,
-      ...(e.code ? { code: e.code } : {}),
-      ...(e.details ? { details: e.details } : {}),
-      ...(params ? { params } : {}),
-      traceId: ctx.traceId,
-      // The stack belongs to the unexpected failures only - an expected 4xx stays a single terse
-      // warn line.
-      ...(level === 'error' ? { stack: e.stack } : {}),
-    };
-
-    // Belted: a logger that throws (or is absent) forfeits its record but must never change the
-    // error the caller receives, and an error that produced no record must stay unmarked so a
-    // terminal can still report it.
-    try {
-      if (ctx.logger) {
-        ctx.logger[level](meta, e.message);
-        markErrorLogged(requestKey, e);
-      }
-    } catch {
-      // the classified error below is the response outcome, with or without a record
-    }
-
-    throw e;
+    throw new InitialDataFailure(e, params);
   }
 };

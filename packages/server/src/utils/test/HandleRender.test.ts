@@ -2,7 +2,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { AppError } from '../../core/errors/AppError';
-import { markErrorLogged } from '../../core/errors/ErrorLogState';
 import { noopTraceRecorder } from '../../core/introspection/TraceRecorder';
 import * as DataRoutes from '../../core/routes/DataRoutes';
 import * as System from '../../System';
@@ -1567,41 +1566,6 @@ describe('handleRender', () => {
     });
 
     // The layer that classified a failure owns its record, so the fatal line is dropped for an
-    // already-logged error - and ONLY the line: recording, abort and teardown are unconditional.
-    it('an already-logged error emits no fatal stream line, but is still recorded and torn down', async () => {
-      setupStreamingRoute();
-
-      const failed = vi.fn();
-      const requestCtx = {
-        traceId: 'trace-1',
-        logger: mockLogger,
-        headers: { host: 'localhost' },
-        recorder: { ...noopTraceRecorder, failed },
-      } as any;
-      vi.mocked(Telemetry.createRequestContext).mockReturnValue(requestCtx);
-
-      const err = new Error('classified by its own layer');
-      // Marked under the SAME request-context object the handler will adopt - the streaming
-      // terminal keys its duplicate-log check on it.
-      markErrorLogged(requestCtx, err);
-
-      const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn();
-        callbacks.onError?.(err); // request still live: the fatal branch
-        return { abort: vi.fn(), done: Promise.resolve() };
-      });
-      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
-
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(mockLogger.error).not.toHaveBeenCalledWith(expect.anything(), 'Critical rendering error during stream');
-      expect(failed).toHaveBeenCalledWith(
-        expect.objectContaining({ traceId: 'trace-1', error: expect.objectContaining({ message: 'classified by its own layer' }) }),
-      );
-      expect(abortControllers.some((controller) => controller.abort.mock.calls.length > 0)).toBe(true);
-      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.any(Object));
-    });
-
     // Recheck: the fatal onError callback must never throw on a HOSTILE unknown (a component can
     // legally throw an object whose `message` getter / `Symbol.toPrimitive` throws), otherwise the
     // response teardown is skipped and the request hangs.
@@ -2766,9 +2730,6 @@ describe('handleRender', () => {
             error: expect.any(Function),
           }),
         }),
-        undefined,
-        // The request-context object, threaded as the log-dedupe marker's request key.
-        expect.any(Object),
       );
     });
 

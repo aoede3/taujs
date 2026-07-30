@@ -150,7 +150,6 @@ vi.mock('../utils/VitePlugins', () => ({
   reservedPluginMessage: (d: any) => `reserved:${d.name}`,
 }));
 
-import { markErrorLogged } from '../core/errors/ErrorLogState';
 import { ssrServerPlugin, TEMPLATE } from '../SSRServer';
 
 // RFC 0010: this suite predates the ownership split and was written against the root-installing
@@ -798,36 +797,6 @@ describe('SSRServer', () => {
     expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ details: { logged: true, note: 'application-supplied' } }), 'dup-logged');
 
     expect(toHttpMock).toHaveBeenCalled();
-    expect(res.statusCode).toBe(499);
-    expect(res.json()).toEqual({ message: 'safe' });
-  });
-
-  // The layer that classified the error owns its record; the terminal drops only the duplicate LOG
-  // and still converts the response.
-  it('error handler: emits no record for an error already logged in THIS request, and still converts the response', async () => {
-    const classified: any = Object.assign(new AppErrorFake(), { message: 'classified upstream', httpStatus: 500 });
-    (AppErrorFake.from as Mock).mockImplementationOnce(() => classified);
-
-    handleRenderMock.mockImplementationOnce(async (req: any) => {
-      // Mark under the request context the onRequest hook stored - the same key the terminal
-      // consults. Marking from inside the handler mirrors where production classification runs.
-      markErrorLogged(req.taujsRequestContext, classified);
-      throw classified;
-    });
-
-    await app.register(SSRServer, {
-      alias: {},
-      configs: [],
-      routes: [{ path: '/marked', appId: 'a', attr: { render: 'ssr' } }],
-      serviceRegistry: {},
-      clientRoot: '/client',
-    });
-
-    const res = await app.inject({ method: 'GET', url: '/marked' });
-
-    expect(mockLogger.error).not.toHaveBeenCalled();
-
-    expect(toHttpMock).toHaveBeenCalledWith(classified);
     expect(res.statusCode).toBe(499);
     expect(res.json()).toEqual({ message: 'safe' });
   });

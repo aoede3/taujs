@@ -30,6 +30,7 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
   let currentData: T | undefined;
   let status: 'pending' | 'success' | 'error';
   let lastError: Error | undefined;
+  let serverError: unknown;
   let serverDataPromise: Promise<void>;
 
   // R3-08 (S2): an explicit `setData` SUPERSEDES the in-flight initial promise. Without this, a
@@ -45,6 +46,7 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
   const notify = () => subscribers.forEach((cb) => cb());
 
   const handleError = (error: unknown) => {
+    serverError = error;
     const e = normaliseError(error);
     // NOTE: keep this console.error: it's useful in environments without logger wiring.
     console.error('Failed to load initial data:', e);
@@ -108,7 +110,7 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
 
   const getServerSnapshot = (): T => {
     if (status === 'pending') throw serverDataPromise;
-    if (status === 'error') throw new Error(`Server-side data fetch failed: ${lastError?.message || 'Unknown error'}`);
+    if (status === 'error') throw serverError ?? new Error(`Server-side data fetch failed: ${lastError?.message || 'Unknown error'}`);
     if (currentData === undefined) throw new Error('Server data not available - check SSR configuration');
 
     return currentData;

@@ -1,24 +1,16 @@
 ---
 '@taujs/server': patch
+'@taujs/react': patch
 ---
 
-Logging-ownership correction and resolver simplification for route data failures. `attr.data`
-failures are now classified by `fetchInitialData` whichever step failed: a service-dispatch
-rejection - previously returned un-awaited, so it bypassed classification entirely - now receives
-the same `component: 'fetch-initial-data'` record, severity policy and HTML-received hint as a
-handler rejection. The contract is exactly one `fetch-initial-data` classification record per
-failure - a single warn for expected domain, validation and auth failures, a single error carrying
-a stack otherwise - with no repeated response-terminal record; service-call diagnostics (the
-service layer's own 'Service method failed' record) and renderer-owned diagnostics remain
-separate, intentional records. The SSR terminal and the streaming fatal line no longer repeat a
-failure that was already classified and logged, while response conversion, trace recording, aborts
-and teardown remain unconditional. Deduplication is keyed on error-object identity, scoped per
-request through an internal marker (a mark left by one request can never suppress another
-request's record), and applies where the original rejection reaches the terminal: always on the
-SSR strategy, and on streaming when the renderer forwards the original object into its fatal
-channel (renderer advisory channels are separate observability and unchanged). `details.logged`
-is neither emitted nor honoured any more - it was application-controlled data acting as
-control-plane state, letting any handler silence the terminal record. The internal resolver's thunk API (`ResolvedDataStep`,
-`resolveDataHandler`) is collapsed into `runDataHandler`, the single
-handler-validation-dispatch implementation behind initial, head and deferred data; `attr.head.data`
-and deferred-data semantics are unchanged.
+Correct route-data failure ownership. `attr.data` now awaits service dispatch, so a service
+rejection receives the same classification and HTML-response hint as a handler or invalid-result
+failure. Data resolution classifies but does not log. The SSR and streaming response terminals emit
+one `component: 'fetch-initial-data'` response record - a stackless warning for expected domain,
+validation and auth failures, or an error with a stack otherwise - while HTTP conversion, trace
+recording, aborts and teardown remain unconditional if logging fails. Service-call and renderer
+advisory diagnostics remain separate intentional records. Application-supplied `details.logged`
+no longer influences terminal logging. The internal route-data resolver is simplified to one awaited
+handler-validation-dispatch path; head and deferred-data semantics are unchanged. React now
+preserves the original route-data rejection through its server-side store so the streaming terminal
+can retain that classified failure's ownership.
