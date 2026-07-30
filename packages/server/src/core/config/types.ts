@@ -49,8 +49,8 @@ declare const SERVICE_RESULT: unique symbol;
  * method's eventual (post-dispatch) result as a PHANTOM type brand. The callable's declared
  * return stays the honest service DESCRIPTOR - the runtime value really is the descriptor, and
  * the server dispatches it - while the brand tells the type system what that dispatch resolves
- * to, so `HeadDataOf` (and future `RouteDataOf` work) can infer the real payload instead of the
- * descriptor shape.
+ * to, so `HeadDataOf` and `RouteDataOf` (brand arm completed 2026-07-30) can infer the real
+ * payload instead of the descriptor shape.
  */
 export type ServiceDataHandler<Result, Params extends RouteParams = RouteParams, L extends Logs = Logs> = DataHandler<Params, L> & {
   readonly [SERVICE_RESULT]: Result;
@@ -130,7 +130,34 @@ export type AppOf<C extends { apps: readonly any[] }, A extends AppId<C>> = Extr
 export type RoutesOfApp<C extends { apps: readonly any[] }, A extends AppId<C>> =
   NonNullable<AppOf<C, A>['routes']> extends readonly any[] ? NonNullable<AppOf<C, A>['routes']>[number] : never;
 
-export type RouteDataOf<R> = R extends { attr?: { data?: (...args: any) => infer Ret } } ? Awaited<Ret> : unknown;
+/**
+ * What a route WITHOUT `attr.data` resolves to: `fetchInitialData` returns `{}` for such routes
+ * (DataRoutes.ts), so property access honestly yields `undefined` - and unlike `unknown`, this
+ * unions cleanly into an app-wide RouteData instead of absorbing it (review ruling, 2026-07-30).
+ */
+export type EmptyRouteData = Record<string, undefined>;
+
+/**
+ * The type a route's `attr.data` resolves to - the "future RouteDataOf work" the SERVICE_RESULT
+ * brand comment promised, completed 2026-07-30 for the scaffolder type chain. Arms follow
+ * `HeadDataOf`, with a ruled no-data arm:
+ * - `serviceData()` sugar: the SELECTED METHOD's resolved result, read from the phantom brand -
+ *   never the descriptor the handler honestly returns at runtime;
+ * - closure handler: its resolved return type (descriptor returns collapse to
+ *   `Record<string, unknown>` - the dispatch result is untyped for hand-built descriptors);
+ * - no `attr.data`: `EmptyRouteData` - the honest type of the `{}` the server supplies, so an
+ *   app-wide union stays usable (`data.field` reads `T | undefined`) rather than collapsing to
+ *   `unknown`;
+ * - a declared `data` of unrecognisable shape stays `unknown`.
+ * Pinned by `core/config/test/RouteContext.test-d.ts` and `test/PublicRouteContext.test-d.ts`.
+ */
+export type RouteDataOf<R> = R extends { attr?: { data?: infer D } }
+  ? D extends { readonly [SERVICE_RESULT]: infer Res }
+    ? Res
+    : D extends (...args: any) => infer Ret
+      ? DescriptorMemberToRecord<Awaited<Ret>>
+      : unknown
+  : EmptyRouteData;
 
 /**
  * RFC 0004 (H1): the type `headContent` receives as `headData` for a route. Three arms, pinned

@@ -306,6 +306,9 @@ export function planFiles(config: ProjectConfig): FileEntry[] {
     { path: 'CLAUDE.md', content: generateClaudeMd() },
     { path: 'src/client/index.html', content: generateIndexHtml() },
     { path: 'src/client/styles.css', content: generateStyles() },
+    // The derived type contract (framework-independent): AppData/AppRouteContext come from
+    // taujs.config.ts, so client code never hand-writes a payload shape.
+    { path: 'src/client/app-types.ts', content: generateAppTypes() },
     // server (framework-independent — a single shared source)
     { path: 'src/server/index.ts', content: generateServerIndex() },
     { path: 'src/server/services/registry.ts', content: generateServiceRegistry() },
@@ -546,7 +549,15 @@ function generateTaujsConfig(framework: Framework) {
       : framework === 'solid'
         ? `\n      renderer: solidRenderer({ project: './tsconfig.solid.json' }),`
         : `\n      renderer: reactRenderer({ project: './tsconfig.json' }),`;
-  return `import { defineConfig } from '@taujs/server/config';${rendererImport}
+  return `import { createServiceData, defineConfig } from '@taujs/server/config';${rendererImport}
+
+import type { ServiceRegistry } from './src/server/services/registry.ts';
+
+// Registry-typed service declarations: the helper carries each method's RESULT type into
+// RouteData, so the app's types derive from this file instead of being hand-written
+// (see src/client/app-types.ts). Closure handlers and ctx.call remain available for dynamic
+// dispatch - https://taujs.dev/guides/services/
+const serviceData = createServiceData<ServiceRegistry>();
 
 export default defineConfig({
   server: {
@@ -570,10 +581,8 @@ export default defineConfig({
           attr: {
             render: 'ssr',
             hydrate: true,
-            // Direct service invocation: standard SSR
-            data: async (params, ctx) => {
-              return ctx.call('example', 'greet', { name: 'SSR' });
-            },
+            // Declared service edge: RouteData<typeof config, '/'> is greet()'s resolved result
+            data: serviceData('example', 'greet', () => ({ name: 'SSR' })),
           },
         },
         {
@@ -581,12 +590,8 @@ export default defineConfig({
           attr: {
             render: 'streaming',
             hydrate: true,
-            // Descriptor-based data: resolved by the server
-            data: async (params) => ({
-              args: { name: 'Streaming' },
-              serviceName: 'example',
-              serviceMethod: 'greet',
-            }),
+            // The same declared edge on a streaming route: the shell streams while greet() resolves
+            data: serviceData('example', 'greet', () => ({ name: 'Streaming' })),
             // meta recommended for streaming routes for SEO/social and render timing
             meta: {
               title: "τjs — Streaming",
@@ -652,9 +657,11 @@ function generateReadme(projectName: string, packageManager: string, framework: 
       ? `│   │   ├── App.vue             # Root component (route switch)
 │   │   ├── HomePage.vue        # SSR route (useSSRData + v-if)
 │   │   ├── StreamingPage.vue   # Streaming route (await useSSRDataAsync)
+│   │   ├── app-types.ts        # Types derived from taujs.config.ts
 │   │   ├── entry-client.ts     # Client hydration entry
 │   │   ├── entry-server.ts     # SSR render entry`
       : `│   │   ├── App.tsx             # Root component
+│   │   ├── app-types.ts        # Types derived from taujs.config.ts
 │   │   ├── entry-client.tsx    # Client hydration entry
 │   │   ├── entry-server.tsx    # SSR render entry`;
 
@@ -753,13 +760,11 @@ import { useSSRStore } from '@taujs/react';
 
 import "./styles.css";
 
-type GreetingData = {
-  message: string;
-  timestamp: string;
-};
+import type { AppData } from './app-types';
 
 function GreetingCard() {
-  const data = useSSRStore<GreetingData>();
+  // AppData is derived from taujs.config.ts - greet()'s result, never hand-written.
+  const data = useSSRStore<AppData>();
 
   return (
     <section className="card card--primary">
@@ -813,9 +818,9 @@ export function App() {
           which is ideal for predictable latency and caching.
         </p>
         <p>
-          <strong>STREAM:</strong> The <code>/streaming</code> route uses a service descriptor
-          and returns a Promise. The <code>&lt;Suspense&gt;</code> boundary above shows
-          a fallback while the server resolves it, then progressively streams the final content.
+          <strong>STREAM:</strong> The <code>/streaming</code> route declares the same typed
+          service edge with streaming rendering. The <code>&lt;Suspense&gt;</code> boundary above
+          shows a fallback while the server resolves it, then progressively streams the final content.
         </p>
       </section>
 
@@ -1055,6 +1060,34 @@ code {
 }`;
 }
 
+function generateAppTypes() {
+  return `/**
+ * The application's type contract, DERIVED from taujs.config.ts - never hand-written.
+ * Every import here is type-only, so nothing from the config or server reaches the client bundle.
+ */
+import type config from '../../taujs.config.ts';
+import type { RouteContext, RouteData } from '@taujs/server/config';
+
+/** The route-discriminated context the host passes to appComponent and headContent. */
+export type AppRouteContext = RouteContext<typeof config>;
+
+/**
+ * The union of every declared route's resolved data - both scaffold routes resolve greet(), so
+ * one shared type serves the whole app.
+ *
+ * A declared route WITHOUT \`attr.data\` contributes \`Record<string, undefined>\` (the server
+ * supplies \`{}\` for it), so the union stays usable when such routes exist: reads become
+ * \`T | undefined\`, making code account for the no-data route. When routes diverge further,
+ * narrow per route with the derived aliases below - still from the config, never hand-written.
+ */
+export type AppData = RouteData<typeof config>;
+
+// Optional narrowing when routes diverge:
+// export type HomeData = RouteData<typeof config, '/'>;
+// export type StreamingData = RouteData<typeof config, '/streaming'>;
+`;
+}
+
 function generateViteEnv() {
   return `/// <reference types="vite/client" />
 `;
@@ -1148,13 +1181,11 @@ function generateHomePageVue() {
   return `<script setup lang="ts">
 import { useSSRData } from '@taujs/vue';
 
-type GreetingData = {
-  message: string;
-  timestamp: string;
-};
+import type { AppData } from './app-types';
 
 // Fallback idiom: non-blocking; \`data\` is undefined until ready, guarded with v-if.
-const data = useSSRData<GreetingData>();
+// AppData is derived from taujs.config.ts - greet()'s result, never hand-written.
+const data = useSSRData<AppData>();
 </script>
 
 <template>
@@ -1174,13 +1205,11 @@ function generateStreamingPageVue() {
   return `<script setup lang="ts">
 import { useSSRDataAsync } from '@taujs/vue';
 
-type GreetingData = {
-  message: string;
-  timestamp: string;
-};
+import type { AppData } from './app-types';
 
 // Suspense idiom: async setup blocks on the data, so streamed routes deliver it in the payload.
-const data = await useSSRDataAsync<GreetingData>();
+// AppData is derived from taujs.config.ts - greet()'s result, never hand-written.
+const data = await useSSRDataAsync<AppData>();
 </script>
 
 <template>
@@ -1210,13 +1239,17 @@ function generateEntryServerVue() {
 
 import App from './App.vue';
 
-export const { renderSSR, renderStream } = createRenderer({
+import type { AppData, AppRouteContext } from './app-types';
+
+// Generics derived from taujs.config.ts: typed data for headContent and the store, typed
+// routeContext for appComponent.
+export const { renderSSR, renderStream } = createRenderer<AppData, AppRouteContext>({
   appComponent: App,
   headContent: ({ data, meta }) => \`
     <title>\${meta?.title || "τjs - Composing systems, not just apps"}</title>
     <meta name="description" content="\${
       meta?.description ||
-      (data as { message?: string })?.message ||
+      data?.message ||
       "τjs - Composing systems, not just apps"
     }">
   \`,
@@ -1241,7 +1274,11 @@ function generateEntryServer() {
   return `import { createRenderer } from '@taujs/react';
 import { App } from './App';
 
-export const { renderSSR, renderStream } = createRenderer({
+import type { AppData, AppRouteContext } from './app-types';
+
+// Generics derived from taujs.config.ts: typed data for headContent and the store, typed
+// routeContext for appComponent.
+export const { renderSSR, renderStream } = createRenderer<AppData, AppRouteContext>({
   appComponent: () => <App />,
   headContent: ({ data, meta }) => \`
     <title>\${meta?.title || "τjs - Composing systems, not just apps"}</title>
@@ -1284,12 +1321,13 @@ function generateAppComponentSolid() {
   return `import { Show } from 'solid-js';
 import { useSSRStore } from '@taujs/solid';
 
-type RouteData = { message?: string };
+import type { AppData } from './app-types';
 
 export function App() {
   // Route data arrives through the store, which the renderer provides. On the server it is already
   // committed before the render begins; on the client it is seeded from window.__INITIAL_DATA__.
-  const store = useSSRStore<RouteData>();
+  // AppData is derived from taujs.config.ts - greet()'s result, never hand-written.
+  const store = useSSRStore<AppData>();
 
   return (
     <main>
@@ -1326,7 +1364,11 @@ function generateEntryServerSolid() {
 import { App } from './App';
 import { RENDER_ID } from './renderId';
 
-export const { renderSSR, renderStream } = createRenderer({
+import type { AppData, AppRouteContext } from './app-types';
+
+// Generics derived from taujs.config.ts: typed data for headContent and the store, typed
+// routeContext for appComponent.
+export const { renderSSR, renderStream } = createRenderer<AppData, AppRouteContext>({
   appComponent: () => <App />,
   renderId: RENDER_ID,
   headContent: ({ data, meta }) => \`

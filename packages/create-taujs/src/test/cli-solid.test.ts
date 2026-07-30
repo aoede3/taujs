@@ -135,7 +135,7 @@ describe('create-taujs - Solid generation (through the package export)', () => {
       const renderId = read('src/client/renderId.ts');
 
       expect(entryServer).toContain("import { createRenderer } from '@taujs/solid';");
-      expect(entryServer).toContain('export const { renderSSR, renderStream } = createRenderer({');
+      expect(entryServer).toContain('export const { renderSSR, renderStream } = createRenderer<AppData, AppRouteContext>({');
       expect(entryClient).toContain("import { hydrateApp } from '@taujs/solid';");
 
       // The renderId is ONE shared constant imported by BOTH entries - a literal duplicated across

@@ -100,6 +100,7 @@ demo-app/
 ├── src/
 │   ├── client/              
 │   │   ├── App.tsx             # Root component
+│   │   ├── app-types.ts        # Types derived from taujs.config.ts
 │   │   ├── entry-client.tsx    # Client hydration entry
 │   │   ├── entry-server.tsx    # SSR render entry
 │   │   ├── styles.css          # Global styles
@@ -186,13 +187,11 @@ import { useSSRStore } from '@taujs/react';
 
 import "./styles.css";
 
-type GreetingData = {
-  message: string;
-  timestamp: string;
-};
+import type { AppData } from './app-types';
 
 function GreetingCard() {
-  const data = useSSRStore<GreetingData>();
+  // AppData is derived from taujs.config.ts - greet()'s result, never hand-written.
+  const data = useSSRStore<AppData>();
 
   return (
     <section className="card card--primary">
@@ -246,9 +245,9 @@ export function App() {
           which is ideal for predictable latency and caching.
         </p>
         <p>
-          <strong>STREAM:</strong> The <code>/streaming</code> route uses a service descriptor
-          and returns a Promise. The <code>&lt;Suspense&gt;</code> boundary above shows
-          a fallback while the server resolves it, then progressively streams the final content.
+          <strong>STREAM:</strong> The <code>/streaming</code> route declares the same typed
+          service edge with streaming rendering. The <code>&lt;Suspense&gt;</code> boundary above
+          shows a fallback while the server resolves it, then progressively streams the final content.
         </p>
       </section>
 
@@ -272,6 +271,31 @@ export function App() {
   );
 }
 ",
+  "src/client/app-types.ts": "/**
+ * The application's type contract, DERIVED from taujs.config.ts - never hand-written.
+ * Every import here is type-only, so nothing from the config or server reaches the client bundle.
+ */
+import type config from '../../taujs.config.ts';
+import type { RouteContext, RouteData } from '@taujs/server/config';
+
+/** The route-discriminated context the host passes to appComponent and headContent. */
+export type AppRouteContext = RouteContext<typeof config>;
+
+/**
+ * The union of every declared route's resolved data - both scaffold routes resolve greet(), so
+ * one shared type serves the whole app.
+ *
+ * A declared route WITHOUT \`attr.data\` contributes \`Record<string, undefined>\` (the server
+ * supplies \`{}\` for it), so the union stays usable when such routes exist: reads become
+ * \`T | undefined\`, making code account for the no-data route. When routes diverge further,
+ * narrow per route with the derived aliases below - still from the config, never hand-written.
+ */
+export type AppData = RouteData<typeof config>;
+
+// Optional narrowing when routes diverge:
+// export type HomeData = RouteData<typeof config, '/'>;
+// export type StreamingData = RouteData<typeof config, '/streaming'>;
+",
   "src/client/entry-client.tsx": "import { hydrateApp } from '@taujs/react';
 import { App } from './App';
 
@@ -284,7 +308,11 @@ hydrateApp({
   "src/client/entry-server.tsx": "import { createRenderer } from '@taujs/react';
 import { App } from './App';
 
-export const { renderSSR, renderStream } = createRenderer({
+import type { AppData, AppRouteContext } from './app-types';
+
+// Generics derived from taujs.config.ts: typed data for headContent and the store, typed
+// routeContext for appComponent.
+export const { renderSSR, renderStream } = createRenderer<AppData, AppRouteContext>({
   appComponent: () => <App />,
   headContent: ({ data, meta }) => \`
     <title>\${meta?.title || "τjs - Composing systems, not just apps"}</title>
@@ -601,8 +629,16 @@ declare module '@taujs/server/config' {
   }
 }
 ",
-  "taujs.config.ts": "import { defineConfig } from '@taujs/server/config';
+  "taujs.config.ts": "import { createServiceData, defineConfig } from '@taujs/server/config';
 import { reactRenderer } from '@taujs/react/renderer';
+
+import type { ServiceRegistry } from './src/server/services/registry.ts';
+
+// Registry-typed service declarations: the helper carries each method's RESULT type into
+// RouteData, so the app's types derive from this file instead of being hand-written
+// (see src/client/app-types.ts). Closure handlers and ctx.call remain available for dynamic
+// dispatch - https://taujs.dev/guides/services/
+const serviceData = createServiceData<ServiceRegistry>();
 
 export default defineConfig({
   server: {
@@ -627,10 +663,8 @@ export default defineConfig({
           attr: {
             render: 'ssr',
             hydrate: true,
-            // Direct service invocation: standard SSR
-            data: async (params, ctx) => {
-              return ctx.call('example', 'greet', { name: 'SSR' });
-            },
+            // Declared service edge: RouteData<typeof config, '/'> is greet()'s resolved result
+            data: serviceData('example', 'greet', () => ({ name: 'SSR' })),
           },
         },
         {
@@ -638,12 +672,8 @@ export default defineConfig({
           attr: {
             render: 'streaming',
             hydrate: true,
-            // Descriptor-based data: resolved by the server
-            data: async (params) => ({
-              args: { name: 'Streaming' },
-              serviceName: 'example',
-              serviceMethod: 'greet',
-            }),
+            // The same declared edge on a streaming route: the shell streams while greet() resolves
+            data: serviceData('example', 'greet', () => ({ name: 'Streaming' })),
             // meta recommended for streaming routes for SEO/social and render timing
             meta: {
               title: "τjs — Streaming",
