@@ -902,9 +902,9 @@ function Component() {
 
 You do not have to hand-repeat a payload shape. `@taujs/server/config` exports types that derive from your `taujs.config.ts` route table:
 
-- `RouteData<typeof config, "/path">` - the resolved data type of the route with that path (the awaited return of its `attr.data` loader).
+- `RouteData<typeof config, "/path">` - the resolved data type of the route with that path (the awaited return of its `attr.data` loader). Path-specific lookup requires the concrete config type - the broad `RouteData` default cannot name your routes.
 - `HeadDataOf<typeof route>` - what `headContent` receives as `headData` for a route. This is what makes the `attr.head` → `headContent` chain typed end to end (RFC 0004, a signed type gate).
-- `RouteContext<...>` - the union of `{ appId, path, data, attr }` across the config's routes.
+- `RouteContext<typeof config>` - the union of `{ appId, path, attr, params }` across the config's routes: the value the host passes to `appComponent` and `headContent` as `routeContext`. The bare `RouteContext` (the generic's default) is the broad runtime shape. Route data is not on it - that reaches the renderer's store, typed by `RouteData`.
 
 ```ts
 import type { RouteData } from "@taujs/server/config";

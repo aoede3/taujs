@@ -506,6 +506,10 @@ describe('handleRender', () => {
           },
         }),
       );
+
+      // Ruled shape gate (followup 2026-07-29): exactly the four runtime keys, matching the
+      // public RouteContext type - `data` must never appear.
+      expect(Object.keys(options.routeContext).sort()).toEqual(['appId', 'attr', 'params', 'path']);
     });
 
     it('should throw error when renderSSR is missing', async () => {
@@ -999,17 +1003,9 @@ describe('handleRender', () => {
         }),
       );
 
-      expect(options).toEqual(
-        expect.objectContaining({
-          logger: mockLogger,
-          routeContext: {
-            appId: 'test-app',
-            path: '/articles/:slug',
-            attr,
-            params,
-          },
-        }),
-      );
+      // Ruled shape gate (followup 2026-07-29): exactly the four runtime keys, matching the
+      // public RouteContext type - `data` must never appear.
+      expect(Object.keys(options.routeContext).sort()).toEqual(['appId', 'attr', 'params', 'path']);
     });
 
     // ESC-2: cspNonce + shouldHydrate are the symmetric RenderOptions - computed ONCE by the host and

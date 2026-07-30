@@ -64,7 +64,14 @@ export { createServiceData, getServiceDataMetadata } from './core/services/Servi
 
 export type { ServiceDataMetadata } from './core/services/ServiceData';
 
-export type RouteContext = CoreRouteContext<TaujsConfig>;
+/**
+ * Public-alias repair (2026-07-30): generic with a broad default, mirroring `RouteData` below.
+ * Bare `RouteContext` is the broad runtime shape `{ appId, path, attr, params }`; supply your
+ * config - `RouteContext<typeof config>` - for per-route precision. The previous non-generic
+ * alias collapsed to `never` (optional `routes` failed RoutesOfApp's array test) and was
+ * unusable. Pinned by `test/PublicRouteContext.test-d.ts`.
+ */
+export type RouteContext<C extends TaujsConfig = TaujsConfig> = CoreRouteContext<C>;
 export type RouteData<C extends TaujsConfig = TaujsConfig, P extends string = string> = CoreRouteData<C, P>;
 
 // RFC 0004 (H1): the config-side head-data surface. `HeadDataOf<R>` infers what `headContent`
