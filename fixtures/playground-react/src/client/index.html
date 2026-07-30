@@ -6,7 +6,12 @@
     <!--ssr-head-->
   </head>
   <body>
+    <!-- The client entry is deliberately NOT declared here. The host injects it per-route
+         (React's `bootstrapModules` on the streaming path, the bootstrap tag on the SSR path) and
+         withholds it under `hydrate: false`. Declaring it in the template - as this fixture used
+         to - made every BUILT page load the client entry regardless of the route's hydration
+         policy, so `hydrate: false` was not observable in a production build. The playground-vue
+         and playground-solid templates have never declared it; this keeps the three in line. -->
     <div id="root"><!--ssr-html--></div>
-    <script type="module" src="/entry-client.tsx"></script>
   </body>
 </html>
