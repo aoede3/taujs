@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { calculateSpecificity, fetchHeadData, fetchInitialData } from '../DataRoutes';
 import { AppError } from '../../errors/AppError';
+import { InitialDataFailure } from '../../errors/InitialDataFailure';
 
 describe('calculateSpecificity', () => {
   it('keeps the existing deterministic introspection score', () => {
@@ -69,48 +70,19 @@ describe('fetchInitialData', () => {
     await expect(fetchInitialData(attr, {} as any, registry, mkCtx())).rejects.toThrow(/attr\.data must return a plain object or a ServiceDescriptor/);
   });
 
-  it('logs warn for domain/validation/auth errors and rethrows', async () => {
-    const attr = {
-      data: vi.fn(async () => {
-        throw AppError.badRequest('nope', { x: 1 }, 'E_BAD');
-      }),
-    } as any;
+  it('classifies expected and unexpected failures without logging', async () => {
+    const expected = { data: vi.fn(async () => Promise.reject(AppError.badRequest('nope', { x: 1 }, 'E_BAD'))) } as any;
+    const unexpected = { data: vi.fn(async () => Promise.reject(new Error('boom'))) } as any;
 
-    await expect(fetchInitialData(attr, {} as any, registry, mkCtx({ traceId: 't1' }))).rejects.toThrow(/nope/);
+    const expectedFailure = await fetchInitialData(expected, { id: '1' } as any, registry, mkCtx()).catch((error) => error);
+    const unexpectedFailure = await fetchInitialData(unexpected, {} as any, registry, mkCtx()).catch((error) => error);
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        component: 'fetch-initial-data',
-        kind: 'validation',
-        httpStatus: 400,
-        code: 'E_BAD',
-        details: { x: 1 },
-        traceId: 't1',
-      }),
-      'nope',
-    );
-    expect(logger.error).not.toHaveBeenCalled();
-  });
-
-  it('logs error for infra/upstream/etc errors and rethrows', async () => {
-    const attr = {
-      data: vi.fn(async () => {
-        throw new Error('boom');
-      }),
-    } as any;
-
-    await expect(fetchInitialData(attr, {} as any, registry, mkCtx({ traceId: 't2' }))).rejects.toThrow(/boom/);
-
-    expect(logger.error).toHaveBeenCalledWith(
-      expect.objectContaining({
-        component: 'fetch-initial-data',
-        kind: 'infra',
-        httpStatus: 500,
-        traceId: 't2',
-      }),
-      'boom',
-    );
+    expect(expectedFailure).toBeInstanceOf(InitialDataFailure);
+    expect(expectedFailure).toMatchObject({ origin: 'attr.data', kind: 'validation', httpStatus: 400, code: 'E_BAD', details: { x: 1 }, params: { id: '1' } });
+    expect(unexpectedFailure).toBeInstanceOf(InitialDataFailure);
+    expect(unexpectedFailure).toMatchObject({ kind: 'infra', httpStatus: 500 });
     expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it('normalises ctx.headers to an object', async () => {
@@ -160,131 +132,72 @@ describe('fetchInitialData', () => {
     expect(out).toEqual({ ok: true });
   });
 
-  it('includes params in meta when params is truthy (e.g., an object)', async () => {
-    const attr = {
-      data: vi.fn(async () => {
-        throw AppError.badRequest('nope');
-      }),
-    } as any;
+  it('retains params on the classified failure', async () => {
+    const attr = { data: vi.fn(async () => Promise.reject(AppError.badRequest('nope'))) } as any;
+    const failure = await fetchInitialData(attr, { p: 1 } as any, {} as any, mkCtx()).catch((error) => error);
 
-    await expect(fetchInitialData(attr, { p: 1 } as any, {} as any, mkCtx({ traceId: 'pp1' }))).rejects.toThrow();
-
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        component: 'fetch-initial-data',
-        kind: 'validation',
-        httpStatus: 400,
-        traceId: 'pp1',
-        params: { p: 1 },
-      }),
-      'nope',
-    );
+    expect(failure).toBeInstanceOf(InitialDataFailure);
+    expect(failure.params).toEqual({ p: 1 });
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it('omits params in meta when params is falsy (covers ": {}" branch)', async () => {
-    const attr = {
-      data: vi.fn(async () => {
-        throw new Error('boom2');
-      }),
-    } as any;
+  it('classifies a hostile value without logging', async () => {
+    const attr = { data: vi.fn(async () => Promise.reject({ notMessage: 'nope' })) } as any;
+    const failure = await fetchInitialData(attr, {} as any, {} as any, mkCtx()).catch((error) => error);
 
-    await expect(fetchInitialData(attr, undefined as any, {} as any, mkCtx({ traceId: 'pp2' }))).rejects.toThrow('boom2');
-
-    const [meta, msg] = (logger.error as any).mock.calls.pop()!;
-    expect(meta).toEqual(
-      expect.not.objectContaining({
-        params: expect.anything(),
-      }),
-    );
-    expect(msg).toBe('boom2');
+    expect(failure).toBeInstanceOf(InitialDataFailure);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it('falls back to empty message when err.message is undefined (covers ?.message ?? "")', async () => {
-    const attr = {
-      data: vi.fn(async () => {
-        throw { notMessage: 'nope' } as any;
-      }),
-    } as any;
-
-    await expect(fetchInitialData(attr, {} as any, {} as any, mkCtx({ traceId: 'no-msg' }))).rejects.toThrow();
-
-    expect(logger.error).toHaveBeenCalledWith(
-      expect.objectContaining({
-        component: 'fetch-initial-data',
-        kind: 'infra',
-        httpStatus: 500,
-        traceId: 'no-msg',
-      }),
-      expect.any(String),
-    );
-    const [meta] = (logger.error as any).mock.calls.pop();
-    expect(meta.details?.hint).toBeUndefined();
-    expect(meta.details?.logged).toBeUndefined();
-  });
-
-  it('HTML heuristic: merges existing object details and adds hint/suggestion/logged', async () => {
+  it('HTML heuristic retains its hint on the classified failure', async () => {
     const base = AppError.internal('<!DOCTYPE html>', undefined, { prev: true });
+    const attr = { data: vi.fn(async () => Promise.reject(base)) } as any;
+    const failure = await fetchInitialData(attr, { a: 1 } as any, {} as any, mkCtx()).catch((error) => error);
 
-    const attr = {
-      data: vi.fn(async () => {
-        throw base;
-      }),
-    } as any;
-
-    await expect(fetchInitialData(attr, { a: 1 } as any, {} as any, mkCtx({ traceId: 'html-obj' }))).rejects.toThrow(/expected JSON but received HTML/i);
-
-    expect(logger.error).toHaveBeenCalled();
-    const [meta, msg] = (logger.error as any).mock.calls.pop();
-
-    expect(msg).toMatch(/expected JSON but received HTML/i);
-    expect(meta.details).toEqual(
-      expect.objectContaining({
+    expect(failure).toBeInstanceOf(InitialDataFailure);
+    expect(failure).toMatchObject({
+      details: expect.objectContaining({
         prev: true,
         hint: 'api-missing-or-content-type',
         suggestion: expect.stringMatching(/ServiceDescriptor/i),
-        logged: true,
       }),
-    );
+    });
+    expect((failure as InitialDataFailure).details).not.toEqual(expect.objectContaining({ logged: expect.anything() }));
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it('HTML heuristic: ignores non-object previous details and still adds hint/suggestion/logged', async () => {
-    const base = AppError.internal('<html>', undefined, 'oops' as any);
+  it('HTML heuristic recognises the parser shape without logging', async () => {
+    const attr = { data: vi.fn(async () => Promise.reject(new Error('Unexpected token < in JSON at position 0'))) } as any;
+    const failure = await fetchInitialData(attr, {} as any, {} as any, mkCtx()).catch((error) => error);
 
-    const attr = {
-      data: vi.fn(async () => {
-        throw base;
-      }),
-    } as any;
-
-    await expect(fetchInitialData(attr, {} as any, {} as any, mkCtx({ traceId: 'html-nonobj' }))).rejects.toThrow(/expected JSON but received HTML/i);
-
-    const [meta] = (logger.error as any).mock.calls.pop();
-    expect(meta.details).toEqual(
-      expect.objectContaining({
-        hint: 'api-missing-or-content-type',
-        suggestion: expect.any(String),
-        logged: true,
-      }),
-    );
-    expect(meta.details.prev).toBeUndefined();
+    expect(failure).toMatchObject({ details: expect.objectContaining({ hint: 'api-missing-or-content-type' }) });
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it('HTML heuristic: triggers on "Unexpected token < ... JSON" parser shape', async () => {
-    const attr = {
-      data: vi.fn(async () => {
-        throw new Error('Unexpected token < in JSON at position 0');
-      }),
-    } as any;
+  // The dominant real-world failure - the service call itself - is classified here, so the
+  // response terminal can log the request outcome while the service diagnostic remains separate.
+  it('classifies service-dispatch failures without adding a resolver record', async () => {
+    const attr = { data: vi.fn(async () => ({ serviceName: 'svc', serviceMethod: 'greet', args: { name: 'Ada' } })) } as any;
+    const impl = vi.fn(async () => Promise.reject(new Error('service down')));
 
-    await expect(fetchInitialData(attr, {} as any, {} as any, mkCtx({ traceId: 'html-unexp' }))).rejects.toThrow(/expected JSON but received HTML/i);
+    const failure = await fetchInitialData(attr, { id: '7' } as any, registry, mkCtx(), impl as any).catch((error) => error);
 
-    const [meta] = (logger.error as any).mock.calls.pop();
-    expect(meta.details).toEqual(
-      expect.objectContaining({
-        hint: 'api-missing-or-content-type',
-        logged: true,
-      }),
-    );
+    expect(failure).toBeInstanceOf(InitialDataFailure);
+    expect(failure).toMatchObject({ kind: 'infra', params: { id: '7' } });
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('classifies HTML-shaped service-dispatch failures with the API hint', async () => {
+    const attr = { data: vi.fn(async () => ({ serviceName: 'svc', serviceMethod: 'greet' })) } as any;
+    const impl = vi.fn(async () => Promise.reject(new Error('<!DOCTYPE html><html><body>404</body></html>')));
+
+    const failure = await fetchInitialData(attr, {} as any, registry, mkCtx(), impl as any).catch((error) => error);
+
+    expect(failure).toMatchObject({ details: expect.objectContaining({ hint: 'api-missing-or-content-type' }) });
+    expect(logger.error).not.toHaveBeenCalled();
   });
 });
 
@@ -330,5 +243,17 @@ describe('fetchHeadData (RFC 0004 H1)', () => {
     const boom = new Error('head boom');
     const attr = { head: { data: vi.fn(async () => Promise.reject(boom)) } } as any;
     await expect(fetchHeadData(attr, {} as any, registry, mkCtx() as any)).rejects.toBe(boom);
+  });
+
+  it('propagates a service-dispatch rejection raw and unlogged', async () => {
+    const boom = new Error('head service down');
+    const attr = { head: { data: vi.fn(async () => ({ serviceName: 'svc', serviceMethod: 'head' })) } } as any;
+    const impl = vi.fn(async () => Promise.reject(boom));
+    const ctx = mkCtx();
+
+    await expect(fetchHeadData(attr, {} as any, registry, ctx as any, impl as any)).rejects.toBe(boom);
+
+    expect(ctx.logger.error).not.toHaveBeenCalled();
+    expect(ctx.logger.warn).not.toHaveBeenCalled();
   });
 });

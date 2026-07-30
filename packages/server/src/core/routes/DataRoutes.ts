@@ -1,6 +1,7 @@
 import { callServiceMethod } from '../services/DataServices';
 import { AppError } from '../errors/AppError';
-import { prepareDataContext, resolveDataHandler } from './ResolveRouteData';
+import { InitialDataFailure } from '../errors/InitialDataFailure';
+import { prepareDataContext, runDataHandler } from './ResolveRouteData';
 
 import type { ServiceRegistry } from '../services/DataServices';
 import type { Logs } from '../logging/types';
@@ -47,7 +48,7 @@ export const fetchHeadData = async <Params extends RouteParams, R extends Servic
 
   const ctxForData = prepareDataContext(serviceRegistry, ctx);
 
-  const step = await resolveDataHandler(
+  return runDataHandler(
     headHandler,
     params,
     serviceRegistry,
@@ -55,12 +56,17 @@ export const fetchHeadData = async <Params extends RouteParams, R extends Servic
     callServiceMethodImpl,
     'attr.head.data must return a plain object or a ServiceDescriptor',
   );
-
-  // Awaited here, exactly as before: this path has no classification block for a dispatch
-  // rejection to escape, so the await placement is observably identical.
-  return step.kind === 'dispatch' ? step.dispatch() : step.value;
 };
 
+/**
+ * Resolve `attr.data` and own its failure taxonomy: a handler rejection, an invalid result and an
+ * awaited service-dispatch rejection are classified alike. This function does not log. The response
+ * terminal owns the one response-failure record, while service and renderer diagnostics retain
+ * their separate ownership.
+ *
+ * `prepareDataContext` sits outside the classified block: an `ensureServiceCaller` throw is route
+ * wiring rather than a data failure and stays unclassified.
+ */
 export const fetchInitialData = async <Params extends RouteParams, R extends ServiceRegistry, L extends Logs = Logs>(
   attr: RouteAttributes<Params> | undefined,
   params: Params,
@@ -74,7 +80,7 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
   const ctxForData = prepareDataContext(serviceRegistry, ctx);
 
   try {
-    const step = await resolveDataHandler(
+    return await runDataHandler(
       dataHandler,
       params,
       serviceRegistry,
@@ -82,14 +88,18 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
       callServiceMethodImpl,
       'attr.data must return a plain object or a ServiceDescriptor',
     );
-
-    // RETURNED, never `return await`ed: a service-call rejection escapes this classification block
-    // exactly as it always did (only a handler rejection or an invalid result is classified here).
-    return step.kind === 'dispatch' ? step.dispatch() : step.value;
   } catch (err: unknown) {
-    let e = AppError.from(err);
+    let e: AppError;
+    try {
+      e = AppError.from(err);
+    } catch {
+      e = AppError.internal('Initial data resolution failed');
+    }
 
-    const msg = String((err as any)?.message ?? '');
+    let msg = '';
+    try {
+      msg = String((err as any)?.message ?? '');
+    } catch {}
     const looksLikeHtml = /<!DOCTYPE/i.test(msg) || /<html/i.test(msg) || /Unexpected token <.*JSON/i.test(msg);
 
     if (looksLikeHtml) {
@@ -98,23 +108,8 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
         ...prevDetails,
         hint: 'api-missing-or-content-type',
         suggestion: 'Register api route so it returns JSON, or return a ServiceDescriptor from attr.data and use the ServiceRegistry.',
-        logged: true,
       });
     }
-    const level: 'warn' | 'error' = e.kind === 'domain' || e.kind === 'validation' || e.kind === 'auth' ? 'warn' : 'error';
-
-    const meta: Record<string, unknown> = {
-      component: 'fetch-initial-data',
-      kind: e.kind,
-      httpStatus: e.httpStatus,
-      ...(e.code ? { code: e.code } : {}),
-      ...(e.details ? { details: e.details } : {}),
-      ...(params ? { params } : {}),
-      traceId: ctx.traceId,
-    };
-
-    ctx.logger?.[level](meta, e.message);
-
-    throw e;
+    throw new InitialDataFailure(e, params);
   }
 };

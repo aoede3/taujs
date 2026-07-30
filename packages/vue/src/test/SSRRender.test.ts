@@ -450,10 +450,11 @@ describe('createRenderer.renderStream — completion & data delivery', () => {
     const writable = new Collector();
     const onError = vi.fn();
 
-    const { done } = makeRenderer().renderStream(writable as any, { onError }, () => Promise.reject(new Error('load fail')) as any, '/bad-data');
+    const original = new Error('load fail');
+    const { done } = makeRenderer().renderStream(writable as any, { onError }, () => Promise.reject(original) as any, '/bad-data');
 
-    await expect(done).rejects.toThrow('load fail');
-    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    await expect(done).rejects.toBe(original);
+    expect(onError).toHaveBeenCalledWith(original);
   });
 });
 

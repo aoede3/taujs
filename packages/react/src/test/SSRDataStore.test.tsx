@@ -87,7 +87,8 @@ describe('createSSRStore', () => {
   });
 
   it('should handle errors from initialDataPromise', async () => {
-    const errorPromise = Promise.reject(new Error('Failed to load data'));
+    const original = new Error('Failed to load data');
+    const errorPromise = Promise.reject(original);
     const store = createSSRStore(errorPromise);
 
     const consoleError = console.error;
@@ -368,7 +369,8 @@ describe('SSRStoreProvider and useSSRStore', () => {
   });
 
   it('should throw an error when there is an error loading data', async () => {
-    const errorPromise = Promise.reject(new Error('Failed to load data'));
+    const original = new Error('Failed to load data');
+    const errorPromise = Promise.reject(original);
     const store = createSSRStore(errorPromise);
 
     const consoleError = console.error;
@@ -380,7 +382,13 @@ describe('SSRStoreProvider and useSSRStore', () => {
 
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(() => store.getServerSnapshot()).to.throw('Server-side data fetch failed: Failed to load data');
+    let received: unknown;
+    try {
+      store.getServerSnapshot();
+    } catch (error) {
+      received = error;
+    }
+    expect(received).toBe(original);
 
     console.error = consoleError;
   });
@@ -410,7 +418,13 @@ describe('SSRStoreProvider and useSSRStore', () => {
     await p.catch(() => {});
     await new Promise((r) => setImmediate(r));
 
-    expect(() => store.getServerSnapshot()).toThrow('Server-side data fetch failed: Unknown error');
+    let received: unknown;
+    try {
+      store.getServerSnapshot();
+    } catch (error) {
+      received = error;
+    }
+    expect(received).toBe(err);
 
     spy.mockRestore();
   });

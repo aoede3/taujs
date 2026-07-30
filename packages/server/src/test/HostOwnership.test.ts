@@ -16,6 +16,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createServer } from '../CreateServer';
+import { AppError } from '../core/errors/AppError';
 import {
   CALLER_ASSET,
   CALLER_ASSET_PATH,
@@ -26,6 +27,7 @@ import {
   PATHS,
   TAUJS_ASSET_PATH,
   captureConsole,
+  captureLogger,
   closeAll,
   createCreatedHost,
   createDefaultNotFoundHost,
@@ -223,6 +225,63 @@ describe('RFC 0010 - caller-owned host', () => {
     expect(page.traceId).toBe(String(NUMERIC_REQUEST_ID));
     expect(page.traceId).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
     expect(JSON.stringify(host.logs)).toContain(String(NUMERIC_REQUEST_ID));
+  });
+
+  it('logs a real service-dispatch data failure once at the response boundary', async () => {
+    const host = await createExplicitLoggerHost();
+    const baseConfig = taujsConfig();
+    const baseApp = baseConfig.apps[0]!;
+    const route = '/rfc0010-service-failure';
+    const config = {
+      ...baseConfig,
+      apps: [
+        {
+          ...baseApp,
+          routes: [
+            ...(baseApp.routes ?? []),
+            {
+              path: route,
+              attr: { render: 'ssr' as const, data: async () => ({ serviceName: 'catalogue', serviceMethod: 'load', args: {} }) },
+            },
+          ],
+        },
+      ],
+    };
+    const logger = captureLogger(host.logs);
+
+    await createServer({
+      config,
+      fastify: host.app,
+      clientRoot: host.clientRoot,
+      logger,
+      debug: ['ssr'],
+      serviceRegistry: {
+        catalogue: {
+          load: async () => {
+            throw AppError.notFound('catalogue missing', undefined, 'E_CATALOGUE');
+          },
+        },
+      } as any,
+    });
+
+    const response = observe(await host.app.inject(route));
+    const requestRecords = host.logs.filter((record) => record.level === 'warn' || record.level === 'error');
+
+    expect(response.status).toBe(404);
+    expect(JSON.parse(response.body)).toMatchObject({ error: 'catalogue missing', code: 'E_CATALOGUE', statusText: 'Not Found' });
+
+    const serviceRecords = requestRecords.filter((record) => record.message === 'Service method failed');
+    const responseRecords = requestRecords.filter((record) => (record.meta as any).component === 'fetch-initial-data');
+
+    expect(serviceRecords).toHaveLength(1);
+    expect(responseRecords).toHaveLength(1);
+    expect(responseRecords[0]).toMatchObject({
+      level: 'warn',
+      meta: expect.objectContaining({ kind: 'domain', httpStatus: 404, code: 'E_CATALOGUE' }),
+    });
+    expect((responseRecords[0]!.meta as Record<string, unknown>).stack).toBeUndefined();
+    expect(requestRecords).toHaveLength(2);
+    expect(requestRecords.map((record) => record.message)).not.toContain('Critical rendering error during stream');
   });
 
   it('keeps route payloads out of the selected logger', async () => {

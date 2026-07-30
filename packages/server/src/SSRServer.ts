@@ -12,6 +12,7 @@ import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
 import { AppError } from './core/errors/AppError';
+import { logResponseFailure } from './core/errors/ResponseFailureLog';
 import { fastifyConfigForRoute, selectedRouteFrom } from './core/routes/FastifyRoutes';
 import { isDevelopment } from './System';
 
@@ -286,26 +287,21 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
   // caller's own handler stays authoritative for the caller's routes. On a τjs-created host the
   // owned scope IS the root, preserving today's whole-server behaviour.
   scope.setErrorHandler((err, req, reply) => {
-    const e = AppError.from(err);
-    const terminalLogger = getRequestContext(req)?.logger ?? logger;
-
-    const alreadyLogged = !!(e as any)?.details && (e as any).details && (e as any).details.logged;
-
-    if (!alreadyLogged) {
-      terminalLogger.error(
-        {
-          kind: e.kind,
-          httpStatus: e.httpStatus,
-          ...(e.code ? { code: e.code } : {}),
-          ...(e.details ? { details: e.details } : {}),
-          method: req.method,
-          url: req.url,
-          route: (req as any).routeOptions?.url,
-          stack: e.stack,
-        },
-        e.message,
-      );
+    let e: AppError;
+    try {
+      e = AppError.from(err);
+    } catch {
+      e = AppError.internal('Internal error');
     }
+
+    logResponseFailure({
+      terminal: 'fastify',
+      logger: getRequestContext(req)?.logger ?? logger,
+      error: e,
+      method: req.method,
+      url: req.url,
+      route: (req as any).routeOptions?.url,
+    });
 
     if (!reply.raw.headersSent) {
       const { status, body } = toHttp(e);

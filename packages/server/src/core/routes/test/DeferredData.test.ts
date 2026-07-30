@@ -19,7 +19,7 @@ const mkRecorder = (events: Event[]): TraceRecorder =>
     deferredData: (e: any) => events.push({ key: e.key, outcome: e.outcome }),
   }) as unknown as TraceRecorder;
 
-const mk = (deferred: Record<string, unknown>, opts: { signal?: AbortSignal; events?: Event[]; logger?: any } = {}) => {
+const mk = (deferred: Record<string, unknown>, opts: { signal?: AbortSignal; events?: Event[]; logger?: any; callServiceMethodImpl?: any } = {}) => {
   const logger = opts.logger ?? mkLogger();
   const controller = createDeferredData({
     attr: { render: 'streaming', meta: {}, deferred } as any,
@@ -28,6 +28,7 @@ const mk = (deferred: Record<string, unknown>, opts: { signal?: AbortSignal; eve
     ctx: { traceId: 't1', logger, headers: {}, signal: opts.signal },
     traceId: 't1',
     ...(opts.events ? { recorder: mkRecorder(opts.events) } : {}),
+    ...(opts.callServiceMethodImpl ? { callServiceMethodImpl: opts.callServiceMethodImpl } : {}),
   });
 
   return { controller, logger };
@@ -146,6 +147,30 @@ describe('createDeferredData - declaration and start (R2)', () => {
     const { controller } = mk({ reviews: async () => 42 as unknown as Record<string, unknown> });
 
     await expect(controller!.registry['reviews']).rejects.toThrow(/attr\.deferred\."reviews" must return a plain object or a ServiceDescriptor/);
+  });
+
+  it('dispatches a ServiceDescriptor, and a dispatch rejection settles the entry `failed` unclassified', async () => {
+    const boom = new Error('deferred service down');
+    const events: Event[] = [];
+    const { controller, logger } = mk(
+      { reviews: async () => ({ serviceName: 'svc', serviceMethod: 'list' }), tags: async () => ({ serviceName: 'svc', serviceMethod: 'tags' }) },
+      {
+        events,
+        callServiceMethodImpl: async (_registry: unknown, _service: string, method: string) => {
+          if (method === 'list') throw boom;
+          return { tags: ['a'] };
+        },
+      },
+    );
+
+    await expect(controller!.registry['reviews']).rejects.toBe(boom);
+    await expect(controller!.registry['tags']).resolves.toEqual({ tags: ['a'] });
+    expect(buildDeferredEnvelopeJson(controller!.settleAll())).toBe('{"reviews":{"status":"failed"},"tags":{"status":"complete","value":{"tags":["a"]}}}');
+    expect(events).toEqual([
+      { key: 'reviews', outcome: 'failed' },
+      { key: 'tags', outcome: 'complete' },
+    ]);
+    expect(logger.error).not.toHaveBeenCalled();
   });
 });
 

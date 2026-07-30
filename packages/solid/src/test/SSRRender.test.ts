@@ -277,6 +277,22 @@ describe('renderStream - the ruled error matrix', () => {
     expect(text()).toBe('');
   });
 
+  // The response terminal recognises the internal classified failure type only when the renderer
+  // preserves the ORIGINAL rejection reason. A copy or wrapper erases that classification and
+  // falls back to the generic fatal record.
+  it('route-data rejection reaches onError as the ORIGINAL object', async () => {
+    const { sink } = makeSink();
+    const cb = makeCallbacks();
+    const rejection = new Error('loader failed');
+    const { renderStream } = renderer();
+
+    const handle = renderStream(sink, cb, laterReject(rejection, 5), '/');
+
+    await expect(handle.done).rejects.toBe(rejection);
+    expect(cb.onError).toHaveBeenCalledTimes(1);
+    expect(cb.onError.mock.calls[0]![0]).toBe(rejection);
+  });
+
   it('a synchronously throwing lazy thunk is a PRE-SHELL fatal', async () => {
     const { sink } = makeSink();
     const cb = makeCallbacks();

@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 
 import { RENDERTYPE } from '../core/constants';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
+import { logResponseFailure } from '../core/errors/ResponseFailureLog';
 import { fetchHeadData, fetchInitialData } from '../core/routes/DataRoutes';
 import { buildDeferredEnvelopeJson, createDeferredData } from '../core/routes/DeferredData';
 import { now } from '../core/telemetry/Telemetry';
@@ -650,7 +651,13 @@ export const handleRender = async (
             // Format defensively and belt the telemetry so teardown always runs.
             try {
               recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
-              logger.error({ error: safeNormaliseError(err), clientRoot, url: req.url }, 'Critical rendering error during stream');
+              logResponseFailure({
+                terminal: 'streaming',
+                logger,
+                error: err,
+                clientRoot,
+                url: req.url,
+              });
             } catch {
               // telemetry formatting must not veto teardown
             }
