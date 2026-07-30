@@ -229,12 +229,24 @@ describe('RFC 0010 - caller-owned host', () => {
 
   it('logs a real service-dispatch data failure once at the response boundary', async () => {
     const host = await createExplicitLoggerHost();
-    const config = taujsConfig();
+    const baseConfig = taujsConfig();
+    const baseApp = baseConfig.apps[0]!;
     const route = '/rfc0010-service-failure';
-    config.apps[0]!.routes!.push({
-      path: route,
-      attr: { render: 'ssr', data: async () => ({ serviceName: 'catalogue', serviceMethod: 'load', args: {} }) },
-    });
+    const config = {
+      ...baseConfig,
+      apps: [
+        {
+          ...baseApp,
+          routes: [
+            ...(baseApp.routes ?? []),
+            {
+              path: route,
+              attr: { render: 'ssr' as const, data: async () => ({ serviceName: 'catalogue', serviceMethod: 'load', args: {} }) },
+            },
+          ],
+        },
+      ],
+    };
     const logger = captureLogger(host.logs);
 
     await createServer({
