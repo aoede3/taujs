@@ -1592,7 +1592,6 @@ describe('handleRender', () => {
       expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
     });
 
-    // The layer that classified a failure owns its record, so the fatal line is dropped for an
     // Recheck: the fatal onError callback must never throw on a HOSTILE unknown (a component can
     // legally throw an object whose `message` getter / `Symbol.toPrimitive` throws), otherwise the
     // response teardown is skipped and the request hangs.

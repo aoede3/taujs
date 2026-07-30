@@ -14,22 +14,27 @@ const fastifyContext = (error: unknown, logger: any) => ({
 });
 
 describe('logResponseFailure', () => {
-  it('logs an expected initial-data failure once at warn without a stack', () => {
+  it.each([
+    ['domain', AppError.notFound('missing product', undefined, 'E_MISSING')],
+    ['validation', AppError.badRequest('invalid product', undefined, 'E_INVALID')],
+    ['auth', AppError.forbidden('forbidden product', undefined, 'E_FORBIDDEN')],
+  ] as const)('logs a %s initial-data failure once at warn without a stack', (_expectedKind, classified) => {
     const logger = { warn: vi.fn(), error: vi.fn() };
-    const failure = new InitialDataFailure(AppError.badRequest('invalid product', { field: 'id' }, 'E_ID'), { id: '42' });
+    const failure = new InitialDataFailure(classified, { id: '42' });
 
     logResponseFailure(fastifyContext(failure, logger));
 
+    expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         component: 'fetch-initial-data',
         origin: 'attr.data',
-        kind: 'validation',
-        httpStatus: 400,
-        code: 'E_ID',
+        kind: classified.kind,
+        httpStatus: classified.httpStatus,
+        code: classified.code,
         params: { id: '42' },
       }),
-      'invalid product',
+      classified.message,
     );
     expect(logger.warn.mock.calls[0]![0].stack).toBeUndefined();
     expect(logger.error).not.toHaveBeenCalled();
@@ -37,7 +42,7 @@ describe('logResponseFailure', () => {
 
   it('logs an unexpected initial-data failure with its stack at the streaming terminal', () => {
     const logger = { warn: vi.fn(), error: vi.fn() };
-    const failure = new InitialDataFailure(AppError.internal('upstream failed'), { id: '42' });
+    const failure = new InitialDataFailure(AppError.upstream('upstream failed'), { id: '42' });
 
     logResponseFailure({ terminal: 'streaming', logger, error: failure, clientRoot: '/client', url: '/products/42' });
 

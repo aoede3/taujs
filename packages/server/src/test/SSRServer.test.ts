@@ -801,7 +801,7 @@ describe('SSRServer', () => {
     expect(res.json()).toEqual({ message: 'safe' });
   });
 
-  it('error handler: logs an unmarked error whose details is a non-object', async () => {
+  it('error handler: logs an error whose details is a non-object', async () => {
     handleRenderMock.mockImplementationOnce(async () => {
       const err: any = new Error('nonobj-details');
       err.httpStatus = 502;
@@ -823,7 +823,7 @@ describe('SSRServer', () => {
     expect(resA.statusCode).toBe(499);
   });
 
-  it('error handler: logs an unmarked error regardless of its details content', async () => {
+  it('error handler: logs an error regardless of its details content', async () => {
     const app2 = fastify();
 
     handleRenderMock.mockImplementationOnce(async () => {

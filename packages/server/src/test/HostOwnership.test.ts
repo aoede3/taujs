@@ -16,6 +16,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createServer } from '../CreateServer';
+import { AppError } from '../core/errors/AppError';
 import {
   CALLER_ASSET,
   CALLER_ASSET_PATH,
@@ -245,7 +246,7 @@ describe('RFC 0010 - caller-owned host', () => {
       serviceRegistry: {
         catalogue: {
           load: async () => {
-            throw new Error('catalogue unavailable');
+            throw AppError.notFound('catalogue missing', undefined, 'E_CATALOGUE');
           },
         },
       } as any,
@@ -254,9 +255,19 @@ describe('RFC 0010 - caller-owned host', () => {
     const response = observe(await host.app.inject(route));
     const requestRecords = host.logs.filter((record) => record.level === 'warn' || record.level === 'error');
 
-    expect(response.status).toBe(500);
-    expect(requestRecords.filter((record) => record.message === 'Service method failed')).toHaveLength(1);
-    expect(requestRecords.filter((record) => (record.meta as any).component === 'fetch-initial-data')).toHaveLength(1);
+    expect(response.status).toBe(404);
+    expect(JSON.parse(response.body)).toMatchObject({ error: 'catalogue missing', code: 'E_CATALOGUE', statusText: 'Not Found' });
+
+    const serviceRecords = requestRecords.filter((record) => record.message === 'Service method failed');
+    const responseRecords = requestRecords.filter((record) => (record.meta as any).component === 'fetch-initial-data');
+
+    expect(serviceRecords).toHaveLength(1);
+    expect(responseRecords).toHaveLength(1);
+    expect(responseRecords[0]).toMatchObject({
+      level: 'warn',
+      meta: expect.objectContaining({ kind: 'domain', httpStatus: 404, code: 'E_CATALOGUE' }),
+    });
+    expect((responseRecords[0]!.meta as Record<string, unknown>).stack).toBeUndefined();
     expect(requestRecords).toHaveLength(2);
     expect(requestRecords.map((record) => record.message)).not.toContain('Critical rendering error during stream');
   });
