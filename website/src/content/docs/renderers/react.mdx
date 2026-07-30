@@ -1057,7 +1057,7 @@ export const serviceRegistry = defineServiceRegistry({
 
 ### Typed route context from `taujs.config.ts`
 
-When you use `@taujs/server`, you can derive a typed route context from your config and feed it into `createRenderer`:
+When you use `@taujs/server`, the host builds the route context for you - `{ appId, path, attr, params }` from the matched route. Type the generic with the exported `RouteContext`: the bare form is the broad runtime shape, and `RouteContext<typeof config>` narrows `appId`, `path` and `attr` to the routes your config declares:
 
 ```typescript
 import { createRenderer, escapeHtml } from "@taujs/react";
@@ -1065,7 +1065,7 @@ import { createRenderer, escapeHtml } from "@taujs/react";
 import config from "../taujs.config";
 import { AppBootstrap } from "./AppBootstrap";
 
-import type { RouteContext } from "@taujs/server";
+import type { RouteContext } from "@taujs/server/config";
 
 export const { renderSSR, renderStream } = createRenderer<
   Record<string, unknown>,
@@ -1085,7 +1085,7 @@ export const { renderSSR, renderStream } = createRenderer<
 });
 ```
 
-`@taujs/server` builds a matching routeContext object from the matched route (appId, path, params, attr, data) and passes it into renderSSR / renderStream for you.
+`@taujs/server` builds a matching routeContext object from the matched route (`appId`, `path`, `attr`, `params`) and passes it into renderSSR / renderStream for you. Route data is not on it - that arrives through the SSR store.
 
 ### Key Integration Features
 

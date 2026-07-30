@@ -122,9 +122,13 @@ export type AppId<C extends { apps: readonly { appId: string }[] }> = C['apps'][
 
 export type AppOf<C extends { apps: readonly any[] }, A extends AppId<C>> = Extract<C['apps'][number], { appId: A }>;
 
-export type RoutesOfApp<C extends { apps: readonly any[] }, A extends AppId<C>> = AppOf<C, A>['routes'] extends readonly any[]
-  ? AppOf<C, A>['routes'][number]
-  : never;
+// NonNullable is load-bearing (public-alias repair, 2026-07-30): the broad config family declares
+// `routes?:` (optional), so the raw property is `readonly AppRoute[] | undefined` and would fail
+// the array test - collapsing every derived context and data type to `never`, including the
+// public `RouteContext`/`RouteData` aliases. Literal configs with a required routes tuple are
+// unaffected. Pinned by `test/PublicRouteContext.test-d.ts`.
+export type RoutesOfApp<C extends { apps: readonly any[] }, A extends AppId<C>> =
+  NonNullable<AppOf<C, A>['routes']> extends readonly any[] ? NonNullable<AppOf<C, A>['routes']>[number] : never;
 
 export type RouteDataOf<R> = R extends { attr?: { data?: (...args: any) => infer Ret } } ? Awaited<Ret> : unknown;
 
@@ -182,12 +186,25 @@ type DescriptorMemberToRecord<V> = V extends ServiceDescriptor ? Record<string, 
 
 export type RoutePathOf<R> = R extends { path: infer P } ? P : never;
 
+/**
+ * Ruled 2026-07-29 (followup: RouteContext type/runtime drift): the public context type mirrors
+ * the runtime value HandleRender constructs - `{ appId, path, attr, params }` - EXACTLY. `data`
+ * was never supplied at runtime (route data reaches the renderer's store, not the context) and is
+ * deliberately absent; `params` is the matched route parameters, typed as the same broad
+ * `RouteParams` every data handler receives. Pinned by `test/RouteContext.test-d.ts` and by the
+ * HandleRender runtime assertions on both render strategies.
+ */
 export type SingleRouteContext<C extends { apps: readonly any[] }, A extends AppId<C>, R extends RoutesOfApp<C, A>> = R extends any
   ? {
       appId: A;
       path: RoutePathOf<R>;
-      data: RouteDataOf<R>;
-      attr: R extends { attr?: infer Attr } ? Attr : never;
+      // Three arms, mirroring the runtime (the context key always exists; its value is the
+      // route's attr or `undefined`): a required `attr` keeps its declared type; an optional
+      // `attr?:` declaration admits `undefined`; a route with no attr member types `undefined`.
+      // The single optional-probe arm this replaces resolved no-attr routes to `never` (the
+      // weak-type rule fails the probe outright) - a field the runtime populates with undefined.
+      attr: R extends { attr: infer Attr } ? Attr : R extends { attr?: infer Attr } ? Attr | undefined : undefined;
+      params: RouteParams;
     }
   : never;
 
@@ -195,9 +212,20 @@ export type RouteContext<C extends { apps: readonly any[] }> = {
   [A in AppId<C>]: SingleRouteContext<C, A, RoutesOfApp<C, A>>;
 }[AppId<C>];
 
-export type RoutesData<C extends { apps: readonly any[] }> = RouteContext<C>['data'];
+// Internal: preserves the exact pre-ruling data derivation for RoutesData/RouteData after `data`
+// left the public context. Distribution mechanics are identical to SingleRouteContext's, so the
+// derived unions are unchanged by the ruling.
+type SingleRouteDataEntry<C extends { apps: readonly any[] }, A extends AppId<C>, R extends RoutesOfApp<C, A>> = R extends any
+  ? { path: RoutePathOf<R>; data: RouteDataOf<R> }
+  : never;
 
-export type RouteData<C extends { apps: readonly any[] }, Path extends string> = Extract<RouteContext<C>, { path: Path }>['data'];
+type RouteDataEntry<C extends { apps: readonly any[] }> = {
+  [A in AppId<C>]: SingleRouteDataEntry<C, A, RoutesOfApp<C, A>>;
+}[AppId<C>];
+
+export type RoutesData<C extends { apps: readonly any[] }> = RouteDataEntry<C>['data'];
+
+export type RouteData<C extends { apps: readonly any[] }, Path extends string> = Extract<RouteDataEntry<C>, { path: Path }>['data'];
 
 export type CoreSecurityConfig = {
   csp?: {
