@@ -804,12 +804,14 @@ describe('SSRServer', () => {
 
   // The layer that classified the error owns its record; the terminal drops only the duplicate LOG
   // and still converts the response.
-  it('error handler: emits no record for an error already logged, and still converts the response', async () => {
+  it('error handler: emits no record for an error already logged in THIS request, and still converts the response', async () => {
     const classified: any = Object.assign(new AppErrorFake(), { message: 'classified upstream', httpStatus: 500 });
-    markErrorLogged(classified);
     (AppErrorFake.from as Mock).mockImplementationOnce(() => classified);
 
-    handleRenderMock.mockImplementationOnce(async () => {
+    handleRenderMock.mockImplementationOnce(async (req: any) => {
+      // Mark under the request context the onRequest hook stored - the same key the terminal
+      // consults. Marking from inside the handler mirrors where production classification runs.
+      markErrorLogged(req.taujsRequestContext, classified);
       throw classified;
     });
 

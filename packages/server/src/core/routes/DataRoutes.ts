@@ -61,8 +61,10 @@ export const fetchHeadData = async <Params extends RouteParams, R extends Servic
 /**
  * Resolve `attr.data` and OWN its failure taxonomy: a handler rejection, an invalid result and a
  * service-dispatch rejection are classified alike, each producing ONE record under
- * `component: 'fetch-initial-data'`. The classified error is marked as logged, so the response
- * terminals convert, record and tear down without emitting a second record for the same failure.
+ * `component: 'fetch-initial-data'`. The classified error is marked as logged UNDER `requestKey` -
+ * the caller's request-context object, shared with the response terminals - so those terminals
+ * convert, record and tear down without emitting a second record for the same failure in the same
+ * request. Without a key the error stays unmarked and the terminal logs (fail safe).
  *
  * `prepareDataContext` sits outside the classified block: an `ensureServiceCaller` throw is route
  * wiring rather than a data failure and stays unclassified.
@@ -73,6 +75,7 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
   serviceRegistry: R,
   ctx: RequestContext<L>,
   callServiceMethodImpl: CallServiceOn<R> = callServiceMethod as CallServiceOn<R>,
+  requestKey?: object,
 ): Promise<Record<string, unknown>> => {
   const dataHandler = attr?.data;
   if (!dataHandler || typeof dataHandler !== 'function') return {};
@@ -123,7 +126,7 @@ export const fetchInitialData = async <Params extends RouteParams, R extends Ser
     try {
       if (ctx.logger) {
         ctx.logger[level](meta, e.message);
-        markErrorLogged(e);
+        markErrorLogged(requestKey, e);
       }
     } catch {
       // the classified error below is the response outcome, with or without a record

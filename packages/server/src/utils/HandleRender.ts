@@ -255,7 +255,9 @@ export const handleRender = async (
     const initialDataInput = async () => {
       const dataT0 = now();
       try {
-        const out = await fetchInitialData(attr, params, serviceRegistry, ctx);
+        // `requestContext` is the marker's request key - the same stored object the response
+        // terminals key their duplicate-log check on.
+        const out = await fetchInitialData(attr, params, serviceRegistry, ctx, undefined, requestContext);
         recorder?.dataFetch({ traceId, ms: +(now() - dataT0).toFixed(1), ok: true });
         return out;
       } catch (err) {
@@ -651,11 +653,12 @@ export const handleRender = async (
             // Format defensively and belt the telemetry so teardown always runs.
             try {
               recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
-              // The fatal line is a BACKSTOP record, skipped only for an error whose own layer
-              // already classified and logged it (the renderer forwards that original object
-              // unchanged). The recording above, the aborts and the teardown below stay
-              // unconditional - only the duplicate LOG is suppressed.
-              if (!wasErrorLogged(err)) logger.error({ error: safeNormaliseError(err), clientRoot, url: req.url }, 'Critical rendering error during stream');
+              // The fatal line is a BACKSTOP record, skipped only for an error THIS REQUEST's
+              // classification layer already logged AND whose original object the renderer
+              // forwarded unchanged into its fatal channel. The recording above, the aborts and
+              // the teardown below stay unconditional - only the duplicate LOG is suppressed.
+              if (!wasErrorLogged(requestContext, err))
+                logger.error({ error: safeNormaliseError(err), clientRoot, url: req.url }, 'Critical rendering error during stream');
             } catch {
               // telemetry formatting must not veto teardown
             }

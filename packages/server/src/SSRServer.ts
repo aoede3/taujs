@@ -291,10 +291,12 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     const terminalLogger = getRequestContext(req)?.logger ?? logger;
 
     // The terminal is a BACKSTOP record: a layer that already classified and logged this exact
-    // error object owns its record, so repeating it here would only duplicate. Identity is the
-    // only admissible signal - error `details` are application-controlled and would let any
-    // handler silence the terminal. Response conversion below is unconditional either way.
-    if (!wasErrorLogged(e)) {
+    // error object IN THIS REQUEST owns its record, so repeating it here would only duplicate.
+    // Identity under the request's own key is the only admissible signal - error `details` are
+    // application-controlled and would let any handler silence the terminal, and a mark left by
+    // an earlier request must not silence this one. Response conversion below is unconditional
+    // either way.
+    if (!wasErrorLogged(getRequestContext(req), e)) {
       terminalLogger.error(
         {
           kind: e.kind,

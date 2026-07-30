@@ -1,33 +1,50 @@
 /**
- * Which error objects have already produced a log record, so a response terminal can skip a
- * DUPLICATE log line - and only the log line. Response conversion, trace recording, aborts and
- * teardown stay unconditional on every terminal that consults this.
+ * Which error objects have already produced a log record WITHIN A GIVEN REQUEST, so a response
+ * terminal can skip a DUPLICATE log line - and only the log line. Response conversion, trace
+ * recording, aborts and teardown stay unconditional on every terminal that consults this.
  *
- * A module-private `WeakSet` keyed on the error object itself is the ruled mechanism:
- * - the mark is unreachable from application data, so an application error can never claim to have
- *   been logged (`AppError.details` is application-controlled and must never act as control-plane
- *   state);
- * - marking mutates nothing on the error, so it works on frozen errors and adds nothing to
- *   serialised or logged metadata;
- * - membership is weak, so a marked error is retained no longer than the request that threw it.
+ * Marks are scoped per request, keyed on the request-context object that the classification site
+ * and the terminals share, because an application may legally throw ONE long-lived error object
+ * from many places: a mark left by an earlier request must never suppress a later request's only
+ * terminal record. The outer `WeakMap` entry expires with its request context and the inner
+ * `WeakSet` holds the error weakly, so nothing here extends any object's lifetime.
  *
- * Marking and checking both happen inside ONE `@taujs/server` request path, so a second installed
- * copy of the package is irrelevant. Renderers forward the original error object untouched and
- * never inspect the marker.
+ * The mark is unreachable from application data (`AppError.details` is application-controlled and
+ * must never act as control-plane state), mutates nothing on the error - frozen errors work and
+ * no serialised or logged metadata changes - and a missing request key fails SAFE: nothing is
+ * marked, nothing is suppressed, the terminal logs.
+ *
+ * Deduplication applies only where the ORIGINAL error object reaches the terminal: always on the
+ * SSR strategy, and on streaming when the renderer forwards the rejection it was given into its
+ * fatal channel unchanged (pinned for solid; react wraps the rejection in its store read - see
+ * docs/followups/renderer-store-rejection-identity.md - and vue is unclaimed until it has an
+ * identity test).
  *
  * INTERNAL: importable by source modules, never exported from a package entry point.
  */
-const loggedErrors = new WeakSet<object>();
+const loggedByRequest = new WeakMap<object, WeakSet<object>>();
 
 /**
- * Record that `error` has produced its log record. A non-object throwable carries no stable
- * identity to key on and is ignored - it simply stays unmarked.
+ * Record that `error` has produced its log record within the request identified by `requestKey`.
+ * A missing or primitive key, or a non-object throwable, carries no usable identity and is
+ * ignored - the error simply stays unmarked.
  */
-export function markErrorLogged(error: unknown): void {
-  if (typeof error === 'object' && error !== null) loggedErrors.add(error);
+export function markErrorLogged(requestKey: unknown, error: unknown): void {
+  if (typeof requestKey !== 'object' || requestKey === null) return;
+  if (typeof error !== 'object' || error === null) return;
+
+  let marked = loggedByRequest.get(requestKey);
+  if (!marked) {
+    marked = new WeakSet<object>();
+    loggedByRequest.set(requestKey, marked);
+  }
+  marked.add(error);
 }
 
-/** True only for an error object previously passed to {@link markErrorLogged}. */
-export function wasErrorLogged(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && loggedErrors.has(error);
+/** True only for an error object previously marked under the SAME request key. */
+export function wasErrorLogged(requestKey: unknown, error: unknown): boolean {
+  if (typeof requestKey !== 'object' || requestKey === null) return false;
+  if (typeof error !== 'object' || error === null) return false;
+
+  return loggedByRequest.get(requestKey)?.has(error) ?? false;
 }

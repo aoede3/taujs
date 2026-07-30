@@ -368,16 +368,40 @@ describe('fetchInitialData', () => {
     }
   });
 
-  it('marks the classified error, so a response terminal can tell it is already reported', async () => {
+  it('marks the classified error under the request key, so a response terminal can tell it is already reported', async () => {
     const attr = {
       data: vi.fn(async () => {
         throw new Error('marked');
       }),
     } as any;
+    const requestKey = {};
+
+    const e = await fetchInitialData(attr, {} as any, registry, mkCtx(), undefined, requestKey).catch((thrown) => thrown);
+
+    expect(wasErrorLogged(requestKey, e)).toBe(true);
+  });
+
+  it('a mark is request-scoped: the same error object marked under request A stays unmarked under request B', async () => {
+    // An application may legally throw ONE long-lived error object from many places. A mark left
+    // by request A's classification must not let request B's terminal suppress ITS only record.
+    const singleton = AppError.internal('module-level shared failure');
+    const attr = { data: vi.fn(async () => Promise.reject(singleton)) } as any;
+    const requestA = {};
+    const requestB = {};
+
+    const e = await fetchInitialData(attr, {} as any, registry, mkCtx(), undefined, requestA).catch((thrown) => thrown);
+
+    expect(e).toBe(singleton);
+    expect(wasErrorLogged(requestA, e)).toBe(true);
+    expect(wasErrorLogged(requestB, e)).toBe(false);
+  });
+
+  it('without a request key the classified error stays unmarked - the terminal logs (fail safe)', async () => {
+    const attr = { data: vi.fn(async () => Promise.reject(new Error('keyless'))) } as any;
 
     const e = await fetchInitialData(attr, {} as any, registry, mkCtx()).catch((thrown) => thrown);
 
-    expect(wasErrorLogged(e)).toBe(true);
+    expect(wasErrorLogged({}, e)).toBe(false);
   });
 
   it('a throwing logger forfeits the record without changing the propagated error or marking it', async () => {
@@ -387,12 +411,47 @@ describe('fetchInitialData', () => {
     const brokenLogger = { warn: vi.fn(down), error: vi.fn(down) };
     const boom = AppError.badRequest('still mine');
     const attr = { data: vi.fn(async () => Promise.reject(boom)) } as any;
+    const requestKey = {};
 
-    const e = await fetchInitialData(attr, {} as any, registry, mkCtx({ logger: brokenLogger as any })).catch((thrown) => thrown);
+    const e = await fetchInitialData(attr, {} as any, registry, mkCtx({ logger: brokenLogger as any }), undefined, requestKey).catch((thrown) => thrown);
 
     expect(e).toBe(boom);
     expect(brokenLogger.warn).toHaveBeenCalledTimes(1);
-    expect(wasErrorLogged(e)).toBe(false);
+    expect(wasErrorLogged(requestKey, e)).toBe(false);
+  });
+
+  it('real service dispatch: one service-call record, one classification record, and the marked error silences only the terminal', async () => {
+    // The REAL callServiceMethod logs 'Service method failed' before rethrowing - an intentional
+    // service-layer diagnostic that stays a separate record. The contract is exactly one
+    // fetch-initial-data classification record with no repeated response-terminal record, NOT one
+    // record in total across layers.
+    const records: Array<{ level: string; msg: string }> = [];
+    const capture = (level: string) =>
+      vi.fn((_meta: unknown, msg?: string) => {
+        records.push({ level, msg: msg ?? '' });
+      });
+    const captureLogger: any = { debug: capture('debug'), info: capture('info'), warn: capture('warn'), error: capture('error') };
+    captureLogger.child = vi.fn(() => captureLogger);
+
+    const failure = new Error('upstream unavailable');
+    const realRegistry = {
+      catalogue: {
+        load: vi.fn(async () => {
+          throw failure;
+        }),
+      },
+    } as any;
+    const attr = { data: vi.fn(async () => ({ serviceName: 'catalogue', serviceMethod: 'load', args: {} })) } as any;
+    const requestKey = {};
+
+    const e = await fetchInitialData(attr, {} as any, realRegistry, mkCtx({ logger: captureLogger }), undefined, requestKey).catch((thrown) => thrown);
+
+    const serviceRecords = records.filter((r) => r.msg === 'Service method failed');
+    const boundaryRecords = records.filter((r) => r.msg === (e as Error).message);
+    expect(serviceRecords).toHaveLength(1);
+    expect(boundaryRecords).toHaveLength(1);
+    expect(records.filter((r) => r.level === 'warn' || r.level === 'error')).toHaveLength(2);
+    expect(wasErrorLogged(requestKey, e)).toBe(true);
   });
 
   it('an expected 4xx is ONE stackless warn; an unexpected failure is ONE error carrying a stack', async () => {
@@ -478,6 +537,6 @@ describe('fetchHeadData (RFC 0004 H1)', () => {
 
     expect(ctx.logger.error).not.toHaveBeenCalled();
     expect(ctx.logger.warn).not.toHaveBeenCalled();
-    expect(wasErrorLogged(boom)).toBe(false);
+    expect(wasErrorLogged(ctx, boom)).toBe(false);
   });
 });

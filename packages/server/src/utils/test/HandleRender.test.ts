@@ -1572,15 +1572,18 @@ describe('handleRender', () => {
       setupStreamingRoute();
 
       const failed = vi.fn();
-      vi.mocked(Telemetry.createRequestContext).mockReturnValue({
+      const requestCtx = {
         traceId: 'trace-1',
         logger: mockLogger,
         headers: { host: 'localhost' },
         recorder: { ...noopTraceRecorder, failed },
-      } as any);
+      } as any;
+      vi.mocked(Telemetry.createRequestContext).mockReturnValue(requestCtx);
 
       const err = new Error('classified by its own layer');
-      markErrorLogged(err);
+      // Marked under the SAME request-context object the handler will adopt - the streaming
+      // terminal keys its duplicate-log check on it.
+      markErrorLogged(requestCtx, err);
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
         writable.on = vi.fn();
@@ -2763,6 +2766,9 @@ describe('handleRender', () => {
             error: expect.any(Function),
           }),
         }),
+        undefined,
+        // The request-context object, threaded as the log-dedupe marker's request key.
+        expect.any(Object),
       );
     });
 
