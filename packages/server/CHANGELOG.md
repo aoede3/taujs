@@ -1,5 +1,17 @@
 # @taujs/server
 
+## 0.17.0
+
+### Minor Changes
+
+- [#50](https://github.com/aoede3/taujs/pull/50) [`6e1f9c3`](https://github.com/aoede3/taujs/commit/6e1f9c3e51345c841617ba2813e097210307fc2d) Thanks [@aoede3](https://github.com/aoede3)! - Align the public RouteContext type with the runtime value - the context is `{ appId, path, attr, params }`, exactly what renderers receive. The `data` field is removed from the type (it was never supplied at runtime; route data reaches the renderer store) and the runtime-supplied `params` is typed as `RouteParams`.
+
+  This also repairs the public aliases: `RouteContext` and `RouteData` from `@taujs/server/config` previously collapsed to `never` (optional `routes` on the broad config failed an internal array test), so neither was usable; there were no in-repository consumers of the collapsed aliases. `RouteContext` is now generic with a broad default - bare for the runtime shape, `RouteContext<typeof config>` for per-route precision - and a route without `attr` types its context `attr` as `undefined` rather than `never`. `RoutesData` and `RouteData` derive the same data unions as before from route declarations; path-specific `RouteData` lookup requires the concrete config type. Minor rather than patch because removing the declared `data` field can break downstream code typed against it, even though that field was always `undefined` at runtime.
+
+### Patch Changes
+
+- [#51](https://github.com/aoede3/taujs/pull/51) [`b839dd8`](https://github.com/aoede3/taujs/commit/b839dd8db843cf8b57959a26fc41024930429bb2) Thanks [@aoede3](https://github.com/aoede3)! - `RouteData` now resolves `serviceData()` routes to the selected service method's result instead of the runtime descriptor - the `RouteDataOf` brand arm the `SERVICE_RESULT` comment always promised, mirroring `HeadDataOf`. Hand-built descriptor closures collapse to `Record<string, unknown>` (the dispatch result is untyped), plain closures are unchanged, and a route without `attr.data` resolves to the new exported `EmptyRouteData` (`Record<string, undefined>` - the honest type of the `{}` the server supplies), so a data-less route unions cleanly into an app-wide `RouteData` instead of collapsing it to `unknown`. All arms pinned by the internal and public type gates.
+
 ## 0.16.1
 
 ### Patch Changes

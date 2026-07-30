@@ -1,5 +1,11 @@
 # @taujs/cli
 
+## 0.5.0
+
+### Minor Changes
+
+- [#51](https://github.com/aoede3/taujs/pull/51) [`08e1522`](https://github.com/aoede3/taujs/commit/08e152283b5d3929bf3e794b80daf2f9443af42b) Thanks [@aoede3](https://github.com/aoede3)! - Generated projects now demonstrate the derived type chain from `taujs.config.ts` through the renderer to the store. A type-only `src/client/app-types.ts` exports `AppRouteContext = RouteContext<typeof config>` and `AppData = RouteData<typeof config>`; the generated config declares registry-typed `serviceData()` edges instead of a hand-built descriptor; `createRenderer` receives `<AppData, AppRouteContext>` in all three frameworks; and every hand-written payload type is replaced by the derived `AppData`. The lifecycle gate typechecks a generated project end to end against packed tarballs.
+
 ## 0.4.0
 
 ### Minor Changes
