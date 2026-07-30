@@ -48,6 +48,7 @@ describe('planFiles — Vue template', () => {
       'src/client/App.vue',
       'src/client/HomePage.vue',
       'src/client/StreamingPage.vue',
+      'src/client/app-types.ts',
       'src/client/entry-client.ts',
       'src/client/entry-server.ts',
       'src/client/vite-env.d.ts',
@@ -70,6 +71,8 @@ describe('planFiles — Vue template', () => {
       'build.ts',
       'src/client/index.html',
       'src/client/styles.css',
+      // The derived type contract is framework-independent by design - one source.
+      'src/client/app-types.ts',
       'src/server/tsconfig.json',
       '.mcp.json',
       'CLAUDE.md',
@@ -122,7 +125,28 @@ describe('planFiles — Vue template', () => {
   it('references no removed APIs and no /__taujs paths', () => {
     const all = Object.values(vue).join('\n');
     expect(all).not.toMatch(/__taujs\//);
-    expect(all).not.toMatch(/getSnapshotOrThrow|useSSRDataOrSuspend|RouteData|useRouteClientData/);
+    // `RouteData` left this denylist 2026-07-30: the banned name was a removed CLIENT API, and the
+    // server-derived `RouteData` type is now a legitimate import in app-types.ts - from
+    // '@taujs/server/config' only, asserted below.
+    expect(all).not.toMatch(/getSnapshotOrThrow|useSSRDataOrSuspend|useRouteClientData/);
+  });
+
+  it('derives the type chain from taujs.config.ts instead of hand-writing it', () => {
+    const all = Object.values(vue).join('\n');
+    const appTypes = vue['src/client/app-types.ts']!;
+    expect(appTypes).toContain("import type { RouteContext, RouteData } from '@taujs/server/config';");
+    expect(appTypes).toContain('export type AppRouteContext = RouteContext<typeof config>;');
+    expect(appTypes).toContain('export type AppData = RouteData<typeof config>;');
+
+    // The config declares registry-typed service edges, never a hand-built descriptor.
+    expect(vue['taujs.config.ts']).toContain('const serviceData = createServiceData<ServiceRegistry>();');
+    expect(vue['taujs.config.ts']).not.toContain('serviceName:');
+
+    // Clients consume the derived types; no template hand-writes a payload shape.
+    expect(all).not.toContain('GreetingData');
+    expect(vue['src/client/HomePage.vue']).toContain('useSSRData<AppData>()');
+    expect(vue['src/client/StreamingPage.vue']).toContain('useSSRDataAsync<AppData>()');
+    expect(vue['src/client/entry-server.ts']).toContain('createRenderer<AppData, AppRouteContext>({');
   });
 
   it('README documents the Vue file tree and Vue docs link', () => {

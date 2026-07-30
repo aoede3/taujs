@@ -27,7 +27,8 @@ import { afterAll, describe, expect, it } from 'vitest';
  * - Teardown awaits actual process exit and polls until the port is released - no fixed sleeps.
  *
  * React runs the identical stages as a CONTROL, proving the scaffolder-baseline corrections are
- * shared repairs rather than Solid-specific accommodations.
+ * shared repairs rather than Solid-specific accommodations. Vue joined on 2026-07-30 (derived
+ * type-chain work), so the generated chain is compiler-proven for all three frameworks.
  */
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 const CLI = fileURLToPath(new URL('../../dist/index.js', import.meta.url));
@@ -124,7 +125,7 @@ const startServer = (cwd: string, script: string) => {
   return { child, output: () => output };
 };
 
-/** Pack every workspace package once; both frameworks install identical, user-shaped tarballs. */
+/** Pack every workspace package once; all three frameworks install identical, user-shaped tarballs. */
 let packedCache: Record<string, string> | undefined;
 const packAll = (): Record<string, string> => {
   if (packedCache) return packedCache;
@@ -168,7 +169,7 @@ const runTransaction = async (stages: Stage[]): Promise<string[]> => {
   return completed;
 };
 
-describe.each(['solid', 'react'] as const)('slice 6 - generated %s project lifecycle (real CLI, packed tarballs)', (framework) => {
+describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s project lifecycle (real CLI, packed tarballs)', (framework) => {
   it('generates, installs, typechecks, boots dev, builds, and boots production', { timeout: 900_000 }, async () => {
     if (!existsSync(CLI)) throw new Error(`CLI dist missing at ${CLI} - run \`pnpm build\` first`);
 
@@ -194,7 +195,7 @@ describe.each(['solid', 'react'] as const)('slice 6 - generated %s project lifec
         run: () => {
           const read = (rel: string) => readFileSync(path.join(projectDir, rel), 'utf8');
 
-          // Shared scaffolder baseline, asserted for BOTH frameworks.
+          // Shared scaffolder baseline, asserted for ALL THREE frameworks.
           expect(read('src/server/types.d.ts').startsWith("import '@taujs/server/config';")).toBe(true);
           const pkg = JSON.parse(read('package.json')) as { devDependencies: Record<string, string>; scripts: Record<string, string> };
           expect(pkg.devDependencies.esbuild).toBeTruthy();
@@ -206,9 +207,12 @@ describe.each(['solid', 'react'] as const)('slice 6 - generated %s project lifec
             expect(read('src/client/entry-server.tsx')).toContain("import { createRenderer } from '@taujs/solid';");
             expect(read('src/client/entry-client.tsx')).toContain("import { hydrateApp } from '@taujs/solid';");
             expect(JSON.parse(read('tsconfig.solid.json')).include).toEqual(['src/client/**/*.tsx']);
-          } else {
+          } else if (framework === 'react') {
             expect(read('taujs.config.ts')).toContain('reactRenderer({');
             expect(read('src/client/entry-server.tsx')).toContain("import { createRenderer } from '@taujs/react';");
+          } else {
+            expect(read('taujs.config.ts')).toContain('renderer: vueRenderer(),');
+            expect(read('src/client/entry-server.ts')).toContain("import { createRenderer } from '@taujs/vue';");
           }
         },
       },
