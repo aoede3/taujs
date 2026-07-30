@@ -32,7 +32,9 @@ const BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(homedir(
 // browser and run everywhere - the hydrate:false regression guard must not be local-only.
 const HAS_PINNED_BROWSER = existsSync(path.join(BROWSERS_PATH, 'chromium-1117'));
 if (!HAS_PINNED_BROWSER)
-  console.warn(`[browser.test] chromium-1117 not under ${BROWSERS_PATH} - skipping the real-browser tests, byte-level assertions still run (install the pinned browser for the full cell)`);
+  console.warn(
+    `[browser.test] chromium-1117 not under ${BROWSERS_PATH} - skipping the real-browser tests, byte-level assertions still run (install the pinned browser for the full cell)`,
+  );
 
 let browser: Browser | undefined;
 let server: ChildProcess | undefined;
