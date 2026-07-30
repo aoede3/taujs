@@ -19,7 +19,7 @@ import type { RequestContext } from '../telemetry/Telemetry';
  *      service-call rejection all surface to the caller through the same channel.
  *
  * This module owns dispatch, never classification - failure POLICY belongs to each caller:
- * `fetchInitialData` classifies, logs and marks the error; `fetchHeadData` propagates it untouched
+ * `fetchInitialData` classifies it and the response terminal emits its response-failure record; `fetchHeadData` propagates it untouched
  * (its caller owns the head taxonomy); the deferred registry settles its entry whichever step
  * failed.
  */
