@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
-import { NO_ACTIVE_BOOT_REFUSAL, discoverSubstrate, readGraph, readLogs, readTraces } from '../SubstrateReader';
+import { NO_ACTIVE_BOOT_REFUSAL, discoverSubstrate, readGraph, readLogs, readEpisodes } from '../SubstrateReader';
 import { UNTRUSTED_NOTE, bounded } from '../toolkit';
 
 import type { SubstrateDiscovery } from '../SubstrateReader';
 import type { ToolDefinition, ToolResult } from '../toolkit';
-import type { TraceRecord } from '../types';
+import type { EpisodeRecord } from '../types';
 
-const TRACE_RING_CAP = 200; // spec 03 §2
+const EPISODE_RING_CAP = 200; // spec 03 §2
 const RECENT_DEFAULT_LIMIT = 5;
 const DOCTOR_FAILED_LIMIT = 5;
 
@@ -20,10 +20,10 @@ const withActiveBoot = (root: string, fn: (discovery: Extract<SubstrateDiscovery
   return fn(discovery);
 };
 
-// Trace rows lead with identifiers and outcomes; logs are NEVER embedded — the intended
-// flow is get_recent_traces → get_trace → only then get_trace_logs.
-const traceSummary = (t: TraceRecord) => ({
-  traceId: t.traceId,
+// Episode rows lead with identifiers and outcomes; logs are NEVER embedded - the intended
+// flow is get_recent_episodes → get_episode → only then get_episode_logs.
+const episodeSummary = (t: EpisodeRecord) => ({
+  requestId: t.requestId,
   at: t.at,
   mode: t.mode,
   outcome: t.outcome,
@@ -37,18 +37,18 @@ const traceSummary = (t: TraceRecord) => ({
 
 export const runtimeTools = (root: string): ToolDefinition[] => [
   {
-    name: 'taujs_get_recent_traces',
-    title: 'Recent request traces',
-    description: `Most recent request traces from the active dev boot (default ${RECENT_DEFAULT_LIMIT}). Filter by outcome or mode. Follow up with taujs_get_trace, then taujs_get_trace_logs — logs are never embedded here. ${UNTRUSTED_NOTE}`,
+    name: 'taujs_get_recent_episodes',
+    title: 'Recent request episodes',
+    description: `Most recent request episodes from the active dev boot (default ${RECENT_DEFAULT_LIMIT}). Filter by outcome or mode. Follow up with taujs_get_episode, then taujs_get_episode_logs - logs are never embedded here. ${UNTRUSTED_NOTE}`,
     inputSchema: {
-      limit: z.number().int().positive().max(TRACE_RING_CAP).optional().describe(`Max traces (default ${RECENT_DEFAULT_LIMIT})`),
+      limit: z.number().int().positive().max(EPISODE_RING_CAP).optional().describe(`Max episodes (default ${RECENT_DEFAULT_LIMIT})`),
       outcome: z.enum(['complete', 'failed', 'aborted']).optional().describe('Filter by terminal outcome'),
       mode: z.enum(['ssr', 'streaming', 'fallthrough']).optional().describe('Filter by render mode'),
     },
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
         const limit = typeof args.limit === 'number' ? args.limit : RECENT_DEFAULT_LIMIT;
-        let records = readTraces(discovery, { bootId: discovery.devJson.bootId });
+        let records = readEpisodes(discovery, { bootId: discovery.devJson.bootId });
         if (typeof args.outcome === 'string') records = records.filter((t) => t.outcome === args.outcome);
         if (typeof args.mode === 'string') records = records.filter((t) => t.mode === args.mode);
 
@@ -56,56 +56,56 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
         return {
           ok: true,
           bootId: discovery.devJson.bootId,
-          traces: { items: recent.map(traceSummary), total: records.length, truncated: records.length > limit },
+          episodes: { items: recent.map(episodeSummary), total: records.length, truncated: records.length > limit },
         };
       }),
   },
   {
-    name: 'taujs_get_trace',
-    title: 'Get one request trace',
-    description: `The full trace record for one traceId — timeline, service calls, client hydration, error. Logs are fetched separately via taujs_get_trace_logs. ${UNTRUSTED_NOTE}`,
+    name: 'taujs_get_episode',
+    title: 'Get one request episode',
+    description: `The full episode record for one requestId - timeline, service calls, client hydration, error. Logs are fetched separately via taujs_get_episode_logs. ${UNTRUSTED_NOTE}`,
     inputSchema: {
-      traceId: z.string().describe('From taujs_get_recent_traces or an x-trace-id response header'),
+      requestId: z.string().describe('From taujs_get_recent_episodes or an x-request-id response header'),
     },
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
-        const traceId = String(args.traceId ?? '');
-        const trace = readTraces(discovery, { bootId: discovery.devJson.bootId }).find((t) => t.traceId === traceId);
+        const requestId = String(args.requestId ?? '');
+        const episode = readEpisodes(discovery, { bootId: discovery.devJson.bootId }).find((t) => t.requestId === requestId);
 
-        if (!trace) {
+        if (!episode) {
           return {
             ok: false,
-            reason: 'trace_not_found',
-            message: `No trace "${traceId}" in this boot's ring buffer (last ${TRACE_RING_CAP} requests; older traces are evicted).`,
+            reason: 'episode_not_found',
+            message: `No episode "${requestId}" in this boot's ring buffer (last ${EPISODE_RING_CAP} requests; older episodes are evicted).`,
             bootId: discovery.devJson.bootId,
           };
         }
 
-        return { ok: true, bootId: discovery.devJson.bootId, trace };
+        return { ok: true, bootId: discovery.devJson.bootId, episode };
       }),
   },
   {
-    name: 'taujs_get_trace_logs',
-    title: 'Logs for one trace',
-    description: `Logs-annex lines for one traceId, level-filtered (default warn+). Only lines through the framework request logger are captured — a separate user logger is not; absence here does not mean nothing was logged. ${UNTRUSTED_NOTE}`,
+    name: 'taujs_get_episode_logs',
+    title: 'Logs for one episode',
+    description: `Logs-annex lines for one requestId, level-filtered (default warn+). Only lines through the framework request logger are captured - a separate user logger is not; absence here does not mean nothing was logged. ${UNTRUSTED_NOTE}`,
     inputSchema: {
-      traceId: z.string().describe('The trace to fetch logs for'),
+      requestId: z.string().describe('The episode to fetch logs for'),
       minLevel: z.enum(['info', 'warn', 'error']).optional().describe('Minimum level (default warn)'),
     },
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
-        const traceId = String(args.traceId ?? '');
+        const requestId = String(args.requestId ?? '');
         const minLevel = (typeof args.minLevel === 'string' ? args.minLevel : 'warn') as 'info' | 'warn' | 'error';
-        const logs = readLogs(discovery, { traceId, minLevel });
+        const logs = readLogs(discovery, { requestId, minLevel });
 
         return {
           ok: true,
           bootId: discovery.devJson.bootId,
-          traceId,
+          requestId,
           minLevel,
           logs,
           ...(logs.length === 0
-            ? { note: `No ${minLevel}+ annex lines for this trace. Try minLevel: "info"; the annex captures only the framework request logger.` }
+            ? { note: `No ${minLevel}+ annex lines for this episode. Try minLevel: "info"; the annex captures only the framework request logger.` }
             : {}),
         };
       }),
@@ -113,7 +113,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
   {
     name: 'taujs_doctor',
     title: 'τjs diagnostics',
-    description: `Bounded health report: graph warnings grouped by severity, fallthrough reachability, defaulted renders, and recent failed traces with error kinds. Each fact is source-labelled; staleness cited when not live. ${UNTRUSTED_NOTE}`,
+    description: `Bounded health report: graph warnings grouped by severity, fallthrough reachability, defaulted renders, and recent failed episodes with error kinds. Each fact is source-labelled; staleness cited when not live. ${UNTRUSTED_NOTE}`,
     inputSchema: {},
     handler: () => {
       const discovery = discoverSubstrate(root);
@@ -135,14 +135,14 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
 
       const defaultedRenders = graph.routes.filter((r) => r.render.defaulted).map((r) => r.id);
 
-      const failedTraces =
+      const failedEpisodes =
         discovery.mode === 'active'
           ? bounded(
-              readTraces(discovery, { bootId: discovery.devJson.bootId })
+              readEpisodes(discovery, { bootId: discovery.devJson.bootId })
                 .filter((t) => t.outcome === 'failed')
                 .reverse()
                 .map((t) => ({
-                  traceId: t.traceId,
+                  requestId: t.requestId,
                   route: t.route,
                   pathname: t.url.pathname,
                   error: t.error,
@@ -162,9 +162,9 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
           note: graph.fallthrough.reachable ? undefined : 'A wildcard route makes fallthrough unreachable (app-shell pattern).',
         },
         defaultedRenders: { source: 'declared', routeIds: defaultedRenders },
-        failedTraces: {
+        failedEpisodes: {
           source: 'observed (seen in dev traffic)',
-          ...(('items' in (failedTraces as object) ? failedTraces : { unavailable: failedTraces }) as object),
+          ...(('items' in (failedEpisodes as object) ? failedEpisodes : { unavailable: failedEpisodes }) as object),
         },
       };
     },

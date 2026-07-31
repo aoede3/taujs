@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
@@ -5,6 +6,7 @@ import Fastify from 'fastify';
 import pc from 'picocolors';
 
 import { extractBuildConfigs, extractRoutes, extractSecurity } from './core/config/Setup';
+import { REGEX } from './core/constants';
 import { normaliseError } from './core/errors/AppError';
 
 import { CONTENT } from './constants';
@@ -72,7 +74,22 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   // behaviour cannot drift apart.
   const callerOwnedHost = opts.fastify !== undefined;
 
-  const app = opts.fastify ?? Fastify({ logger: false });
+  // SC-09 ruling 4: on a τjs-created host, request identity aligns at Fastify construction - the
+  // one place τjs legitimately owns that policy. A single valid inbound `x-request-id` becomes
+  // `req.id`; anything else gets a UUID (repeated headers arrive as an array and fail the string
+  // guard). `requestIdHeader` must stay unset: on Fastify 5.10 it short-circuits `genReqId` and
+  // would adopt the header without this validation. A supplied host is never touched - the caller
+  // owns correlation policy there, and τjs adopts whatever `req.id` it produced.
+  const app =
+    opts.fastify ??
+    Fastify({
+      logger: false,
+      genReqId(rawReq) {
+        const incoming = rawReq.headers['x-request-id'];
+
+        return typeof incoming === 'string' && REGEX.SAFE_REQUEST_ID.test(incoming) ? incoming : crypto.randomUUID();
+      },
+    });
   const fastifyLogger = app.log && app.log.level && app.log.level !== 'silent' ? app.log : undefined;
   const runtimeLogger: RuntimeLoggerSelection = {
     source: opts.logger ? 'explicit' : fastifyLogger ? 'fastify' : 'fallback',
@@ -105,12 +122,12 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
 
   // RFC 0010: ownership is derived, never configured, so the boot summary has to say which side of
   // the thesis this process is on. Without it a caller cannot tell from the logs why their 404s,
-  // CSP or trace headers changed.
+  // CSP or correlation headers changed.
   logger.info(
     { component: 'ownership', callerOwnedHost },
     callerOwnedHost
-      ? `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found, CSP and trace remain yours`
-      : `${CONTENT.TAG} [ownership] Fastify created by τjs - whole-server shell, CSP and trace`,
+      ? `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found, CSP and request identity remain yours`
+      : `${CONTENT.TAG} [ownership] Fastify created by τjs - whole-server shell, CSP and request identity`,
   );
 
   // RFC security model §2: relaxing the loopback guard must shout in the boot summary —

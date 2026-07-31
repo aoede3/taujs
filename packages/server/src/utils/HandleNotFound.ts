@@ -35,7 +35,7 @@ export const handleNotFound = async (
 ) => {
   const { viteDevServer } = opts;
 
-  // Hoisted context (P0B-01): fallthrough logs carry the request traceId; the x-trace-id
+  // Hoisted context (P0B-01): fallthrough logs carry the canonical reqId; the x-request-id
   // response header is already set by the hook. Without the hook, behaviour is unchanged.
   const requestContext = getRequestContext(req);
 
@@ -44,7 +44,7 @@ export const handleNotFound = async (
     opts.logger ??
     createLogger({
       debug: opts.debug,
-      context: { component: 'handle-not-found', url: req.url, method: req.method, traceId: (req as any).id },
+      context: { component: 'handle-not-found', url: req.url, method: req.method, reqId: (req as any).id },
     });
 
   try {
@@ -92,7 +92,7 @@ export const handleNotFound = async (
     // with, so it gets its own — only when the structural gate holds (dev decoration).
     const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
     if (devtools && requestContext) {
-      processedTemplate = processedTemplate.replace('</body>', `${buildTaujsDevStamp(requestContext.traceId, devtools.token, cspNonce)}</body>`);
+      processedTemplate = processedTemplate.replace('</body>', `${buildTaujsDevStamp(requestContext.requestId, devtools.token, cspNonce)}</body>`);
     }
 
     logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');
@@ -103,7 +103,7 @@ export const handleNotFound = async (
 
     // Fallthrough terminal event (spec 03 §1): requestStart → sent, no routeMatched — this
     // is what makes accidental CSR visible.
-    requestContext?.recorder?.sent({ traceId: requestContext.traceId, status: 200, mode: 'fallthrough' });
+    requestContext?.recorder?.sent({ requestId: requestContext.requestId, status: 200, mode: 'fallthrough' });
 
     return result;
   } catch (err) {

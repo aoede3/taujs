@@ -7,7 +7,7 @@ import type { ServiceRegistry } from '../services/DataServices';
 import type { Logs } from '../logging/types';
 import type { DataHandler, RouteAttributes, RouteParams } from '../config/types';
 import type { RequestContext } from '../telemetry/Telemetry';
-import type { TraceRecorder } from '../introspection/TraceRecorder';
+import type { EpisodeRecorder } from '../introspection/EpisodeRecorder';
 import type { CallServiceOn } from './ResolveRouteData';
 
 /**
@@ -61,11 +61,11 @@ export type DeferredDataController = {
   readonly registry: DeferredDataRegistry;
   /**
    * Response terminal: signal outstanding work, classify anything still pending as `aborted`
-   * (recording its trace event exactly once) and return the outcome envelope. Idempotent.
+   * (recording its episode event exactly once) and return the outcome envelope. Idempotent.
    *
    * AFTER `release()` the controller retains nothing, so this returns the EMPTY envelope rather
    * than rebuilding one: the outcomes are gone and a rebuild would report every key `aborted`,
-   * contradicting the trace events already recorded.
+   * contradicting the episode events already recorded.
    */
   settleAll: () => DeferredSettlements;
   /** `settleAll` + drop every retained value and promise reference, for terminals emitting no envelope. */
@@ -90,8 +90,8 @@ export type CreateDeferredDataOptions<Params extends RouteParams, R extends Serv
   serviceRegistry: R;
   /** The SAME request context `attr.data` uses, read AFTER `ctx.signal` was assigned. */
   ctx: RequestContext<L> & { signal?: AbortSignal };
-  traceId: string;
-  recorder?: TraceRecorder;
+  requestId: string;
+  recorder?: EpisodeRecorder;
   callServiceMethodImpl?: CallServiceOn<R>;
 };
 
@@ -100,7 +100,7 @@ export type CreateDeferredDataOptions<Params extends RouteParams, R extends Serv
  * with the matched params and the same request service context as `attr.data`.
  *
  * Returns `undefined` when the route declares no entries - the caller then behaves byte-identically
- * to today (no registry, no envelope, no trace events, nothing in the renderer opts bag).
+ * to today (no registry, no envelope, no episode events, nothing in the renderer opts bag).
  *
  * The deliberate choices:
  * - every entry promise is PRE-OBSERVED at creation (the R0-01 idiom) so an unconsumed rejection can
@@ -115,7 +115,7 @@ export type CreateDeferredDataOptions<Params extends RouteParams, R extends Serv
 export const createDeferredData = <Params extends RouteParams, R extends ServiceRegistry, L extends Logs = Logs>(
   options: CreateDeferredDataOptions<Params, R, L>,
 ): DeferredDataController | undefined => {
-  const { attr, params, serviceRegistry, ctx, traceId, recorder } = options;
+  const { attr, params, serviceRegistry, ctx, requestId, recorder } = options;
   const callServiceMethodImpl = options.callServiceMethodImpl ?? (callServiceMethod as CallServiceOn<R>);
 
   // Streaming arm only (R1). Untyped input reaching here despite the boot check is ignored rather
@@ -147,7 +147,7 @@ export const createDeferredData = <Params extends RouteParams, R extends Service
     if (!outcomes.has(key) || outcomes.get(key) !== undefined) return;
     outcomes.set(key, outcome);
     try {
-      recorder?.deferredData({ traceId, key, ms: +(now() - t0).toFixed(1), outcome: outcome.status });
+      recorder?.deferredData({ requestId, key, ms: +(now() - t0).toFixed(1), outcome: outcome.status });
     } catch {
       // fire-and-forget telemetry must never affect the response (introspection invariant 2)
     }
@@ -197,8 +197,8 @@ export const createDeferredData = <Params extends RouteParams, R extends Service
       );
       source.catch(() => {}); // R0-01: pre-observed at creation
 
-      // ONE handler takes the ONE snapshot, records the trace outcome AND produces the renderer's
-      // value, so trace, envelope and renderer cannot disagree by construction. The registry
+      // ONE handler takes the ONE snapshot, records the episode outcome AND produces the renderer's
+      // value, so episode, envelope and renderer cannot disagree by construction. The registry
       // promise is this DERIVED promise, never the loader's.
       const entry = source.then(
         (value): Record<string, unknown> => {
@@ -207,10 +207,11 @@ export const createDeferredData = <Params extends RouteParams, R extends Service
           // null or an array classifies the entry `failed` exactly as a non-serialisable value
           // does - the registry promises a record and so does the envelope schema.
           if (!snapshot.ok || !isPlainRecord(snapshot.value)) {
-            // Operator visibility: payload-free, key only. The trace explains the outcome; this
-            // explains why a RESOLVED loader became `failed`.
+            // Operator visibility: payload-free, key only. The episode explains the outcome; this
+            // explains why a RESOLVED loader became `failed`. ctx.logger is the request child, so
+            // the canonical `reqId` arrives through its lineage - never rebound here (SC-09).
             try {
-              ctx.logger?.warn({ key, traceId }, 'Deferred data could not cross the hydration boundary');
+              ctx.logger?.warn({ key }, 'Deferred data could not cross the hydration boundary');
             } catch {}
             record(key, terminated ? { status: 'aborted' } : { status: 'failed' });
 
@@ -264,7 +265,7 @@ export const createDeferredData = <Params extends RouteParams, R extends Service
   function releaseAll(): void {
     if (released || releasing) return;
     releasing = true;
-    // Settle BEFORE flagging released: terminal classification and its one-per-key trace events
+    // Settle BEFORE flagging released: terminal classification and its one-per-key episode events
     // must still fire, and `settleAll` short-circuits once `released` is set.
     settleAll();
     released = true;

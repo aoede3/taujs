@@ -53,7 +53,7 @@ For a request to `/products/42`:
 3. Head and route-data work starts at the request boundary.
 4. The renderer receives the critical initial-data channel and the already-started named deferred
    registry.
-5. In development, the response trace records what actually happened.
+5. In development, the response episode records what actually happened.
 
 There is no second τjs route matcher and the renderer does not rediscover the route contract from
 the component tree.
@@ -71,7 +71,7 @@ The route fields describe different timing and ownership, not four spellings for
 
 `attr.deferred` is declarative response-owned work. Each entry starts once, shares the request
 cancellation lifecycle, appears in the request graph, records a `complete`, `failed` or `aborted`
-outcome on the development request trace, and reaches the renderer through its native Suspense
+outcome on the development request episode, and reaches the renderer through its native Suspense
 primitive. A value consumed during rendering reaches hydration through a private seed without
 re-running the loader or issuing a client refetch.
 
@@ -100,11 +100,11 @@ The distinction is intentional:
   edge without executing the loader.
 - An arbitrary handler or dynamic `ctx.call()` remains valid, but the concrete call is runtime
   evidence rather than a statically declared edge.
-- Development request traces record the route selected, service calls made, deferred outcomes and
+- Development request episodes record the route selected, service calls made, deferred outcomes and
   response terminal that occurred for one real request.
 
-The generated request graph and live development traces therefore answer different questions. The graph says
-what the system declares and can do. A trace says what one request did. The
+The generated request graph and live development episodes therefore answer different questions. The graph says
+what the system declares and can do. A episode says what one request did. The
 [MCP server](/reference/mcp) reads both forms of evidence rather than inferring them from component
 source.
 
@@ -165,7 +165,7 @@ client router can own subsequent navigation and UI-local fetching. See
 ## When the structure pays for itself
 
 Request contracts are most useful when initial rendering depends on several services, policy must
-be applied before rendering, rendering strategy varies by route, or teams need a graph and trace of
+be applied before rendering, rendering strategy varies by route, or teams need a graph and episode of
 how a response was assembled.
 
 For a small interactive screen whose data is entirely post-hydration, component-owned fetching may

@@ -27,17 +27,17 @@ pnpm --filter playground-react dev     # boots on http://localhost:5173
 pnpm --filter playground-react build   # dist/ + dist/.taujs/graph.json (source: 'build')
 ```
 
-A dev boot writes `node_modules/.taujs/` (dev.json, graph.json, traces.ndjson, logs.ndjson,
+A dev boot writes `node_modules/.taujs/` (dev.json, graph.json, episodes.ndjson, logs.ndjson,
 observations.json) and serves the guarded `/__taujs/*` overlay endpoints.
 
-## Three curls → three trace records
+## Three curls → three episode records
 
 ```sh
-curl -s http://localhost:5173/ > /dev/null                 # SSR trace (mode: ssr)
-curl -s http://localhost:5173/product/123 > /dev/null      # streaming trace (mode: streaming)
-curl -s http://localhost:5173/spa/anything > /dev/null     # fallthrough trace (mode: fallthrough, route: null)
+curl -s http://localhost:5173/ > /dev/null                 # SSR episode (mode: ssr)
+curl -s http://localhost:5173/product/123 > /dev/null      # streaming episode (mode: streaming)
+curl -s http://localhost:5173/spa/anything > /dev/null     # fallthrough episode (mode: fallthrough, route: null)
 ```
 
-Then inspect `node_modules/.taujs/traces.ndjson` (or `GET /__taujs/traces` with the
-`x-taujs-token` from `dev.json`). `/product/999` produces an `outcome: 'failed'` trace with
+Then inspect `node_modules/.taujs/episodes.ndjson` (or `GET /__taujs/episodes` with the
+`x-taujs-token` from `dev.json`). `/product/999` produces an `outcome: 'failed'` episode with
 the deterministic error.

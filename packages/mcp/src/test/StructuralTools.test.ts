@@ -56,10 +56,10 @@ beforeAll(async () => {
 
   // Observed traffic: one getProduct call recorded through the real assembler.
   const dev = createDevIntrospection();
-  dev.recorder.requestStart({ traceId: 'obs-1', url: '/product/7', method: 'GET' });
-  dev.recorder.routeMatched({ traceId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
-  dev.recorder.serviceCall({ traceId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
-  dev.recorder.sent({ traceId: 'obs-1', status: 200, mode: 'streaming' });
+  dev.recorder.requestStart({ requestId: 'obs-1', url: '/product/7', method: 'GET' });
+  dev.recorder.routeMatched({ requestId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
+  dev.recorder.serviceCall({ requestId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
+  dev.recorder.sent({ requestId: 'obs-1', status: 200, mode: 'streaming' });
   await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations(), null, 2));
 
   // No dev.json → stale mode: structural tools must work cold and cite staleness.
@@ -149,10 +149,10 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     expect(tools.tools.map((t) => t.name).sort()).toEqual([
       'taujs_doctor',
       'taujs_explain_route',
-      'taujs_get_recent_traces',
+      'taujs_get_episode',
+      'taujs_get_episode_logs',
+      'taujs_get_recent_episodes',
       'taujs_get_route',
-      'taujs_get_trace',
-      'taujs_get_trace_logs',
       'taujs_list_routes',
       'taujs_overview',
       'taujs_who_calls_service',
@@ -171,7 +171,7 @@ describe('MCP server end-to-end (InMemory transport)', () => {
       'taujs_skill_hydration_mismatch',
     ]);
     const skill = await client.getPrompt({ name: 'taujs_skill_diagnose_broken_route' });
-    expect(JSON.stringify(skill.messages)).toContain('taujs_get_recent_traces');
+    expect(JSON.stringify(skill.messages)).toContain('taujs_get_recent_episodes');
 
     await client.close();
     await server.close();

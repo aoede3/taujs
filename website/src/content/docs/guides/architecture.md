@@ -20,7 +20,7 @@ becoming a replacement HTTP server or a client-side application framework.
 | Layer | Owns | Does not own |
 | --- | --- | --- |
 | Fastify host | HTTP route dispatch and lifecycle mechanics, listening, shutdown and host routes | Application rendering decisions |
-| τjs application scope | Declared page routes, policy, response-owned data, rendering strategy and response traces | Caller routes or component-local work |
+| τjs application scope | Declared page routes, policy, response-owned data, rendering strategy and response episodes | Caller routes or component-local work |
 | Renderer package | Framework SSR, streaming, hydration and framework-native Suspense integration | Route discovery, service selection or host policy |
 | Application UI | Components, client routing, interaction, mutations and UI-local async work | Host routing or τjs response-owned work |
 
@@ -53,7 +53,7 @@ decodes its parameters; there is no second τjs matcher inside a catch-all handl
 │ Services              │
 │ Render & Hydration    │
 ├───────────────────────┤
-│ Trace                 │
+│ Episode                 │
 └───────────────────────┘
            │
            ▼
@@ -125,13 +125,13 @@ statically declared relationship.
 Development emits the live graph under `node_modules/.taujs/`; builds emit a structure-only graph
 under `dist/.taujs/`.
 
-### Request trace
+### Request episode
 
-Development request traces describe what one response actually did: the selected route, service
+Development request episodes describe what one response actually did: the selected route, service
 calls, stream phases, deferred outcomes, hydration evidence and terminal result. Production does
 not load the development recorder.
 
-The [MCP server](/reference/mcp) reads the graph and live traces as artefacts. It does not infer route
+The [MCP server](/reference/mcp) reads the graph and live episodes as artefacts. It does not infer route
 ownership or request behaviour by guessing from component source.
 
 ## Renderer boundary

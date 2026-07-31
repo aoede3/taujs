@@ -3,27 +3,27 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { defineService, defineServiceRegistry, callServiceMethod } from '../../services/DataServices';
 import { createDevIntrospection } from '../DevIntrospection';
-import { createSafeRecorder, noopTraceRecorder } from '../TraceRecorder';
+import { createSafeRecorder, noopEpisodeRecorder } from '../EpisodeRecorder';
 
-import type { TraceRecorder } from '../TraceRecorder';
+import type { EpisodeRecorder } from '../EpisodeRecorder';
 
-const T = 'trace-1';
+const T = 'episode-1';
 
-const start = (dev: ReturnType<typeof createDevIntrospection>, url = '/product/123?ref=x', traceId = T) =>
-  dev.recorder.requestStart({ traceId, url, method: 'GET' });
+const start = (dev: ReturnType<typeof createDevIntrospection>, url = '/product/123?ref=x', requestId = T) =>
+  dev.recorder.requestStart({ requestId, url, method: 'GET' });
 
-describe('trace assembly — event sequences (spec 03 §1-2)', () => {
+describe('episode assembly - event sequences (spec 03 §1-2)', () => {
   it('rendered SSR: requestStart → routeMatched → dataFetch → serviceCall → sent', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.routeMatched({ traceId: T, path: '/product/:id', appId: 'storefront', render: 'ssr' });
-    dev.recorder.dataFetch({ traceId: T, ms: 12.5, ok: true });
-    dev.recorder.serviceCall({ traceId: T, service: 'catalog', method: 'getProduct', ms: 11.2, ok: true });
-    dev.recorder.sent({ traceId: T, status: 200, mode: 'ssr' });
+    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr' });
+    dev.recorder.dataFetch({ requestId: T, ms: 12.5, ok: true });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 11.2, ok: true });
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
 
-    const [trace] = dev.getTraces();
-    expect(trace).toMatchObject({
-      traceId: T,
+    const [episode] = dev.getEpisodes();
+    expect(episode).toMatchObject({
+      requestId: T,
       bootId: dev.bootId,
       route: '/product/:id',
       appId: 'storefront',
@@ -34,124 +34,124 @@ describe('trace assembly — event sequences (spec 03 §1-2)', () => {
       client: null,
       error: null,
     });
-    expect(trace!.timeline.matched).toBeTypeOf('number');
-    expect(trace!.timeline.dataStart).toBeTypeOf('number');
-    expect(trace!.timeline.dataEnd).toBeTypeOf('number');
+    expect(episode!.timeline.matched).toBeTypeOf('number');
+    expect(episode!.timeline.dataStart).toBeTypeOf('number');
+    expect(episode!.timeline.dataEnd).toBeTypeOf('number');
   });
 
   it('rendered streaming: streamPhase events land in the timeline', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.routeMatched({ traceId: T, path: '/p', appId: 'a', render: 'streaming' });
-    dev.recorder.streamPhase({ traceId: T, phase: 'head' });
-    dev.recorder.streamPhase({ traceId: T, phase: 'shellReady' });
-    dev.recorder.streamPhase({ traceId: T, phase: 'allReady' });
-    dev.recorder.sent({ traceId: T, status: 200, mode: 'streaming' });
+    dev.recorder.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'streaming' });
+    dev.recorder.streamPhase({ requestId: T, phase: 'head' });
+    dev.recorder.streamPhase({ requestId: T, phase: 'shellReady' });
+    dev.recorder.streamPhase({ requestId: T, phase: 'allReady' });
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'streaming' });
 
-    const [trace] = dev.getTraces();
-    expect(trace!.mode).toBe('streaming');
-    expect(trace!.outcome).toBe('complete');
-    expect(trace!.timeline.head).toBeTypeOf('number');
-    expect(trace!.timeline.shellReady).toBeTypeOf('number');
-    expect(trace!.timeline.allReady).toBeTypeOf('number');
+    const [episode] = dev.getEpisodes();
+    expect(episode!.mode).toBe('streaming');
+    expect(episode!.outcome).toBe('complete');
+    expect(episode!.timeline.head).toBeTypeOf('number');
+    expect(episode!.timeline.shellReady).toBeTypeOf('number');
+    expect(episode!.timeline.allReady).toBeTypeOf('number');
   });
 
   it('fallthrough: requestStart → sent(fallthrough), no routeMatched → route null, mode fallthrough', () => {
     const dev = createDevIntrospection();
     start(dev, '/spa/unknown');
-    dev.recorder.sent({ traceId: T, status: 200, mode: 'fallthrough' });
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'fallthrough' });
 
-    const [trace] = dev.getTraces();
-    expect(trace).toMatchObject({ route: null, appId: null, mode: 'fallthrough', outcome: 'complete', status: 200 });
+    const [episode] = dev.getEpisodes();
+    expect(episode).toMatchObject({ route: null, appId: null, mode: 'fallthrough', outcome: 'complete', status: 200 });
   });
 
   it('failed: outcome failed with error kind and capped message', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.routeMatched({ traceId: T, path: '/p', appId: 'a', render: 'ssr' });
-    dev.recorder.failed({ traceId: T, error: { kind: 'domain', message: 'x'.repeat(600) } });
+    dev.recorder.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr' });
+    dev.recorder.failed({ requestId: T, error: { kind: 'domain', message: 'x'.repeat(600) } });
 
-    const [trace] = dev.getTraces();
-    expect(trace!.outcome).toBe('failed');
-    expect(trace!.error!.kind).toBe('domain');
-    expect(trace!.error!.message).toHaveLength(500);
+    const [episode] = dev.getEpisodes();
+    expect(episode!.outcome).toBe('failed');
+    expect(episode!.error!.kind).toBe('domain');
+    expect(episode!.error!.message).toHaveLength(500);
   });
 
-  it('aborted is terminal: a later sent cannot resurrect or duplicate the trace', () => {
+  it('aborted is terminal: a later sent cannot resurrect or duplicate the episode', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.aborted({ traceId: T, phase: 'stream' });
-    dev.recorder.aborted({ traceId: T, phase: 'stream' });
-    dev.recorder.sent({ traceId: T, status: 200, mode: 'ssr' });
+    dev.recorder.aborted({ requestId: T, phase: 'stream' });
+    dev.recorder.aborted({ requestId: T, phase: 'stream' });
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
 
-    const traces = dev.getTraces();
-    expect(traces).toHaveLength(1);
-    expect(traces[0]!.outcome).toBe('aborted');
+    const episodes = dev.getEpisodes();
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]!.outcome).toBe('aborted');
   });
 
-  it('events for unknown traceIds are ignored, never thrown', () => {
+  it('events for unknown request IDs are ignored, never thrown', () => {
     const dev = createDevIntrospection();
-    dev.recorder.routeMatched({ traceId: 'ghost', path: '/p', appId: 'a', render: 'ssr' });
-    dev.recorder.sent({ traceId: 'ghost', status: 200, mode: 'ssr' });
+    dev.recorder.routeMatched({ requestId: 'ghost', path: '/p', appId: 'a', render: 'ssr' });
+    dev.recorder.sent({ requestId: 'ghost', status: 200, mode: 'ssr' });
 
-    expect(dev.getTraces()).toHaveLength(0);
+    expect(dev.getEpisodes()).toHaveLength(0);
   });
 
-  it('ring buffer keeps the last 200 traces', () => {
+  it('ring buffer keeps the last 200 episodes', () => {
     const dev = createDevIntrospection();
     for (let i = 0; i < 205; i++) {
       const id = `t-${i}`;
-      dev.recorder.requestStart({ traceId: id, url: '/x', method: 'GET' });
-      dev.recorder.sent({ traceId: id, status: 200, mode: 'ssr' });
+      dev.recorder.requestStart({ requestId: id, url: '/x', method: 'GET' });
+      dev.recorder.sent({ requestId: id, status: 200, mode: 'ssr' });
     }
 
-    const traces = dev.getTraces();
-    expect(traces).toHaveLength(200);
-    expect(traces[0]!.traceId).toBe('t-5');
-    expect(dev.getTraces(10)).toHaveLength(10);
+    const episodes = dev.getEpisodes();
+    expect(episodes).toHaveLength(200);
+    expect(episodes[0]!.requestId).toBe('t-5');
+    expect(dev.getEpisodes(10)).toHaveLength(10);
   });
 });
 
 describe('URL hygiene (spec 03 §2, acceptance #4)', () => {
   it('stores pathname + surviving query keys only; denylisted keys dropped entirely', () => {
     const dev = createDevIntrospection();
-    dev.recorder.requestStart({ traceId: T, url: '/reset?token=abc&ref=x', method: 'GET' });
-    dev.recorder.sent({ traceId: T, status: 200, mode: 'fallthrough' });
+    dev.recorder.requestStart({ requestId: T, url: '/reset?token=abc&ref=x', method: 'GET' });
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'fallthrough' });
 
-    const [trace] = dev.getTraces();
-    expect(trace!.url).toEqual({ pathname: '/reset', queryKeys: ['ref'], queryValuesRedacted: true });
-    expect(JSON.stringify(trace)).not.toContain('abc');
-    expect(JSON.stringify(trace)).not.toContain('token');
+    const [episode] = dev.getEpisodes();
+    expect(episode!.url).toEqual({ pathname: '/reset', queryKeys: ['ref'], queryValuesRedacted: true });
+    expect(JSON.stringify(episode)).not.toContain('abc');
+    expect(JSON.stringify(episode)).not.toContain('token');
   });
 });
 
 describe('clientHydration beacon application', () => {
-  it('applies once per traceId, even after finalization; duplicates ignored', () => {
+  it('applies once per requestId, even after finalization; duplicates ignored', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.sent({ traceId: T, status: 200, mode: 'ssr' });
-    dev.recorder.clientHydration({ traceId: T, ok: true, ms: 38 });
-    dev.recorder.clientHydration({ traceId: T, ok: false, error: 'late duplicate' });
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
+    dev.recorder.clientHydration({ requestId: T, ok: true, ms: 38 });
+    dev.recorder.clientHydration({ requestId: T, ok: false, error: 'late duplicate' });
 
-    const [trace] = dev.getTraces();
-    expect(trace!.client).toEqual({ hydrated: true, hydrationMs: 38, error: null });
+    const [episode] = dev.getEpisodes();
+    expect(episode!.client).toEqual({ hydrated: true, hydrationMs: 38, error: null });
   });
 
-  it('drops beacons for unknown/evicted traces silently', () => {
+  it('drops beacons for unknown/evicted episodes silently', () => {
     const dev = createDevIntrospection();
-    dev.recorder.clientHydration({ traceId: 'gone', ok: true });
+    dev.recorder.clientHydration({ requestId: 'gone', ok: true });
 
-    expect(dev.getTraces()).toHaveLength(0);
+    expect(dev.getEpisodes()).toHaveLength(0);
   });
 });
 
 describe('observations derivation (spec 03 §4)', () => {
-  it('upserts edges with routes, counts, and sample traceIds; shapes deferred as empty', () => {
+  it('upserts edges with routes, counts, and sample request IDs; shapes deferred as empty', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.routeMatched({ traceId: T, path: '/product/:id', appId: 'storefront', render: 'ssr' });
-    dev.recorder.serviceCall({ traceId: T, service: 'catalog', method: 'getProduct', ms: 10, ok: true });
-    dev.recorder.serviceCall({ traceId: T, service: 'catalog', method: 'getProduct', ms: 12, ok: true });
+    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr' });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 10, ok: true });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 12, ok: true });
 
     const obs = dev.getObservations();
     expect(obs.schemaVersion).toBe(1);
@@ -163,7 +163,7 @@ describe('observations derivation (spec 03 §4)', () => {
       method: 'getProduct',
       count: 2,
       routes: [{ routeId: 'storefront:/product/:id', appId: 'storefront', path: '/product/:id' }],
-      sampleTraceIds: [T],
+      sampleRequestIds: [T],
     });
   });
 });
@@ -208,7 +208,7 @@ describe('logs annex tee (spec 03 §3)', () => {
     expect(JSON.stringify(logs)).not.toContain('sensitive');
   });
 
-  it('child loggers stay teed to the same traceId', () => {
+  it('child loggers stay teed to the same requestId', () => {
     const dev = createDevIntrospection();
     const base = mkBase();
     const wrapped = dev.wrapRequestLogger(base, T);
@@ -231,7 +231,7 @@ describe('logs annex tee (spec 03 §3)', () => {
 });
 
 describe('recorder isolation (spec 03 invariant 2)', () => {
-  const hostile: TraceRecorder = {
+  const hostile: EpisodeRecorder = {
     requestStart() {
       throw new Error('hostile');
     },
@@ -269,15 +269,15 @@ describe('recorder isolation (spec 03 invariant 2)', () => {
     const safe = createSafeRecorder(hostile, onFirstError);
 
     expect(() => {
-      safe.requestStart({ traceId: T, url: '/x', method: 'GET' });
-      safe.routeMatched({ traceId: T, path: '/p', appId: 'a', render: 'ssr' });
-      safe.dataFetch({ traceId: T, ms: 1, ok: true });
-      safe.serviceCall({ traceId: T, service: 's', method: 'm', ms: 1, ok: true });
-      safe.streamPhase({ traceId: T, phase: 'head' });
-      safe.sent({ traceId: T, status: 200, mode: 'ssr' });
-      safe.aborted({ traceId: T });
-      safe.failed({ traceId: T, error: { kind: 'x', message: 'y' } });
-      safe.clientHydration({ traceId: T, ok: true });
+      safe.requestStart({ requestId: T, url: '/x', method: 'GET' });
+      safe.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr' });
+      safe.dataFetch({ requestId: T, ms: 1, ok: true });
+      safe.serviceCall({ requestId: T, service: 's', method: 'm', ms: 1, ok: true });
+      safe.streamPhase({ requestId: T, phase: 'head' });
+      safe.sent({ requestId: T, status: 200, mode: 'ssr' });
+      safe.aborted({ requestId: T });
+      safe.failed({ requestId: T, error: { kind: 'x', message: 'y' } });
+      safe.clientHydration({ requestId: T, ok: true });
     }).not.toThrow();
     expect(onFirstError).toHaveBeenCalledTimes(1);
   });
@@ -288,16 +288,16 @@ describe('recorder isolation (spec 03 invariant 2)', () => {
     });
     const safeHostile = createSafeRecorder(hostile);
 
-    const without = await callServiceMethod(registry, 'svc', 'hello', {}, { traceId: T });
-    const withHostile = await callServiceMethod(registry, 'svc', 'hello', {}, { traceId: T, recorder: safeHostile });
+    const without = await callServiceMethod(registry, 'svc', 'hello', {}, { requestId: T });
+    const withHostile = await callServiceMethod(registry, 'svc', 'hello', {}, { requestId: T, recorder: safeHostile });
 
     expect(withHostile).toEqual(without);
   });
 
-  it('noopTraceRecorder implements every event as a no-op', () => {
+  it('noopEpisodeRecorder implements every event as a no-op', () => {
     expect(() => {
-      noopTraceRecorder.requestStart({ traceId: T, url: '/x', method: 'GET' });
-      noopTraceRecorder.sent({ traceId: T, status: 200, mode: 'ssr' });
+      noopEpisodeRecorder.requestStart({ requestId: T, url: '/x', method: 'GET' });
+      noopEpisodeRecorder.sent({ requestId: T, status: 200, mode: 'ssr' });
     }).not.toThrow();
   });
 });
@@ -313,14 +313,14 @@ describe('serviceCall wiring in callServiceMethod', () => {
       }),
     });
     const events: any[] = [];
-    const recorder = { ...noopTraceRecorder, serviceCall: (e: any) => void events.push(e) };
+    const recorder = { ...noopEpisodeRecorder, serviceCall: (e: any) => void events.push(e) };
 
-    await callServiceMethod(registry, 'svc', 'ok', {}, { traceId: T, recorder });
-    await expect(callServiceMethod(registry, 'svc', 'boom', {}, { traceId: T, recorder })).rejects.toThrow('kaput');
+    await callServiceMethod(registry, 'svc', 'ok', {}, { requestId: T, recorder });
+    await expect(callServiceMethod(registry, 'svc', 'boom', {}, { requestId: T, recorder })).rejects.toThrow('kaput');
 
     expect(events).toHaveLength(2);
-    expect(events[0]).toMatchObject({ traceId: T, service: 'svc', method: 'ok', ok: true });
-    expect(events[1]).toMatchObject({ traceId: T, service: 'svc', method: 'boom', ok: false });
+    expect(events[0]).toMatchObject({ requestId: T, service: 'svc', method: 'ok', ok: true });
+    expect(events[1]).toMatchObject({ requestId: T, service: 'svc', method: 'boom', ok: false });
     expect(events[0].ms).toBeTypeOf('number');
   });
 });

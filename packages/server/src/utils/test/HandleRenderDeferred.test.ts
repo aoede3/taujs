@@ -8,9 +8,9 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { handleRender } from '../HandleRender';
 
-import type { TraceRecorder } from '../../core/introspection/TraceRecorder';
+import type { EpisodeRecorder } from '../../core/introspection/EpisodeRecorder';
 
-const T = 'trace-deferred-1';
+const T = 'episode-deferred-1';
 
 const mkLogger = (): any => {
   const l: any = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), isDebugEnabled: () => false };
@@ -18,10 +18,16 @@ const mkLogger = (): any => {
   return l;
 };
 
-const mkReq = (url: string, recorder?: TraceRecorder, logger?: any): any => {
+const mkReq = (url: string, recorder?: EpisodeRecorder, logger?: any): any => {
   const raw = new EventEmitter() as any;
   raw.url = url;
-  return { url, method: 'GET', headers: { host: 'localhost' }, raw, taujsRequestContext: { traceId: T, logger: logger ?? mkLogger(), headers: {}, recorder } };
+  return {
+    url,
+    method: 'GET',
+    headers: { host: 'localhost' },
+    raw,
+    taujsRequestContext: { requestId: T, logger: logger ?? mkLogger(), headers: {}, recorder },
+  };
 };
 
 const mkReply = () => {
@@ -83,7 +89,7 @@ const mkRenderer = (captured: Captured, read?: (registry: any) => Promise<unknow
   }),
 });
 
-const run = async (attr: Record<string, unknown>, renderModule: any, opts: { recorder?: TraceRecorder; logger?: any } = {}) => {
+const run = async (attr: Record<string, unknown>, renderModule: any, opts: { recorder?: EpisodeRecorder; logger?: any } = {}) => {
   const logger = opts.logger ?? mkLogger();
   const req = mkReq('/product/42', opts.recorder, logger);
   const reply = mkReply();
@@ -106,7 +112,7 @@ const events = () => {
     failed: noop,
     clientHydration: noop,
     deferredData: (e: any) => seen.push({ key: e.key, outcome: e.outcome }),
-  } as unknown as TraceRecorder;
+  } as unknown as EpisodeRecorder;
   return { seen, recorder };
 };
 
@@ -176,7 +182,7 @@ describe('handleRender deferred transport + envelope (RFC 0007)', () => {
     expect(Object.isFrozen(captured.opts.deferredData)).toBe(true);
   });
 
-  it('an entry still pending at the write site is `aborted` in the envelope and the trace', async () => {
+  it('an entry still pending at the write site is `aborted` in the envelope and the episode', async () => {
     const { seen, recorder } = events();
     const captured: Captured = {};
     const { html } = await run({ render: 'streaming', meta: {}, deferred: { reviews: () => new Promise<any>(() => {}) } }, mkRenderer(captured), { recorder });
@@ -407,7 +413,7 @@ describe('handleRender deferred terminals (R2 item 8)', () => {
     expect(reply.chunks.join('')).not.toContain('__TAUJS_DEFERRED_STATE__');
 
     // Envelope state: the controller retains nothing afterwards. A later write site emits the
-    // EMPTY envelope rather than re-classifying keys already accounted for in the trace.
+    // EMPTY envelope rather than re-classifying keys already accounted for in the episode.
     ended = false;
     expect(() => finish!()).not.toThrow();
     await new Promise((r) => setTimeout(r, 0));

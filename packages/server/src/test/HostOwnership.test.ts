@@ -69,7 +69,7 @@ describe('RFC 0010 - caller-owned host', () => {
     expect(JSON.parse(missing.body).owner).toBe(OWNER.callerNotFound);
   });
 
-  it('gives caller responses no τjs CSP and no τjs trace header', async () => {
+  it('gives caller responses no τjs CSP and no τjs correlation header', async () => {
     const host = await createEmbeddedHost();
     await host.activate(createServer);
 
@@ -77,11 +77,11 @@ describe('RFC 0010 - caller-owned host', () => {
       const response = observe(await host.app.inject(url));
 
       expect(response.csp).toBe(CALLER_CSP);
-      expect(response.traceId).toBeUndefined();
+      expect(response.requestId).toBeUndefined();
     }
   });
 
-  it('owns its own page responses: render, CSP, trace and error conversion', async () => {
+  it('owns its own page responses: render, CSP, episode and error conversion', async () => {
     const host = await createEmbeddedHost();
     await host.activate(createServer);
 
@@ -91,7 +91,7 @@ describe('RFC 0010 - caller-owned host', () => {
     expect(page.status).toBe(200);
     expect(page.body).toContain(`${OWNER.taujsPage}:${PATHS.taujsPage}`);
     expect(page.csp).toContain("default-src 'rfc0010-taujs'");
-    expect(page.traceId).toBe(CALLER_REQUEST_ID);
+    expect(page.requestId).toBe(CALLER_REQUEST_ID);
 
     // τjs converts its own failures; the caller's 599 handler is not reached.
     expect(failure.status).toBe(500);
@@ -127,7 +127,7 @@ describe('RFC 0010 - caller-owned host', () => {
     expect(JSON.parse(missing.body)).toMatchObject({ error: 'Not Found', statusCode: 404 });
     expect(missing.body).not.toContain(OWNER.taujsPage);
     expect(missing.csp).toBeUndefined();
-    expect(missing.traceId).toBeUndefined();
+    expect(missing.requestId).toBeUndefined();
   });
 
   it('renders an explicitly declared terminal wildcard as an ordinary τjs page', async () => {
@@ -213,17 +213,17 @@ describe('RFC 0010 - caller-owned host', () => {
     await expect(host.activate(createServer, taujsConfig({ wildcard: true }))).rejects.toMatchObject({ code: 'FST_ERR_DUPLICATED_ROUTE' });
   });
 
-  it('adopts the host request identity for its trace, including a numeric genReqId', async () => {
-    // Correlation is the point: a caller's own records bind `reqId`, τjs binds the same value as
-    // `traceId`, so the two sides join. A counter-based `genReqId` returns a number, and a
+  it('adopts the host request identity, including a numeric genReqId', async () => {
+    // Correlation is the point: a caller's own records bind `reqId` and τjs echoes the same textual value as
+    // `requestId`, so the two sides join. A counter-based `genReqId` returns a number, and a
     // string-only guard silently substituted a random UUID here.
     const host = await createNumericRequestIdHost();
     await host.activate(createServer);
 
     const page = observe(await host.app.inject(PATHS.taujsPage));
 
-    expect(page.traceId).toBe(String(NUMERIC_REQUEST_ID));
-    expect(page.traceId).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
+    expect(page.requestId).toBe(String(NUMERIC_REQUEST_ID));
+    expect(page.requestId).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
     expect(JSON.stringify(host.logs)).toContain(String(NUMERIC_REQUEST_ID));
   });
 
@@ -318,9 +318,9 @@ describe('RFC 0010 - τjs-created host', () => {
     const hostRoute = observe(await app.inject(PATHS.createdHost));
 
     expect(page.body).toContain(OWNER.taujsPage);
-    // Routes the caller adds to the instance τjs created inherit whole-server CSP and trace.
+    // Routes the caller adds to the instance τjs created inherit whole-server CSP and episode.
     expect(hostRoute.csp).toContain("default-src 'rfc0010-taujs'");
-    expect(hostRoute.traceId).toBeTruthy();
+    expect(hostRoute.requestId).toBeTruthy();
   });
 
   it('retains the implicit application shell for unmatched URLs', async () => {

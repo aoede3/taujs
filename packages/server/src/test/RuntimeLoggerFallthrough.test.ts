@@ -34,12 +34,13 @@ describe('runtime logger fallthrough (real development server)', () => {
     const evidence = JSON.parse(line!.slice(RESULT_PREFIX.length));
     expect(evidence).toMatchObject({
       status: 200,
-      responseTraceId: 'fallthrough-selected-logger-trace',
+      // SC-09: the caller's genReqId ignored the inbound header, so the host req.id is the
+      // identity everywhere - τjs neither adopts nor echoes the header on the host's behalf.
+      responseRequestId: 'fallthrough-fastify-request',
       recordCount: 1,
       record: {
         level: 'debug',
         bindings: {
-          traceId: 'fallthrough-selected-logger-trace',
           reqId: 'fallthrough-fastify-request',
           url: '/',
           method: 'GET',
@@ -48,10 +49,11 @@ describe('runtime logger fallthrough (real development server)', () => {
         message: 'ssr requested',
       },
       // RFC 0010 (Q5/Q6) delta: the child supplies its own Fastify, so an unmatched URL belongs to
-      // the caller. It previously received a τjs 200 shell and a τjs trace header; it now falls to
-      // the caller's own not-found policy and opens no τjs trace episode.
+      // the caller. It previously received a τjs 200 shell and a τjs response header; it now falls
+      // to the caller's own not-found policy and opens no τjs episode.
       unmatchedStatus: 404,
     });
-    expect(evidence.unmatchedTraceId).toBeUndefined();
+    expect(evidence.record.bindings.requestId).toBeUndefined();
+    expect(evidence.unmatchedRequestId).toBeUndefined();
   });
 });

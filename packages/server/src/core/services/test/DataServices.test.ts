@@ -71,12 +71,12 @@ afterEach(() => {
 describe('defineService', () => {
   it('accepts raw function handlers (no schemas) and passes params/ctx through', async () => {
     const S = await importModule();
-    const handler = vi.fn(async (p, ctx) => ({ ok: true, got: p, trace: ctx.traceId }));
+    const handler = vi.fn(async (p, ctx) => ({ ok: true, got: p, episode: ctx.requestId }));
     const svc = S.defineService({ ping: handler });
-    const ctx = { traceId: 't-1' } as any;
+    const ctx = { requestId: 't-1' } as any;
 
     const res = await svc.ping({ a: 1 } as any, ctx);
-    expect(res).toEqual({ ok: true, got: { a: 1 }, trace: 't-1' });
+    expect(res).toEqual({ ok: true, got: { a: 1 }, episode: 't-1' });
     expect(handler).toHaveBeenCalledWith({ a: 1 }, ctx);
   });
 
@@ -143,7 +143,7 @@ describe('callServiceMethod', () => {
 
     const method = vi.fn(async (params, ctx) => {
       expect(params).toEqual({});
-      expect(ctx.traceId).toBe('trace-123');
+      expect(ctx.requestId).toBe('episode-123');
       return { hello: 'world' };
     });
 
@@ -151,12 +151,14 @@ describe('callServiceMethod', () => {
     const logger = makeLogger();
 
     const out = await S.callServiceMethod(registry, 'svc', 'm', undefined, {
-      traceId: 'trace-123',
+      requestId: 'episode-123',
       logger: logger as any,
     });
 
     expect(out).toEqual({ hello: 'world' });
-    expect(hoisted.childMock).toHaveBeenCalledWith(expect.objectContaining({ component: 'service-call', service: 'svc', method: 'm', traceId: 'trace-123' }));
+    // SC-09: the service child carries no identity rebinding - `reqId` means the current Fastify
+    // request and arrives only through the request-logger lineage, in its native type.
+    expect(hoisted.childMock).toHaveBeenCalledWith({ component: 'service-call', service: 'svc', method: 'm' });
     expect(hoisted.debugMock).toHaveBeenCalledWith({ ms: expect.any(Number) }, 'Service method ok');
   });
 

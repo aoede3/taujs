@@ -179,7 +179,7 @@ other two. τjs never reads a `vite.config.*` - if one sits where Vite used to p
 
 ### Fastify owns HTTP routing
 
-Every app route path is registered as a real Fastify GET route. Fastify selects the route and decodes its parameters; τjs then applies the declared auth, CSP, data, render and trace contract. There is no second τjs route matcher.
+Every app route path is registered as a real Fastify GET route. Fastify selects the route and decodes its parameters; τjs then applies the declared auth, CSP, data, render and episode contract. There is no second τjs route matcher.
 
 Configure HTTP routing on the Fastify instance passed to createServer:
 
@@ -656,7 +656,7 @@ Data handlers receive context:
 
 ```typescript
 data: async (params, ctx) => {
-  // ctx.traceId: Request trace ID
+  // ctx.requestId: canonical request identity, always String(req.id)
   // ctx.logger: Scoped logger
   // ctx.headers: Request headers
 
@@ -696,14 +696,14 @@ Entries are the ordinary `DataHandler` shape, `serviceData()` sugar included - t
 helper and no wrapper. τjs starts each named loader exactly once per request, outside the component
 tree and before the head resolves, and the selected renderer projects the named promise onto its own
 Suspense primitive. Because the work is declared, it appears in the request graph (contributing to a
-service's `usedBy`) and each entry records one outcome on the request trace.
+service's `usedBy`) and each entry records one outcome on the request episode.
 
 Deferred entries are not HTTP-status-bearing. Their outcome may arrive after the response has
 committed - the status line and headers are long gone by the time a deferred loader settles. Any
 condition that must prevent the response, redirect it or determine its status belongs in critical
 route resolution before rendering (`attr.data`, `attr.middleware`, `attr.head`), never in
 `attr.deferred`. `complete`, `failed` and `aborted` are deferred-data outcomes recorded on the
-trace and delivered to the hydration seed - they are not HTTP response statuses.
+episode and delivered to the hydration seed - they are not HTTP response statuses.
 
 Component-facing accessors live in the renderer packages:
 [React](/renderers/react#deferred-route-data),
@@ -721,7 +721,7 @@ Component-facing accessors live in the renderer packages:
   result (for example `{ available: false }`).
 
 **Outcomes.** Every entry settles as exactly one of `complete`, `failed` or `aborted`, recorded once
-on the request trace and readable through the existing MCP reader. `complete` means *deliverable*: a
+on the request episode and readable through the existing MCP reader. `complete` means *deliverable*: a
 resolved value that cannot cross the hydration boundary is classified `failed` on every surface at
 once, with a single payload-free warning (`Deferred data could not cross the hydration boundary
 key=<key>`) explaining why. An entry that no component read, whose loader rejects after the response

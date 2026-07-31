@@ -5,17 +5,17 @@ import { PassThrough } from 'node:stream';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { createDevIntrospection } from '../../core/introspection/DevIntrospection';
-import { createSafeRecorder } from '../../core/introspection/TraceRecorder';
+import { createSafeRecorder } from '../../core/introspection/EpisodeRecorder';
 import { handleRender } from '../HandleRender';
 import { handleNotFound } from '../HandleNotFound';
 
-import type { TraceRecorder } from '../../core/introspection/TraceRecorder';
+import type { EpisodeRecorder } from '../../core/introspection/EpisodeRecorder';
 
 vi.mock('../../core/routes/DataRoutes', () => ({
   fetchInitialData: vi.fn(async () => ({ product: { id: '42' } })),
 }));
 
-const T = 'trace-render-1';
+const T = 'episode-render-1';
 
 const mkLogger = (): any => {
   const l: any = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), isDebugEnabled: vi.fn(() => false) };
@@ -23,7 +23,7 @@ const mkLogger = (): any => {
   return l;
 };
 
-const mkReq = (url: string, recorder?: TraceRecorder, server?: unknown): any => {
+const mkReq = (url: string, recorder?: EpisodeRecorder, server?: unknown): any => {
   const raw = new EventEmitter() as any;
   raw.url = url;
   return {
@@ -32,7 +32,7 @@ const mkReq = (url: string, recorder?: TraceRecorder, server?: unknown): any => 
     headers: { host: 'localhost' },
     raw,
     server,
-    taujsRequestContext: { traceId: T, logger: mkLogger(), headers: {}, recorder },
+    taujsRequestContext: { requestId: T, logger: mkLogger(), headers: {}, recorder },
   };
 };
 
@@ -88,7 +88,7 @@ beforeEach(() => {
   renderSSRModule.renderSSR.mockClear();
 });
 
-const runSSR = async (recorder?: TraceRecorder) => {
+const runSSR = async (recorder?: EpisodeRecorder) => {
   const req = mkReq('/product/42', recorder);
   const reply = mkReply();
   await handleRender(req, reply, ssrRoute as any, configs, {} as any, maps(renderSSRModule), { logger: mkLogger() });
@@ -98,13 +98,13 @@ const runSSR = async (recorder?: TraceRecorder) => {
 describe('handleRender recorder events (P0B-02 hook sites)', () => {
   it('SSR happy path: routeMatched → dataFetch → sent(ssr, 200)', async () => {
     const dev = createDevIntrospection();
-    dev.recorder.requestStart({ traceId: T, url: '/product/42?ref=mail', method: 'GET' });
+    dev.recorder.requestStart({ requestId: T, url: '/product/42?ref=mail', method: 'GET' });
 
     await runSSR(dev.recorder);
 
-    const [trace] = dev.getTraces();
-    expect(trace).toMatchObject({
-      traceId: T,
+    const [episode] = dev.getEpisodes();
+    expect(episode).toMatchObject({
+      requestId: T,
       route: '/product/:id',
       appId: 'storefront',
       mode: 'ssr',
@@ -112,27 +112,27 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
       status: 200,
       url: { pathname: '/product/42', queryKeys: ['ref'], queryValuesRedacted: true },
     });
-    expect(trace!.timeline.matched).toBeTypeOf('number');
-    expect(trace!.timeline.dataEnd).toBeTypeOf('number');
+    expect(episode!.timeline.matched).toBeTypeOf('number');
+    expect(episode!.timeline.dataEnd).toBeTypeOf('number');
   });
 
   it('SSR render failure: outcome failed with the error message', async () => {
     const dev = createDevIntrospection();
-    dev.recorder.requestStart({ traceId: T, url: '/product/42', method: 'GET' });
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
     const failingModule = { renderSSR: vi.fn(async () => Promise.reject(new Error('render exploded'))) };
     const req = mkReq('/product/42', dev.recorder);
     const reply = mkReply();
 
     await expect(handleRender(req, reply, ssrRoute as any, configs, {} as any, maps(failingModule), { logger: mkLogger() })).rejects.toThrow();
 
-    const [trace] = dev.getTraces();
-    expect(trace!.outcome).toBe('failed');
-    expect(trace!.error!.message).toContain('render exploded');
+    const [episode] = dev.getEpisodes();
+    expect(episode!.outcome).toBe('failed');
+    expect(episode!.error!.message).toContain('render exploded');
   });
 
   it('streaming: streamPhases land and the finish handler emits sent(streaming)', async () => {
     const dev = createDevIntrospection();
-    dev.recorder.requestStart({ traceId: T, url: '/live', method: 'GET' });
+    dev.recorder.requestStart({ requestId: T, url: '/live', method: 'GET' });
 
     const streamingModule = {
       renderStream: vi.fn((writable: PassThrough, cb: any, initialDataInput: () => Promise<unknown>) => {
@@ -150,20 +150,20 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
     const reply = mkReply();
     await handleRender(req, reply, streamingRoute as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() });
     await vi.waitFor(() => {
-      expect(dev.getTraces()).toHaveLength(1);
+      expect(dev.getEpisodes()).toHaveLength(1);
     });
 
-    const [trace] = dev.getTraces();
-    expect(trace).toMatchObject({ mode: 'streaming', outcome: 'complete', status: 200 });
-    expect(trace!.timeline.head).toBeTypeOf('number');
-    expect(trace!.timeline.shellReady).toBeTypeOf('number');
-    expect(trace!.timeline.allReady).toBeTypeOf('number');
-    expect(trace!.timeline.dataStart).toBeTypeOf('number');
+    const [episode] = dev.getEpisodes();
+    expect(episode).toMatchObject({ mode: 'streaming', outcome: 'complete', status: 200 });
+    expect(episode!.timeline.head).toBeTypeOf('number');
+    expect(episode!.timeline.shellReady).toBeTypeOf('number');
+    expect(episode!.timeline.allReady).toBeTypeOf('number');
+    expect(episode!.timeline.dataStart).toBeTypeOf('number');
   });
 
   it('fallthrough: handleNotFound emits sent(fallthrough) on the hoisted context', async () => {
     const dev = createDevIntrospection();
-    dev.recorder.requestStart({ traceId: T, url: '/spa/deep/link', method: 'GET' });
+    dev.recorder.requestStart({ requestId: T, url: '/spa/deep/link', method: 'GET' });
 
     const req = mkReq('/spa/deep/link', dev.recorder);
     const reply = mkReply();
@@ -175,8 +175,8 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
       { logger: mkLogger() },
     );
 
-    const [trace] = dev.getTraces();
-    expect(trace).toMatchObject({ route: null, mode: 'fallthrough', outcome: 'complete', status: 200 });
+    const [episode] = dev.getEpisodes();
+    expect(episode).toMatchObject({ route: null, mode: 'fallthrough', outcome: 'complete', status: 200 });
   });
 });
 
@@ -190,7 +190,7 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
     await handleRender(req, reply, ssrRoute as any, configs, {} as any, maps(renderSSRModule), { logger: mkLogger() });
 
     const html = String(reply.sent[0]);
-    expect(html).toContain(`window.__TAUJS_TRACE_ID__="${T}"`);
+    expect(html).toContain(`window.__TAUJS_REQUEST_ID__="${T}"`);
     expect(html).toContain('window.__TAUJS_DEV_TOKEN__="boot-token-abc"');
     expect(html).toContain('__TAUJS_DEVTOOLS_HOOK__');
     expect(html).toContain('/__taujs/beacon');
@@ -200,7 +200,7 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
     const reply = await runSSR(undefined);
 
     const html = String(reply.sent[0]);
-    expect(html).not.toContain('__TAUJS_TRACE_ID__');
+    expect(html).not.toContain('__TAUJS_REQUEST_ID__');
     expect(html).not.toContain('__taujs');
   });
 
@@ -226,16 +226,16 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
 
     await handleRender(req, reply, streamingRoute as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() });
     await vi.waitFor(() => {
-      expect(writes.join('')).toContain('__TAUJS_TRACE_ID__');
+      expect(writes.join('')).toContain('__TAUJS_REQUEST_ID__');
     });
 
-    expect(writes[0]).toContain(`window.__TAUJS_TRACE_ID__="${T}"`);
+    expect(writes[0]).toContain(`window.__TAUJS_REQUEST_ID__="${T}"`);
 
     // Regression: the stamp must sit in <head>, never inside the app container. A <script>
     // preceding the streamed app HTML inside #root is a Vue hydration node mismatch — Vue
     // re-renders the whole app as a duplicate sibling (React skips unexpected scripts).
     const firstWrite = writes[0]!;
-    expect(firstWrite.indexOf('__TAUJS_TRACE_ID__')).toBeLessThan(firstWrite.indexOf('</head>'));
+    expect(firstWrite.indexOf('__TAUJS_REQUEST_ID__')).toBeLessThan(firstWrite.indexOf('</head>'));
     expect(firstWrite.endsWith('<main>')).toBe(true);
   });
 
@@ -252,7 +252,7 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
     );
 
     const html = String(reply.sent[0]);
-    expect(html).toContain(`window.__TAUJS_TRACE_ID__="${T}"`);
+    expect(html).toContain(`window.__TAUJS_REQUEST_ID__="${T}"`);
     expect(html).toContain('boot-token-abc');
   });
 

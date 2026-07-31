@@ -142,13 +142,13 @@ The base public context is:
 type ServiceContext = {
   signal?: AbortSignal;
   deadlineMs?: number;
-  traceId?: string;
+  requestId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
 };
 ```
 
-The route pipeline supplies the request signal, trace identity and request-scoped logger. It installs
+The route pipeline supplies the request signal, request identity and request-scoped logger. It installs
 a registry caller on the runtime context for route and service composition.
 
 The optional `user` field is not populated automatically. A Fastify `authenticate` decorator may set
@@ -282,12 +282,14 @@ export const UserService = defineService({
 ```
 
 Both parsers are optional. They run inside service dispatch, so validation failures follow the same
-error and trace path as method failures.
+error and episode path as method failures.
 
-## Errors, records and traces
+## Errors, records and episodes
 
-Service dispatch creates a child logger with `component`, `service`, `method` and `traceId` bindings.
-It records duration and success or failure in the development request trace.
+Service dispatch creates a child logger with `component`, `service` and `method` bindings; the
+canonical `reqId` arrives through the request logger's lineage in its native type and is never
+rebound.
+It records duration and success or failure in the development request episode.
 
 - an existing `AppError` keeps its status and safe-message policy
 - another thrown error is wrapped as an internal `AppError`
@@ -320,7 +322,7 @@ it("loads a product", async () => {
 
   const result = await CatalogueService.product(
     { id: "p1" },
-    { traceId: "test-trace", logger },
+    { requestId: "test-request-id", logger },
   );
 
   expect(result.product.id).toBe("p1");
@@ -347,5 +349,5 @@ Related guides:
 
 - [Data Loading](/guides/data-loading/) for critical, head and deferred slots
 - [Authentication](/guides/authentication/) for the Fastify auth boundary
-- [Logging & Telemetry](/guides/logging-telemetry/) for service records and traces
+- [Logging & Telemetry](/guides/logging-telemetry/) for service records and episodes
 - [Request Contracts & Data](/guides/request-contracts/) for route ownership

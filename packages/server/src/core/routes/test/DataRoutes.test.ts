@@ -32,8 +32,8 @@ describe('fetchInitialData', () => {
   });
 
   // mkCtx depends on the logger set in beforeEach, so define it here
-  const mkCtx = (overrides: Partial<{ traceId: string; headers: Record<string, string>; logger: any }> = {}) => ({
-    traceId: 'test-trace',
+  const mkCtx = (overrides: Partial<{ requestId: string; headers: Record<string, string>; logger: any }> = {}) => ({
+    requestId: 'test-episode',
     headers: {},
     logger,
     ...overrides,
@@ -110,7 +110,7 @@ describe('fetchInitialData', () => {
 
     const impl = vi.fn(async (_registry, _svc, _method, args, ctx) => {
       expect(args).toEqual({});
-      expect(ctx.traceId).toBe('zzz');
+      expect(ctx.requestId).toBe('zzz');
       return { ok: true };
     });
 
@@ -118,7 +118,7 @@ describe('fetchInitialData', () => {
       attr,
       {} as any,
       { svc: { greet: { handler: vi.fn(async () => ({})) } } } as any,
-      mkCtx({ traceId: 'zzz', logger: {} as any }),
+      mkCtx({ requestId: 'zzz', logger: {} as any }),
       impl as any,
     );
 
@@ -127,7 +127,7 @@ describe('fetchInitialData', () => {
       'svc',
       'greet',
       {}, // <-- args ?? {} covered
-      expect.objectContaining({ traceId: 'zzz' }), // ctx passed through
+      expect.objectContaining({ requestId: 'zzz' }), // ctx passed through
     );
     expect(out).toEqual({ ok: true });
   });
@@ -208,7 +208,7 @@ describe('fetchHeadData (RFC 0004 H1)', () => {
     },
   } as any;
 
-  const mkCtx = () => ({ traceId: 'test-trace', headers: {}, logger: { error: vi.fn(), warn: vi.fn() } });
+  const mkCtx = () => ({ requestId: 'test-episode', headers: {}, logger: { error: vi.fn(), warn: vi.fn() } });
 
   it('returns undefined when the route declares no head', async () => {
     expect(await fetchHeadData(undefined as any, {} as any, registry, mkCtx() as any)).toBeUndefined();

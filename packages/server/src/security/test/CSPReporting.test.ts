@@ -378,7 +378,7 @@ describe('cspReportPlugin', () => {
         url: '/csp-report',
         method: 'POST',
         id: 'req-csp-1',
-        taujsRequestContext: { traceId: 'trace-csp-1', logger: { warn: requestWarn } },
+        taujsRequestContext: { requestId: 'episode-csp-1', logger: { warn: requestWarn } },
       },
     );
 

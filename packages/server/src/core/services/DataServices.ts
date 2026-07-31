@@ -2,7 +2,7 @@ import { AppError } from '../errors/AppError';
 import { resolveLogs } from '../logging/resolve';
 
 import type { Logs } from '../logging/types';
-import type { TraceRecorder } from '../introspection/TraceRecorder';
+import type { EpisodeRecorder } from '../introspection/EpisodeRecorder';
 import { now } from '../telemetry/Telemetry';
 
 // runtime checks instead happens at the boundary
@@ -21,10 +21,10 @@ const runSchema = <T>(schema: NarrowSchema<T> | undefined, input: unknown): T =>
 type BaseServiceContext = {
   signal?: AbortSignal; // request/client abort passed in request
   deadlineMs?: number; // available to userland; not enforced here
-  traceId?: string;
+  requestId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
-  recorder?: TraceRecorder; // dev-only, safety-wrapped; absent in production
+  recorder?: EpisodeRecorder; // dev-only, safety-wrapped; absent in production
 };
 
 type UntypedRegistryCaller = (serviceName: string, methodName: string, args?: JsonObject) => Promise<JsonObject>;
@@ -188,11 +188,14 @@ export async function callServiceMethod(
 
   const baseLogger = resolveLogs(ctx.logger);
 
+  // SC-09: `reqId` means the CURRENT Fastify request, in its native type, and arrives through the
+  // request-logger lineage - rebinding it here would stringify a numeric host identity and fork
+  // the meaning. A logger without that lineage simply carries no request identity; the episode
+  // relationship is the recorder's (`serviceCall({ requestId })` below), not this child's.
   const logger = baseLogger.child({
     component: 'service-call',
     service: serviceName,
     method: methodName,
-    traceId: ctx.traceId,
   });
 
   const t0 = now();
@@ -207,7 +210,7 @@ export async function callServiceMethod(
 
     const ms = +(now() - t0).toFixed(1);
     logger.debug({ ms }, 'Service method ok');
-    if (ctx.recorder && ctx.traceId) ctx.recorder.serviceCall({ traceId: ctx.traceId, service: serviceName, method: methodName, ms, ok: true });
+    if (ctx.recorder && ctx.requestId) ctx.recorder.serviceCall({ requestId: ctx.requestId, service: serviceName, method: methodName, ms, ok: true });
 
     return result;
   } catch (err) {
@@ -220,7 +223,7 @@ export async function callServiceMethod(
       },
       'Service method failed',
     );
-    if (ctx.recorder && ctx.traceId) ctx.recorder.serviceCall({ traceId: ctx.traceId, service: serviceName, method: methodName, ms, ok: false });
+    if (ctx.recorder && ctx.requestId) ctx.recorder.serviceCall({ requestId: ctx.requestId, service: serviceName, method: methodName, ms, ok: false });
 
     // Brand check, not instanceof: the thrown error may come from another copy
     // of AppError (e.g. the @taujs/server/config entry) and must keep its

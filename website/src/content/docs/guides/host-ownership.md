@@ -9,7 +9,7 @@ When `fastify` is omitted, τjs creates the instance and installs its whole-serv
 encapsulated scope. There is no separate ownership option or flag.
 
 ```ts
-// τjs creates Fastify: whole-server shell, CSP and trace
+// τjs creates Fastify: whole-server shell, CSP and request identity
 const { app, net } = await createServer({ config });
 
 // You own Fastify: τjs installs into an encapsulated application scope
@@ -38,7 +38,7 @@ that matches the application:
 | Concern | τjs-created Fastify | Your Fastify |
 | --- | --- | --- |
 | Page routes, data, rendering | τjs | τjs, in one encapsulated scope |
-| CSP and trace | Whole server | τjs responses only |
+| CSP and request identity | Whole server | τjs responses only |
 | Auth | τjs routes | τjs routes |
 | Page errors | τjs root handler | τjs scoped handler |
 | Host route errors | τjs | You |
@@ -100,15 +100,18 @@ plumbing, work the same in either installation shape.
 If CSP should cover host routes as well, register the host-wide policy on the supplied Fastify
 instance. τjs continues to manage policy for the pages it renders.
 
-### Request identity and trace scope
+### Request identity and episode scope
 
-τjs opens a trace episode only for responses it owns. Host routes do not receive a τjs
-`x-trace-id` response header and do not start a τjs recorder episode.
+τjs opens a recorder episode only for responses it owns. Host routes do not receive a τjs
+`x-request-id` response header and do not start a τjs recorder episode.
 
-τjs records can be correlated with host logs. A valid inbound `x-trace-id` becomes the τjs
-`traceId`; otherwise τjs uses the Fastify `req.id`, including numeric IDs. τjs log bindings retain
-the Fastify value as `reqId` in either case. Exact equality between `reqId` and `traceId` therefore
-depends on the host's request-ID configuration; τjs does not rewrite `req.id`.
+Fastify `req.id` is the canonical request-correlation identity in both host modes, including
+numeric IDs, whose textual form is used. The τjs request identity is always `String(req.id)`: it
+keys the recorder episode, appears in log bindings as the Fastify-native `reqId` and echoes on
+τjs-owned responses as `x-request-id`. τjs never rewrites `req.id` and never reinterprets an
+inbound correlation header after Fastify has created the request; a caller that wants to adopt
+inbound correlation configures it at Fastify construction with a validating `genReqId`. See
+[Logging and Telemetry](/guides/logging-telemetry/#request-identity) for the recipe.
 
 ## Running τjs inside another runtime
 

@@ -10,7 +10,7 @@ import type { ServiceRegistry } from '../services/DataServices';
 import type { DevIntrospection } from './DevIntrospection';
 
 const SSE_POLL_MS = 500;
-const TRACES_DEFAULT_LIMIT = 50;
+const EPISODES_DEFAULT_LIMIT = 50;
 const BEACON_BODY_LIMIT = 2048;
 const BEACON_ERROR_CAP = 500;
 
@@ -70,7 +70,7 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     return reply.send(introspection.getObservations());
   });
 
-  app.get('/__taujs/traces', { preHandler: guard }, async (req, reply) => {
+  app.get('/__taujs/episodes', { preHandler: guard }, async (req, reply) => {
     const accept = String(req.headers.accept ?? '');
 
     if (accept.includes('text/event-stream')) {
@@ -84,10 +84,10 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
 
       const seen = new Set<string>();
       const push = () => {
-        for (const trace of introspection.getTraces()) {
-          if (seen.has(trace.traceId)) continue;
-          seen.add(trace.traceId);
-          reply.raw.write(`data: ${JSON.stringify(trace)}\n\n`);
+        for (const episode of introspection.getEpisodes()) {
+          if (seen.has(episode.requestId)) continue;
+          seen.add(episode.requestId);
+          reply.raw.write(`data: ${JSON.stringify(episode)}\n\n`);
         }
       };
 
@@ -99,9 +99,9 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     }
 
     const rawLimit = Number((req.query as Record<string, unknown>)?.limit);
-    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : TRACES_DEFAULT_LIMIT;
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : EPISODES_DEFAULT_LIMIT;
 
-    return reply.send({ bootId: introspection.bootId, traces: introspection.getTraces(limit) });
+    return reply.send({ bootId: introspection.bootId, episodes: introspection.getEpisodes(limit) });
   });
 
   // The one write endpoint (RFC security model §3). Registered here; the client-side stamp
@@ -114,18 +114,20 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     const body = req.body as Record<string, unknown> | null;
     if (!body || typeof body !== 'object') return reply.code(400).send({ error: 'invalid_body' });
 
-    const { traceId, ok, ms, error } = body;
-    if (typeof traceId !== 'string' || !REGEX.SAFE_TRACE.test(traceId)) return reply.code(400).send({ error: 'invalid_trace_id' });
+    const { requestId, ok, ms, error } = body;
+    if (typeof requestId !== 'string' || !REGEX.SAFE_REQUEST_ID.test(requestId)) return reply.code(400).send({ error: 'invalid_request_id' });
     if (typeof ok !== 'boolean') return reply.code(400).send({ error: 'invalid_body' });
     if (ms !== undefined && typeof ms !== 'number') return reply.code(400).send({ error: 'invalid_body' });
     if (error !== undefined && typeof error !== 'string') return reply.code(400).send({ error: 'invalid_body' });
 
-    const trace = introspection.findTrace(traceId);
-    if (!trace) return reply.code(204).send(); // unknown or evicted: dropped silently
-    if (trace.client) return reply.code(409).send({ error: 'duplicate_beacon' });
+    const episode = introspection.findEpisode(requestId);
+    if (!episode) return reply.code(204).send(); // unknown or evicted: dropped silently
+    if (episode.client) return reply.code(409).send({ error: 'duplicate_beacon' });
 
-    introspection.recorder.clientHydration({ traceId, ok, ms, error: typeof error === 'string' ? error.slice(0, BEACON_ERROR_CAP) : undefined });
-    logger.debug?.({ component: 'introspection', traceId }, 'Hydration beacon applied');
+    introspection.recorder.clientHydration({ requestId, ok, ms, error: typeof error === 'string' ? error.slice(0, BEACON_ERROR_CAP) : undefined });
+    // SC-09: `reqId` means the current Fastify request - here that is the beacon POST, not the
+    // page episode this beacon updates. The updated episode is named explicitly instead.
+    logger.debug?.({ component: 'introspection', episodeRequestId: requestId }, 'Hydration beacon applied');
 
     return reply.code(204).send();
   });

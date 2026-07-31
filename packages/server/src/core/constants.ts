@@ -4,5 +4,5 @@ export const RENDERTYPE = {
 } as const;
 
 export const REGEX = {
-  SAFE_TRACE: /^[a-zA-Z0-9-_:.]{1,128}$/,
+  SAFE_REQUEST_ID: /^[a-zA-Z0-9-_:.]{1,128}$/,
 } as const satisfies Readonly<Record<string, RegExp>>;

@@ -20,17 +20,17 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
   const filePath = (name: string) => path.join(dir, name);
 
   let timer: NodeJS.Timeout | undefined;
-  let last = { traces: -1, tracesRevision: -1, logs: -1, observationsUpdatedAt: null as string | null };
+  let last = { episodes: -1, episodesRevision: -1, logs: -1, observationsUpdatedAt: null as string | null };
 
   const flush = async (): Promise<void> => {
     const stats = introspection.stats();
 
-    // `tracesRevision` advances for a NEW finalised trace and for an in-place amendment of one
+    // `episodesRevision` advances for a NEW finalised episode and for an in-place amendment of one
     // (RFC 0007 R5: a deferred outcome arriving after the terminal), so a late outcome reaches the
     // on-disk artefact through this same bounded rewrite rather than lagging until the next request.
-    if (stats.tracesRevision !== last.tracesRevision) {
-      const lines = introspection.getTraces().map((t) => JSON.stringify(t));
-      await writeTaujsArtifact(dir, 'traces.ndjson', lines.length ? `${lines.join('\n')}\n` : '', logger);
+    if (stats.episodesRevision !== last.episodesRevision) {
+      const lines = introspection.getEpisodes().map((t) => JSON.stringify(t));
+      await writeTaujsArtifact(dir, 'episodes.ndjson', lines.length ? `${lines.join('\n')}\n` : '', logger);
     }
     if (stats.logs !== last.logs) {
       const lines = introspection.getLogs().map((l) => JSON.stringify(l));
@@ -45,6 +45,12 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
   app.addHook('onListen', async function emitDevJson() {
     const address = this.server.address() as AddressInfo | null;
 
+    // SC-09 episode rename migration: a developer may still hold a legacy traces.ndjson written by
+    // an earlier boot. A current boot exposes only episodes.ndjson through dev.json, and the
+    // obsolete generated file is removed explicitly so a stale legacy artefact can never be
+    // mistaken for current-boot evidence. Non-fatal like every other dev-file write.
+    await rm(filePath('traces.ndjson'), { force: true }).catch(() => undefined);
+
     const devJson = {
       bootId: introspection.bootId,
       token: introspection.token,
@@ -53,7 +59,7 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
       host: address?.address ?? null,
       port: address?.port ?? null,
       graph: filePath('graph.json'),
-      traces: filePath('traces.ndjson'),
+      episodes: filePath('episodes.ndjson'),
       logs: filePath('logs.ndjson'),
       observations: filePath('observations.json'),
     };
@@ -68,7 +74,7 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
   app.addHook('onClose', async () => {
     if (timer) clearInterval(timer);
     await flush().catch(() => undefined);
-    // Removing dev.json marks the boot dead; trace files stay (bootId detects staleness).
+    // Removing dev.json marks the boot dead; episode files stay (bootId detects staleness).
     await rm(filePath('dev.json'), { force: true }).catch(() => undefined);
   });
 };

@@ -34,27 +34,28 @@ describe('createRequestContext', () => {
     vi.resetAllMocks();
   });
 
-  it('uses x-trace-id header when present and SAFE_TRACE matches', () => {
+  it('adopts String(req.id) and never reinterprets an inbound x-request-id (SC-09)', () => {
     const req: Req = {
-      headers: { 'x-trace-id': 'abc-123', host: 'localhost' },
+      headers: { 'x-request-id': 'abc-123', host: 'localhost' },
+      id: 'host-77',
       method: 'GET',
       url: '/ok',
     };
 
     const ctx = createRequestContext(req as any, reply as any, baseLogger);
 
-    expect(ctx.traceId).toBe('abc-123');
-    expect(reply.header).toHaveBeenCalledWith('x-trace-id', 'abc-123');
+    expect(ctx.requestId).toBe('host-77');
+    expect(reply.header).toHaveBeenCalledWith('x-request-id', 'host-77');
     expect(ctx.logger).toBe(baseLogger);
     expect(ctx.headers).toEqual({
-      'x-trace-id': 'abc-123',
+      'x-request-id': 'abc-123',
       host: 'localhost',
     });
   });
 
-  it('falls back to req.id when x-trace-id is invalid', () => {
+  it('a malformed inbound header is irrelevant: req.id is already the identity', () => {
     const req: Req = {
-      headers: { 'x-trace-id': '!!not-safe!!', host: 'localhost' },
+      headers: { 'x-request-id': '!!not-safe!!', host: 'localhost' },
       id: 'request-42',
       method: 'POST',
       url: '/fallback',
@@ -62,25 +63,33 @@ describe('createRequestContext', () => {
 
     const ctx = createRequestContext(req as any, reply as any, baseLogger);
 
-    expect(ctx.traceId).toBe('request-42');
-    expect(reply.header).toHaveBeenCalledWith('x-trace-id', 'request-42');
+    expect(ctx.requestId).toBe('request-42');
+    expect(reply.header).toHaveBeenCalledWith('x-request-id', 'request-42');
   });
 
-  it('falls back to crypto.randomUUID when no valid header and no req.id', () => {
+  it('coerces a numeric req.id to its textual identity', () => {
+    const req: Req = {
+      headers: { host: 'num.test' },
+      id: 7,
+      method: 'GET',
+      url: '/num',
+    };
+
+    const ctx = createRequestContext(req as any, reply as any, baseLogger);
+
+    expect(ctx.requestId).toBe('7');
+    expect(reply.header).toHaveBeenCalledWith('x-request-id', '7');
+  });
+
+  it('fails explicitly when a host violates the Fastify req.id contract - no parallel identity is invented', () => {
     const req: Req = {
       headers: { host: 'example.test' },
       method: 'PUT',
       url: '/gen',
     };
 
-    const ctx = createRequestContext(req as any, reply as any, baseLogger);
-
-    const setTraceId = headerSpy.mock.calls.find((c) => c[0] === 'x-trace-id')?.[1] as string;
-
-    expect(setTraceId).toBeDefined();
-    expect(ctx.traceId).toBe(setTraceId);
-
-    expect(ctx.traceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(() => createRequestContext(req as any, reply as any, baseLogger)).toThrow(/SC-09: Fastify guarantees a string or number req\.id/);
+    expect(headerSpy).not.toHaveBeenCalled();
   });
 
   it('uses logger.child when provided, binding correct "this" and bindings', () => {
@@ -91,14 +100,12 @@ describe('createRequestContext', () => {
       ...baseLogger,
       child: vi.fn(function (this: any, bindings: Record<string, unknown>) {
         childThis = this;
-        expect(bindings).toEqual(
-          expect.objectContaining({
-            traceId: expect.any(String),
-            reqId: 'req-child-1',
-            url: '/child',
-            method: 'GET',
-          }),
-        );
+        // One correlation identity: the Fastify-native `reqId` binding alone, in native type.
+        expect(bindings).toEqual({
+          reqId: 'req-child-1',
+          url: '/child',
+          method: 'GET',
+        });
         return derivedLogger;
       }),
     };
@@ -130,7 +137,6 @@ describe('createRequestContext', () => {
     const ctx = createRequestContext(req as any, reply as any, baseLogger, deriveLogger as any);
 
     expect(deriveLogger).toHaveBeenCalledWith({
-      traceId: 'req-factory-1',
       reqId: 'req-factory-1',
       url: '/factory',
       method: 'PATCH',

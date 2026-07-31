@@ -5,7 +5,7 @@ import { fetchInitialData } from '../../routes/DataRoutes';
 import { defineService, defineServiceRegistry, isServiceDescriptor } from '../DataServices';
 import { createServiceData, getServiceDataMetadata } from '../ServiceData';
 
-const getProduct = vi.fn(async (p: { id: string }, ctx?: { traceId?: string }) => ({ product: { id: p.id } }));
+const getProduct = vi.fn(async (p: { id: string }, ctx?: { requestId?: string }) => ({ product: { id: p.id } }));
 const listSpecials = vi.fn(async (_params: {}) => ({ items: ['sku_1'] }));
 
 const registry = defineServiceRegistry({
@@ -14,7 +14,7 @@ const registry = defineServiceRegistry({
 
 const serviceData = createServiceData<typeof registry>();
 
-const mkCtx = () => ({ traceId: 'test-trace', headers: {} }) as any;
+const mkCtx = () => ({ requestId: 'test-episode', headers: {} }) as any;
 
 beforeEach(() => {
   getProduct.mockClear();
@@ -60,8 +60,8 @@ describe('createServiceData', () => {
     const [sugarArgs, sugarCtx] = getProduct.mock.calls[0]!;
     const [handWrittenArgs, handWrittenCtx] = getProduct.mock.calls[1]!;
     expect(sugarArgs).toEqual(handWrittenArgs);
-    expect((sugarCtx as any).traceId).toBe('test-trace');
-    expect((handWrittenCtx as any).traceId).toBe('test-trace');
+    expect((sugarCtx as any).requestId).toBe('test-episode');
+    expect((handWrittenCtx as any).requestId).toBe('test-episode');
   });
 });
 

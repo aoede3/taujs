@@ -110,7 +110,7 @@ export const serializeInlineData = (value: unknown): SerializedInlineData => {
  *     (the enclosing key/status structure is assembled at the terminal, then the whole assembled
  *     text goes through `inlineJsFromJson` once, exactly like the public snapshot).
  *   - `value` - `JSON.parse` of those same bytes, so the renderer consumes a fresh graph sharing no
- *     identity with the loader's object. Server render, trace and hydration therefore cannot
+ *     identity with the loader's object. Server render, episode and hydration therefore cannot
  *     disagree: members JSON drops are absent from BOTH surfaces, a later mutation of the loader's
  *     object affects NEITHER, and an unstable `toJSON`/getter is invoked by this one attempt only.
  *

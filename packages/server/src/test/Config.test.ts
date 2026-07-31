@@ -34,7 +34,7 @@ describe('Config', async () => {
       },
     };
 
-    const ctx = { logger: undefined, traceId: 't' } as any;
+    const ctx = { logger: undefined, requestId: 't' } as any;
 
     await expect(mod.callServiceMethod(registry as any, 'svc', 'm', {}, ctx)).resolves.toEqual({ ok: true });
 

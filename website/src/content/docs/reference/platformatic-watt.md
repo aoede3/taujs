@@ -104,7 +104,6 @@ export const UserService = defineService({
       signal: ctx.signal,
       headers: {
         "x-request-id": ctx.requestId,
-        "x-trace-id": ctx.traceId,
         authorization: ctx.headers.authorization,
       },
     });
@@ -208,7 +207,7 @@ data: async (params, ctx) => {
 
 τjs propagates a minimal request context to Watt:
 
-- request / trace identifiers
+- the canonical request identifier
 - authentication headers
 - locale or tenant headers (if applicable)
 

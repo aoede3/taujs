@@ -241,7 +241,7 @@ export function ProductPage() {
 The `<ErrorBoundary>` must sit **inside** the `<Suspense>` boundary that the read suspends. Outside it, the response still completes and the rejection is still redacted, but the fallback renders on the client instead of in the streamed HTML.
 </Aside>
 
-**Failure semantics.** Every declared entry settles as exactly one of `complete`, `failed` or `aborted`, recorded once on the request trace. An **unconsumed** entry whose loader rejects after the response terminal reads as `aborted`, not `failed` - the response had already finished, so nothing was waiting on the value. `complete` means *deliverable*: a value that resolves but cannot cross the hydration boundary is classified `failed` uniformly across the server render, the trace and hydration.
+**Failure semantics.** Every declared entry settles as exactly one of `complete`, `failed` or `aborted`, recorded once on the request episode. An **unconsumed** entry whose loader rejects after the response terminal reads as `aborted`, not `failed` - the response had already finished, so nothing was waiting on the value. `complete` means *deliverable*: a value that resolves but cannot cross the hydration boundary is classified `failed` uniformly across the server render, the episode and hydration.
 
 **Hydration.** Outcomes for the boundaries a component actually read are also seeded from a private internal carrier written beside `window.__INITIAL_DATA__` and read once by the bootstrap, so hydration re-executes no loader and issues no refetch. Under `hydrate: false` no carrier is emitted and the value still streams into the server-rendered HTML natively.
 

@@ -58,7 +58,7 @@ A route loader receives route parameters and a request-scoped context. The usefu
 
 ```ts
 type LoaderContext = {
-  traceId: string;
+  requestId: string;
   logger: Logs;
   headers: Record<string, string>;
   signal?: AbortSignal;
@@ -66,7 +66,7 @@ type LoaderContext = {
 };
 ```
 
-- `traceId` and `logger` use the τjs request identity and selected logger lineage.
+- `requestId` and `logger` use the τjs request identity and selected logger lineage.
 - `headers` contains normalised request-header values. Treat credentials as sensitive.
 - `signal` aborts with the response lifecycle.
 - `call` invokes a registered service with the same request context.
@@ -208,7 +208,7 @@ entry. A deferred result cannot redirect, prevent the response or choose its HTT
 status-bearing condition in middleware or critical data.
 
 A component cannot promote its own async work into the registry. Work started in the component tree
-remains UI-local and does not receive τjs cancellation, trace or hydration guarantees.
+remains UI-local and does not receive τjs cancellation, episode or hydration guarantees.
 
 See [Deferred Route Data](/reference/taujs-config/#deferred-route-data) for validation and lifecycle
 rules. The renderer guides document their native accessors:
@@ -264,4 +264,4 @@ Related guides:
 - [Request Contracts & Data](/guides/request-contracts/) for ownership by declaration
 - [Services](/guides/services/) for mediated server work
 - [Head Management](/guides/head-management/) for head timing
-- [Logging & Telemetry](/guides/logging-telemetry/) for request identity and trace outcomes
+- [Logging & Telemetry](/guides/logging-telemetry/) for request identity and episode outcomes
