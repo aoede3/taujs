@@ -224,8 +224,8 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     }
   }
   // Trace context first, deliberately before auth: every request — rendered, fallthrough,
-  // asset-like — gets a traceId and the x-trace-id response header before auth,
-  // and auth logging can carry the traceId (P0B-01). In dev the request logger is teed
+  // asset-like — gets a requestId and the x-request-id response header before auth,
+  // and auth logging can carry the requestId (P0B-01). In dev the request logger is teed
   // into the logs annex and the recorder rides the context (P0B-02).
   scope.decorateRequest('taujsRequestContext', null);
   scope.addHook('onRequest', async (req, reply) => {
@@ -236,11 +236,11 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       opts.runtimeLogger ? (bindings) => createRuntimeRequestLogger(opts.runtimeLogger!, req, { component: 'ssr-server', ...bindings }) : undefined,
     );
     if (introspection) {
-      requestContext.logger = introspection.wrapRequestLogger(requestContext.logger, requestContext.traceId);
+      requestContext.logger = introspection.wrapRequestLogger(requestContext.logger, requestContext.requestId);
       requestContext.recorder = introspection.recorder;
     }
     req.taujsRequestContext = requestContext;
-    requestContext.recorder?.requestStart({ traceId: requestContext.traceId, url: req.url, method: req.method });
+    requestContext.recorder?.requestStart({ requestId: requestContext.requestId, url: req.url, method: req.method });
   });
   scope.addHook('onRequest', createAuthHook(logger));
 

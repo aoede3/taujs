@@ -21,7 +21,13 @@ const mkLogger = (): any => {
 const mkReq = (url: string, recorder?: TraceRecorder, logger?: any): any => {
   const raw = new EventEmitter() as any;
   raw.url = url;
-  return { url, method: 'GET', headers: { host: 'localhost' }, raw, taujsRequestContext: { traceId: T, logger: logger ?? mkLogger(), headers: {}, recorder } };
+  return {
+    url,
+    method: 'GET',
+    headers: { host: 'localhost' },
+    raw,
+    taujsRequestContext: { requestId: T, logger: logger ?? mkLogger(), headers: {}, recorder },
+  };
 };
 
 const mkReply = () => {

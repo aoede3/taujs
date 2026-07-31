@@ -246,7 +246,7 @@ describe('handleRender', () => {
     vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(false);
 
     vi.mocked(Telemetry.createRequestContext).mockReturnValue({
-      traceId: 'trace-1',
+      requestId: 'trace-1',
       logger: mockLogger,
       headers: { host: 'localhost' },
     } as any);
@@ -1544,7 +1544,7 @@ describe('handleRender', () => {
       setupStreamingRoute();
       const failed = vi.fn();
       vi.mocked(Telemetry.createRequestContext).mockReturnValue({
-        traceId: 'trace-1',
+        requestId: 'trace-1',
         logger: mockLogger,
         headers: { host: 'localhost' },
         recorder: { ...noopTraceRecorder, failed },
@@ -2040,12 +2040,12 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
       mockReq.taujsRequestContext = {
-        traceId: 'fatal-trace-1',
+        requestId: 'fatal-trace-1',
         logger: mockLogger,
-        headers: { 'x-trace-id': 'fatal-trace-1' },
+        headers: { 'x-request-id': 'fatal-trace-1' },
       };
       // Fastify's reply header store is the source copied into the raw streaming response.
-      mockReply.getHeaders.mockReturnValue({ 'x-trace-id': 'fatal-trace-1' });
+      mockReply.getHeaders.mockReturnValue({ 'x-request-id': 'fatal-trace-1' });
 
       await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
@@ -2053,7 +2053,7 @@ describe('handleRender', () => {
       expect(mockReply.raw.writeHead).toHaveBeenCalledTimes(1);
       expect(mockReply.raw.writeHead).toHaveBeenCalledWith(
         500,
-        expect.objectContaining({ 'Content-Type': 'text/html; charset=utf-8', 'x-trace-id': 'fatal-trace-1' }),
+        expect.objectContaining({ 'Content-Type': 'text/html; charset=utf-8', 'x-request-id': 'fatal-trace-1' }),
       );
       expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
       expect(mockReply.raw.destroy).not.toHaveBeenCalled();
@@ -2742,7 +2742,7 @@ describe('handleRender', () => {
         { id: '123' },
         mockServiceRegistry,
         expect.objectContaining({
-          traceId: expect.any(String),
+          requestId: expect.any(String),
           headers: expect.objectContaining({ host: 'localhost' }),
           // R1-01: the request AbortSignal is threaded into the data context BEFORE the fetch, so
           // loaders can honour client disconnect / deadline. Regression guard for the SSR branch —

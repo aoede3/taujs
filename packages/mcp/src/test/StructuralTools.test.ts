@@ -56,10 +56,10 @@ beforeAll(async () => {
 
   // Observed traffic: one getProduct call recorded through the real assembler.
   const dev = createDevIntrospection();
-  dev.recorder.requestStart({ traceId: 'obs-1', url: '/product/7', method: 'GET' });
-  dev.recorder.routeMatched({ traceId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
-  dev.recorder.serviceCall({ traceId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
-  dev.recorder.sent({ traceId: 'obs-1', status: 200, mode: 'streaming' });
+  dev.recorder.requestStart({ requestId: 'obs-1', url: '/product/7', method: 'GET' });
+  dev.recorder.routeMatched({ requestId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
+  dev.recorder.serviceCall({ requestId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
+  dev.recorder.sent({ requestId: 'obs-1', status: 200, mode: 'streaming' });
   await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations(), null, 2));
 
   // No dev.json → stale mode: structural tools must work cold and cite staleness.

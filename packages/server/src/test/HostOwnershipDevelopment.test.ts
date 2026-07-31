@@ -107,7 +107,7 @@ const buildCallerHost = (): FastifyInstance => {
 const frozen = (response: Parameters<typeof observe>[0]) => {
   const seen = observe(response);
 
-  return { status: seen.status, body: seen.body, type: seen.type, csp: seen.csp, traceId: seen.traceId };
+  return { status: seen.status, body: seen.body, type: seen.type, csp: seen.csp, requestId: seen.requestId };
 };
 
 afterEach(async () => {

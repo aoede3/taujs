@@ -21,7 +21,7 @@ const runSchema = <T>(schema: NarrowSchema<T> | undefined, input: unknown): T =>
 type BaseServiceContext = {
   signal?: AbortSignal; // request/client abort passed in request
   deadlineMs?: number; // available to userland; not enforced here
-  traceId?: string;
+  requestId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
   recorder?: TraceRecorder; // dev-only, safety-wrapped; absent in production
@@ -192,7 +192,7 @@ export async function callServiceMethod(
     component: 'service-call',
     service: serviceName,
     method: methodName,
-    traceId: ctx.traceId,
+    requestId: ctx.requestId,
   });
 
   const t0 = now();
@@ -207,7 +207,7 @@ export async function callServiceMethod(
 
     const ms = +(now() - t0).toFixed(1);
     logger.debug({ ms }, 'Service method ok');
-    if (ctx.recorder && ctx.traceId) ctx.recorder.serviceCall({ traceId: ctx.traceId, service: serviceName, method: methodName, ms, ok: true });
+    if (ctx.recorder && ctx.requestId) ctx.recorder.serviceCall({ requestId: ctx.requestId, service: serviceName, method: methodName, ms, ok: true });
 
     return result;
   } catch (err) {
@@ -220,7 +220,7 @@ export async function callServiceMethod(
       },
       'Service method failed',
     );
-    if (ctx.recorder && ctx.traceId) ctx.recorder.serviceCall({ traceId: ctx.traceId, service: serviceName, method: methodName, ms, ok: false });
+    if (ctx.recorder && ctx.requestId) ctx.recorder.serviceCall({ requestId: ctx.requestId, service: serviceName, method: methodName, ms, ok: false });
 
     // Brand check, not instanceof: the thrown error may come from another copy
     // of AppError (e.g. the @taujs/server/config entry) and must keep its

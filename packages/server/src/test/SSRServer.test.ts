@@ -614,7 +614,7 @@ describe('SSRServer', () => {
       method: 'GET',
       url: '/terminal',
       routeOptions: { url: '/terminal' },
-      taujsRequestContext: { traceId: 'trace-terminal', logger: requestLogger },
+      taujsRequestContext: { requestId: 'trace-terminal', logger: requestLogger },
     };
     const mockReply = {
       raw: { headersSent: false, end: vi.fn() },

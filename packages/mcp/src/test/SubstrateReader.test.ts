@@ -194,8 +194,8 @@ describe('readGraph', () => {
 describe('readTraces', () => {
   const seedThree = (dev: ReturnType<typeof createDevIntrospection>) => {
     for (const [i, mode] of (['ssr', 'streaming', 'fallthrough'] as const).entries()) {
-      dev.recorder.requestStart({ traceId: `t-${i}`, url: `/p${i}`, method: 'GET' });
-      dev.recorder.sent({ traceId: `t-${i}`, status: 200, mode });
+      dev.recorder.requestStart({ requestId: `t-${i}`, url: `/p${i}`, method: 'GET' });
+      dev.recorder.sent({ requestId: `t-${i}`, status: 200, mode });
     }
   };
 
@@ -206,9 +206,9 @@ describe('readTraces', () => {
 
     const discovery = discoverSubstrate(root);
     const all = readTraces(discovery);
-    expect(all.map((t) => t.traceId)).toEqual(['t-0', 't-1', 't-2']);
+    expect(all.map((t) => t.requestId)).toEqual(['t-0', 't-1', 't-2']);
 
-    expect(readTraces(discovery, { limit: 2 }).map((t) => t.traceId)).toEqual(['t-1', 't-2']);
+    expect(readTraces(discovery, { limit: 2 }).map((t) => t.requestId)).toEqual(['t-1', 't-2']);
     expect(readTraces(discovery, { bootId: dev.bootId })).toHaveLength(3);
     expect(readTraces(discovery, { bootId: 'other-boot' })).toHaveLength(0);
   });
@@ -228,21 +228,21 @@ describe('readLogs', () => {
   it('filters per-trace at warn+ by default; explicit info widens', async () => {
     const root = await mkRoot();
     await emitTraces(root, (dev) => {
-      dev.recorder.requestStart({ traceId: 'trace-a', url: '/a', method: 'GET' });
+      dev.recorder.requestStart({ requestId: 'trace-a', url: '/a', method: 'GET' });
       const base: Record<string, unknown> = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, isDebugEnabled: () => false };
       base.child = () => base;
       const logger = dev.wrapRequestLogger(base as unknown as Logs, 'trace-a');
       logger.info({}, 'info line');
       logger.warn({}, 'warn line');
       logger.error({}, 'error line');
-      dev.recorder.sent({ traceId: 'trace-a', status: 200, mode: 'ssr' });
+      dev.recorder.sent({ requestId: 'trace-a', status: 200, mode: 'ssr' });
     });
 
     const discovery = discoverSubstrate(root);
 
-    expect(readLogs(discovery, { traceId: 'trace-a' }).map((l) => l.level)).toEqual(['warn', 'error']);
-    expect(readLogs(discovery, { traceId: 'trace-a', minLevel: 'info' })).toHaveLength(3);
-    expect(readLogs(discovery, { traceId: 'other' })).toHaveLength(0);
+    expect(readLogs(discovery, { requestId: 'trace-a' }).map((l) => l.level)).toEqual(['warn', 'error']);
+    expect(readLogs(discovery, { requestId: 'trace-a', minLevel: 'info' })).toHaveLength(3);
+    expect(readLogs(discovery, { requestId: 'other' })).toHaveLength(0);
   });
 });
 
@@ -250,10 +250,10 @@ describe('readObservations', () => {
   it('reads the real document and reports skew explicitly', async () => {
     const root = await mkRoot();
     await emitTraces(root, (dev) => {
-      dev.recorder.requestStart({ traceId: 't-obs', url: '/p', method: 'GET' });
-      dev.recorder.routeMatched({ traceId: 't-obs', path: '/p', appId: 'web', render: 'ssr' });
-      dev.recorder.serviceCall({ traceId: 't-obs', service: 'catalog', method: 'getProduct', ms: 5, ok: true });
-      dev.recorder.sent({ traceId: 't-obs', status: 200, mode: 'ssr' });
+      dev.recorder.requestStart({ requestId: 't-obs', url: '/p', method: 'GET' });
+      dev.recorder.routeMatched({ requestId: 't-obs', path: '/p', appId: 'web', render: 'ssr' });
+      dev.recorder.serviceCall({ requestId: 't-obs', service: 'catalog', method: 'getProduct', ms: 5, ok: true });
+      dev.recorder.sent({ requestId: 't-obs', status: 200, mode: 'ssr' });
     });
 
     const result = readObservations(discoverSubstrate(root));

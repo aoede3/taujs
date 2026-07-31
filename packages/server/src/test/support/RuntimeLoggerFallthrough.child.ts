@@ -38,8 +38,12 @@ const captureLogger = (bindings: Record<string, unknown> = {}): BaseLogger => ({
   },
 });
 
-const traceId = 'fallthrough-selected-logger-trace';
-const app = Fastify({ logger: false, genReqId: () => 'fallthrough-fastify-request' });
+// SC-09 "supplied host, valid inbound header, host ignores it": this caller's genReqId returns a
+// fixed value, so the host req.id must be the identity everywhere and the header must not be
+// adopted or echoed on its behalf.
+const inboundHeader = 'fallthrough-inbound-header';
+const hostRequestId = 'fallthrough-fastify-request';
+const app = Fastify({ logger: false, genReqId: () => hostRequestId });
 app.decorate('authenticate', async () => undefined);
 
 try {
@@ -60,21 +64,21 @@ try {
   const response = await app.inject({
     method: 'GET',
     url: '/',
-    headers: { 'x-trace-id': traceId },
+    headers: { 'x-request-id': inboundHeader },
   });
   const record = records.find((candidate) => candidate.message === 'ssr requested');
 
   // The same request matrix now also proves the ruled ownership delta: an unmatched URL is the
-  // caller's, gets no τjs shell and opens no τjs trace episode.
-  const unmatched = await app.inject({ method: 'GET', url: '/unmatched-page', headers: { 'x-trace-id': traceId } });
+  // caller's, gets no τjs shell and opens no τjs episode.
+  const unmatched = await app.inject({ method: 'GET', url: '/unmatched-page', headers: { 'x-request-id': inboundHeader } });
 
   const result = {
     status: response.statusCode,
-    responseTraceId: response.headers['x-trace-id'],
+    responseRequestId: response.headers['x-request-id'],
     record,
     recordCount: records.filter((candidate) => candidate.message === 'ssr requested').length,
     unmatchedStatus: unmatched.statusCode,
-    unmatchedTraceId: unmatched.headers['x-trace-id'],
+    unmatchedRequestId: unmatched.headers['x-request-id'],
   };
 
   process.stdout.write(`${RESULT_PREFIX}${JSON.stringify(result)}\n`);
@@ -82,15 +86,15 @@ try {
 
   const passed =
     result.status === 200 &&
-    result.responseTraceId === traceId &&
+    result.responseRequestId === hostRequestId &&
     result.recordCount === 1 &&
     record?.level === 'debug' &&
-    record.bindings.traceId === traceId &&
-    record.bindings.reqId === 'fallthrough-fastify-request' &&
+    record.bindings.requestId === undefined &&
+    record.bindings.reqId === hostRequestId &&
     record.bindings.url === '/' &&
     record.bindings.method === 'GET' &&
     result.unmatchedStatus === 404 &&
-    result.unmatchedTraceId === undefined;
+    result.unmatchedRequestId === undefined;
 
   process.exit(passed ? 0 : 1);
 } catch (error) {

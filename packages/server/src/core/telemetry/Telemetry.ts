@@ -2,7 +2,8 @@ import type { Logs } from '../logging/types';
 import type { TraceRecorder } from '../introspection/TraceRecorder';
 
 export type RequestContext<L extends Logs = Logs> = {
-  traceId: string;
+  /** Canonical request-correlation identity: always `String(req.id)` (SC-09). */
+  requestId: string;
   logger: L;
   headers?: Record<string, string>;
   /** Dev-only trace recorder (already safety-wrapped); absent in production. */

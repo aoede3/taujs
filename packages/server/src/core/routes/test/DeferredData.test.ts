@@ -25,8 +25,8 @@ const mk = (deferred: Record<string, unknown>, opts: { signal?: AbortSignal; eve
     attr: { render: 'streaming', meta: {}, deferred } as any,
     params: { id: '42' },
     serviceRegistry: {} as any,
-    ctx: { traceId: 't1', logger, headers: {}, signal: opts.signal },
-    traceId: 't1',
+    ctx: { requestId: 't1', logger, headers: {}, signal: opts.signal },
+    requestId: 't1',
     ...(opts.events ? { recorder: mkRecorder(opts.events) } : {}),
     ...(opts.callServiceMethodImpl ? { callServiceMethodImpl: opts.callServiceMethodImpl } : {}),
   });
@@ -43,12 +43,18 @@ describe('createDeferredData - declaration and start (R2)', () => {
         attr: { render: 'streaming', meta: {} } as any,
         params: {},
         serviceRegistry: {} as any,
-        ctx: { traceId: 't', logger: mkLogger() },
-        traceId: 't',
+        ctx: { requestId: 't', logger: mkLogger() },
+        requestId: 't',
       }),
     ).toBeUndefined();
     expect(
-      createDeferredData({ attr: { render: 'ssr' } as any, params: {}, serviceRegistry: {} as any, ctx: { traceId: 't', logger: mkLogger() }, traceId: 't' }),
+      createDeferredData({
+        attr: { render: 'ssr' } as any,
+        params: {},
+        serviceRegistry: {} as any,
+        ctx: { requestId: 't', logger: mkLogger() },
+        requestId: 't',
+      }),
     ).toBeUndefined();
     expect(mk({}).controller).toBeUndefined();
   });
@@ -117,7 +123,7 @@ describe('createDeferredData - declaration and start (R2)', () => {
     expect(logger.warn).toHaveBeenCalledTimes(1);
     const [meta, message] = logger.warn.mock.calls[0];
     expect(message).toBe('Deferred data could not cross the hydration boundary');
-    expect(meta).toEqual({ key: 'reviews', traceId: 't1' });
+    expect(meta).toEqual({ key: 'reviews', requestId: 't1' });
     expect(JSON.stringify(meta)).not.toContain('PLAYGROUND_SECRET');
   });
 

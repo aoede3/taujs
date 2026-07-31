@@ -1,7 +1,5 @@
 import crypto from 'node:crypto';
 
-import { REGEX } from '../core/constants';
-
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Logs } from '../core/logging/types';
 import type { RequestContext } from '../core/telemetry/Telemetry';
@@ -19,18 +17,21 @@ export function createRequestContext<L extends Logs>(
   baseLogger: L,
   deriveLogger?: (bindings: Record<string, unknown>) => L,
 ): RequestContext<L> {
-  const raw = typeof req.headers['x-trace-id'] === 'string' ? req.headers['x-trace-id'] : '';
-  // RFC 0010: τjs adopts the host's request identity rather than inventing a parallel one, so a
-  // caller's logs and τjs's records join on the same value. `genReqId` may legitimately return a
-  // number - an incrementing counter is a common choice - and a string-only guard silently fell
-  // through to a random UUID there, breaking correlation with no warning. Coerce both primitive
-  // shapes; anything else is not a usable identity and still gets a fresh UUID.
+  // SC-09: Fastify owns request identity. τjs adopts String(req.id) and never reinterprets an
+  // inbound correlation header after Fastify has created the request - header adoption is a
+  // construction-time decision (`genReqId`), τjs's own on a created host, the caller's on a
+  // supplied one. `genReqId` may legitimately return a number - an incrementing counter is a
+  // common choice - so both primitive shapes are usable identity; anything else gets a fresh
+  // UUID, and that UUID then cannot match Fastify's logs, which is the honest representation of
+  // a host whose request ID is not a primitive.
   const hostRequestId = typeof (req as any).id === 'string' || typeof (req as any).id === 'number' ? String((req as any).id) : '';
-  const traceId = raw && REGEX.SAFE_TRACE.test(raw) ? raw : hostRequestId || crypto.randomUUID();
+  const requestId = hostRequestId || crypto.randomUUID();
 
-  reply.header('x-trace-id', traceId);
+  reply.header('x-request-id', requestId);
 
-  const bindings = { traceId, reqId: req.id, url: req.url, method: req.method };
+  // `reqId` stays in Fastify's native type so a caller's numeric ID appears numeric, matching the
+  // host's own request logs; its textual identity agrees with `requestId` whenever it is primitive.
+  const bindings = { reqId: req.id, url: req.url, method: req.method };
   const anyLogger = baseLogger as Logs;
   const child = anyLogger.child;
   const logger = (deriveLogger ? deriveLogger(bindings) : typeof child === 'function' ? child.call(baseLogger, bindings) : baseLogger) as typeof baseLogger;
@@ -41,5 +42,5 @@ export function createRequestContext<L extends Logs>(
       return [headerName, normalisedValue];
     }),
   );
-  return { traceId, logger, headers };
+  return { requestId, logger, headers };
 }

@@ -137,8 +137,8 @@ describe('overlay endpoint contracts', () => {
   it('GET /__taujs/traces honours ?limit with a small default', async () => {
     const { app, introspection } = await buildApp();
     for (let i = 0; i < 60; i++) {
-      introspection.recorder.requestStart({ traceId: `t-${i}`, url: '/x', method: 'GET' });
-      introspection.recorder.sent({ traceId: `t-${i}`, status: 200, mode: 'ssr' });
+      introspection.recorder.requestStart({ requestId: `t-${i}`, url: '/x', method: 'GET' });
+      introspection.recorder.sent({ requestId: `t-${i}`, status: 200, mode: 'ssr' });
     }
 
     const dflt = await app.inject({ method: 'GET', url: '/__taujs/traces', ...authed(introspection) });
@@ -151,16 +151,16 @@ describe('overlay endpoint contracts', () => {
 });
 
 describe('beacon rejection matrix (spec 03 §8 #5)', () => {
-  const seedTrace = (introspection: DevIntrospection, traceId = 'trace-ok-1') => {
-    introspection.recorder.requestStart({ traceId, url: '/p', method: 'GET' });
-    introspection.recorder.sent({ traceId, status: 200, mode: 'ssr' });
+  const seedTrace = (introspection: DevIntrospection, requestId = 'trace-ok-1') => {
+    introspection.recorder.requestStart({ requestId, url: '/p', method: 'GET' });
+    introspection.recorder.sent({ requestId, status: 200, mode: 'ssr' });
   };
 
   it('accepts a valid beacon once (204) and rejects the duplicate (409)', async () => {
     const { app, introspection } = await buildApp();
     seedTrace(introspection);
 
-    const payload = { traceId: 'trace-ok-1', ok: true, ms: 42 };
+    const payload = { requestId: 'trace-ok-1', ok: true, ms: 42 };
     const first = await app.inject({ method: 'POST', url: '/__taujs/beacon', ...authed(introspection), payload });
     expect(first.statusCode).toBe(204);
     expect(first.body).toBe('');
@@ -171,7 +171,7 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
     expect(introspection.findTrace('trace-ok-1')!.client).toEqual({ hydrated: true, hydrationMs: 42, error: null });
   });
 
-  it('rejects missing token, wrong content-type, invalid traceId, and oversize bodies', async () => {
+  it('rejects missing token, wrong content-type, invalid requestId, and oversize bodies', async () => {
     const { app, introspection } = await buildApp();
     seedTrace(introspection);
 
@@ -180,7 +180,7 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
       url: '/__taujs/beacon',
       remoteAddress: LOOPBACK,
       headers: { host: 'localhost' },
-      payload: { traceId: 'trace-ok-1', ok: true },
+      payload: { requestId: 'trace-ok-1', ok: true },
     });
     expect(noToken.statusCode).toBe(403);
 
@@ -189,7 +189,7 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
       url: '/__taujs/beacon',
       remoteAddress: LOOPBACK,
       headers: { host: 'localhost', 'x-taujs-token': introspection.token, 'content-type': 'text/plain' },
-      body: 'traceId=trace-ok-1',
+      body: 'requestId=trace-ok-1',
     });
     expect(wrongType.statusCode).toBe(415);
 
@@ -197,7 +197,7 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
       method: 'POST',
       url: '/__taujs/beacon',
       ...authed(introspection),
-      payload: { traceId: 'no spaces allowed!', ok: true },
+      payload: { requestId: 'no spaces allowed!', ok: true },
     });
     expect(badTrace.statusCode).toBe(400);
 
@@ -205,17 +205,17 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
       method: 'POST',
       url: '/__taujs/beacon',
       ...authed(introspection),
-      payload: { traceId: 'trace-ok-1', ok: true, error: 'x'.repeat(4096) },
+      payload: { requestId: 'trace-ok-1', ok: true, error: 'x'.repeat(4096) },
     });
     expect(oversize.statusCode).toBe(413);
 
     expect(introspection.findTrace('trace-ok-1')!.client).toBeNull();
   });
 
-  it('drops beacons for unknown-but-valid traceIds silently (204, nothing recorded)', async () => {
+  it('drops beacons for unknown-but-valid request IDs silently (204, nothing recorded)', async () => {
     const { app, introspection } = await buildApp();
 
-    const res = await app.inject({ method: 'POST', url: '/__taujs/beacon', ...authed(introspection), payload: { traceId: 'ghost-1', ok: true } });
+    const res = await app.inject({ method: 'POST', url: '/__taujs/beacon', ...authed(introspection), payload: { requestId: 'ghost-1', ok: true } });
 
     expect(res.statusCode).toBe(204);
     expect(introspection.getTraces()).toHaveLength(0);
@@ -232,8 +232,8 @@ describe('dev files lifecycle (spec 03 §5)', () => {
       const app = fastify();
       registerDevFiles(app, introspection, mkLogger());
 
-      introspection.recorder.requestStart({ traceId: 'file-t1', url: '/reset?token=abc&ref=x', method: 'GET' });
-      introspection.recorder.sent({ traceId: 'file-t1', status: 200, mode: 'fallthrough' });
+      introspection.recorder.requestStart({ requestId: 'file-t1', url: '/reset?token=abc&ref=x', method: 'GET' });
+      introspection.recorder.sent({ requestId: 'file-t1', status: 200, mode: 'fallthrough' });
 
       await app.listen({ port: 0, host: '127.0.0.1' });
 

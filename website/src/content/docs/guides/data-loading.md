@@ -58,7 +58,7 @@ A route loader receives route parameters and a request-scoped context. The usefu
 
 ```ts
 type LoaderContext = {
-  traceId: string;
+  requestId: string;
   logger: Logs;
   headers: Record<string, string>;
   signal?: AbortSignal;
@@ -66,7 +66,7 @@ type LoaderContext = {
 };
 ```
 
-- `traceId` and `logger` use the τjs request identity and selected logger lineage.
+- `requestId` and `logger` use the τjs request identity and selected logger lineage.
 - `headers` contains normalised request-header values. Treat credentials as sensitive.
 - `signal` aborts with the response lifecycle.
 - `call` invokes a registered service with the same request context.

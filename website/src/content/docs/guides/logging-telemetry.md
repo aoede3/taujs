@@ -84,7 +84,7 @@ ctx.logger.info(
 ```
 
 Request bindings are installed through a child logger and are not repeated in a nested context field.
-Typical bindings include `traceId`, Fastify `reqId`, URL and method.
+Typical bindings include the Fastify-native `reqId`, URL and method.
 
 Service dispatch creates another child with `component: "service-call"`, service name and method. Do
 not manually repeat these fields on every service record unless the local value is genuinely
@@ -92,39 +92,54 @@ different.
 
 ## Request identity
 
-Fastify and τjs retain two field names:
+Fastify owns request identity. τjs follows Fastify's request identity and logging vocabulary, using
+the conventional `x-request-id` header at its HTTP boundary:
 
-- `reqId` is the identity Fastify assigned to the HTTP request
-- `traceId` is the correlation value τjs uses for its response lifecycle
+- `req.id` is the identity Fastify assigned to the HTTP request, and it is canonical
+- `ctx.requestId` is always `String(req.id)`
+- log bindings carry the Fastify-native `reqId`, in its native type
 
-τjs chooses `traceId` in this order:
+τjs never reinterprets an inbound correlation header after Fastify has created the request. Header
+adoption is a construction-time decision:
 
-1. a valid inbound `x-trace-id`
-2. Fastify `req.id`, converted from string or number
-3. `crypto.randomUUID()`
+- on a τjs-created host, τjs configures `genReqId` itself: a single valid inbound `x-request-id`
+  becomes `req.id`, otherwise `crypto.randomUUID()`
+- on a caller-owned host, the caller controls correlation through Fastify construction and τjs
+  adopts whatever `req.id` it produced
 
 Accepted inbound values contain letters, numbers, hyphens, underscores, dots or colons and are no
-longer than 128 characters.
+longer than 128 characters. To adopt inbound correlation on your own host, use a validating
+`genReqId` rather than `requestIdHeader`, which would take the header without validation:
 
-When no valid inbound header overrides it, `traceId` and the string form of `reqId` are equal. When a
-valid inbound header is present, τjs preserves Fastify's `reqId` and uses the header as `traceId`.
-Correlation therefore works without rewriting host identity.
+```ts
+const app = Fastify({
+  genReqId(request) {
+    const incoming = request.headers["x-request-id"];
 
-This is application request correlation, not a complete OpenTelemetry or W3C trace/span model.
+    return typeof incoming === "string" && isValidRequestId(incoming)
+      ? incoming
+      : crypto.randomUUID();
+  },
+});
+```
+
+This is application request correlation, not a complete OpenTelemetry or W3C trace/span model. A
+future distributed-tracing integration uses `traceparent` and its own trace and span IDs; the
+request-correlation identity makes no such claim.
 
 ### Response scope
 
-A τjs-created host installs the trace lifecycle at its root, including its implicit shell and
-not-found path. A caller-owned host installs it inside the encapsulated τjs scope. Host routes then
-retain their own logging and do not receive a τjs `x-trace-id` response header.
+A τjs-created host installs the request-identity lifecycle at its root, including its implicit
+shell and not-found path. A caller-owned host installs it inside the encapsulated τjs scope. Host
+routes then retain their own logging and do not receive a τjs `x-request-id` response header.
 
-Every τjs-owned response receives its selected value:
+Every τjs-owned response echoes the canonical identity:
 
 ```text
-x-trace-id: request-42
+x-request-id: request-42
 ```
 
-See [Host Ownership](/guides/host-ownership/#request-identity-and-trace-scope) for the installation
+See [Host Ownership](/guides/host-ownership/#request-identity-and-episode-scope) for the installation
 split.
 
 ## Logging from loaders and services
@@ -139,7 +154,7 @@ data: async ({ id }, ctx) => {
     `https://catalogue.example.test/products/${encodeURIComponent(String(id))}`,
     {
       signal: ctx.signal,
-      headers: { "x-trace-id": ctx.traceId },
+      headers: { "x-request-id": ctx.requestId },
     },
   );
 
@@ -162,8 +177,8 @@ export const OrderService = defineService({
 });
 ```
 
-Fastify hooks outside the τjs scope should use `request.log` and `request.id`. Do not assume a τjs
-`traceId` property is attached to the Fastify request object.
+Fastify hooks outside the τjs scope should use `request.log` and `request.id`. They carry the same
+canonical identity; no τjs-specific property is needed there.
 
 ## Debug categories
 
@@ -392,7 +407,7 @@ meaningful sub-operation.
 
 - Configure logging on a supplied Fastify host and let τjs inherit it.
 - Use metadata first and semantic message second.
-- Prefer existing child bindings over repeating `traceId` and service names.
+- Prefer existing child bindings over repeating request identity and service names.
 - Use `request.log` for host hooks and `ctx.logger` for route and service work.
 - Keep secrets out of log metadata and service parameters; configure sink redaction.
 - Treat τjs traces as development response evidence, not an OpenTelemetry replacement.
@@ -400,7 +415,7 @@ meaningful sub-operation.
 
 Related guides:
 
-- [Host Ownership](/guides/host-ownership/) for logger and trace scope
+- [Host Ownership](/guides/host-ownership/) for logger and episode scope
 - [Services](/guides/services/) for service records and errors
 - [Authentication](/guides/authentication/) for the Fastify auth boundary
 - [Data Loading](/guides/data-loading/) for critical and deferred trace outcomes

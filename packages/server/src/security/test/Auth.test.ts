@@ -83,7 +83,7 @@ describe('createAuthHook', () => {
     const requestLogger = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn(), child: vi.fn(), isDebugEnabled: vi.fn() };
     const hook = createAuthHook(logger as any);
     const { req, reply, done } = makeReqReply({ route, url: '/request-logger' });
-    req.taujsRequestContext = { traceId: 'trace-request', logger: requestLogger };
+    req.taujsRequestContext = { requestId: 'trace-request', logger: requestLogger };
 
     await (hook as any).call({} as any, req, reply, done);
 

@@ -4,21 +4,21 @@
 // createSafeRecorder, which swallows exceptions and warns once per boot.
 
 export interface TraceRecorder {
-  requestStart(e: { traceId: string; url: string; method: string }): void;
-  routeMatched(e: { traceId: string; path: string; appId: string; render: 'ssr' | 'streaming' }): void;
-  dataFetch(e: { traceId: string; ms: number; ok: boolean }): void;
+  requestStart(e: { requestId: string; url: string; method: string }): void;
+  routeMatched(e: { requestId: string; path: string; appId: string; render: 'ssr' | 'streaming' }): void;
+  dataFetch(e: { requestId: string; ms: number; ok: boolean }): void;
   /**
    * RFC 0007 (R5): fired exactly ONCE per declared `attr.deferred` key per request. `ms` measures
    * from registry creation to settlement or `aborted` classification. No payload, params, URL
    * values, error message or stack - the graph supplies the declared key -> service relation.
    */
-  deferredData(e: { traceId: string; key: string; ms: number; outcome: 'complete' | 'failed' | 'aborted' }): void;
-  serviceCall(e: { traceId: string; service: string; method: string; ms: number; ok: boolean }): void;
-  streamPhase(e: { traceId: string; phase: 'head' | 'shellReady' | 'allReady' }): void;
-  sent(e: { traceId: string; status: number; mode: 'ssr' | 'streaming' | 'fallthrough' }): void;
-  aborted(e: { traceId: string; phase?: string }): void;
-  failed(e: { traceId: string; error: { kind: string; message: string } }): void;
-  clientHydration(e: { traceId: string; ok: boolean; ms?: number; error?: string }): void;
+  deferredData(e: { requestId: string; key: string; ms: number; outcome: 'complete' | 'failed' | 'aborted' }): void;
+  serviceCall(e: { requestId: string; service: string; method: string; ms: number; ok: boolean }): void;
+  streamPhase(e: { requestId: string; phase: 'head' | 'shellReady' | 'allReady' }): void;
+  sent(e: { requestId: string; status: number; mode: 'ssr' | 'streaming' | 'fallthrough' }): void;
+  aborted(e: { requestId: string; phase?: string }): void;
+  failed(e: { requestId: string; error: { kind: string; message: string } }): void;
+  clientHydration(e: { requestId: string; ok: boolean; ms?: number; error?: string }): void;
 }
 
 export const noopTraceRecorder: TraceRecorder = {

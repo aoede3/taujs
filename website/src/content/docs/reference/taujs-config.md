@@ -656,7 +656,7 @@ Data handlers receive context:
 
 ```typescript
 data: async (params, ctx) => {
-  // ctx.traceId: Request trace ID
+  // ctx.requestId: canonical request identity, always String(req.id)
   // ctx.logger: Scoped logger
   // ctx.headers: Request headers
 

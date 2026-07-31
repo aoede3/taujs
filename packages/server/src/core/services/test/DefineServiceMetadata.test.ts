@@ -93,10 +93,10 @@ describe('defineService metadata — stamping guarantees', () => {
   });
 
   it('preserves bare-function identity (stamped in place, not wrapped)', async () => {
-    const ping = vi.fn(async (p: { a: number }, ctx: { traceId?: string }) => ({ got: p, trace: ctx.traceId ?? 'none' }));
+    const ping = vi.fn(async (p: { a: number }, ctx: { requestId?: string }) => ({ got: p, trace: ctx.requestId ?? 'none' }));
 
     const svc = defineService({ ping });
-    const ctx = { traceId: 't' } as any;
+    const ctx = { requestId: 't' } as any;
 
     expect(svc.ping).toBe(ping);
     expect(await svc.ping({ a: 1 } as any, ctx)).toEqual({ got: { a: 1 }, trace: 't' });

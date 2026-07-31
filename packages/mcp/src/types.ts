@@ -52,7 +52,7 @@ export type RequestGraphV1 = {
 };
 
 export type TraceRecord = {
-  traceId: string;
+  requestId: string;
   bootId: string;
   at: string;
   route: string | null;
@@ -70,7 +70,7 @@ export type TraceRecord = {
 export type LogLevel = 'info' | 'warn' | 'error';
 
 export type LogAnnexRecord = {
-  traceId: string;
+  requestId: string;
   bootId: string;
   at: string;
   level: LogLevel;
@@ -88,7 +88,7 @@ export type ObservationsDocument = {
     routes: { routeId: string; appId: string; path: string }[];
     count: number;
     lastObservedAt: string;
-    sampleTraceIds: string[];
+    sampleRequestIds: string[];
   }[];
   shapes: unknown[]; // deferred in v1 (decisions.md) — never promise content
 };

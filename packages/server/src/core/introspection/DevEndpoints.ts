@@ -85,8 +85,8 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
       const seen = new Set<string>();
       const push = () => {
         for (const trace of introspection.getTraces()) {
-          if (seen.has(trace.traceId)) continue;
-          seen.add(trace.traceId);
+          if (seen.has(trace.requestId)) continue;
+          seen.add(trace.requestId);
           reply.raw.write(`data: ${JSON.stringify(trace)}\n\n`);
         }
       };
@@ -114,18 +114,18 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     const body = req.body as Record<string, unknown> | null;
     if (!body || typeof body !== 'object') return reply.code(400).send({ error: 'invalid_body' });
 
-    const { traceId, ok, ms, error } = body;
-    if (typeof traceId !== 'string' || !REGEX.SAFE_TRACE.test(traceId)) return reply.code(400).send({ error: 'invalid_trace_id' });
+    const { requestId, ok, ms, error } = body;
+    if (typeof requestId !== 'string' || !REGEX.SAFE_REQUEST_ID.test(requestId)) return reply.code(400).send({ error: 'invalid_request_id' });
     if (typeof ok !== 'boolean') return reply.code(400).send({ error: 'invalid_body' });
     if (ms !== undefined && typeof ms !== 'number') return reply.code(400).send({ error: 'invalid_body' });
     if (error !== undefined && typeof error !== 'string') return reply.code(400).send({ error: 'invalid_body' });
 
-    const trace = introspection.findTrace(traceId);
+    const trace = introspection.findTrace(requestId);
     if (!trace) return reply.code(204).send(); // unknown or evicted: dropped silently
     if (trace.client) return reply.code(409).send({ error: 'duplicate_beacon' });
 
-    introspection.recorder.clientHydration({ traceId, ok, ms, error: typeof error === 'string' ? error.slice(0, BEACON_ERROR_CAP) : undefined });
-    logger.debug?.({ component: 'introspection', traceId }, 'Hydration beacon applied');
+    introspection.recorder.clientHydration({ requestId, ok, ms, error: typeof error === 'string' ? error.slice(0, BEACON_ERROR_CAP) : undefined });
+    logger.debug?.({ component: 'introspection', requestId }, 'Hydration beacon applied');
 
     return reply.code(204).send();
   });

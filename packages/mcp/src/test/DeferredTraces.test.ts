@@ -37,12 +37,12 @@ beforeAll(async () => {
   const dev = createDevIntrospection();
 
   // One streaming request whose declared deferred entries settle three different ways.
-  dev.recorder.requestStart({ traceId: 'deferred-1', url: '/product/42', method: 'GET' });
-  dev.recorder.routeMatched({ traceId: 'deferred-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
-  dev.recorder.deferredData({ traceId: 'deferred-1', key: 'reviews', ms: 41.2, outcome: 'complete' });
-  dev.recorder.deferredData({ traceId: 'deferred-1', key: 'blurb', ms: 5, outcome: 'failed' });
-  dev.recorder.deferredData({ traceId: 'deferred-1', key: 'stock', ms: 120, outcome: 'aborted' });
-  dev.recorder.sent({ traceId: 'deferred-1', status: 200, mode: 'streaming' });
+  dev.recorder.requestStart({ requestId: 'deferred-1', url: '/product/42', method: 'GET' });
+  dev.recorder.routeMatched({ requestId: 'deferred-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
+  dev.recorder.deferredData({ requestId: 'deferred-1', key: 'reviews', ms: 41.2, outcome: 'complete' });
+  dev.recorder.deferredData({ requestId: 'deferred-1', key: 'blurb', ms: 5, outcome: 'failed' });
+  dev.recorder.deferredData({ requestId: 'deferred-1', key: 'stock', ms: 120, outcome: 'aborted' });
+  dev.recorder.sent({ requestId: 'deferred-1', status: 200, mode: 'streaming' });
 
   await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-28T11:00:00.000Z' })));
   await writeTaujsArtifact(
@@ -73,7 +73,7 @@ beforeAll(async () => {
 
 describe('MCP surfaces RFC 0007 deferred outcomes with no new tool', () => {
   it('taujs_get_trace: every declared key and its outcome is readable, detail-free', () => {
-    const result = tools.get('taujs_get_trace')!({ traceId: 'deferred-1' }) as any;
+    const result = tools.get('taujs_get_trace')!({ requestId: 'deferred-1' }) as any;
 
     expect(result.ok).toBe(true);
     expect((result.trace as { deferredData?: unknown }).deferredData).toEqual([

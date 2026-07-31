@@ -10,6 +10,7 @@ import path from 'node:path';
 
 import fastify from 'fastify';
 
+import { REGEX } from '../../core/constants';
 import { testRenderer } from './renderer';
 
 import type { FastifyInstance } from 'fastify';
@@ -53,7 +54,7 @@ export type Observation = {
   type: string | undefined;
   body: string;
   csp: string | undefined;
-  traceId: string | undefined;
+  requestId: string | undefined;
 };
 
 const header = (value: string | string[] | number | undefined): string | undefined =>
@@ -70,7 +71,7 @@ export const observe = (response: { statusCode: number; body: string; headers: R
   type: header(response.headers['content-type']),
   body: normaliseNonce(response.body) ?? response.body,
   csp: normaliseNonce(header(response.headers['content-security-policy'])),
-  traceId: header(response.headers['x-trace-id']),
+  requestId: header(response.headers['x-request-id']),
 });
 
 export type CapturedLog = { level: string; meta: unknown; message: string | undefined };
@@ -222,6 +223,15 @@ type CallerHostShape = {
   callerCsp?: boolean;
   explicitLogger?: boolean;
   numericRequestId?: boolean;
+  adoptInboundRequestId?: boolean;
+};
+
+// SC-09 ruling 5: the documented caller recipe for adopting an inbound correlation header - a
+// validating `genReqId`, never `requestIdHeader` (which would take the header unvalidated).
+const adoptingGenReqId = (rawReq: { headers: Record<string, string | string[] | undefined> }): string => {
+  const incoming = rawReq.headers['x-request-id'];
+
+  return typeof incoming === 'string' && REGEX.SAFE_REQUEST_ID.test(incoming) ? incoming : CALLER_REQUEST_ID;
 };
 
 const buildCallerHost = async (shape: CallerHostShape): Promise<CallerHost> => {
@@ -230,7 +240,11 @@ const buildCallerHost = async (shape: CallerHostShape): Promise<CallerHost> => {
   const app = track(
     fastify({
       logger: false,
-      genReqId: shape.numericRequestId ? () => NUMERIC_REQUEST_ID as unknown as string : () => CALLER_REQUEST_ID,
+      genReqId: shape.adoptInboundRequestId
+        ? adoptingGenReqId
+        : shape.numericRequestId
+          ? () => NUMERIC_REQUEST_ID as unknown as string
+          : () => CALLER_REQUEST_ID,
       ...(shape.strictErrorHandler ? { allowErrorHandlerOverride: false } : {}),
     }),
   );
@@ -300,6 +314,9 @@ export const createExplicitLoggerHost = (): Promise<CallerHost> => buildCallerHo
  * exactly the case a counter-based `genReqId` produces.
  */
 export const createNumericRequestIdHost = (): Promise<CallerHost> => buildCallerHost({ numericRequestId: true, explicitLogger: true });
+
+/** A caller-owned host applying the SC-09 ruling-5 recipe: a validating `genReqId` adopts a single valid inbound `x-request-id`. */
+export const createAdoptingHost = (): Promise<CallerHost> => buildCallerHost({ adoptInboundRequestId: true });
 
 /**
  * A caller-owned host with NO not-found handler of its own, and no caller static mount.

@@ -142,13 +142,13 @@ The base public context is:
 type ServiceContext = {
   signal?: AbortSignal;
   deadlineMs?: number;
-  traceId?: string;
+  requestId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
 };
 ```
 
-The route pipeline supplies the request signal, trace identity and request-scoped logger. It installs
+The route pipeline supplies the request signal, request identity and request-scoped logger. It installs
 a registry caller on the runtime context for route and service composition.
 
 The optional `user` field is not populated automatically. A Fastify `authenticate` decorator may set
@@ -286,7 +286,7 @@ error and trace path as method failures.
 
 ## Errors, records and traces
 
-Service dispatch creates a child logger with `component`, `service`, `method` and `traceId` bindings.
+Service dispatch creates a child logger with `component`, `service`, `method` and `requestId` bindings.
 It records duration and success or failure in the development request trace.
 
 - an existing `AppError` keeps its status and safe-message policy
@@ -320,7 +320,7 @@ it("loads a product", async () => {
 
   const result = await CatalogueService.product(
     { id: "p1" },
-    { traceId: "test-trace", logger },
+    { requestId: "test-request-id", logger },
   );
 
   expect(result.product.id).toBe("p1");

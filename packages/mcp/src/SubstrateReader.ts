@@ -170,11 +170,11 @@ export const readTraces = (discovery: SubstrateDiscovery, options?: { bootId?: s
 const LEVEL_ORDER: Record<LogLevel, number> = { info: 0, warn: 1, error: 2 };
 
 // Per-trace, level-filtered, warn+ default — logs are fetched on demand, never embedded.
-export const readLogs = (discovery: SubstrateDiscovery, options: { traceId: string; minLevel?: LogLevel }): LogAnnexRecord[] => {
+export const readLogs = (discovery: SubstrateDiscovery, options: { requestId: string; minLevel?: LogLevel }): LogAnnexRecord[] => {
   if (discovery.mode === 'none') return [];
 
   const min = LEVEL_ORDER[options.minLevel ?? 'warn'];
-  return readNdjson<LogAnnexRecord>(discovery.paths.logs).filter((r) => r.traceId === options.traceId && LEVEL_ORDER[r.level] >= min);
+  return readNdjson<LogAnnexRecord>(discovery.paths.logs).filter((r) => r.requestId === options.requestId && LEVEL_ORDER[r.level] >= min);
 };
 
 export type ObservationsReadResult =

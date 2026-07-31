@@ -22,7 +22,7 @@ const PENDING_CAP = 500; // safety valve for traces that never reach a terminal 
 export type TraceTimeline = { matched?: number; dataStart?: number; dataEnd?: number; head?: number; shellReady?: number; allReady?: number };
 
 export type TraceRecord = {
-  traceId: string;
+  requestId: string;
   bootId: string;
   at: string;
   route: string | null;
@@ -45,7 +45,7 @@ export type TraceRecord = {
 };
 
 export type LogAnnexRecord = {
-  traceId: string;
+  requestId: string;
   bootId: string;
   at: string;
   level: 'info' | 'warn' | 'error';
@@ -59,7 +59,7 @@ export type ObservedEdge = {
   routes: { routeId: string; appId: string; path: string }[];
   count: number;
   lastObservedAt: string;
-  sampleTraceIds: string[];
+  sampleRequestIds: string[];
 };
 
 export type ObservationsDocument = {
@@ -77,12 +77,12 @@ export type DevIntrospection = {
   /** Per-boot random secret: required by every overlay endpoint and the beacon (spec 03 §5-6). */
   token: string;
   recorder: TraceRecorder;
-  wrapRequestLogger: <L extends Logs>(logger: L, traceId: string) => L;
+  wrapRequestLogger: <L extends Logs>(logger: L, requestId: string) => L;
   getTraces: (limit?: number) => TraceRecord[];
-  getLogs: (traceId?: string) => LogAnnexRecord[];
+  getLogs: (requestId?: string) => LogAnnexRecord[];
   getObservations: () => ObservationsDocument;
   /** Finalized-or-pending trace lookup — used by the beacon endpoint's duplicate check. */
-  findTrace: (traceId: string) => TraceRecord | undefined;
+  findTrace: (requestId: string) => TraceRecord | undefined;
   /**
    * Cumulative counters for change detection by the file emitter. `tracesRevision` also advances
    * when an ALREADY-FINALISED trace is amended in place (RFC 0007 R5: a deferred outcome arriving
@@ -152,7 +152,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     if (trace.done) return;
     trace.done = true;
     trace.outcome = outcome;
-    pending.delete(trace.traceId);
+    pending.delete(trace.requestId);
 
     const { t0: _t0, done: _done, ...record } = trace;
     traces.push(record);
@@ -167,8 +167,8 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
         const oldest = pending.keys().next().value;
         if (oldest !== undefined) pending.delete(oldest);
       }
-      pending.set(e.traceId, {
-        traceId: e.traceId,
+      pending.set(e.requestId, {
+        requestId: e.requestId,
         bootId,
         at: new Date().toISOString(),
         route: null,
@@ -187,7 +187,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     },
 
     routeMatched(e) {
-      const trace = pending.get(e.traceId);
+      const trace = pending.get(e.requestId);
       if (!trace) return;
       trace.route = e.path;
       trace.appId = e.appId;
@@ -196,7 +196,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     },
 
     dataFetch(e) {
-      const trace = pending.get(e.traceId);
+      const trace = pending.get(e.requestId);
       if (!trace) return;
       const dataEnd = +(now() - trace.t0).toFixed(1);
       trace.timeline.dataEnd = dataEnd;
@@ -209,27 +209,27 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       // the abort reaches the registry, so the per-key outcomes for exactly the case R5 exists to
       // explain would otherwise be dropped. An amendment to a finalised trace bumps
       // `tracesRevision`, which is what carries it into the on-disk NDJSON.
-      const finalised = pending.get(e.traceId) === undefined;
-      const trace = pending.get(e.traceId) ?? traces.find((t) => t.traceId === e.traceId);
+      const finalised = pending.get(e.requestId) === undefined;
+      const trace = pending.get(e.requestId) ?? traces.find((t) => t.requestId === e.requestId);
       if (!trace) return;
       (trace.deferredData ??= []).push({ key: e.key, outcome: e.outcome, ms: e.ms });
       if (finalised) tracesRevision += 1;
     },
 
     serviceCall(e) {
-      const trace = pending.get(e.traceId);
+      const trace = pending.get(e.requestId);
       if (trace) trace.serviceCalls.push({ service: e.service, method: e.method, ms: e.ms, ok: e.ok });
 
       // Observed edge upsert — evidence lives beside the graph, never merged into it.
       const key = `${e.service}\u0000${e.method}`;
       let edge = edges.get(key);
       if (!edge) {
-        edge = { service: e.service, method: e.method, routes: [], routeIds: new Set(), count: 0, lastObservedAt: '', sampleTraceIds: [] };
+        edge = { service: e.service, method: e.method, routes: [], routeIds: new Set(), count: 0, lastObservedAt: '', sampleRequestIds: [] };
         edges.set(key, edge);
       }
       edge.count += 1;
       edge.lastObservedAt = new Date().toISOString();
-      if (edge.sampleTraceIds.length < SAMPLE_TRACE_CAP && !edge.sampleTraceIds.includes(e.traceId)) edge.sampleTraceIds.push(e.traceId);
+      if (edge.sampleRequestIds.length < SAMPLE_TRACE_CAP && !edge.sampleRequestIds.includes(e.requestId)) edge.sampleRequestIds.push(e.requestId);
       if (trace?.route && trace.appId) {
         const routeId = `${trace.appId}:${trace.route}`;
         if (!edge.routeIds.has(routeId)) {
@@ -241,13 +241,13 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     },
 
     streamPhase(e) {
-      const trace = pending.get(e.traceId);
+      const trace = pending.get(e.requestId);
       if (!trace) return;
       trace.timeline[e.phase] = +(now() - trace.t0).toFixed(1);
     },
 
     sent(e) {
-      const trace = pending.get(e.traceId);
+      const trace = pending.get(e.requestId);
       if (!trace || trace.done) return;
       trace.status = e.status;
       if (e.mode === 'fallthrough') trace.mode = 'fallthrough';
@@ -255,21 +255,21 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     },
 
     aborted(e) {
-      const trace = pending.get(e.traceId);
+      const trace = pending.get(e.requestId);
       if (!trace || trace.done) return;
       finalize(trace, 'aborted');
     },
 
     failed(e) {
-      const trace = pending.get(e.traceId);
+      const trace = pending.get(e.requestId);
       if (!trace || trace.done) return;
       trace.error = { kind: e.error.kind, message: cap(e.error.message, MESSAGE_CAP) };
       finalize(trace, 'failed');
     },
 
     clientHydration(e) {
-      // One beacon per traceId; late beacons for evicted traces drop silently.
-      const trace = pending.get(e.traceId) ?? traces.find((t) => t.traceId === e.traceId);
+      // One beacon per requestId; late beacons for evicted traces drop silently.
+      const trace = pending.get(e.requestId) ?? traces.find((t) => t.requestId === e.requestId);
       if (!trace || trace.client) return;
       trace.client = { hydrated: e.ok, hydrationMs: e.ms ?? null, error: e.error ? cap(e.error, MESSAGE_CAP) : null };
     },
@@ -283,11 +283,11 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     );
   });
 
-  const recordLog = (traceId: string, level: LogAnnexRecord['level'], meta?: unknown, message?: string): void => {
+  const recordLog = (requestId: string, level: LogAnnexRecord['level'], meta?: unknown, message?: string): void => {
     try {
       const msg = typeof message === 'string' ? message : typeof meta === 'string' ? meta : '';
       const record: LogAnnexRecord = {
-        traceId,
+        requestId,
         bootId,
         at: new Date().toISOString(),
         level,
@@ -304,22 +304,22 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
 
   // Dev-only tee at the request child-logger seam (spec 03 §3): every level(meta, msg) call
   // through ctx.logger also feeds the annex; debug is excluded; delegation is unchanged.
-  const wrapRequestLogger = <L extends Logs>(base: L, traceId: string): L => {
+  const wrapRequestLogger = <L extends Logs>(base: L, requestId: string): L => {
     const wrapped: Logs = {
       debug: (...args: unknown[]) => (base.debug as (...a: unknown[]) => void)(...args),
       info: (meta?: unknown, message?: string) => {
-        recordLog(traceId, 'info', meta, message);
+        recordLog(requestId, 'info', meta, message);
         base.info(meta, message);
       },
       warn: (meta?: unknown, message?: string) => {
-        recordLog(traceId, 'warn', meta, message);
+        recordLog(requestId, 'warn', meta, message);
         base.warn(meta, message);
       },
       error: (meta?: unknown, message?: string) => {
-        recordLog(traceId, 'error', meta, message);
+        recordLog(requestId, 'error', meta, message);
         base.error(meta, message);
       },
-      child: (context: Record<string, unknown>) => wrapRequestLogger(base.child(context), traceId),
+      child: (context: Record<string, unknown>) => wrapRequestLogger(base.child(context), requestId),
       isDebugEnabled: (category) => base.isDebugEnabled(category),
     };
 
@@ -332,7 +332,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     recorder,
     wrapRequestLogger,
     getTraces: (limit?: number) => (limit && limit > 0 ? traces.slice(-limit) : [...traces]),
-    getLogs: (traceId?: string) => (traceId ? logs.filter((l) => l.traceId === traceId) : [...logs]),
+    getLogs: (requestId?: string) => (requestId ? logs.filter((l) => l.requestId === requestId) : [...logs]),
     getObservations: () => ({
       schemaVersion: 1,
       bootId,
@@ -342,13 +342,13 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
         .map(({ routeIds: _routeIds, ...edge }) => ({ ...edge, routes: [...edge.routes] })),
       shapes: [],
     }),
-    findTrace: (traceId: string) => {
-      const p = pending.get(traceId);
+    findTrace: (requestId: string) => {
+      const p = pending.get(requestId);
       if (p) {
         const { t0: _t0, done: _done, ...record } = p;
         return record;
       }
-      return traces.find((t) => t.traceId === traceId);
+      return traces.find((t) => t.requestId === requestId);
     },
     stats: () => ({ traces: totalTraces, tracesRevision, logs: totalLogs, observationsUpdatedAt: observationsChangedAt }),
   };

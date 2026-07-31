@@ -52,7 +52,7 @@ describe('createRuntimeLogger', () => {
 
     const logger = createRuntimeRequestLogger(selected, req, {
       component: 'ssr-server',
-      traceId: 'trace-1',
+      requestId: 'trace-1',
       reqId: 'req-1',
       url: '/products',
       method: 'GET',
@@ -60,7 +60,7 @@ describe('createRuntimeLogger', () => {
     logger.info({ route: '/products' }, 'rendered');
 
     expect(appChild).not.toHaveBeenCalled();
-    expect(requestChild).toHaveBeenCalledWith({ component: 'ssr-server', traceId: 'trace-1', url: '/products', method: 'GET' });
+    expect(requestChild).toHaveBeenCalledWith({ component: 'ssr-server', requestId: 'trace-1', url: '/products', method: 'GET' });
     expect(info).toHaveBeenCalledWith({ route: '/products' }, 'rendered');
   });
 
@@ -77,7 +77,7 @@ describe('createRuntimeLogger', () => {
 
     const logger = createRuntimeRequestLogger(selected, req, {
       component: 'ssr-server',
-      traceId: 'trace-2',
+      requestId: 'trace-2',
       reqId: 'wrong-value-is-replaced',
       url: '/account',
       method: 'POST',
@@ -87,7 +87,7 @@ describe('createRuntimeLogger', () => {
     expect(requestChild).not.toHaveBeenCalled();
     expect(explicitChild).toHaveBeenCalledWith({
       component: 'ssr-server',
-      traceId: 'trace-2',
+      requestId: 'trace-2',
       reqId: 'req-2',
       url: '/account',
       method: 'POST',

@@ -23,7 +23,7 @@ const withActiveBoot = (root: string, fn: (discovery: Extract<SubstrateDiscovery
 // Trace rows lead with identifiers and outcomes; logs are NEVER embedded — the intended
 // flow is get_recent_traces → get_trace → only then get_trace_logs.
 const traceSummary = (t: TraceRecord) => ({
-  traceId: t.traceId,
+  requestId: t.requestId,
   at: t.at,
   mode: t.mode,
   outcome: t.outcome,
@@ -63,20 +63,20 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
   {
     name: 'taujs_get_trace',
     title: 'Get one request trace',
-    description: `The full trace record for one traceId — timeline, service calls, client hydration, error. Logs are fetched separately via taujs_get_trace_logs. ${UNTRUSTED_NOTE}`,
+    description: `The full trace record for one requestId — timeline, service calls, client hydration, error. Logs are fetched separately via taujs_get_trace_logs. ${UNTRUSTED_NOTE}`,
     inputSchema: {
-      traceId: z.string().describe('From taujs_get_recent_traces or an x-trace-id response header'),
+      requestId: z.string().describe('From taujs_get_recent_traces or an x-request-id response header'),
     },
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
-        const traceId = String(args.traceId ?? '');
-        const trace = readTraces(discovery, { bootId: discovery.devJson.bootId }).find((t) => t.traceId === traceId);
+        const requestId = String(args.requestId ?? '');
+        const trace = readTraces(discovery, { bootId: discovery.devJson.bootId }).find((t) => t.requestId === requestId);
 
         if (!trace) {
           return {
             ok: false,
             reason: 'trace_not_found',
-            message: `No trace "${traceId}" in this boot's ring buffer (last ${TRACE_RING_CAP} requests; older traces are evicted).`,
+            message: `No trace "${requestId}" in this boot's ring buffer (last ${TRACE_RING_CAP} requests; older traces are evicted).`,
             bootId: discovery.devJson.bootId,
           };
         }
@@ -87,21 +87,21 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
   {
     name: 'taujs_get_trace_logs',
     title: 'Logs for one trace',
-    description: `Logs-annex lines for one traceId, level-filtered (default warn+). Only lines through the framework request logger are captured — a separate user logger is not; absence here does not mean nothing was logged. ${UNTRUSTED_NOTE}`,
+    description: `Logs-annex lines for one requestId, level-filtered (default warn+). Only lines through the framework request logger are captured — a separate user logger is not; absence here does not mean nothing was logged. ${UNTRUSTED_NOTE}`,
     inputSchema: {
-      traceId: z.string().describe('The trace to fetch logs for'),
+      requestId: z.string().describe('The trace to fetch logs for'),
       minLevel: z.enum(['info', 'warn', 'error']).optional().describe('Minimum level (default warn)'),
     },
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
-        const traceId = String(args.traceId ?? '');
+        const requestId = String(args.requestId ?? '');
         const minLevel = (typeof args.minLevel === 'string' ? args.minLevel : 'warn') as 'info' | 'warn' | 'error';
-        const logs = readLogs(discovery, { traceId, minLevel });
+        const logs = readLogs(discovery, { requestId, minLevel });
 
         return {
           ok: true,
           bootId: discovery.devJson.bootId,
-          traceId,
+          requestId,
           minLevel,
           logs,
           ...(logs.length === 0
@@ -142,7 +142,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
                 .filter((t) => t.outcome === 'failed')
                 .reverse()
                 .map((t) => ({
-                  traceId: t.traceId,
+                  requestId: t.requestId,
                   route: t.route,
                   pathname: t.url.pathname,
                   error: t.error,

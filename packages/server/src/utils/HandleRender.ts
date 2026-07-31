@@ -138,7 +138,7 @@ export const handleRender = async (
       includeStack: (lvl) => lvl === 'error' || isDevelopment,
     });
   const requestContext = getRequestContext(req) ?? createRequestContext(req, reply, baseLogger);
-  const { traceId, logger, headers, recorder } = requestContext;
+  const { requestId, logger, headers, recorder } = requestContext;
   const reqLogger = logger;
 
   // RFC 0007 (R2 item 8): FUNCTION-SCOPED, not block-scoped inside the streaming branch. A
@@ -158,7 +158,7 @@ export const handleRender = async (
     const { attr, appId } = route;
 
     // Dev-only recorder riding the hoisted context (P0B-02); absent → all calls no-op.
-    if (recorder) recorder.routeMatched({ traceId, path: route.path, appId: appId ?? '', render: attr?.render ?? RENDERTYPE.ssr });
+    if (recorder) recorder.routeMatched({ requestId, path: route.path, appId: appId ?? '', render: attr?.render ?? RENDERTYPE.ssr });
     const routeContext = {
       appId,
       path: route.path,
@@ -248,18 +248,18 @@ export const handleRender = async (
     // Dev stamp (spec 03 §7): present only when the structural gate holds — the decoration
     // exists solely on dev boots, so production HTML never carries it.
     const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
-    const devStamp = devtools ? buildTaujsDevStamp(traceId, devtools.token, cspNonce) : '';
+    const devStamp = devtools ? buildTaujsDevStamp(requestId, devtools.token, cspNonce) : '';
     // R1-01 (design 4): each branch sets `ctx.signal` from its request AbortController BEFORE the
     // data is fetched, so loaders that honour `ctx.signal` stop on client disconnect / deadline.
-    const ctx = { traceId, logger: reqLogger, headers, recorder, signal: undefined as AbortSignal | undefined };
+    const ctx = { requestId, logger: reqLogger, headers, recorder, signal: undefined as AbortSignal | undefined };
     const initialDataInput = async () => {
       const dataT0 = now();
       try {
         const out = await fetchInitialData(attr, params, serviceRegistry, ctx);
-        recorder?.dataFetch({ traceId, ms: +(now() - dataT0).toFixed(1), ok: true });
+        recorder?.dataFetch({ requestId, ms: +(now() - dataT0).toFixed(1), ok: true });
         return out;
       } catch (err) {
-        recorder?.dataFetch({ traceId, ms: +(now() - dataT0).toFixed(1), ok: false });
+        recorder?.dataFetch({ requestId, ms: +(now() - dataT0).toFixed(1), ok: false });
         throw err;
       }
     };
@@ -349,7 +349,7 @@ export const handleRender = async (
 
       if (ac.signal.aborted) {
         logger.warn({ url: req.url }, 'SSR skipped; already aborted');
-        recorder?.aborted({ traceId, phase: 'pre-render' });
+        recorder?.aborted({ requestId, phase: 'pre-render' });
         return;
       }
 
@@ -360,7 +360,7 @@ export const handleRender = async (
       const headResolution = await resolveHeadData(ac.signal);
       if (headResolution.aborted) {
         logger.warn({ url: req.url }, 'SSR skipped; client disconnected during head data');
-        recorder?.aborted({ traceId, phase: 'pre-render' });
+        recorder?.aborted({ requestId, phase: 'pre-render' });
         return;
       }
 
@@ -384,7 +384,7 @@ export const handleRender = async (
 
         if (ac.signal.aborted) {
           logger.warn({}, 'SSR completed but client disconnected');
-          recorder?.aborted({ traceId, phase: 'post-render' });
+          recorder?.aborted({ requestId, phase: 'post-render' });
           return;
         }
       } catch (err) {
@@ -400,7 +400,7 @@ export const handleRender = async (
             },
             'SSR aborted mid-render (client disconnected)',
           );
-          recorder?.aborted({ traceId, phase: 'render' });
+          recorder?.aborted({ requestId, phase: 'render' });
           return;
         }
 
@@ -438,7 +438,7 @@ export const handleRender = async (
 
       try {
         const sendResult = reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
-        recorder?.sent({ traceId, status: 200, mode: 'ssr' });
+        recorder?.sent({ requestId, status: 200, mode: 'ssr' });
         return sendResult;
       } catch (err) {
         const msg = String((err as any)?.message ?? err ?? '');
@@ -447,10 +447,10 @@ export const handleRender = async (
 
         if (!benign) {
           logger.error({ url: req.url, error: safeNormaliseError(err) }, 'SSR send failed');
-          recorder?.failed({ traceId, error: { kind: 'send', message: msg } });
+          recorder?.failed({ requestId, error: { kind: 'send', message: msg } });
         } else {
           logger.warn({ url: req.url, reason: msg }, 'SSR send aborted (benign)');
-          recorder?.aborted({ traceId, phase: 'send' });
+          recorder?.aborted({ requestId, phase: 'send' });
         }
 
         return;
@@ -463,7 +463,7 @@ export const handleRender = async (
         });
       }
 
-      const headers = reply.getHeaders(); // includes x-trace-id from createRequestContext
+      const headers = reply.getHeaders(); // includes x-request-id from createRequestContext
       headers['Content-Type'] = 'text/html; charset=utf-8';
       const cspHeader = reply.getHeader('Content-Security-Policy');
       if (cspHeader) headers['Content-Security-Policy'] = cspHeader as any;
@@ -487,7 +487,7 @@ export const handleRender = async (
         if (!abortedState.aborted) {
           logger.warn({}, 'Client disconnected before stream finished');
           abortedState.aborted = true;
-          recorder?.aborted({ traceId, phase: 'stream' });
+          recorder?.aborted({ requestId, phase: 'stream' });
         }
         ac.abort();
       };
@@ -498,7 +498,7 @@ export const handleRender = async (
           if (!abortedState.aborted) {
             logger.warn({}, 'Client disconnected before stream finished');
             abortedState.aborted = true;
-            recorder?.aborted({ traceId, phase: 'stream' });
+            recorder?.aborted({ requestId, phase: 'stream' });
           }
           ac.abort();
         }
@@ -515,7 +515,7 @@ export const handleRender = async (
       // request context is complete. Each handler is invoked exactly once, eagerly, outside the
       // component tree, with the matched params and the same request service context `attr.data`
       // uses. The host never awaits an entry and never inspects one mid-stream.
-      deferred = createDeferredData({ attr, params, serviceRegistry, ctx, traceId, recorder });
+      deferred = createDeferredData({ attr, params, serviceRegistry, ctx, requestId, recorder });
 
       const writable = new PassThrough();
       writable.on('error', (err) => {
@@ -551,7 +551,7 @@ export const handleRender = async (
         } catch {}
         try {
           logger.error({ error: safeNormaliseError(err), url: req.url }, 'Head data failed; terminating streaming request');
-          recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
+          recorder?.failed({ requestId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
         } catch {}
         try {
           if (!reply.raw.headersSent) {
@@ -590,7 +590,7 @@ export const handleRender = async (
             // streamed app HTML is a Vue hydration node mismatch (the whole app re-renders
             // as a duplicate sibling). React skips unexpected scripts, Vue does not.
             reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${devStamp}${templateParts.afterHead}${templateParts.beforeBody}`);
-            recorder?.streamPhase({ traceId, phase: 'head' });
+            recorder?.streamPhase({ requestId, phase: 'head' });
 
             if (!pipedToReply) {
               pipedToReply = true;
@@ -598,11 +598,11 @@ export const handleRender = async (
             }
           },
           onShellReady: () => {
-            recorder?.streamPhase({ traceId, phase: 'shellReady' });
+            recorder?.streamPhase({ requestId, phase: 'shellReady' });
           },
           onAllReady: (data: unknown) => {
             if (!abortedState.aborted) finalData = data;
-            recorder?.streamPhase({ traceId, phase: 'allReady' });
+            recorder?.streamPhase({ requestId, phase: 'allReady' });
           },
           onRenderError: (info) => {
             // R1-01 (design 7): NON-FATAL structured render-error channel — wired to the request
@@ -635,7 +635,7 @@ export const handleRender = async (
             // `code`/`name`/message would re-introduce the R0-02 spoofing at the cross-package join).
             if (abortedState.aborted) {
               logger.warn({}, 'Client disconnected before stream finished');
-              recorder?.aborted({ traceId, phase: 'stream' });
+              recorder?.aborted({ requestId, phase: 'stream' });
               try {
                 if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
               } catch (e) {
@@ -650,7 +650,7 @@ export const handleRender = async (
             // error for telemetry) would skip the response teardown below and hang the request.
             // Format defensively and belt the telemetry so teardown always runs.
             try {
-              recorder?.failed({ traceId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
+              recorder?.failed({ requestId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
               logResponseFailure({
                 terminal: 'streaming',
                 logger,
@@ -743,7 +743,7 @@ export const handleRender = async (
               deferred?.release();
             } catch {}
             logger.error({ error: safeNormaliseError(serialized.error), clientRoot, url: req.url }, 'Failed to serialize streaming initial data');
-            recorder?.failed({ traceId, error: { kind: 'serialize', message: String(serialized.error.message) } });
+            recorder?.failed({ requestId, error: { kind: 'serialize', message: String(serialized.error.message) } });
 
             // Deterministic termination — mirror the onError teardown idioms above.
             if (!reply.raw.headersSent) {
@@ -787,7 +787,7 @@ export const handleRender = async (
           reply.raw.write(initialDataScript);
           reply.raw.write(templateParts.afterBody);
           reply.raw.end();
-          recorder?.sent({ traceId, status: 200, mode: 'streaming' });
+          recorder?.sent({ requestId, status: 200, mode: 'streaming' });
         } catch (e) {
           // Belt: never let this listener throw — an uncaughtException here would exit the process.
           try {
@@ -808,7 +808,7 @@ export const handleRender = async (
     } catch {}
 
     recorder?.failed({
-      traceId,
+      requestId,
       error: { kind: AppError.isAppError(err) ? (err as any).kind : 'internal', message: String((err as any)?.message ?? err ?? '') },
     });
 

@@ -90,7 +90,7 @@ export type CreateDeferredDataOptions<Params extends RouteParams, R extends Serv
   serviceRegistry: R;
   /** The SAME request context `attr.data` uses, read AFTER `ctx.signal` was assigned. */
   ctx: RequestContext<L> & { signal?: AbortSignal };
-  traceId: string;
+  requestId: string;
   recorder?: TraceRecorder;
   callServiceMethodImpl?: CallServiceOn<R>;
 };
@@ -115,7 +115,7 @@ export type CreateDeferredDataOptions<Params extends RouteParams, R extends Serv
 export const createDeferredData = <Params extends RouteParams, R extends ServiceRegistry, L extends Logs = Logs>(
   options: CreateDeferredDataOptions<Params, R, L>,
 ): DeferredDataController | undefined => {
-  const { attr, params, serviceRegistry, ctx, traceId, recorder } = options;
+  const { attr, params, serviceRegistry, ctx, requestId, recorder } = options;
   const callServiceMethodImpl = options.callServiceMethodImpl ?? (callServiceMethod as CallServiceOn<R>);
 
   // Streaming arm only (R1). Untyped input reaching here despite the boot check is ignored rather
@@ -147,7 +147,7 @@ export const createDeferredData = <Params extends RouteParams, R extends Service
     if (!outcomes.has(key) || outcomes.get(key) !== undefined) return;
     outcomes.set(key, outcome);
     try {
-      recorder?.deferredData({ traceId, key, ms: +(now() - t0).toFixed(1), outcome: outcome.status });
+      recorder?.deferredData({ requestId, key, ms: +(now() - t0).toFixed(1), outcome: outcome.status });
     } catch {
       // fire-and-forget telemetry must never affect the response (introspection invariant 2)
     }
@@ -210,7 +210,7 @@ export const createDeferredData = <Params extends RouteParams, R extends Service
             // Operator visibility: payload-free, key only. The trace explains the outcome; this
             // explains why a RESOLVED loader became `failed`.
             try {
-              ctx.logger?.warn({ key, traceId }, 'Deferred data could not cross the hydration boundary');
+              ctx.logger?.warn({ key, requestId }, 'Deferred data could not cross the hydration boundary');
             } catch {}
             record(key, terminated ? { status: 'aborted' } : { status: 'failed' });
 
