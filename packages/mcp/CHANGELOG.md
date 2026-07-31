@@ -1,5 +1,73 @@
 # @taujs/mcp
 
+## 0.2.0
+
+### Minor Changes
+
+- [#55](https://github.com/aoede3/taujs/pull/55) [`205c023`](https://github.com/aoede3/taujs/commit/205c0231cb6841f8106217b9abed19db52944462) Thanks [@aoede3](https://github.com/aoede3)! - Fastify `req.id` is now the canonical request-correlation identity in both host modes (SC-09).
+
+  Behaviour changes:
+
+  - τjs no longer reinterprets an inbound correlation header after Fastify has created the request.
+    The request identity is always `String(req.id)`; header adoption is a construction-time decision.
+  - On a τjs-created host, τjs now configures `genReqId` at Fastify construction: a single valid
+    inbound `x-request-id` becomes `req.id`, otherwise a UUID is generated. Previously the created
+    host used Fastify's default counter (`req-1`), so created-host identities visibly change shape.
+  - On a caller-owned host, τjs adopts whatever `req.id` the host produced. Hosts that previously
+    sent `x-trace-id` and relied on τjs echoing it must now adopt inbound correlation themselves at
+    Fastify construction with a validating `genReqId` (not `requestIdHeader`, which takes the header
+    unvalidated).
+  - Request log bindings collapse to the Fastify-native `reqId` alone, and `reqId` has ONE meaning
+    and ONE representation: the current Fastify request, in its native type, bound once by the
+    request logger and inherited through child-logger lineage. Service-dispatch children and
+    deferred-data warnings no longer rebind it (a rebind stringified numeric host identities), the
+    not-found fallback context carries the native `req.id`, and the hydration-beacon debug record
+    names the episode it updates as `episodeRequestId` - the beacon POST is its own request. Episode
+    records use `requestId`; log correlation uses `reqId`.
+  - τjs no longer invents a fallback identity: if a host violates Fastify's guarantee of a string or
+    number `req.id`, request-context creation fails explicitly with a `TypeError` instead of
+    silently generating a UUID that could never match the host's own records.
+
+  Renames, with no compatibility aliases:
+
+  - request-context and structured-record field `traceId` becomes `requestId`
+  - header `x-trace-id` becomes `x-request-id`, inbound and outbound; inbound `x-trace-id` is no
+    longer recognised
+  - `REGEX.SAFE_TRACE` becomes `REGEX.SAFE_REQUEST_ID`
+  - browser stamp `__TAUJS_TRACE_ID__` becomes `__TAUJS_REQUEST_ID__`; the hydration beacon field
+    `traceId` becomes `requestId`, and its rejection reason `invalid_trace_id` becomes
+    `invalid_request_id`
+  - MCP tool argument and returned field `traceId` become `requestId`; `sampleTraceIds` becomes
+    `sampleRequestIds`
+
+  `requestId` is application request correlation, not a W3C or OpenTelemetry trace ID. A future
+  distributed-tracing integration uses `traceparent` and its own trace and span identities.
+
+- [#55](https://github.com/aoede3/taujs/pull/55) [`69a840b`](https://github.com/aoede3/taujs/commit/69a840bb2bb165cd2628395123e451d6ba2913e3) Thanks [@aoede3](https://github.com/aoede3)! - The recorder subsystem stops using "trace": the settled concept word is "episode" (SC-09 ruling 9).
+
+  This is a behaviour-preserving surface migration - the recorder's behaviour is unchanged, but
+  observable interfaces change, with no compatibility aliases:
+
+  - MCP tools: `taujs_get_recent_traces` becomes `taujs_get_recent_episodes`, `taujs_get_trace`
+    becomes `taujs_get_episode`, `taujs_get_trace_logs` becomes `taujs_get_episode_logs`; the
+    recent-episodes response key `traces` becomes `episodes`, the `taujs_doctor` report field
+    `failedTraces` becomes `failedEpisodes`, and the not-found reason `trace_not_found` becomes
+    `episode_not_found`
+  - development endpoint `/__taujs/traces` becomes `/__taujs/episodes`, and its response key
+    `traces` becomes `episodes`
+  - development artefact `traces.ndjson` becomes `episodes.ndjson`; `dev.json` exposes
+    `paths.episodes` and no longer exposes `paths.traces`. A stale legacy `traces.ndjson` from an
+    earlier boot is removed explicitly at the next boot so it can never be mistaken for current-boot
+    evidence, and current MCP never reads the old file
+  - TypeScript types: `TraceRecorder` becomes `EpisodeRecorder`, `noopTraceRecorder` becomes
+    `noopEpisodeRecorder`, `TraceRecord` becomes `EpisodeRecord`, `TraceTimeline` becomes
+    `EpisodeTimeline`; `getTraces()` becomes `getEpisodes()`, `findTrace()` becomes `findEpisode()`
+    and `tracesRevision` becomes `episodesRevision`
+  - an episode carries no `episodeId`: its key is the canonical `requestId`
+
+  The word "trace" is reserved in the τjs observability model for genuine distributed tracing
+  (`traceparent`, OpenTelemetry trace and span IDs), which remains a separate future capability.
+
 ## 0.1.1
 
 ### Patch Changes
