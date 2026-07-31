@@ -208,7 +208,7 @@ entry. A deferred result cannot redirect, prevent the response or choose its HTT
 status-bearing condition in middleware or critical data.
 
 A component cannot promote its own async work into the registry. Work started in the component tree
-remains UI-local and does not receive τjs cancellation, trace or hydration guarantees.
+remains UI-local and does not receive τjs cancellation, episode or hydration guarantees.
 
 See [Deferred Route Data](/reference/taujs-config/#deferred-route-data) for validation and lifecycle
 rules. The renderer guides document their native accessors:
@@ -264,4 +264,4 @@ Related guides:
 - [Request Contracts & Data](/guides/request-contracts/) for ownership by declaration
 - [Services](/guides/services/) for mediated server work
 - [Head Management](/guides/head-management/) for head timing
-- [Logging & Telemetry](/guides/logging-telemetry/) for request identity and trace outcomes
+- [Logging & Telemetry](/guides/logging-telemetry/) for request identity and episode outcomes

@@ -1,5 +1,5 @@
 // Substrate document shapes, v1 — duplicated from the FROZEN specs (02 request graph,
-// 03 traces/files) deliberately: the files on disk are the contract between
+// 03 episodes/files) deliberately: the files on disk are the contract between
 // @taujs/server and this adapter, not a shared TypeScript package. The adapter has no
 // runtime dependency on @taujs/server (RFC v11); schemaVersion checks guard drift.
 
@@ -51,7 +51,7 @@ export type RequestGraphV1 = {
   warnings: GraphWarning[];
 };
 
-export type TraceRecord = {
+export type EpisodeRecord = {
   requestId: string;
   bootId: string;
   at: string;
@@ -101,7 +101,7 @@ export type DevJson = {
   host: string | null;
   port: number | null;
   graph: string;
-  traces: string;
+  episodes: string;
   logs: string;
   observations: string;
 };

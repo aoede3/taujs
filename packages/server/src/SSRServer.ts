@@ -207,7 +207,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       registerDevFiles(scope, introspection, logger);
       registerIntrospectionEndpoints(scope, { introspection, taujsConfig: opts.taujsConfig, serviceRegistry, logger });
     } catch (err) {
-      logger.warn({ component: 'introspection', error: (err as Error)?.message ?? String(err) }, 'Trace recording unavailable (non-fatal)');
+      logger.warn({ component: 'introspection', error: (err as Error)?.message ?? String(err) }, 'Episode recording unavailable (non-fatal)');
     }
 
     // RFC 0010: boot-graph emission belongs to whichever scope τjs owns, so it has the same owner
@@ -223,7 +223,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       }
     }
   }
-  // Trace context first, deliberately before auth: every request — rendered, fallthrough,
+  // Request context first, deliberately before auth: every request — rendered, fallthrough,
   // asset-like — gets a requestId and the x-request-id response header before auth,
   // and auth logging can carry the requestId (P0B-01). In dev the request logger is teed
   // into the logs annex and the recorder rides the context (P0B-02).

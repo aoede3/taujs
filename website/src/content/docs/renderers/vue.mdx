@@ -254,10 +254,10 @@ React's out-of-order streaming makes boundary placement largely cosmetic; Vue's 
 
 ### Failure semantics
 
-Every declared entry settles as exactly one of `complete`, `failed` or `aborted`, recorded once on the request trace. Two points worth knowing when you read the outcomes:
+Every declared entry settles as exactly one of `complete`, `failed` or `aborted`, recorded once on the request episode. Two points worth knowing when you read the outcomes:
 
 - An **unconsumed** entry whose loader rejects after the response terminal reads as `aborted`, not `failed` - the response had already finished, so nothing was waiting on the value.
-- `complete` means *deliverable*. A value that resolves but cannot cross the hydration boundary is classified `failed` uniformly across the server render, the trace and hydration, so all three always agree.
+- `complete` means *deliverable*. A value that resolves but cannot cross the hydration boundary is classified `failed` uniformly across the server render, the episode and hydration, so all three always agree.
 
 Outcomes for the boundaries a component actually read are seeded into hydration from a private internal carrier written beside `window.__INITIAL_DATA__`; every seeded entry is already settled, so hydration re-executes no loader and issues no refetch. Under `hydrate: false` no carrier is emitted and the value still streams into the server-rendered HTML.
 

@@ -1,9 +1,9 @@
-// Spec 03 §1 — the TraceRecorder interface, verbatim. Recorder calls are synchronous
+// Spec 03 §1 — the EpisodeRecorder interface, verbatim. Recorder calls are synchronous
 // fire-and-forget: never awaited, and a throwing implementation must never affect a
 // response (invariant 2) — call sites receive implementations wrapped by
 // createSafeRecorder, which swallows exceptions and warns once per boot.
 
-export interface TraceRecorder {
+export interface EpisodeRecorder {
   requestStart(e: { requestId: string; url: string; method: string }): void;
   routeMatched(e: { requestId: string; path: string; appId: string; render: 'ssr' | 'streaming' }): void;
   dataFetch(e: { requestId: string; ms: number; ok: boolean }): void;
@@ -21,7 +21,7 @@ export interface TraceRecorder {
   clientHydration(e: { requestId: string; ok: boolean; ms?: number; error?: string }): void;
 }
 
-export const noopTraceRecorder: TraceRecorder = {
+export const noopEpisodeRecorder: EpisodeRecorder = {
   requestStart() {},
   routeMatched() {},
   dataFetch() {},
@@ -34,7 +34,7 @@ export const noopTraceRecorder: TraceRecorder = {
   clientHydration() {},
 };
 
-export const createSafeRecorder = (impl: TraceRecorder, onFirstError?: (err: unknown) => void): TraceRecorder => {
+export const createSafeRecorder = (impl: EpisodeRecorder, onFirstError?: (err: unknown) => void): EpisodeRecorder => {
   let warned = false;
 
   const guard = <E>(fn: (e: E) => void): ((e: E) => void) => {

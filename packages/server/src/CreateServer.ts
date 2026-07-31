@@ -122,12 +122,12 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
 
   // RFC 0010: ownership is derived, never configured, so the boot summary has to say which side of
   // the thesis this process is on. Without it a caller cannot tell from the logs why their 404s,
-  // CSP or trace headers changed.
+  // CSP or correlation headers changed.
   logger.info(
     { component: 'ownership', callerOwnedHost },
     callerOwnedHost
-      ? `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found, CSP and trace remain yours`
-      : `${CONTENT.TAG} [ownership] Fastify created by τjs - whole-server shell, CSP and trace`,
+      ? `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found, CSP and request identity remain yours`
+      : `${CONTENT.TAG} [ownership] Fastify created by τjs - whole-server shell, CSP and request identity`,
   );
 
   // RFC security model §2: relaxing the loopback guard must shout in the boot summary —

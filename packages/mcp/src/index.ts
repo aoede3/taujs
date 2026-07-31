@@ -7,7 +7,7 @@ export {
   readGraph,
   readLogs,
   readObservations,
-  readTraces,
+  readEpisodes,
   stalenessLineFor,
 } from './SubstrateReader';
 
@@ -26,5 +26,5 @@ export type {
   LogLevel,
   ObservationsDocument,
   RequestGraphV1,
-  TraceRecord,
+  EpisodeRecord,
 } from './types';

@@ -14,7 +14,7 @@ const registry = defineServiceRegistry({
 
 const serviceData = createServiceData<typeof registry>();
 
-const mkCtx = () => ({ requestId: 'test-trace', headers: {} }) as any;
+const mkCtx = () => ({ requestId: 'test-episode', headers: {} }) as any;
 
 beforeEach(() => {
   getProduct.mockClear();
@@ -60,8 +60,8 @@ describe('createServiceData', () => {
     const [sugarArgs, sugarCtx] = getProduct.mock.calls[0]!;
     const [handWrittenArgs, handWrittenCtx] = getProduct.mock.calls[1]!;
     expect(sugarArgs).toEqual(handWrittenArgs);
-    expect((sugarCtx as any).requestId).toBe('test-trace');
-    expect((handWrittenCtx as any).requestId).toBe('test-trace');
+    expect((sugarCtx as any).requestId).toBe('test-episode');
+    expect((handWrittenCtx as any).requestId).toBe('test-episode');
   });
 });
 

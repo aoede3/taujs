@@ -70,7 +70,7 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     return reply.send(introspection.getObservations());
   });
 
-  app.get('/__taujs/traces', { preHandler: guard }, async (req, reply) => {
+  app.get('/__taujs/episodes', { preHandler: guard }, async (req, reply) => {
     const accept = String(req.headers.accept ?? '');
 
     if (accept.includes('text/event-stream')) {
@@ -84,10 +84,10 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
 
       const seen = new Set<string>();
       const push = () => {
-        for (const trace of introspection.getTraces()) {
-          if (seen.has(trace.requestId)) continue;
-          seen.add(trace.requestId);
-          reply.raw.write(`data: ${JSON.stringify(trace)}\n\n`);
+        for (const episode of introspection.getEpisodes()) {
+          if (seen.has(episode.requestId)) continue;
+          seen.add(episode.requestId);
+          reply.raw.write(`data: ${JSON.stringify(episode)}\n\n`);
         }
       };
 
@@ -101,7 +101,7 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     const rawLimit = Number((req.query as Record<string, unknown>)?.limit);
     const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : TRACES_DEFAULT_LIMIT;
 
-    return reply.send({ bootId: introspection.bootId, traces: introspection.getTraces(limit) });
+    return reply.send({ bootId: introspection.bootId, episodes: introspection.getEpisodes(limit) });
   });
 
   // The one write endpoint (RFC security model §3). Registered here; the client-side stamp
@@ -120,9 +120,9 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     if (ms !== undefined && typeof ms !== 'number') return reply.code(400).send({ error: 'invalid_body' });
     if (error !== undefined && typeof error !== 'string') return reply.code(400).send({ error: 'invalid_body' });
 
-    const trace = introspection.findTrace(requestId);
-    if (!trace) return reply.code(204).send(); // unknown or evicted: dropped silently
-    if (trace.client) return reply.code(409).send({ error: 'duplicate_beacon' });
+    const episode = introspection.findEpisode(requestId);
+    if (!episode) return reply.code(204).send(); // unknown or evicted: dropped silently
+    if (episode.client) return reply.code(409).send({ error: 'duplicate_beacon' });
 
     introspection.recorder.clientHydration({ requestId, ok, ms, error: typeof error === 'string' ? error.slice(0, BEACON_ERROR_CAP) : undefined });
     logger.debug?.({ component: 'introspection', requestId }, 'Hydration beacon applied');

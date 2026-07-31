@@ -188,7 +188,7 @@ Once streaming works with critical data, move an independently renderable slow d
 
 Deferral remains part of the route declaration. The work starts once per response outside the
 component tree, and each renderer projects the named result into its native asynchronous primitive.
-Do not replace it with a component-started promise when request ownership, cancellation, traces or
+Do not replace it with a component-started promise when request ownership, cancellation, episodes or
 hydration without a client refetch matter.
 
 A deferred entry cannot redirect, prevent the response or choose its HTTP status. Keep those
@@ -333,9 +333,9 @@ For every step, check the smallest relevant matrix:
 | Assets | The response references the owning app's bundle, not the previous renderer's |
 | Data | Initial data is present once and post-hydration fetching does not duplicate it accidentally |
 | Deferred data | Named entries settle once, hydrate without a client refetch and follow renderer-native ordering |
-| Evidence | The request graph and live trace identify the expected app, route and service call |
+| Evidence | The request graph and live episode identify the expected app, route and service call |
 
-The [MCP server](/reference/mcp) can inspect route ownership and live development traces, but it does not replace browser and production-build tests.
+The [MCP server](/reference/mcp) can inspect route ownership and live development episodes, but it does not replace browser and production-build tests.
 
 ## What τjs does not migrate for you
 

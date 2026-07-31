@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
 
 import { now } from '../telemetry/Telemetry';
-import { createSafeRecorder } from './TraceRecorder';
+import { createSafeRecorder } from './EpisodeRecorder';
 
 import type { Logs } from '../logging/types';
-import type { TraceRecorder } from './TraceRecorder';
+import type { EpisodeRecorder } from './EpisodeRecorder';
 
 // Redaction denylist (conventions rule 13). Matching is case-insensitive substring on the
 // key; a matched key's entire subtree is dropped, never partially serialised.
@@ -14,14 +14,14 @@ export const DEFAULT_DENY_KEYS = ['password', 'token', 'secret', 'ssn', 'auth', 
 const MESSAGE_CAP = 500;
 const META_VALUE_CAP = 200;
 const META_DEPTH_CAP = 4;
-const TRACE_RING_CAP = 200;
+const EPISODE_RING_CAP = 200;
 const LOGS_RING_CAP = 2000;
 const SAMPLE_TRACE_CAP = 5;
-const PENDING_CAP = 500; // safety valve for traces that never reach a terminal event
+const PENDING_CAP = 500; // safety valve for episodes that never reach a terminal event
 
-export type TraceTimeline = { matched?: number; dataStart?: number; dataEnd?: number; head?: number; shellReady?: number; allReady?: number };
+export type EpisodeTimeline = { matched?: number; dataStart?: number; dataEnd?: number; head?: number; shellReady?: number; allReady?: number };
 
-export type TraceRecord = {
+export type EpisodeRecord = {
   requestId: string;
   bootId: string;
   at: string;
@@ -31,11 +31,11 @@ export type TraceRecord = {
   outcome: 'complete' | 'failed' | 'aborted';
   status: number | null;
   url: { pathname: string; queryKeys: string[]; queryValuesRedacted: true };
-  timeline: TraceTimeline;
+  timeline: EpisodeTimeline;
   serviceCalls: { service: string; method: string; ms: number; ok: boolean }[];
   /**
    * RFC 0007 (R5): per-key deferred outcomes, in arrival order. ADDITIVE-OPTIONAL and ABSENT for
-   * any trace with no deferred events, so existing trace bytes and older readers are unaffected.
+   * any episode with no deferred events, so existing episode bytes and older readers are unaffected.
    * Bounded by construction - one entry per DECLARED key per request, and declared keys are static
    * configuration - so it carries no cap of its own, exactly like `serviceCalls`.
    */
@@ -76,23 +76,23 @@ export type DevIntrospection = {
   bootId: string;
   /** Per-boot random secret: required by every overlay endpoint and the beacon (spec 03 §5-6). */
   token: string;
-  recorder: TraceRecorder;
+  recorder: EpisodeRecorder;
   wrapRequestLogger: <L extends Logs>(logger: L, requestId: string) => L;
-  getTraces: (limit?: number) => TraceRecord[];
+  getEpisodes: (limit?: number) => EpisodeRecord[];
   getLogs: (requestId?: string) => LogAnnexRecord[];
   getObservations: () => ObservationsDocument;
-  /** Finalized-or-pending trace lookup — used by the beacon endpoint's duplicate check. */
-  findTrace: (requestId: string) => TraceRecord | undefined;
+  /** Finalized-or-pending episode lookup — used by the beacon endpoint's duplicate check. */
+  findEpisode: (requestId: string) => EpisodeRecord | undefined;
   /**
-   * Cumulative counters for change detection by the file emitter. `tracesRevision` also advances
-   * when an ALREADY-FINALISED trace is amended in place (RFC 0007 R5: a deferred outcome arriving
-   * after the terminal), which `traces` alone cannot express - without it a late outcome would be
+   * Cumulative counters for change detection by the file emitter. `episodesRevision` also advances
+   * when an ALREADY-FINALISED episode is amended in place (RFC 0007 R5: a deferred outcome arriving
+   * after the terminal), which `episodes` alone cannot express - without it a late outcome would be
    * visible in memory and absent from the on-disk NDJSON, and therefore from MCP.
    */
-  stats: () => { traces: number; tracesRevision: number; logs: number; observationsUpdatedAt: string | null };
+  stats: () => { episodes: number; episodesRevision: number; logs: number; observationsUpdatedAt: string | null };
 };
 
-type PendingTrace = TraceRecord & { t0: number; done: boolean };
+type PendingEpisode = EpisodeRecord & { t0: number; done: boolean };
 
 const cap = (s: string, max: number): string => (s.length > max ? s.slice(0, max) : s);
 
@@ -110,7 +110,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
 
   // URL hygiene (spec 03 §2): raw URLs never enter the buffer — pathname + surviving query
   // key names only, values always dropped, denylisted keys dropped entirely.
-  const sanitiseUrl = (raw: string): TraceRecord['url'] => {
+  const sanitiseUrl = (raw: string): EpisodeRecord['url'] => {
     try {
       const url = new URL(raw, 'http://taujs.invalid');
       const queryKeys = [...new Set([...url.searchParams.keys()])].filter((k) => !isDenied(k));
@@ -139,29 +139,29 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     return out;
   };
 
-  const pending = new Map<string, PendingTrace>();
-  const traces: TraceRecord[] = [];
+  const pending = new Map<string, PendingEpisode>();
+  const episodes: EpisodeRecord[] = [];
   const logs: LogAnnexRecord[] = [];
   const edges = new Map<string, ObservedEdge & { routeIds: Set<string> }>();
   let observationsChangedAt: string | null = null;
-  let totalTraces = 0;
-  let tracesRevision = 0;
+  let totalEpisodes = 0;
+  let episodesRevision = 0;
   let totalLogs = 0;
 
-  const finalize = (trace: PendingTrace, outcome: TraceRecord['outcome']): void => {
-    if (trace.done) return;
-    trace.done = true;
-    trace.outcome = outcome;
-    pending.delete(trace.requestId);
+  const finalize = (episode: PendingEpisode, outcome: EpisodeRecord['outcome']): void => {
+    if (episode.done) return;
+    episode.done = true;
+    episode.outcome = outcome;
+    pending.delete(episode.requestId);
 
-    const { t0: _t0, done: _done, ...record } = trace;
-    traces.push(record);
-    totalTraces += 1;
-    tracesRevision += 1;
-    if (traces.length > TRACE_RING_CAP) traces.shift();
+    const { t0: _t0, done: _done, ...record } = episode;
+    episodes.push(record);
+    totalEpisodes += 1;
+    episodesRevision += 1;
+    if (episodes.length > EPISODE_RING_CAP) episodes.shift();
   };
 
-  const assembler: TraceRecorder = {
+  const assembler: EpisodeRecorder = {
     requestStart(e) {
       if (pending.size >= PENDING_CAP) {
         const oldest = pending.keys().next().value;
@@ -187,38 +187,38 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     },
 
     routeMatched(e) {
-      const trace = pending.get(e.requestId);
-      if (!trace) return;
-      trace.route = e.path;
-      trace.appId = e.appId;
-      trace.mode = e.render;
-      trace.timeline.matched = +(now() - trace.t0).toFixed(1);
+      const episode = pending.get(e.requestId);
+      if (!episode) return;
+      episode.route = e.path;
+      episode.appId = e.appId;
+      episode.mode = e.render;
+      episode.timeline.matched = +(now() - episode.t0).toFixed(1);
     },
 
     dataFetch(e) {
-      const trace = pending.get(e.requestId);
-      if (!trace) return;
-      const dataEnd = +(now() - trace.t0).toFixed(1);
-      trace.timeline.dataEnd = dataEnd;
-      trace.timeline.dataStart = +(dataEnd - e.ms).toFixed(1);
+      const episode = pending.get(e.requestId);
+      if (!episode) return;
+      const dataEnd = +(now() - episode.t0).toFixed(1);
+      episode.timeline.dataEnd = dataEnd;
+      episode.timeline.dataStart = +(dataEnd - e.ms).toFixed(1);
     },
 
     deferredData(e) {
-      // RFC 0007 (R5) retention. FINALISED traces are looked up too (the `clientHydration` idiom):
-      // on a client disconnect the host records the benign abort - finalising the trace - BEFORE
+      // RFC 0007 (R5) retention. FINALISED episodes are looked up too (the `clientHydration` idiom):
+      // on a client disconnect the host records the benign abort - finalising the episode - BEFORE
       // the abort reaches the registry, so the per-key outcomes for exactly the case R5 exists to
-      // explain would otherwise be dropped. An amendment to a finalised trace bumps
-      // `tracesRevision`, which is what carries it into the on-disk NDJSON.
+      // explain would otherwise be dropped. An amendment to a finalised episode bumps
+      // `episodesRevision`, which is what carries it into the on-disk NDJSON.
       const finalised = pending.get(e.requestId) === undefined;
-      const trace = pending.get(e.requestId) ?? traces.find((t) => t.requestId === e.requestId);
-      if (!trace) return;
-      (trace.deferredData ??= []).push({ key: e.key, outcome: e.outcome, ms: e.ms });
-      if (finalised) tracesRevision += 1;
+      const episode = pending.get(e.requestId) ?? episodes.find((t) => t.requestId === e.requestId);
+      if (!episode) return;
+      (episode.deferredData ??= []).push({ key: e.key, outcome: e.outcome, ms: e.ms });
+      if (finalised) episodesRevision += 1;
     },
 
     serviceCall(e) {
-      const trace = pending.get(e.requestId);
-      if (trace) trace.serviceCalls.push({ service: e.service, method: e.method, ms: e.ms, ok: e.ok });
+      const episode = pending.get(e.requestId);
+      if (episode) episode.serviceCalls.push({ service: e.service, method: e.method, ms: e.ms, ok: e.ok });
 
       // Observed edge upsert — evidence lives beside the graph, never merged into it.
       const key = `${e.service}\u0000${e.method}`;
@@ -230,48 +230,48 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       edge.count += 1;
       edge.lastObservedAt = new Date().toISOString();
       if (edge.sampleRequestIds.length < SAMPLE_TRACE_CAP && !edge.sampleRequestIds.includes(e.requestId)) edge.sampleRequestIds.push(e.requestId);
-      if (trace?.route && trace.appId) {
-        const routeId = `${trace.appId}:${trace.route}`;
+      if (episode?.route && episode.appId) {
+        const routeId = `${episode.appId}:${episode.route}`;
         if (!edge.routeIds.has(routeId)) {
           edge.routeIds.add(routeId);
-          edge.routes.push({ routeId, appId: trace.appId, path: trace.route });
+          edge.routes.push({ routeId, appId: episode.appId, path: episode.route });
         }
       }
       observationsChangedAt = edge.lastObservedAt;
     },
 
     streamPhase(e) {
-      const trace = pending.get(e.requestId);
-      if (!trace) return;
-      trace.timeline[e.phase] = +(now() - trace.t0).toFixed(1);
+      const episode = pending.get(e.requestId);
+      if (!episode) return;
+      episode.timeline[e.phase] = +(now() - episode.t0).toFixed(1);
     },
 
     sent(e) {
-      const trace = pending.get(e.requestId);
-      if (!trace || trace.done) return;
-      trace.status = e.status;
-      if (e.mode === 'fallthrough') trace.mode = 'fallthrough';
-      finalize(trace, 'complete');
+      const episode = pending.get(e.requestId);
+      if (!episode || episode.done) return;
+      episode.status = e.status;
+      if (e.mode === 'fallthrough') episode.mode = 'fallthrough';
+      finalize(episode, 'complete');
     },
 
     aborted(e) {
-      const trace = pending.get(e.requestId);
-      if (!trace || trace.done) return;
-      finalize(trace, 'aborted');
+      const episode = pending.get(e.requestId);
+      if (!episode || episode.done) return;
+      finalize(episode, 'aborted');
     },
 
     failed(e) {
-      const trace = pending.get(e.requestId);
-      if (!trace || trace.done) return;
-      trace.error = { kind: e.error.kind, message: cap(e.error.message, MESSAGE_CAP) };
-      finalize(trace, 'failed');
+      const episode = pending.get(e.requestId);
+      if (!episode || episode.done) return;
+      episode.error = { kind: e.error.kind, message: cap(e.error.message, MESSAGE_CAP) };
+      finalize(episode, 'failed');
     },
 
     clientHydration(e) {
-      // One beacon per requestId; late beacons for evicted traces drop silently.
-      const trace = pending.get(e.requestId) ?? traces.find((t) => t.requestId === e.requestId);
-      if (!trace || trace.client) return;
-      trace.client = { hydrated: e.ok, hydrationMs: e.ms ?? null, error: e.error ? cap(e.error, MESSAGE_CAP) : null };
+      // One beacon per requestId; late beacons for evicted episodes drop silently.
+      const episode = pending.get(e.requestId) ?? episodes.find((t) => t.requestId === e.requestId);
+      if (!episode || episode.client) return;
+      episode.client = { hydrated: e.ok, hydrationMs: e.ms ?? null, error: e.error ? cap(e.error, MESSAGE_CAP) : null };
     },
   };
 
@@ -279,7 +279,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
   const recorder = createSafeRecorder(assembler, (err) => {
     logger?.warn(
       { component: 'introspection', error: err instanceof Error ? err.message : String(err) },
-      'Trace recorder failed (non-fatal; suppressing further warnings this boot)',
+      'Episode recorder failed (non-fatal; suppressing further warnings this boot)',
     );
   });
 
@@ -331,7 +331,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     token,
     recorder,
     wrapRequestLogger,
-    getTraces: (limit?: number) => (limit && limit > 0 ? traces.slice(-limit) : [...traces]),
+    getEpisodes: (limit?: number) => (limit && limit > 0 ? episodes.slice(-limit) : [...episodes]),
     getLogs: (requestId?: string) => (requestId ? logs.filter((l) => l.requestId === requestId) : [...logs]),
     getObservations: () => ({
       schemaVersion: 1,
@@ -342,14 +342,14 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
         .map(({ routeIds: _routeIds, ...edge }) => ({ ...edge, routes: [...edge.routes] })),
       shapes: [],
     }),
-    findTrace: (requestId: string) => {
+    findEpisode: (requestId: string) => {
       const p = pending.get(requestId);
       if (p) {
         const { t0: _t0, done: _done, ...record } = p;
         return record;
       }
-      return traces.find((t) => t.requestId === requestId);
+      return episodes.find((t) => t.requestId === requestId);
     },
-    stats: () => ({ traces: totalTraces, tracesRevision, logs: totalLogs, observationsUpdatedAt: observationsChangedAt }),
+    stats: () => ({ episodes: totalEpisodes, episodesRevision, logs: totalLogs, observationsUpdatedAt: observationsChangedAt }),
   };
 };

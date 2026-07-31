@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -134,24 +134,24 @@ describe('overlay endpoint contracts', () => {
     expect(res.json()).toMatchObject({ schemaVersion: 1, bootId: introspection.bootId, edges: [], shapes: [] });
   });
 
-  it('GET /__taujs/traces honours ?limit with a small default', async () => {
+  it('GET /__taujs/episodes honours ?limit with a small default', async () => {
     const { app, introspection } = await buildApp();
     for (let i = 0; i < 60; i++) {
       introspection.recorder.requestStart({ requestId: `t-${i}`, url: '/x', method: 'GET' });
       introspection.recorder.sent({ requestId: `t-${i}`, status: 200, mode: 'ssr' });
     }
 
-    const dflt = await app.inject({ method: 'GET', url: '/__taujs/traces', ...authed(introspection) });
-    expect(dflt.json().traces).toHaveLength(50);
+    const dflt = await app.inject({ method: 'GET', url: '/__taujs/episodes', ...authed(introspection) });
+    expect(dflt.json().episodes).toHaveLength(50);
 
-    const limited = await app.inject({ method: 'GET', url: '/__taujs/traces?limit=5', ...authed(introspection) });
-    expect(limited.json().traces).toHaveLength(5);
+    const limited = await app.inject({ method: 'GET', url: '/__taujs/episodes?limit=5', ...authed(introspection) });
+    expect(limited.json().episodes).toHaveLength(5);
     expect(limited.json().bootId).toBe(introspection.bootId);
   });
 });
 
 describe('beacon rejection matrix (spec 03 §8 #5)', () => {
-  const seedTrace = (introspection: DevIntrospection, requestId = 'trace-ok-1') => {
+  const seedTrace = (introspection: DevIntrospection, requestId = 'episode-ok-1') => {
     introspection.recorder.requestStart({ requestId, url: '/p', method: 'GET' });
     introspection.recorder.sent({ requestId, status: 200, mode: 'ssr' });
   };
@@ -160,7 +160,7 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
     const { app, introspection } = await buildApp();
     seedTrace(introspection);
 
-    const payload = { requestId: 'trace-ok-1', ok: true, ms: 42 };
+    const payload = { requestId: 'episode-ok-1', ok: true, ms: 42 };
     const first = await app.inject({ method: 'POST', url: '/__taujs/beacon', ...authed(introspection), payload });
     expect(first.statusCode).toBe(204);
     expect(first.body).toBe('');
@@ -168,7 +168,7 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
     const dup = await app.inject({ method: 'POST', url: '/__taujs/beacon', ...authed(introspection), payload });
     expect(dup.statusCode).toBe(409);
 
-    expect(introspection.findTrace('trace-ok-1')!.client).toEqual({ hydrated: true, hydrationMs: 42, error: null });
+    expect(introspection.findEpisode('episode-ok-1')!.client).toEqual({ hydrated: true, hydrationMs: 42, error: null });
   });
 
   it('rejects missing token, wrong content-type, invalid requestId, and oversize bodies', async () => {
@@ -180,7 +180,7 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
       url: '/__taujs/beacon',
       remoteAddress: LOOPBACK,
       headers: { host: 'localhost' },
-      payload: { requestId: 'trace-ok-1', ok: true },
+      payload: { requestId: 'episode-ok-1', ok: true },
     });
     expect(noToken.statusCode).toBe(403);
 
@@ -189,7 +189,7 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
       url: '/__taujs/beacon',
       remoteAddress: LOOPBACK,
       headers: { host: 'localhost', 'x-taujs-token': introspection.token, 'content-type': 'text/plain' },
-      body: 'requestId=trace-ok-1',
+      body: 'requestId=episode-ok-1',
     });
     expect(wrongType.statusCode).toBe(415);
 
@@ -205,11 +205,11 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
       method: 'POST',
       url: '/__taujs/beacon',
       ...authed(introspection),
-      payload: { requestId: 'trace-ok-1', ok: true, error: 'x'.repeat(4096) },
+      payload: { requestId: 'episode-ok-1', ok: true, error: 'x'.repeat(4096) },
     });
     expect(oversize.statusCode).toBe(413);
 
-    expect(introspection.findTrace('trace-ok-1')!.client).toBeNull();
+    expect(introspection.findEpisode('episode-ok-1')!.client).toBeNull();
   });
 
   it('drops beacons for unknown-but-valid request IDs silently (204, nothing recorded)', async () => {
@@ -218,7 +218,7 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
     const res = await app.inject({ method: 'POST', url: '/__taujs/beacon', ...authed(introspection), payload: { requestId: 'ghost-1', ok: true } });
 
     expect(res.statusCode).toBe(204);
-    expect(introspection.getTraces()).toHaveLength(0);
+    expect(introspection.getEpisodes()).toHaveLength(0);
   });
 });
 
@@ -250,13 +250,13 @@ describe('dev files lifecycle (spec 03 §5)', () => {
         host: '127.0.0.1',
       });
       expect(devJson.port).toBeGreaterThan(0);
-      expect(devJson.traces.endsWith('traces.ndjson')).toBe(true);
+      expect(devJson.episodes.endsWith('episodes.ndjson')).toBe(true);
 
       // Ring mirror lands within a poll tick; query hygiene holds on disk (acceptance #4).
       await vi.waitFor(async () => {
-        await stat(path.join(dir, 'node_modules', '.taujs', 'traces.ndjson'));
+        await stat(path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson'));
       });
-      const ndjson = await readFile(path.join(dir, 'node_modules', '.taujs', 'traces.ndjson'), 'utf8');
+      const ndjson = await readFile(path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson'), 'utf8');
       expect(ndjson).toContain('"pathname":"/reset"');
       expect(ndjson).toContain('"queryKeys":["ref"]');
       expect(ndjson).not.toContain('abc');
@@ -264,6 +264,41 @@ describe('dev files lifecycle (spec 03 §5)', () => {
 
       await app.close();
       await expect(stat(devJsonPath)).rejects.toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
+  it('removes a stale legacy traces.ndjson at boot and exposes only episodes through dev.json (SC-09 rename migration)', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-legacy-'));
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+
+    try {
+      const taujsDir = path.join(dir, 'node_modules', '.taujs');
+      await mkdir(taujsDir, { recursive: true });
+      const legacyPath = path.join(taujsDir, 'traces.ndjson');
+      await writeFile(legacyPath, '{"requestId":"stale-legacy-episode"}\n');
+
+      const introspection = createDevIntrospection();
+      const app = fastify();
+      registerDevFiles(app, introspection, mkLogger());
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const devJsonPath = path.join(taujsDir, 'dev.json');
+      await vi.waitFor(async () => {
+        await stat(devJsonPath);
+      });
+      const devJson = JSON.parse(await readFile(devJsonPath, 'utf8'));
+
+      // A current boot exposes only the episode artefact; the legacy path never appears.
+      expect(devJson.episodes.endsWith('episodes.ndjson')).toBe(true);
+      expect(devJson.traces).toBeUndefined();
+      // The obsolete generated file is removed explicitly, so a stale legacy artefact cannot be
+      // mistaken for current-boot evidence.
+      await expect(stat(legacyPath)).rejects.toThrow();
+
+      await app.close();
     } finally {
       cwdSpy.mockRestore();
     }

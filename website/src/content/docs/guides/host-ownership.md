@@ -9,7 +9,7 @@ When `fastify` is omitted, τjs creates the instance and installs its whole-serv
 encapsulated scope. There is no separate ownership option or flag.
 
 ```ts
-// τjs creates Fastify: whole-server shell, CSP and trace
+// τjs creates Fastify: whole-server shell, CSP and request identity
 const { app, net } = await createServer({ config });
 
 // You own Fastify: τjs installs into an encapsulated application scope
@@ -38,7 +38,7 @@ that matches the application:
 | Concern | τjs-created Fastify | Your Fastify |
 | --- | --- | --- |
 | Page routes, data, rendering | τjs | τjs, in one encapsulated scope |
-| CSP and trace | Whole server | τjs responses only |
+| CSP and request identity | Whole server | τjs responses only |
 | Auth | τjs routes | τjs routes |
 | Page errors | τjs root handler | τjs scoped handler |
 | Host route errors | τjs | You |

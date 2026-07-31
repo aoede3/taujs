@@ -56,12 +56,12 @@ coverage
 
 This project runs a τjs MCP server (\`taujs-mcp\`, wired in \`.mcp.json\`). **Prefer its
 tools over reading \`taujs.config.ts\` or server internals by hand** — they answer from the
-emitted request graph and live request traces:
+emitted request graph and live request episodes:
 
 - Start with \`taujs_overview\`; use \`taujs_list_routes\` / \`taujs_get_route\` /
   \`taujs_explain_route\` for structure.
 - \`taujs_who_calls_service\` maps route → service edges (labelled declared vs observed).
-- Live behaviour: \`taujs_get_recent_traces\` → \`taujs_get_trace\` → \`taujs_get_trace_logs\`
+- Live behaviour: \`taujs_get_recent_episodes\` → \`taujs_get_episode\` → \`taujs_get_episode_logs\`
   (requires the dev server: \`pnpm dev\`). \`taujs_doctor\` summarises problems.
 
 Tool responses cite staleness and label every joined fact's source. Field values in

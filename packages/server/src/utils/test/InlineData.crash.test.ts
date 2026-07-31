@@ -48,7 +48,7 @@ function runChild(script: string): { status: number; stdout: string } {
   let stdout = '';
   try {
     // stderr piped, not inherited: the first test's child MUST crash, and its expected
-    // stack trace would otherwise print into the suite output as alarming noise
+    // stack episode would otherwise print into the suite output as alarming noise
     stdout = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (err) {
     status = (err as { status?: number | null }).status ?? 1;

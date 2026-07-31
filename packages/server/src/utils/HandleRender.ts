@@ -144,7 +144,7 @@ export const handleRender = async (
   // RFC 0007 (R2 item 8): FUNCTION-SCOPED, not block-scoped inside the streaming branch. A
   // synchronous throw out of `renderStream` - or anything else escaping that branch into the outer
   // catch - is a response terminal that reaches it with entries already started; without this
-  // binding nothing would classify them, no R5 trace event would fire and their child abort signal
+  // binding nothing would classify them, no R5 episode event would fire and their child abort signal
   // would outlive the response.
   let deferred: DeferredDataController | undefined;
 
@@ -274,7 +274,7 @@ export const handleRender = async (
     //                    pre-observed so it can never raise unhandledRejection (R0-01 class);
     // - rejection     -> rethrow into the branch's existing error path, unless the route opted in
     //                    with `head.optional`, which degrades like the deadline.
-    // No recorder events here - request-graph/trace support is the rule-11 escalation (H4).
+    // No recorder events here - request-graph/episode support is the rule-11 escalation (H4).
     const resolveHeadData = async (requestSignal: AbortSignal): Promise<{ aborted: boolean; headData?: Record<string, unknown> }> => {
       const head = attr?.head;
       if (!head) return { aborted: false, headData: undefined };
@@ -606,7 +606,7 @@ export const handleRender = async (
           },
           onRenderError: (info) => {
             // R1-01 (design 7): NON-FATAL structured render-error channel — wired to the request
-            // logger with structured fields. No new recorder methods (TraceRecorder integration is
+            // logger with structured fields. No new recorder methods (EpisodeRecorder integration is
             // introspection-owned, conventions #3). Never fails the response.
             //
             // Log at `warn`, not `error`: this channel is advisory by contract. Only `post-shell`

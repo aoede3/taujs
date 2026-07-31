@@ -81,7 +81,7 @@ describe('RFC 0010 - caller-owned host', () => {
     }
   });
 
-  it('owns its own page responses: render, CSP, trace and error conversion', async () => {
+  it('owns its own page responses: render, CSP, episode and error conversion', async () => {
     const host = await createEmbeddedHost();
     await host.activate(createServer);
 
@@ -318,7 +318,7 @@ describe('RFC 0010 - τjs-created host', () => {
     const hostRoute = observe(await app.inject(PATHS.createdHost));
 
     expect(page.body).toContain(OWNER.taujsPage);
-    // Routes the caller adds to the instance τjs created inherit whole-server CSP and trace.
+    // Routes the caller adds to the instance τjs created inherit whole-server CSP and episode.
     expect(hostRoute.csp).toContain("default-src 'rfc0010-taujs'");
     expect(hostRoute.requestId).toBeTruthy();
   });

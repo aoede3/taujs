@@ -1,6 +1,6 @@
 ---
 title: Composing systems
-description: Declared routes bring data, policy and rendering into one request contract. Fastify dispatches it. React, Vue or Solid renders it. Graphs, traces and MCP make it inspectable.
+description: Declared routes bring data, policy and rendering into one request contract. Fastify dispatches it. React, Vue or Solid renders it. Graphs, episodes and MCP make it inspectable.
 template: splash
 hero:
   title: Composing <span>systems</span>
@@ -91,7 +91,7 @@ The same declaration that coordinates the response also makes the architecture i
 ## Your architecture is declared, not discovered
 
 A τjs request contract can be inspected without running the component tree: routes, policy,
-rendering and declared service edges exist as configuration. Development traces add what real
+rendering and declared service edges exist as configuration. Development episodes add what real
 requests actually did.
 
 Using the application's typed `serviceData` helper, the declaration can describe a home page that
@@ -145,9 +145,9 @@ Here you ask, and get back the routes known to use it - `declared` when configur
 call, and `observed` when a real request has made it.
 
 The answers come from artefacts the dev server writes, not from reading source. The request graph
-records what `taujs.config.ts` declares; development traces record what each request actually did.
+records what `taujs.config.ts` declares; development episodes record what each request actually did.
 Both are served over MCP, so tools and AI agents work from the same evidence - and when there is no
-live dev server to ask, the trace tools say so rather than answer from stale data.
+live dev server to ask, the episode tools say so rather than answer from stale data.
 
 [Explore architecture-aware inspection through MCP](/reference/mcp/).
 

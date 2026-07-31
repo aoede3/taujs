@@ -282,12 +282,12 @@ export const UserService = defineService({
 ```
 
 Both parsers are optional. They run inside service dispatch, so validation failures follow the same
-error and trace path as method failures.
+error and episode path as method failures.
 
-## Errors, records and traces
+## Errors, records and episodes
 
 Service dispatch creates a child logger with `component`, `service`, `method` and `requestId` bindings.
-It records duration and success or failure in the development request trace.
+It records duration and success or failure in the development request episode.
 
 - an existing `AppError` keeps its status and safe-message policy
 - another thrown error is wrapped as an internal `AppError`
@@ -347,5 +347,5 @@ Related guides:
 
 - [Data Loading](/guides/data-loading/) for critical, head and deferred slots
 - [Authentication](/guides/authentication/) for the Fastify auth boundary
-- [Logging & Telemetry](/guides/logging-telemetry/) for service records and traces
+- [Logging & Telemetry](/guides/logging-telemetry/) for service records and episodes
 - [Request Contracts & Data](/guides/request-contracts/) for route ownership

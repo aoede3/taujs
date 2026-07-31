@@ -2,7 +2,7 @@ import { AppError } from '../errors/AppError';
 import { resolveLogs } from '../logging/resolve';
 
 import type { Logs } from '../logging/types';
-import type { TraceRecorder } from '../introspection/TraceRecorder';
+import type { EpisodeRecorder } from '../introspection/EpisodeRecorder';
 import { now } from '../telemetry/Telemetry';
 
 // runtime checks instead happens at the boundary
@@ -24,7 +24,7 @@ type BaseServiceContext = {
   requestId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
-  recorder?: TraceRecorder; // dev-only, safety-wrapped; absent in production
+  recorder?: EpisodeRecorder; // dev-only, safety-wrapped; absent in production
 };
 
 type UntypedRegistryCaller = (serviceName: string, methodName: string, args?: JsonObject) => Promise<JsonObject>;

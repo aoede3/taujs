@@ -1,15 +1,15 @@
 ---
 title: Logging & Telemetry
-description: Logger ownership, request identity and τjs development traces
+description: Logger ownership, request identity and τjs development episodes
 ---
 
 τjs produces two related forms of operational evidence:
 
 - structured log records delivered through the selected logger
-- development request traces describing how τjs resolved and rendered a response
+- development request episodes describing how τjs resolved and rendered a response
 
 They share request correlation, but they are not the same system. A log sink is an operational stream;
-a τjs trace is a bounded application-response record for local introspection and MCP tools.
+a τjs episode is a bounded application-response record for local introspection and MCP tools.
 
 ## Logger selection
 
@@ -274,9 +274,9 @@ const logger: BaseLogger = {
 Implement `child()` when the sink supports bindings. If it does not, τjs retains request context in
 its wrapper metadata.
 
-## Development request traces
+## Development request episodes
 
-In development, τjs records a bounded trace for each τjs-owned response. A trace includes:
+In development, τjs records a bounded episode for each τjs-owned response. An episode includes:
 
 - sanitised URL path and query-key names
 - selected app, route and render strategy
@@ -293,23 +293,23 @@ The in-memory rings are mirrored under `node_modules/.taujs/`:
 node_modules/.taujs/
 ├── dev.json
 ├── graph.json
-├── traces.ndjson
+├── episodes.ndjson
 ├── logs.ndjson
 └── observations.json
 ```
 
-`dev.json` describes the current live process and is removed on graceful close. Trace and log mirrors
-remain, with `bootId` distinguishing stale data. Late deferred outcomes advance the trace revision and
-are written to `traces.ndjson`, so MCP reads do not lose results that settle after the main trace
+`dev.json` describes the current live process and is removed on graceful close. Episode and log mirrors
+remain, with `bootId` distinguishing stale data. Late deferred outcomes advance the episode revision and
+are written to `episodes.ndjson`, so MCP reads do not lose results that settle after the main episode
 terminal.
 
 These artefacts are development evidence, not a production telemetry exporter. See
 [MCP Reference](/reference/mcp/) for the tools that read them.
 
-## Logs and traces
+## Logs and episodes
 
 Logs answer operational questions over time: what failed, what a dependency reported and what the
-process is doing. Request traces answer one τjs-specific question: how this application response was
+process is doing. Request episodes answer one τjs-specific question: how this application response was
 resolved and rendered.
 
 Use both where they add value:
@@ -317,11 +317,11 @@ Use both where they add value:
 | Need | Primary evidence |
 | --- | --- |
 | Host lifecycle and infrastructure | Fastify or process logs |
-| One response's app, route and render path | τjs request trace |
+| One response's app, route and render path | τjs request episode |
 | Downstream failure detail | Structured service log |
 | Declared architecture | Request graph |
-| Deferred key outcome and timing | τjs request trace |
-| Cross-service distributed trace | External telemetry system |
+| Deferred key outcome and timing | τjs request episode |
+| Cross-service distributed trace (future) | External telemetry system |
 
 ## Sensitive data
 
@@ -349,7 +349,7 @@ ctx.logger.info(
 );
 ```
 
-Development traces apply a key-name denylist, depth and length caps, and remove query values. Those
+Development episodes apply a key-name denylist, depth and length caps, and remove query values. Those
 protections do not excuse unsafe application logging.
 
 ## Useful patterns
@@ -410,12 +410,12 @@ meaningful sub-operation.
 - Prefer existing child bindings over repeating request identity and service names.
 - Use `request.log` for host hooks and `ctx.logger` for route and service work.
 - Keep secrets out of log metadata and service parameters; configure sink redaction.
-- Treat τjs traces as development response evidence, not an OpenTelemetry replacement.
-- Use the request graph for declarations and traces for observed execution.
+- Treat τjs episodes as development response evidence, not an OpenTelemetry replacement.
+- Use the request graph for declarations and episodes for observed execution.
 
 Related guides:
 
 - [Host Ownership](/guides/host-ownership/) for logger and episode scope
 - [Services](/guides/services/) for service records and errors
 - [Authentication](/guides/authentication/) for the Fastify auth boundary
-- [Data Loading](/guides/data-loading/) for critical and deferred trace outcomes
+- [Data Loading](/guides/data-loading/) for critical and deferred episode outcomes

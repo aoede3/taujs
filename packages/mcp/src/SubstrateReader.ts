@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import type { DevJson, LogAnnexRecord, LogLevel, ObservationsDocument, RequestGraphV1, TraceRecord } from './types';
+import type { DevJson, LogAnnexRecord, LogLevel, ObservationsDocument, RequestGraphV1, EpisodeRecord } from './types';
 
 // The adapter is a thin file reader (RFC v11): no network, no config loading, no framework
 // imports. Reads are synchronous — files are small by construction (ring-capped) and the
@@ -14,7 +14,7 @@ export const ADAPTER_SCHEMA_VERSION = 1;
 export const NO_ACTIVE_BOOT_REFUSAL = {
   ok: false,
   reason: 'no_active_dev_boot',
-  message: 'Structural tools remain available; runtime traces require the dev server (pnpm dev).',
+  message: 'Structural tools remain available; runtime episodes require the dev server (pnpm dev).',
 } as const;
 
 export const NOTHING_EMITTED_MESSAGE = 'No τjs introspection artifacts found — run `pnpm dev` once to emit the request graph.';
@@ -57,7 +57,7 @@ const readJson = <T>(filePath: string): T | undefined => {
 
 export type SubstratePaths = {
   graph?: string;
-  traces?: string;
+  episodes?: string;
   logs?: string;
   observations?: string;
 };
@@ -74,7 +74,7 @@ export const discoverSubstrate = (root: string = process.cwd()): SubstrateDiscov
 
   const conventional = (dir: string): SubstratePaths => ({
     graph: path.join(dir, 'graph.json'),
-    traces: path.join(dir, 'traces.ndjson'),
+    episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
   });
@@ -87,7 +87,7 @@ export const discoverSubstrate = (root: string = process.cwd()): SubstrateDiscov
       devJson,
       paths: {
         graph: devJson.graph ?? conventional(devDir).graph,
-        traces: devJson.traces ?? conventional(devDir).traces,
+        episodes: devJson.episodes ?? conventional(devDir).episodes,
         logs: devJson.logs ?? conventional(devDir).logs,
         observations: devJson.observations ?? conventional(devDir).observations,
       },
@@ -101,7 +101,7 @@ export const discoverSubstrate = (root: string = process.cwd()): SubstrateDiscov
   const buildGraph = path.join(root, 'dist', '.taujs', 'graph.json');
   if (existsSync(buildGraph)) return { mode: 'stale', devJson, paths: { graph: buildGraph } };
 
-  if (existsSync(bootPaths.traces!) || existsSync(bootPaths.observations!)) return { mode: 'stale', devJson, paths: bootPaths };
+  if (existsSync(bootPaths.episodes!) || existsSync(bootPaths.observations!)) return { mode: 'stale', devJson, paths: bootPaths };
 
   return { mode: 'none', message: NOTHING_EMITTED_MESSAGE };
 };
@@ -157,10 +157,10 @@ const readNdjson = <T>(filePath: string | undefined): T[] => {
 
 // Newest-last; bootId-filtered so stale-boot records never masquerade as current
 // (also covers crashed-server port reuse).
-export const readTraces = (discovery: SubstrateDiscovery, options?: { bootId?: string; limit?: number }): TraceRecord[] => {
+export const readEpisodes = (discovery: SubstrateDiscovery, options?: { bootId?: string; limit?: number }): EpisodeRecord[] => {
   if (discovery.mode === 'none') return [];
 
-  let records = readNdjson<TraceRecord>(discovery.paths.traces);
+  let records = readNdjson<EpisodeRecord>(discovery.paths.episodes);
   if (options?.bootId) records = records.filter((r) => r.bootId === options.bootId);
   if (options?.limit && options.limit > 0) records = records.slice(-options.limit);
 
@@ -169,7 +169,7 @@ export const readTraces = (discovery: SubstrateDiscovery, options?: { bootId?: s
 
 const LEVEL_ORDER: Record<LogLevel, number> = { info: 0, warn: 1, error: 2 };
 
-// Per-trace, level-filtered, warn+ default — logs are fetched on demand, never embedded.
+// Per-episode, level-filtered, warn+ default — logs are fetched on demand, never embedded.
 export const readLogs = (discovery: SubstrateDiscovery, options: { requestId: string; minLevel?: LogLevel }): LogAnnexRecord[] => {
   if (discovery.mode === 'none') return [];
 

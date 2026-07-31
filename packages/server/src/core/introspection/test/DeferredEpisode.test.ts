@@ -1,5 +1,5 @@
 // @vitest-environment node
-// RFC 0007 (R5): dev-trace retention of the per-key deferred outcome, and its DURABLE arrival in
+// RFC 0007 (R5): dev-episode retention of the per-key deferred outcome, and its DURABLE arrival in
 // the on-disk NDJSON through the ordinary bounded persistence mechanism.
 import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,8 +17,8 @@ const mkLogger = (): any => {
   return l;
 };
 
-describe('dev trace retention of deferred outcomes (RFC 0007 R5)', () => {
-  it('retains { key, outcome, ms } per key and stays ABSENT for a trace with no deferred events', () => {
+describe('dev episode retention of deferred outcomes (RFC 0007 R5)', () => {
+  it('retains { key, outcome, ms } per key and stays ABSENT for a episode with no deferred events', () => {
     const dev = createDevIntrospection();
 
     dev.recorder.requestStart({ requestId: 'plain', url: '/plain', method: 'GET' });
@@ -29,30 +29,30 @@ describe('dev trace retention of deferred outcomes (RFC 0007 R5)', () => {
     dev.recorder.deferredData({ requestId: 'deferred', key: 'stock', ms: 30, outcome: 'failed' });
     dev.recorder.sent({ requestId: 'deferred', status: 200, mode: 'streaming' });
 
-    const traces = Object.fromEntries(dev.getTraces().map((t) => [t.requestId, t]));
-    expect('deferredData' in traces['plain']!).toBe(false);
-    expect(traces['deferred']!.deferredData).toEqual([
+    const episodes = Object.fromEntries(dev.getEpisodes().map((t) => [t.requestId, t]));
+    expect('deferredData' in episodes['plain']!).toBe(false);
+    expect(episodes['deferred']!.deferredData).toEqual([
       { key: 'reviews', outcome: 'complete', ms: 12.5 },
       { key: 'stock', outcome: 'failed', ms: 30 },
     ]);
     // No payload, params, message or stack ever crosses.
-    expect(JSON.stringify(traces['deferred']!.deferredData)).toBe(
+    expect(JSON.stringify(episodes['deferred']!.deferredData)).toBe(
       '[{"key":"reviews","outcome":"complete","ms":12.5},{"key":"stock","outcome":"failed","ms":30}]',
     );
   });
 
-  it('resolves FINALISED traces too - the client-disconnect ordering R5 exists to explain', () => {
+  it('resolves FINALISED episodes too - the client-disconnect ordering R5 exists to explain', () => {
     const dev = createDevIntrospection();
 
     dev.recorder.requestStart({ requestId: 'disconnect', url: '/product/42', method: 'GET' });
-    // The host records the benign abort (finalising the trace) BEFORE the abort reaches the registry.
+    // The host records the benign abort (finalising the episode) BEFORE the abort reaches the registry.
     dev.recorder.aborted({ requestId: 'disconnect', phase: 'stream' });
     dev.recorder.deferredData({ requestId: 'disconnect', key: 'reviews', ms: 4, outcome: 'aborted' });
 
-    expect(dev.findTrace('disconnect')!.deferredData).toEqual([{ key: 'reviews', outcome: 'aborted', ms: 4 }]);
+    expect(dev.findEpisode('disconnect')!.deferredData).toEqual([{ key: 'reviews', outcome: 'aborted', ms: 4 }]);
   });
 
-  it('a late outcome marks the persisted trace DIRTY: tracesRevision advances without a new trace', () => {
+  it('a late outcome marks the persisted episode DIRTY: episodesRevision advances without a new episode', () => {
     const dev = createDevIntrospection();
 
     dev.recorder.requestStart({ requestId: 'late', url: '/product/42', method: 'GET' });
@@ -62,11 +62,11 @@ describe('dev trace retention of deferred outcomes (RFC 0007 R5)', () => {
     dev.recorder.deferredData({ requestId: 'late', key: 'reviews', ms: 9, outcome: 'aborted' });
     const afterLate = dev.stats();
 
-    expect(afterLate.traces).toBe(afterFinalize.traces);
-    expect(afterLate.tracesRevision).toBe(afterFinalize.tracesRevision + 1);
+    expect(afterLate.episodes).toBe(afterFinalize.episodes);
+    expect(afterLate.episodesRevision).toBe(afterFinalize.episodesRevision + 1);
   });
 
-  it('a late outcome reaches the on-disk traces.ndjson through the ordinary bounded rewrite', async () => {
+  it('a late outcome reaches the on-disk episodes.ndjson through the ordinary bounded rewrite', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-deferred-'));
     const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
     try {
@@ -79,14 +79,14 @@ describe('dev trace retention of deferred outcomes (RFC 0007 R5)', () => {
 
       await app.listen({ port: 0, host: '127.0.0.1' });
 
-      const tracesPath = path.join(dir, 'node_modules', '.taujs', 'traces.ndjson');
+      const tracesPath = path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson');
       await vi.waitFor(async () => {
         await stat(tracesPath);
         expect(await readFile(tracesPath, 'utf8')).toContain('late-disk');
       });
       expect(await readFile(tracesPath, 'utf8')).not.toContain('deferredData');
 
-      // The outcome arrives AFTER the trace was finalised and persisted.
+      // The outcome arrives AFTER the episode was finalised and persisted.
       dev.recorder.deferredData({ requestId: 'late-disk', key: 'reviews', ms: 7, outcome: 'aborted' });
 
       await vi.waitFor(async () => {

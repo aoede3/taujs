@@ -149,10 +149,10 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     expect(tools.tools.map((t) => t.name).sort()).toEqual([
       'taujs_doctor',
       'taujs_explain_route',
-      'taujs_get_recent_traces',
+      'taujs_get_episode',
+      'taujs_get_episode_logs',
+      'taujs_get_recent_episodes',
       'taujs_get_route',
-      'taujs_get_trace',
-      'taujs_get_trace_logs',
       'taujs_list_routes',
       'taujs_overview',
       'taujs_who_calls_service',
@@ -171,7 +171,7 @@ describe('MCP server end-to-end (InMemory transport)', () => {
       'taujs_skill_hydration_mismatch',
     ]);
     const skill = await client.getPrompt({ name: 'taujs_skill_diagnose_broken_route' });
-    expect(JSON.stringify(skill.messages)).toContain('taujs_get_recent_traces');
+    expect(JSON.stringify(skill.messages)).toContain('taujs_get_recent_episodes');
 
     await client.close();
     await server.close();

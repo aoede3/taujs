@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { AppError } from '../../core/errors/AppError';
 import { InitialDataFailure } from '../../core/errors/InitialDataFailure';
-import { noopTraceRecorder } from '../../core/introspection/TraceRecorder';
+import { noopEpisodeRecorder } from '../../core/introspection/EpisodeRecorder';
 import * as DataRoutes from '../../core/routes/DataRoutes';
 import * as System from '../../System';
 
@@ -246,7 +246,7 @@ describe('handleRender', () => {
     vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(false);
 
     vi.mocked(Telemetry.createRequestContext).mockReturnValue({
-      requestId: 'trace-1',
+      requestId: 'episode-1',
       logger: mockLogger,
       headers: { host: 'localhost' },
     } as any);
@@ -1544,10 +1544,10 @@ describe('handleRender', () => {
       setupStreamingRoute();
       const failed = vi.fn();
       vi.mocked(Telemetry.createRequestContext).mockReturnValue({
-        requestId: 'trace-1',
+        requestId: 'episode-1',
         logger: mockLogger,
         headers: { host: 'localhost' },
-        recorder: { ...noopTraceRecorder, failed },
+        recorder: { ...noopEpisodeRecorder, failed },
       } as any);
       const failure = new InitialDataFailure(AppError.internal('service unavailable'), { id: '42' } as any);
       const mockRenderStream = vi.fn((writable, callbacks) => {
@@ -2040,12 +2040,12 @@ describe('handleRender', () => {
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
       mockReq.taujsRequestContext = {
-        requestId: 'fatal-trace-1',
+        requestId: 'fatal-episode-1',
         logger: mockLogger,
-        headers: { 'x-request-id': 'fatal-trace-1' },
+        headers: { 'x-request-id': 'fatal-episode-1' },
       };
       // Fastify's reply header store is the source copied into the raw streaming response.
-      mockReply.getHeaders.mockReturnValue({ 'x-request-id': 'fatal-trace-1' });
+      mockReply.getHeaders.mockReturnValue({ 'x-request-id': 'fatal-episode-1' });
 
       await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
@@ -2053,7 +2053,7 @@ describe('handleRender', () => {
       expect(mockReply.raw.writeHead).toHaveBeenCalledTimes(1);
       expect(mockReply.raw.writeHead).toHaveBeenCalledWith(
         500,
-        expect.objectContaining({ 'Content-Type': 'text/html; charset=utf-8', 'x-request-id': 'fatal-trace-1' }),
+        expect.objectContaining({ 'Content-Type': 'text/html; charset=utf-8', 'x-request-id': 'fatal-episode-1' }),
       );
       expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
       expect(mockReply.raw.destroy).not.toHaveBeenCalled();

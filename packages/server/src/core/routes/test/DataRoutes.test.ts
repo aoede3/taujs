@@ -33,7 +33,7 @@ describe('fetchInitialData', () => {
 
   // mkCtx depends on the logger set in beforeEach, so define it here
   const mkCtx = (overrides: Partial<{ requestId: string; headers: Record<string, string>; logger: any }> = {}) => ({
-    requestId: 'test-trace',
+    requestId: 'test-episode',
     headers: {},
     logger,
     ...overrides,
@@ -208,7 +208,7 @@ describe('fetchHeadData (RFC 0004 H1)', () => {
     },
   } as any;
 
-  const mkCtx = () => ({ requestId: 'test-trace', headers: {}, logger: { error: vi.fn(), warn: vi.fn() } });
+  const mkCtx = () => ({ requestId: 'test-episode', headers: {}, logger: { error: vi.fn(), warn: vi.fn() } });
 
   it('returns undefined when the route declares no head', async () => {
     expect(await fetchHeadData(undefined as any, {} as any, registry, mkCtx() as any)).toBeUndefined();

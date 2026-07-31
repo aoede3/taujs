@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { buildDeferredEnvelopeJson, createDeferredData } from '../DeferredData';
 
-import type { TraceRecorder } from '../../introspection/TraceRecorder';
+import type { EpisodeRecorder } from '../../introspection/EpisodeRecorder';
 
 const mkLogger = (): any => {
   const l: any = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), isDebugEnabled: () => false };
@@ -14,10 +14,10 @@ const mkLogger = (): any => {
 
 type Event = { key: string; outcome: string };
 
-const mkRecorder = (events: Event[]): TraceRecorder =>
+const mkRecorder = (events: Event[]): EpisodeRecorder =>
   ({
     deferredData: (e: any) => events.push({ key: e.key, outcome: e.outcome }),
-  }) as unknown as TraceRecorder;
+  }) as unknown as EpisodeRecorder;
 
 const mk = (deferred: Record<string, unknown>, opts: { signal?: AbortSignal; events?: Event[]; logger?: any; callServiceMethodImpl?: any } = {}) => {
   const logger = opts.logger ?? mkLogger();

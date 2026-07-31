@@ -22,7 +22,7 @@ import {
   readGraph,
   readLogs,
   readObservations,
-  readTraces,
+  readEpisodes,
 } from '../SubstrateReader';
 
 import type { CoreTaujsConfig } from '../../../server/src/core/config/types';
@@ -55,7 +55,7 @@ const emitDevJson = async (root: string, overrides?: Partial<DevJson>) => {
     host: '127.0.0.1',
     port: 5173,
     graph: path.join(dir, 'graph.json'),
-    traces: path.join(dir, 'traces.ndjson'),
+    episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
     ...overrides,
@@ -65,14 +65,14 @@ const emitDevJson = async (root: string, overrides?: Partial<DevJson>) => {
 };
 
 // Records via the real assembler, mirrored to disk exactly as DevFiles does.
-const emitTraces = async (root: string, seed: (dev: ReturnType<typeof createDevIntrospection>) => void) => {
+const emitEpisodes = async (root: string, seed: (dev: ReturnType<typeof createDevIntrospection>) => void) => {
   const dev = createDevIntrospection();
   seed(dev);
   await writeTaujsArtifact(
     taujsDir(root),
-    'traces.ndjson',
+    'episodes.ndjson',
     dev
-      .getTraces()
+      .getEpisodes()
       .map((t) => JSON.stringify(t))
       .join('\n') + '\n',
   );
@@ -191,7 +191,7 @@ describe('readGraph', () => {
   });
 });
 
-describe('readTraces', () => {
+describe('readEpisodes', () => {
   const seedThree = (dev: ReturnType<typeof createDevIntrospection>) => {
     for (const [i, mode] of (['ssr', 'streaming', 'fallthrough'] as const).entries()) {
       dev.recorder.requestStart({ requestId: `t-${i}`, url: `/p${i}`, method: 'GET' });
@@ -199,49 +199,63 @@ describe('readTraces', () => {
     }
   };
 
+  it('never reads a legacy traces.ndjson: only the episodes artefact is current-boot evidence (SC-09 rename migration)', async () => {
+    const root = await mkRoot();
+    await emitGraph(root);
+    await emitDevJson(root);
+    // A leftover pre-rename artefact with a plausible record; no episodes.ndjson exists.
+    await writeTaujsArtifact(taujsDir(root), 'traces.ndjson', '{"requestId":"stale-legacy","bootId":"boot-1"}\n');
+
+    const discovery = discoverSubstrate(root);
+
+    expect(discovery.mode).toBe('active');
+    expect((discovery as { paths: { episodes?: string } }).paths.episodes?.endsWith('episodes.ndjson')).toBe(true);
+    expect(readEpisodes(discovery)).toHaveLength(0);
+  });
+
   it('reads records newest-last, filters by bootId, and honours limit from the end', async () => {
     const root = await mkRoot();
-    const dev = await emitTraces(root, seedThree);
+    const dev = await emitEpisodes(root, seedThree);
     await emitDevJson(root, { bootId: dev.bootId });
 
     const discovery = discoverSubstrate(root);
-    const all = readTraces(discovery);
+    const all = readEpisodes(discovery);
     expect(all.map((t) => t.requestId)).toEqual(['t-0', 't-1', 't-2']);
 
-    expect(readTraces(discovery, { limit: 2 }).map((t) => t.requestId)).toEqual(['t-1', 't-2']);
-    expect(readTraces(discovery, { bootId: dev.bootId })).toHaveLength(3);
-    expect(readTraces(discovery, { bootId: 'other-boot' })).toHaveLength(0);
+    expect(readEpisodes(discovery, { limit: 2 }).map((t) => t.requestId)).toEqual(['t-1', 't-2']);
+    expect(readEpisodes(discovery, { bootId: dev.bootId })).toHaveLength(3);
+    expect(readEpisodes(discovery, { bootId: 'other-boot' })).toHaveLength(0);
   });
 
   it('skips corrupt ndjson lines without failing the read', async () => {
     const root = await mkRoot();
-    const dev = await emitTraces(root, seedThree);
-    const tracesPath = path.join(taujsDir(root), 'traces.ndjson');
-    const good = dev.getTraces().map((t) => JSON.stringify(t));
+    const dev = await emitEpisodes(root, seedThree);
+    const tracesPath = path.join(taujsDir(root), 'episodes.ndjson');
+    const good = dev.getEpisodes().map((t) => JSON.stringify(t));
     await writeFile(tracesPath, `${good[0]}\n{torn line\n${good[1]}\n`, 'utf8');
 
-    expect(readTraces(discoverSubstrate(root))).toHaveLength(2);
+    expect(readEpisodes(discoverSubstrate(root))).toHaveLength(2);
   });
 });
 
 describe('readLogs', () => {
-  it('filters per-trace at warn+ by default; explicit info widens', async () => {
+  it('filters per-episode at warn+ by default; explicit info widens', async () => {
     const root = await mkRoot();
-    await emitTraces(root, (dev) => {
-      dev.recorder.requestStart({ requestId: 'trace-a', url: '/a', method: 'GET' });
+    await emitEpisodes(root, (dev) => {
+      dev.recorder.requestStart({ requestId: 'episode-a', url: '/a', method: 'GET' });
       const base: Record<string, unknown> = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, isDebugEnabled: () => false };
       base.child = () => base;
-      const logger = dev.wrapRequestLogger(base as unknown as Logs, 'trace-a');
+      const logger = dev.wrapRequestLogger(base as unknown as Logs, 'episode-a');
       logger.info({}, 'info line');
       logger.warn({}, 'warn line');
       logger.error({}, 'error line');
-      dev.recorder.sent({ requestId: 'trace-a', status: 200, mode: 'ssr' });
+      dev.recorder.sent({ requestId: 'episode-a', status: 200, mode: 'ssr' });
     });
 
     const discovery = discoverSubstrate(root);
 
-    expect(readLogs(discovery, { requestId: 'trace-a' }).map((l) => l.level)).toEqual(['warn', 'error']);
-    expect(readLogs(discovery, { requestId: 'trace-a', minLevel: 'info' })).toHaveLength(3);
+    expect(readLogs(discovery, { requestId: 'episode-a' }).map((l) => l.level)).toEqual(['warn', 'error']);
+    expect(readLogs(discovery, { requestId: 'episode-a', minLevel: 'info' })).toHaveLength(3);
     expect(readLogs(discovery, { requestId: 'other' })).toHaveLength(0);
   });
 });
@@ -249,7 +263,7 @@ describe('readLogs', () => {
 describe('readObservations', () => {
   it('reads the real document and reports skew explicitly', async () => {
     const root = await mkRoot();
-    await emitTraces(root, (dev) => {
+    await emitEpisodes(root, (dev) => {
       dev.recorder.requestStart({ requestId: 't-obs', url: '/p', method: 'GET' });
       dev.recorder.routeMatched({ requestId: 't-obs', path: '/p', appId: 'web', render: 'ssr' });
       dev.recorder.serviceCall({ requestId: 't-obs', service: 'catalog', method: 'getProduct', ms: 5, ok: true });
@@ -277,7 +291,7 @@ describe('hardening', () => {
     expect(NO_ACTIVE_BOOT_REFUSAL).toEqual({
       ok: false,
       reason: 'no_active_dev_boot',
-      message: 'Structural tools remain available; runtime traces require the dev server (pnpm dev).',
+      message: 'Structural tools remain available; runtime episodes require the dev server (pnpm dev).',
     });
   });
 });

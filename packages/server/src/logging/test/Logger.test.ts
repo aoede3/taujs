@@ -248,9 +248,9 @@ describe('Logger', () => {
       includeContext: true,
     });
 
-    logger.child({ requestId: 'trace-1' }).info({ route: '/products' }, 'Rendered response');
+    logger.child({ requestId: 'episode-1' }).info({ route: '/products' }, 'Rendered response');
 
-    expect(customChild).toHaveBeenCalledWith({ component: 'ssr-server', requestId: 'trace-1' });
+    expect(customChild).toHaveBeenCalledWith({ component: 'ssr-server', requestId: 'episode-1' });
     expect(childInfo).toHaveBeenCalledWith({ route: '/products' }, 'Rendered response');
   });
 
@@ -262,9 +262,9 @@ describe('Logger', () => {
       includeContext: true,
     });
 
-    logger.child({ requestId: 'trace-2' }).info({ route: '/account' }, 'Rendered response');
+    logger.child({ requestId: 'episode-2' }).info({ route: '/account' }, 'Rendered response');
 
-    expect(info).toHaveBeenCalledWith({ context: { component: 'ssr-server', requestId: 'trace-2' }, route: '/account' }, 'Rendered response');
+    expect(info).toHaveBeenCalledWith({ context: { component: 'ssr-server', requestId: 'episode-2' }, route: '/account' }, 'Rendered response');
   });
 
   it('hasMeta toggles: meta omitted vs provided', () => {
