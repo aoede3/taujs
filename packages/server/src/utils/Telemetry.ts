@@ -1,5 +1,3 @@
-import crypto from 'node:crypto';
-
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Logs } from '../core/logging/types';
 import type { RequestContext } from '../core/telemetry/Telemetry';
@@ -20,17 +18,20 @@ export function createRequestContext<L extends Logs>(
   // SC-09: Fastify owns request identity. τjs adopts String(req.id) and never reinterprets an
   // inbound correlation header after Fastify has created the request - header adoption is a
   // construction-time decision (`genReqId`), τjs's own on a created host, the caller's on a
-  // supplied one. `genReqId` may legitimately return a number - an incrementing counter is a
-  // common choice - so both primitive shapes are usable identity; anything else gets a fresh
-  // UUID, and that UUID then cannot match Fastify's logs, which is the honest representation of
-  // a host whose request ID is not a primitive.
-  const hostRequestId = typeof (req as any).id === 'string' || typeof (req as any).id === 'number' ? String((req as any).id) : '';
-  const requestId = hostRequestId || crypto.randomUUID();
+  // supplied one. Fastify guarantees a request ID, and `genReqId` may legitimately return a
+  // number - an incrementing counter is a common choice - so both primitive shapes are usable
+  // identity. Anything else is a host violating that contract: fail explicitly rather than
+  // silently inventing a parallel identity that could never match the host's own records.
+  const hostId = (req as { id?: unknown }).id;
+  if (typeof hostId !== 'string' && typeof hostId !== 'number') {
+    throw new TypeError(`SC-09: Fastify guarantees a string or number req.id; received ${hostId === null ? 'null' : typeof hostId}`);
+  }
+  const requestId = String(hostId);
 
   reply.header('x-request-id', requestId);
 
   // `reqId` stays in Fastify's native type so a caller's numeric ID appears numeric, matching the
-  // host's own request logs; its textual identity agrees with `requestId` whenever it is primitive.
+  // host's own request logs; its textual identity always agrees with `requestId`.
   const bindings = { reqId: req.id, url: req.url, method: req.method };
   const anyLogger = baseLogger as Logs;
   const child = anyLogger.child;

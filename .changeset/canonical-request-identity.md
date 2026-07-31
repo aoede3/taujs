@@ -17,7 +17,13 @@ Behaviour changes:
   Fastify construction with a validating `genReqId` (not `requestIdHeader`, which takes the header
   unvalidated).
 - Request log bindings collapse to the Fastify-native `reqId` alone, in its native type; the
-  duplicate identity binding is dropped. Service-dispatch child loggers bind `requestId`.
+  duplicate identity binding is dropped. Every log site carrying identity binds `reqId` - the
+  service-dispatch child, the not-found fallback context, deferred-data warnings and the
+  hydration-beacon debug record - so log correlation uses one field name; episode records use
+  `requestId`.
+- τjs no longer invents a fallback identity: if a host violates Fastify's guarantee of a string or
+  number `req.id`, request-context creation fails explicitly with a `TypeError` instead of
+  silently generating a UUID that could never match the host's own records.
 
 Renames, with no compatibility aliases:
 

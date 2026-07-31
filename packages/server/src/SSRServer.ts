@@ -223,8 +223,8 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       }
     }
   }
-  // Request context first, deliberately before auth: every request — rendered, fallthrough,
-  // asset-like — gets a requestId and the x-request-id response header before auth,
+  // Request context first, deliberately before auth: every request - rendered, fallthrough,
+  // asset-like - gets a requestId and the x-request-id response header before auth,
   // and auth logging can carry the requestId (P0B-01). In dev the request logger is teed
   // into the logs annex and the recorder rides the context (P0B-02).
   scope.decorateRequest('taujsRequestContext', null);

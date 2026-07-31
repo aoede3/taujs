@@ -210,7 +210,7 @@ export const createDeferredData = <Params extends RouteParams, R extends Service
             // Operator visibility: payload-free, key only. The episode explains the outcome; this
             // explains why a RESOLVED loader became `failed`.
             try {
-              ctx.logger?.warn({ key, requestId }, 'Deferred data could not cross the hydration boundary');
+              ctx.logger?.warn({ key, reqId: requestId }, 'Deferred data could not cross the hydration boundary');
             } catch {}
             record(key, terminated ? { status: 'aborted' } : { status: 'failed' });
 

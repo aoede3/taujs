@@ -192,7 +192,7 @@ export async function callServiceMethod(
     component: 'service-call',
     service: serviceName,
     method: methodName,
-    requestId: ctx.requestId,
+    reqId: ctx.requestId,
   });
 
   const t0 = now();

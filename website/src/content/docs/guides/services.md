@@ -286,7 +286,7 @@ error and episode path as method failures.
 
 ## Errors, records and episodes
 
-Service dispatch creates a child logger with `component`, `service`, `method` and `requestId` bindings.
+Service dispatch creates a child logger with `component`, `service`, `method` and `reqId` bindings.
 It records duration and success or failure in the development request episode.
 
 - an existing `AppError` keeps its status and safe-message policy

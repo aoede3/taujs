@@ -35,7 +35,7 @@ export const handleNotFound = async (
 ) => {
   const { viteDevServer } = opts;
 
-  // Hoisted context (P0B-01): fallthrough logs carry the request requestId; the x-request-id
+  // Hoisted context (P0B-01): fallthrough logs carry the canonical reqId; the x-request-id
   // response header is already set by the hook. Without the hook, behaviour is unchanged.
   const requestContext = getRequestContext(req);
 
@@ -44,7 +44,7 @@ export const handleNotFound = async (
     opts.logger ??
     createLogger({
       debug: opts.debug,
-      context: { component: 'handle-not-found', url: req.url, method: req.method, requestId: (req as any).id },
+      context: { component: 'handle-not-found', url: req.url, method: req.method, reqId: (req as any).id },
     });
 
   try {

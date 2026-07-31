@@ -156,9 +156,7 @@ describe('callServiceMethod', () => {
     });
 
     expect(out).toEqual({ hello: 'world' });
-    expect(hoisted.childMock).toHaveBeenCalledWith(
-      expect.objectContaining({ component: 'service-call', service: 'svc', method: 'm', requestId: 'episode-123' }),
-    );
+    expect(hoisted.childMock).toHaveBeenCalledWith(expect.objectContaining({ component: 'service-call', service: 'svc', method: 'm', reqId: 'episode-123' }));
     expect(hoisted.debugMock).toHaveBeenCalledWith({ ms: expect.any(Number) }, 'Service method ok');
   });
 

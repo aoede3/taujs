@@ -81,21 +81,15 @@ describe('createRequestContext', () => {
     expect(reply.header).toHaveBeenCalledWith('x-request-id', '7');
   });
 
-  it('generates a UUID when the host provides no usable req.id', () => {
+  it('fails explicitly when a host violates the Fastify req.id contract - no parallel identity is invented', () => {
     const req: Req = {
       headers: { host: 'example.test' },
       method: 'PUT',
       url: '/gen',
     };
 
-    const ctx = createRequestContext(req as any, reply as any, baseLogger);
-
-    const setTraceId = headerSpy.mock.calls.find((c) => c[0] === 'x-request-id')?.[1] as string;
-
-    expect(setTraceId).toBeDefined();
-    expect(ctx.requestId).toBe(setTraceId);
-
-    expect(ctx.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(() => createRequestContext(req as any, reply as any, baseLogger)).toThrow(/SC-09: Fastify guarantees a string or number req\.id/);
+    expect(headerSpy).not.toHaveBeenCalled();
   });
 
   it('uses logger.child when provided, binding correct "this" and bindings', () => {

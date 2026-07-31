@@ -27,6 +27,7 @@ import type { FastifyInstance } from 'fastify';
 
 const viteInstrument = vi.hoisted(() => ({ closeCount: 0 }));
 const graphInstrument = vi.hoisted(() => ({ registrations: 0 }));
+const introspectionInstrument = vi.hoisted(() => ({ instances: [] as unknown[] }));
 
 vi.mock('vite', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vite')>();
@@ -45,6 +46,23 @@ vi.mock('vite', async (importOriginal) => {
       };
 
       return server;
+    },
+  };
+});
+
+// Wrapped, never replaced (same convention as the Vite mock): the SC-09 recorder-key evidence
+// needs the LIVE introspection instance a real development boot creates, because the caller-owned
+// scope decoration is not visible from the root app.
+vi.mock('../core/introspection/DevIntrospection', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../core/introspection/DevIntrospection')>();
+
+  return {
+    ...actual,
+    createDevIntrospection: (...args: Parameters<typeof actual.createDevIntrospection>) => {
+      const instance = actual.createDevIntrospection(...args);
+      introspectionInstrument.instances.push(instance);
+
+      return instance;
     },
   };
 });
@@ -162,6 +180,14 @@ describe('RFC 0010 - caller-owned development host', () => {
       const page = observe(await app.inject(PATHS.taujsPage));
       expect(page.status).toBe(200);
       expect(page.body).toContain(OWNER.taujsPage);
+
+      // SC-09 recorder-key evidence, supplied-host leg: the live introspection instance holds an
+      // episode keyed by exactly the response's canonical x-request-id.
+      const introspection = introspectionInstrument.instances.at(-1) as { findEpisode: (id: string) => { url: { pathname: string } } | undefined };
+      expect(introspection).toBeTruthy();
+      const episode = introspection.findEpisode(page.requestId!);
+      expect(episode).toBeTruthy();
+      expect(episode!.url.pathname).toBe(PATHS.taujsPage);
     } finally {
       process.chdir(cwd);
       // Gate 7: not swallowed - a close failure must fail the test, not disappear.
@@ -169,5 +195,36 @@ describe('RFC 0010 - caller-owned development host', () => {
     }
 
     expect(viteInstrument.closeCount - closesBefore).toBe(1);
+  }, 30_000);
+});
+
+describe('SC-09 - τjs-created development host', () => {
+  it('adopts a valid inbound x-request-id at construction and keys the recorder episode with it', async () => {
+    const { root, clientRoot } = await developmentFixture();
+    const cwd = process.cwd();
+    process.chdir(root);
+    let app: FastifyInstance | undefined;
+
+    try {
+      const createServer = await loadDevelopmentCreateServer();
+      const result = await createServer({ config: taujsConfig(), clientRoot, projectRoot: root, debug: ['ssr'] });
+      app = result.app;
+
+      const inbound = 'sc09-dev-created-adopt-1';
+      const page = observe(await app!.inject({ method: 'GET', url: PATHS.taujsPage, headers: { 'x-request-id': inbound } }));
+
+      // Construction-time adoption: the inbound value IS req.id, so it is the identity everywhere.
+      expect(page.status).toBe(200);
+      expect(page.requestId).toBe(inbound);
+
+      // Recorder-key evidence, created-host leg: the episode is keyed by that same identity.
+      const introspection = introspectionInstrument.instances.at(-1) as { findEpisode: (id: string) => { url: { pathname: string } } | undefined };
+      const episode = introspection.findEpisode(inbound);
+      expect(episode).toBeTruthy();
+      expect(episode!.url.pathname).toBe(PATHS.taujsPage);
+    } finally {
+      process.chdir(cwd);
+      await app?.close();
+    }
   }, 30_000);
 });

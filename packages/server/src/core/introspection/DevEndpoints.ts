@@ -10,7 +10,7 @@ import type { ServiceRegistry } from '../services/DataServices';
 import type { DevIntrospection } from './DevIntrospection';
 
 const SSE_POLL_MS = 500;
-const TRACES_DEFAULT_LIMIT = 50;
+const EPISODES_DEFAULT_LIMIT = 50;
 const BEACON_BODY_LIMIT = 2048;
 const BEACON_ERROR_CAP = 500;
 
@@ -99,7 +99,7 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     }
 
     const rawLimit = Number((req.query as Record<string, unknown>)?.limit);
-    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : TRACES_DEFAULT_LIMIT;
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : EPISODES_DEFAULT_LIMIT;
 
     return reply.send({ bootId: introspection.bootId, episodes: introspection.getEpisodes(limit) });
   });
@@ -125,7 +125,7 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     if (episode.client) return reply.code(409).send({ error: 'duplicate_beacon' });
 
     introspection.recorder.clientHydration({ requestId, ok, ms, error: typeof error === 'string' ? error.slice(0, BEACON_ERROR_CAP) : undefined });
-    logger.debug?.({ component: 'introspection', requestId }, 'Hydration beacon applied');
+    logger.debug?.({ component: 'introspection', reqId: requestId }, 'Hydration beacon applied');
 
     return reply.code(204).send();
   });
