@@ -16,7 +16,7 @@ const META_VALUE_CAP = 200;
 const META_DEPTH_CAP = 4;
 const EPISODE_RING_CAP = 200;
 const LOGS_RING_CAP = 2000;
-const SAMPLE_TRACE_CAP = 5;
+const SAMPLE_REQUEST_ID_CAP = 5;
 const PENDING_CAP = 500; // safety valve for episodes that never reach a terminal event
 
 export type EpisodeTimeline = { matched?: number; dataStart?: number; dataEnd?: number; head?: number; shellReady?: number; allReady?: number };
@@ -81,7 +81,7 @@ export type DevIntrospection = {
   getEpisodes: (limit?: number) => EpisodeRecord[];
   getLogs: (requestId?: string) => LogAnnexRecord[];
   getObservations: () => ObservationsDocument;
-  /** Finalized-or-pending episode lookup — used by the beacon endpoint's duplicate check. */
+  /** Finalised-or-pending episode lookup - used by the beacon endpoint's duplicate check. */
   findEpisode: (requestId: string) => EpisodeRecord | undefined;
   /**
    * Cumulative counters for change detection by the file emitter. `episodesRevision` also advances
@@ -229,7 +229,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       }
       edge.count += 1;
       edge.lastObservedAt = new Date().toISOString();
-      if (edge.sampleRequestIds.length < SAMPLE_TRACE_CAP && !edge.sampleRequestIds.includes(e.requestId)) edge.sampleRequestIds.push(e.requestId);
+      if (edge.sampleRequestIds.length < SAMPLE_REQUEST_ID_CAP && !edge.sampleRequestIds.includes(e.requestId)) edge.sampleRequestIds.push(e.requestId);
       if (episode?.route && episode.appId) {
         const routeId = `${episode.appId}:${episode.route}`;
         if (!edge.routeIds.has(routeId)) {

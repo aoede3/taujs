@@ -148,6 +148,21 @@ describe('overlay endpoint contracts', () => {
     expect(limited.json().episodes).toHaveLength(5);
     expect(limited.json().bootId).toBe(introspection.bootId);
   });
+
+  it('the legacy /__taujs/traces endpoint is absent - deliberate namespace clearance (SC-09 rename migration)', async () => {
+    const { app, introspection } = await buildApp();
+    introspection.recorder.requestStart({ requestId: 'ns-1', url: '/x', method: 'GET' });
+    introspection.recorder.sent({ requestId: 'ns-1', status: 200, mode: 'ssr' });
+
+    // Even a correctly authenticated request finds no route at the old name...
+    const legacy = await app.inject({ method: 'GET', url: '/__taujs/traces', ...authed(introspection) });
+    expect(legacy.statusCode).toBe(404);
+
+    // ...while the episode endpoint answers the same boot.
+    const current = await app.inject({ method: 'GET', url: '/__taujs/episodes', ...authed(introspection) });
+    expect(current.statusCode).toBe(200);
+    expect(current.json().episodes).toHaveLength(1);
+  });
 });
 
 describe('beacon rejection matrix (spec 03 §8 #5)', () => {

@@ -169,7 +169,7 @@ export const readEpisodes = (discovery: SubstrateDiscovery, options?: { bootId?:
 
 const LEVEL_ORDER: Record<LogLevel, number> = { info: 0, warn: 1, error: 2 };
 
-// Per-episode, level-filtered, warn+ default — logs are fetched on demand, never embedded.
+// Per-episode, level-filtered, warn+ default - logs are fetched on demand, never embedded.
 export const readLogs = (discovery: SubstrateDiscovery, options: { requestId: string; minLevel?: LogLevel }): LogAnnexRecord[] => {
   if (discovery.mode === 'none') return [];
 

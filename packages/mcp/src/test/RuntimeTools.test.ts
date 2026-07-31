@@ -119,7 +119,7 @@ describe('cold-mode refusal contract (every runtime tool)', () => {
     expect(result.ok).toBe(true);
     expect(result.mode).toBe('stale');
     expect(result.staleness).toContain('2026-07-10T08:00:00.000Z');
-    expect(result.failedTraces.unavailable.note).toBe(NO_ACTIVE_BOOT_REFUSAL.message);
+    expect(result.failedEpisodes.unavailable.note).toBe(NO_ACTIVE_BOOT_REFUSAL.message);
   });
 });
 
@@ -168,8 +168,8 @@ describe('runtime tools (active boot)', () => {
     expect(result.mode).toBe('active');
     expect(result.defaultedRenders.routeIds).toEqual(['playground-react:/defaulted']);
     expect(result.warnings.warn.some((w: { code: string }) => w.code === 'render.defaulted')).toBe(true);
-    expect(result.failedTraces.items).toHaveLength(1);
-    expect(result.failedTraces.items[0].error.message).toContain('999');
-    expect(result.failedTraces.source).toContain('observed');
+    expect(result.failedEpisodes.items).toHaveLength(1);
+    expect(result.failedEpisodes.items[0].error.message).toContain('999');
+    expect(result.failedEpisodes.source).toContain('observed');
   });
 });

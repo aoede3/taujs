@@ -30,7 +30,7 @@ step('Boot', `playground listening on ${base} (NODE_ENV=${process.env.NODE_ENV})
 // --- traffic: two healthy requests and the deterministic failure ---
 for (const path of ['/', '/product/123', '/product/999', '/spa/anything']) {
   const res = await fetch(`${base}${path}`);
-  transcript.push(`GET ${path} → ${res.status} (x-trace-id: ${res.headers.get('x-trace-id')})`);
+  transcript.push(`GET ${path} → ${res.status} (x-request-id: ${res.headers.get('x-request-id')})`);
   await res.text();
 }
 step('Traffic', 'requested /, /product/123, /product/999 (the broken one), /spa/anything');
@@ -57,35 +57,35 @@ const call = async (name: string, args: Record<string, unknown> = {}) => {
 const doctor = await call('taujs_doctor');
 assert.equal(doctor.ok, true);
 assert.equal(doctor.mode, 'active');
-assert.equal(doctor.failedTraces.items.length, 1);
-assert.match(doctor.failedTraces.items[0].error.message, /999/);
-step('taujs_doctor', `mode=active; failed traces: ${doctor.failedTraces.items.length} — ${doctor.failedTraces.items[0].pathname}`);
+assert.equal(doctor.failedEpisodes.items.length, 1);
+assert.match(doctor.failedEpisodes.items[0].error.message, /999/);
+step('taujs_doctor', `mode=active; failed episodes: ${doctor.failedEpisodes.items.length} - ${doctor.failedEpisodes.items[0].pathname}`);
 
-// 2. Recent failed traces → the traceId
-const failed = await call('taujs_get_recent_traces', { outcome: 'failed' });
-assert.equal(failed.traces.items.length, 1);
-const { traceId } = failed.traces.items[0];
+// 2. Recent failed episodes → the requestId
+const failed = await call('taujs_get_recent_episodes', { outcome: 'failed' });
+assert.equal(failed.episodes.items.length, 1);
+const { requestId } = failed.episodes.items[0];
 // Head data (catalog.getProductHead) resolves before the shell, so it can precede the failing
 // main-data call; assert the FAILED getProduct edge is present rather than assuming its position.
-const failedServiceCall = failed.traces.items[0].serviceCalls.find((c: string) => /^catalog\.getProduct FAILED [\d.]+ms$/.test(c));
+const failedServiceCall = failed.episodes.items[0].serviceCalls.find((c: string) => /^catalog\.getProduct FAILED [\d.]+ms$/.test(c));
 assert.ok(failedServiceCall, 'expected a catalog.getProduct FAILED entry in serviceCalls');
-step('taujs_get_recent_traces {outcome:"failed"}', `traceId=${traceId}; serviceCalls=${JSON.stringify(failed.traces.items[0].serviceCalls)}`);
+step('taujs_get_recent_episodes {outcome:"failed"}', `requestId=${requestId}; serviceCalls=${JSON.stringify(failed.episodes.items[0].serviceCalls)}`);
 
-// 3. The full trace: exact failing edge + honest URL hygiene
-const trace = await call('taujs_get_trace', { traceId });
-assert.equal(trace.trace.outcome, 'failed');
-assert.equal(trace.trace.route, '/product/:id');
-assert.match(trace.trace.error.message, /Product 999 does not exist/);
-const productCall = trace.trace.serviceCalls.find((c: { service: string; method: string }) => c.service === 'catalog' && c.method === 'getProduct');
-assert.ok(productCall, 'expected a catalog.getProduct service call on the trace');
+// 3. The full episode: exact failing edge + honest URL hygiene
+const episode = await call('taujs_get_episode', { requestId });
+assert.equal(episode.episode.outcome, 'failed');
+assert.equal(episode.episode.route, '/product/:id');
+assert.match(episode.episode.error.message, /Product 999 does not exist/);
+const productCall = episode.episode.serviceCalls.find((c: { service: string; method: string }) => c.service === 'catalog' && c.method === 'getProduct');
+assert.ok(productCall, 'expected a catalog.getProduct service call on the episode');
 assert.equal(productCall.ok, false);
-step('taujs_get_trace', `route=${trace.trace.route}; error=[${trace.trace.error.kind}] ${trace.trace.error.message}`);
+step('taujs_get_episode', `route=${episode.episode.route}; error=[${episode.episode.error.kind}] ${episode.episode.error.message}`);
 
 // 4. Logs on demand (never embedded)
-const logs = await call('taujs_get_trace_logs', { traceId });
+const logs = await call('taujs_get_episode_logs', { requestId });
 assert.equal(logs.ok, true);
 assert.ok(logs.logs.length >= 1, 'expected warn+ annex lines for the failed request');
-step('taujs_get_trace_logs', `${logs.logs.length} warn+ line(s); first: "${logs.logs[0].msg}"`);
+step('taujs_get_episode_logs', `${logs.logs.length} warn+ line(s); first: "${logs.logs[0].msg}"`);
 
 // 5. The declared edge behind the route
 const explain = await call('taujs_explain_route', { routeId: 'playground-react:/product/:id' });
@@ -107,5 +107,5 @@ await client.close();
 await server.close();
 await app.close();
 
-console.log('\n✅ killer-demo eval passed: trace → edge → diagnosis, all from the substrate.');
+console.log('\n✅ killer-demo eval passed: episode → edge → diagnosis, all from the substrate.');
 process.exit(0);

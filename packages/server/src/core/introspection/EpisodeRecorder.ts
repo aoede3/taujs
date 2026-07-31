@@ -1,4 +1,4 @@
-// Spec 03 §1 — the EpisodeRecorder interface, verbatim. Recorder calls are synchronous
+// Spec 03 §1 - the EpisodeRecorder interface, verbatim. Recorder calls are synchronous
 // fire-and-forget: never awaited, and a throwing implementation must never affect a
 // response (invariant 2) — call sites receive implementations wrapped by
 // createSafeRecorder, which swallows exceptions and warns once per boot.

@@ -20,8 +20,8 @@ const withActiveBoot = (root: string, fn: (discovery: Extract<SubstrateDiscovery
   return fn(discovery);
 };
 
-// Episode rows lead with identifiers and outcomes; logs are NEVER embedded — the intended
-// flow is get_recent_traces → get_trace → only then get_trace_logs.
+// Episode rows lead with identifiers and outcomes; logs are NEVER embedded - the intended
+// flow is get_recent_episodes → get_episode → only then get_episode_logs.
 const episodeSummary = (t: EpisodeRecord) => ({
   requestId: t.requestId,
   at: t.at,
@@ -39,7 +39,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
   {
     name: 'taujs_get_recent_episodes',
     title: 'Recent request episodes',
-    description: `Most recent request episodes from the active dev boot (default ${RECENT_DEFAULT_LIMIT}). Filter by outcome or mode. Follow up with taujs_get_episode, then taujs_get_episode_logs — logs are never embedded here. ${UNTRUSTED_NOTE}`,
+    description: `Most recent request episodes from the active dev boot (default ${RECENT_DEFAULT_LIMIT}). Filter by outcome or mode. Follow up with taujs_get_episode, then taujs_get_episode_logs - logs are never embedded here. ${UNTRUSTED_NOTE}`,
     inputSchema: {
       limit: z.number().int().positive().max(EPISODE_RING_CAP).optional().describe(`Max episodes (default ${RECENT_DEFAULT_LIMIT})`),
       outcome: z.enum(['complete', 'failed', 'aborted']).optional().describe('Filter by terminal outcome'),
@@ -63,7 +63,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
   {
     name: 'taujs_get_episode',
     title: 'Get one request episode',
-    description: `The full episode record for one requestId — timeline, service calls, client hydration, error. Logs are fetched separately via taujs_get_episode_logs. ${UNTRUSTED_NOTE}`,
+    description: `The full episode record for one requestId - timeline, service calls, client hydration, error. Logs are fetched separately via taujs_get_episode_logs. ${UNTRUSTED_NOTE}`,
     inputSchema: {
       requestId: z.string().describe('From taujs_get_recent_episodes or an x-request-id response header'),
     },
@@ -87,7 +87,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
   {
     name: 'taujs_get_episode_logs',
     title: 'Logs for one episode',
-    description: `Logs-annex lines for one requestId, level-filtered (default warn+). Only lines through the framework request logger are captured — a separate user logger is not; absence here does not mean nothing was logged. ${UNTRUSTED_NOTE}`,
+    description: `Logs-annex lines for one requestId, level-filtered (default warn+). Only lines through the framework request logger are captured - a separate user logger is not; absence here does not mean nothing was logged. ${UNTRUSTED_NOTE}`,
     inputSchema: {
       requestId: z.string().describe('The episode to fetch logs for'),
       minLevel: z.enum(['info', 'warn', 'error']).optional().describe('Minimum level (default warn)'),
@@ -135,7 +135,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
 
       const defaultedRenders = graph.routes.filter((r) => r.render.defaulted).map((r) => r.id);
 
-      const failedTraces =
+      const failedEpisodes =
         discovery.mode === 'active'
           ? bounded(
               readEpisodes(discovery, { bootId: discovery.devJson.bootId })
@@ -162,9 +162,9 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
           note: graph.fallthrough.reachable ? undefined : 'A wildcard route makes fallthrough unreachable (app-shell pattern).',
         },
         defaultedRenders: { source: 'declared', routeIds: defaultedRenders },
-        failedTraces: {
+        failedEpisodes: {
           source: 'observed (seen in dev traffic)',
-          ...(('items' in (failedTraces as object) ? failedTraces : { unavailable: failedTraces }) as object),
+          ...(('items' in (failedEpisodes as object) ? failedEpisodes : { unavailable: failedEpisodes }) as object),
         },
       };
     },

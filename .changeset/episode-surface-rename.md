@@ -11,8 +11,9 @@ observable interfaces change, with no compatibility aliases:
 
 - MCP tools: `taujs_get_recent_traces` becomes `taujs_get_recent_episodes`, `taujs_get_trace`
   becomes `taujs_get_episode`, `taujs_get_trace_logs` becomes `taujs_get_episode_logs`; the
-  recent-episodes response key `traces` becomes `episodes`, and the not-found reason
-  `trace_not_found` becomes `episode_not_found`
+  recent-episodes response key `traces` becomes `episodes`, the `taujs_doctor` report field
+  `failedTraces` becomes `failedEpisodes`, and the not-found reason `trace_not_found` becomes
+  `episode_not_found`
 - development endpoint `/__taujs/traces` becomes `/__taujs/episodes`, and its response key
   `traces` becomes `episodes`
 - development artefact `traces.ndjson` becomes `episodes.ndjson`; `dev.json` exposes

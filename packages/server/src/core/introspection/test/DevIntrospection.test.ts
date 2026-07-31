@@ -12,7 +12,7 @@ const T = 'episode-1';
 const start = (dev: ReturnType<typeof createDevIntrospection>, url = '/product/123?ref=x', requestId = T) =>
   dev.recorder.requestStart({ requestId, url, method: 'GET' });
 
-describe('episode assembly — event sequences (spec 03 §1-2)', () => {
+describe('episode assembly - event sequences (spec 03 §1-2)', () => {
   it('rendered SSR: requestStart → routeMatched → dataFetch → serviceCall → sent', () => {
     const dev = createDevIntrospection();
     start(dev);
