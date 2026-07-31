@@ -123,7 +123,8 @@ describe('createDeferredData - declaration and start (R2)', () => {
     expect(logger.warn).toHaveBeenCalledTimes(1);
     const [meta, message] = logger.warn.mock.calls[0];
     expect(message).toBe('Deferred data could not cross the hydration boundary');
-    expect(meta).toEqual({ key: 'reviews', reqId: 't1' });
+    // SC-09: no identity rebinding - the request child's lineage already carries `reqId`.
+    expect(meta).toEqual({ key: 'reviews' });
     expect(JSON.stringify(meta)).not.toContain('PLAYGROUND_SECRET');
   });
 

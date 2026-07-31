@@ -79,18 +79,18 @@ describe('dev episode retention of deferred outcomes (RFC 0007 R5)', () => {
 
       await app.listen({ port: 0, host: '127.0.0.1' });
 
-      const tracesPath = path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson');
+      const episodesPath = path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson');
       await vi.waitFor(async () => {
-        await stat(tracesPath);
-        expect(await readFile(tracesPath, 'utf8')).toContain('late-disk');
+        await stat(episodesPath);
+        expect(await readFile(episodesPath, 'utf8')).toContain('late-disk');
       });
-      expect(await readFile(tracesPath, 'utf8')).not.toContain('deferredData');
+      expect(await readFile(episodesPath, 'utf8')).not.toContain('deferredData');
 
       // The outcome arrives AFTER the episode was finalised and persisted.
       dev.recorder.deferredData({ requestId: 'late-disk', key: 'reviews', ms: 7, outcome: 'aborted' });
 
       await vi.waitFor(async () => {
-        expect(await readFile(tracesPath, 'utf8')).toContain('"deferredData":[{"key":"reviews","outcome":"aborted","ms":7}]');
+        expect(await readFile(episodesPath, 'utf8')).toContain('"deferredData":[{"key":"reviews","outcome":"aborted","ms":7}]');
       });
 
       await app.close();

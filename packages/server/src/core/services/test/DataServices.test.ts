@@ -156,7 +156,9 @@ describe('callServiceMethod', () => {
     });
 
     expect(out).toEqual({ hello: 'world' });
-    expect(hoisted.childMock).toHaveBeenCalledWith(expect.objectContaining({ component: 'service-call', service: 'svc', method: 'm', reqId: 'episode-123' }));
+    // SC-09: the service child carries no identity rebinding - `reqId` means the current Fastify
+    // request and arrives only through the request-logger lineage, in its native type.
+    expect(hoisted.childMock).toHaveBeenCalledWith({ component: 'service-call', service: 'svc', method: 'm' });
     expect(hoisted.debugMock).toHaveBeenCalledWith({ ms: expect.any(Number) }, 'Service method ok');
   });
 

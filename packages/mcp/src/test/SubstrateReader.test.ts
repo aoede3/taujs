@@ -230,9 +230,9 @@ describe('readEpisodes', () => {
   it('skips corrupt ndjson lines without failing the read', async () => {
     const root = await mkRoot();
     const dev = await emitEpisodes(root, seedThree);
-    const tracesPath = path.join(taujsDir(root), 'episodes.ndjson');
+    const episodesPath = path.join(taujsDir(root), 'episodes.ndjson');
     const good = dev.getEpisodes().map((t) => JSON.stringify(t));
-    await writeFile(tracesPath, `${good[0]}\n{torn line\n${good[1]}\n`, 'utf8');
+    await writeFile(episodesPath, `${good[0]}\n{torn line\n${good[1]}\n`, 'utf8');
 
     expect(readEpisodes(discoverSubstrate(root))).toHaveLength(2);
   });

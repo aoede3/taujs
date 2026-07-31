@@ -16,11 +16,13 @@ Behaviour changes:
   sent `x-trace-id` and relied on τjs echoing it must now adopt inbound correlation themselves at
   Fastify construction with a validating `genReqId` (not `requestIdHeader`, which takes the header
   unvalidated).
-- Request log bindings collapse to the Fastify-native `reqId` alone, in its native type; the
-  duplicate identity binding is dropped. Every log site carrying identity binds `reqId` - the
-  service-dispatch child, the not-found fallback context, deferred-data warnings and the
-  hydration-beacon debug record - so log correlation uses one field name; episode records use
-  `requestId`.
+- Request log bindings collapse to the Fastify-native `reqId` alone, and `reqId` has ONE meaning
+  and ONE representation: the current Fastify request, in its native type, bound once by the
+  request logger and inherited through child-logger lineage. Service-dispatch children and
+  deferred-data warnings no longer rebind it (a rebind stringified numeric host identities), the
+  not-found fallback context carries the native `req.id`, and the hydration-beacon debug record
+  names the episode it updates as `episodeRequestId` - the beacon POST is its own request. Episode
+  records use `requestId`; log correlation uses `reqId`.
 - τjs no longer invents a fallback identity: if a host violates Fastify's guarantee of a string or
   number `req.id`, request-context creation fails explicitly with a `TypeError` instead of
   silently generating a UUID that could never match the host's own records.

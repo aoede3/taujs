@@ -26,8 +26,9 @@ const mkLogger = (): any => {
 const buildApp = async (opts?: { taujsConfig?: CoreTaujsConfig; introspection?: DevIntrospection }) => {
   const introspection = opts?.introspection ?? createDevIntrospection();
   const app = fastify();
-  registerIntrospectionEndpoints(app, { introspection, taujsConfig: opts?.taujsConfig ?? config, logger: mkLogger() });
-  return { app, introspection };
+  const logger = mkLogger();
+  registerIntrospectionEndpoints(app, { introspection, taujsConfig: opts?.taujsConfig ?? config, logger });
+  return { app, introspection, logger };
 };
 
 const LOOPBACK = '127.0.0.1';
@@ -166,14 +167,14 @@ describe('overlay endpoint contracts', () => {
 });
 
 describe('beacon rejection matrix (spec 03 §8 #5)', () => {
-  const seedTrace = (introspection: DevIntrospection, requestId = 'episode-ok-1') => {
+  const seedEpisode = (introspection: DevIntrospection, requestId = 'episode-ok-1') => {
     introspection.recorder.requestStart({ requestId, url: '/p', method: 'GET' });
     introspection.recorder.sent({ requestId, status: 200, mode: 'ssr' });
   };
 
   it('accepts a valid beacon once (204) and rejects the duplicate (409)', async () => {
-    const { app, introspection } = await buildApp();
-    seedTrace(introspection);
+    const { app, introspection, logger } = await buildApp();
+    seedEpisode(introspection);
 
     const payload = { requestId: 'episode-ok-1', ok: true, ms: 42 };
     const first = await app.inject({ method: 'POST', url: '/__taujs/beacon', ...authed(introspection), payload });
@@ -184,11 +185,18 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
     expect(dup.statusCode).toBe(409);
 
     expect(introspection.findEpisode('episode-ok-1')!.client).toEqual({ hydrated: true, hydrationMs: 42, error: null });
+
+    // SC-09: the beacon POST is its own Fastify request; the record names the episode it updates
+    // as episodeRequestId and never claims that episode's identity as `reqId`.
+    const applied = logger.debug.mock.calls.find(([, message]: [unknown, string]) => message === 'Hydration beacon applied');
+    expect(applied).toBeTruthy();
+    expect(applied![0]).toEqual({ component: 'introspection', episodeRequestId: 'episode-ok-1' });
+    expect(applied![0]).not.toHaveProperty('reqId');
   });
 
   it('rejects missing token, wrong content-type, invalid requestId, and oversize bodies', async () => {
     const { app, introspection } = await buildApp();
-    seedTrace(introspection);
+    seedEpisode(introspection);
 
     const noToken = await app.inject({
       method: 'POST',
@@ -208,13 +216,13 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
     });
     expect(wrongType.statusCode).toBe(415);
 
-    const badTrace = await app.inject({
+    const badEpisode = await app.inject({
       method: 'POST',
       url: '/__taujs/beacon',
       ...authed(introspection),
       payload: { requestId: 'no spaces allowed!', ok: true },
     });
-    expect(badTrace.statusCode).toBe(400);
+    expect(badEpisode.statusCode).toBe(400);
 
     const oversize = await app.inject({
       method: 'POST',

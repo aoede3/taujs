@@ -227,7 +227,7 @@ describe('@taujs/react deferred adapter - failure legs (renderer contract 6, 7)'
     // DISCLOSED, not worked around: a DEVELOPMENT react-dom build streams the error's message and
     // stacks inside its own errored-boundary template for ANY SSR error. That is React's channel
     // and it is absent from production builds - asserted in both directions here. τjs's own
-    // surfaces (envelope, trace) stay detail-free regardless, which the host tests pin.
+    // surfaces (envelope, episode) stay detail-free regardless, which the host tests pin.
     const isDevReact = html.includes('data-msg=');
     if (isDevReact) expect(html).toContain('REVIEWS_BACKEND_SECRET');
     else expect(html).not.toContain('REVIEWS_BACKEND_SECRET');

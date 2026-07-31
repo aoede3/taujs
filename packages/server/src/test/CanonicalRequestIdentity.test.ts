@@ -26,9 +26,11 @@
 // suites.
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { AppError } from '../core/errors/AppError';
 import { createServer } from '../CreateServer';
 import {
   CALLER_REQUEST_ID,
+  captureLogger,
   closeAll,
   createAdoptingHost,
   createCreatedHost,
@@ -38,6 +40,7 @@ import {
   NUMERIC_REQUEST_ID,
   observe,
   PATHS,
+  taujsConfig,
 } from './support/hostOwnership';
 
 import type { FastifyInstance } from 'fastify';
@@ -215,15 +218,64 @@ describe('SC-09 identity matrix - supplied host (caller policy)', () => {
     expect(host.logs.some((record) => (record.meta as Record<string, unknown>).reqId === CALLER_REQUEST_ID)).toBe(true);
   });
 
-  it('a numeric req.id keeps its native type in the reqId binding and textual identity everywhere else', async () => {
+  it('a numeric req.id keeps its native type in EVERY identity-bearing record, service dispatch included', async () => {
     const host = await createNumericRequestIdHost();
-    await host.activate(createServer);
+    const baseConfig = taujsConfig();
+    const baseApp = baseConfig.apps[0]!;
+    const route = '/sc09-numeric-service';
+    const config = {
+      ...baseConfig,
+      apps: [
+        {
+          ...baseApp,
+          routes: [
+            ...(baseApp.routes ?? []),
+            {
+              path: route,
+              attr: { render: 'ssr' as const, data: async () => ({ serviceName: 'catalogue', serviceMethod: 'load', args: {} }) },
+            },
+          ],
+        },
+      ],
+    };
+
+    await createServer({
+      config,
+      fastify: host.app,
+      clientRoot: host.clientRoot,
+      logger: captureLogger(host.logs),
+      debug: ['ssr'],
+      // The failure path logs through the service-dispatch child at warn, so a service-call
+      // record reliably reaches the sink regardless of debug admission.
+      serviceRegistry: {
+        catalogue: {
+          load: async () => {
+            throw AppError.notFound('catalogue missing', undefined, 'E_CATALOGUE');
+          },
+        },
+      } as any,
+    });
     const captured = captureIdentities(host.app);
 
-    const page = observe(await host.app.inject(PATHS.taujsPage));
+    const page = observe(await host.app.inject(route));
 
-    // The logger retains `reqId` as the number the host generated; the textual identity agrees.
+    expect(page.status).toBe(404);
     expect(expectOneIdentity(page, captured)).toBe(String(NUMERIC_REQUEST_ID));
-    expect(host.logs.some((record) => (record.meta as Record<string, unknown>).reqId === NUMERIC_REQUEST_ID)).toBe(true);
+
+    // `reqId` has ONE meaning and ONE representation: every record that carries it holds the
+    // number the host generated - `logs.some` would let a single correct record mask a stringified
+    // sibling, so every identity-bearing record is checked, and the service-dispatch child must be
+    // among them (identity inherited through lineage, never rebound).
+    const identityRecords = host.logs.filter((record) => 'reqId' in (record.meta as Record<string, unknown>));
+    expect(identityRecords.length).toBeGreaterThan(0);
+    for (const record of identityRecords) {
+      expect((record.meta as Record<string, unknown>).reqId).toBe(NUMERIC_REQUEST_ID);
+    }
+    expect(identityRecords.some((record) => (record.meta as Record<string, unknown>).component === 'service-call')).toBe(true);
+
+    // And no log record smuggles the identity under the episode-record field name.
+    for (const record of host.logs) {
+      expect(record.meta as Record<string, unknown>).not.toHaveProperty('requestId');
+    }
   });
 });
