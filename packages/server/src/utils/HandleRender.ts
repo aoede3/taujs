@@ -7,9 +7,9 @@ import { logResponseFailure } from '../core/errors/ResponseFailureLog';
 import { fetchHeadData, fetchInitialData } from '../core/routes/DataRoutes';
 import { buildDeferredEnvelopeJson, createDeferredData } from '../core/routes/DeferredData';
 import { now } from '../core/telemetry/Telemetry';
-import { resolveEntryFile } from '../Build';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
+import { resolveEntryFile } from './Entry';
 import { createRequestContext, getRequestContext } from './Telemetry';
 import {
   ensureNonNull,

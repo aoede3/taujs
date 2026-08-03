@@ -1,5 +1,4 @@
 export { createServer } from './CreateServer';
-export { taujsBuild } from './Build';
 export { winstonAdapter } from './logging/Adapters';
 export { AppError } from './core/errors/AppError';
 export { createRequestGraph } from './core/introspection/RequestGraph';
