@@ -51,6 +51,24 @@ describe('prepareOwnership (phase 1)', () => {
     expect(prepared.keysByApp.get('web')).toEqual([]);
   });
 
+  // Unit 1B gate (once-per-ruled-lifecycle): prepareOwnership is the ONE seam that loads a managed
+  // compiler; each contribution's v2 loader resolves exactly once per invocation, including across a
+  // multi-app same-key group.
+  it('loads each v2 compiler contribution exactly once per prepareOwnership, same-key groups included', async () => {
+    const react = makeImpl('react');
+    const loadA = vi.fn(async () => contribution('react', react));
+    const loadB = vi.fn(async () => contribution('react', react));
+    const rendererOf = (load: () => Promise<ManagedContributionShape>) =>
+      ({ brand: 'taujs.renderer-contribution/v2', key: 'react', contractVersion: 'v1', managedCompilation: true, loadCompiler: load }) as unknown;
+
+    const prepared = await prepareOwnership([app('web', [], rendererOf(loadA)), app('admin', [], rendererOf(loadB))], INPUT);
+
+    expect(loadA).toHaveBeenCalledTimes(1);
+    expect(loadB).toHaveBeenCalledTimes(1);
+    expect(prepared.plans.size).toBe(1);
+    expect(react.prepare).toHaveBeenCalledTimes(1);
+  });
+
   it('extracts managed contributions, leaving only raw plugins per app', async () => {
     const solid = makeImpl('solid');
     const rawPlugin = { name: 'y' };
@@ -291,13 +309,13 @@ describe('createOwnershipDiagnostic (safeguard 2, fail-closed)', () => {
 // managed-active gate (a Vue-only project still gets pluginVue). These are the load-bearing renderer-v1
 // hard errors + supply path introduced on top of the ESC-1 baseline.
 describe('renderer v1 guardrails + non-managed (Vue) plugin supply', () => {
-  const RENDERER_BRAND = 'taujs.renderer-contribution/v1';
+  const RENDERER_BRAND = 'taujs.renderer-contribution/v2';
   const vueLikeRenderer = (plugins: unknown[]) => ({
     brand: RENDERER_BRAND,
     key: 'vue',
     contractVersion: 'v1',
     managedCompilation: false,
-    createEnvironmentPlugins: () => plugins,
+    loadEnvironmentPlugins: async () => plugins,
   });
 
   it('rejects a managed compiler contribution placed DIRECTLY in plugins (belongs on renderer:)', async () => {
@@ -314,15 +332,15 @@ describe('renderer v1 guardrails + non-managed (Vue) plugin supply', () => {
     await expect(prepareOwnership([app('web', [], { not: 'a renderer' })], INPUT)).rejects.toThrow(/must declare a valid renderer/);
   });
 
-  it("injects a non-managed renderer's fresh plugin pack even with NO managed ownership (not gated on active)", () => {
+  it("injects a non-managed renderer's fresh plugin pack even with NO managed ownership (not gated on active)", async () => {
     const vuePlugin = { name: 'vite:vue' };
-    const result = appEnvironmentPlugins('shop', [{ name: 'user-plugin' } as never], vueLikeRenderer([vuePlugin]), 'dev');
+    const result = await appEnvironmentPlugins('shop', [{ name: 'user-plugin' } as never], vueLikeRenderer([vuePlugin]), 'dev');
     expect(result).toEqual([{ name: 'user-plugin' }, vuePlugin]);
   });
 
-  it('hard-errors when a raw plugin duplicates a renderer-supplied one (raw pluginVue beside vueRenderer)', () => {
+  it('hard-errors when a raw plugin duplicates a renderer-supplied one (raw pluginVue beside vueRenderer)', async () => {
     const vuePlugin = { name: 'vite:vue' };
-    expect(() => appEnvironmentPlugins('shop', [{ name: 'vite:vue' } as never], vueLikeRenderer([vuePlugin]), 'build')).toThrow(
+    await expect(appEnvironmentPlugins('shop', [{ name: 'vite:vue' } as never], vueLikeRenderer([vuePlugin]), 'build')).rejects.toThrow(
       /duplicates a plugin its renderer supplies/,
     );
   });

@@ -18,8 +18,9 @@ import type { ManagedContributionShape, RendererContributionShape } from '@taujs
  */
 
 // renderer v1: the ESC-1 managed compiler contribution now rides inside the renderer contribution as
-// its `.compiler`. Reach the ManagedContributionShape (with `.impl.prepare`/...) through it.
-const managedOf = (renderer: unknown): ManagedContributionShape => (renderer as unknown as RendererContributionShape).compiler as ManagedContributionShape;
+// its lazy `loadCompiler` (v2 protocol). Reach the ManagedContributionShape (with `.impl.prepare`/...) through it.
+const managedOf = (renderer: unknown): Promise<ManagedContributionShape> =>
+  (renderer as unknown as RendererContributionShape).loadCompiler!() as Promise<ManagedContributionShape>;
 
 const SOLID_EXPORTS = { '.': { solid: './src/index.jsx', default: './src/index.jsx' } };
 
@@ -85,7 +86,7 @@ afterAll(() => {
 });
 
 async function claims(): Promise<(id: string) => boolean> {
-  const contribution = managedOf(solidRenderer({ project: 'tsconfig.solid.json' }));
+  const contribution = await managedOf(solidRenderer({ project: 'tsconfig.solid.json' }));
   const plan = await contribution.impl.prepare([{ contribution, appId: 'app', appRoot: root }], { projectRoot: root, lifecycle: 'build' });
   return createFilter(plan.claims, plan.exclude);
 }
@@ -135,7 +136,7 @@ describe('ESC-1 fix-3b - tsconfig node_modules exclude vs classifier (through re
       path.join(root, 'tsconfig.excl.json'),
       JSON.stringify({ compilerOptions: { jsx: 'preserve', jsxImportSource: 'solid-js' }, include: ['src/**/*'], exclude: ['node_modules'] }),
     );
-    const contribution = managedOf(solidRenderer({ project: 'tsconfig.excl.json' }));
+    const contribution = await managedOf(solidRenderer({ project: 'tsconfig.excl.json' }));
     await expect(contribution.impl.prepare([{ contribution, appId: 'app', appRoot: root }], { projectRoot: root, lifecycle: 'build' })).rejects.toThrow(
       /cancels the Solid node_modules package/,
     );

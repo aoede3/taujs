@@ -155,21 +155,29 @@ describe('built-output import smoke (packed artefact, real consumers)', () => {
     expect(JSON.parse(out)).toContain('pluginSolid');
   });
 
-  it('ROOT-EXPORT KILL TEST: a client-only consumer works WITHOUT the optional compiler peers', { timeout: 300_000 }, () => {
-    // This is the property the frozen root-vs-subpath split exists to deliver, verified against
-    // the packed artefact in a consumer that has installed NO compiler peers at all:
+  it('ROOT-EXPORT KILL TEST: a peer-free consumer declares solidRenderer; the compiler peers are demanded only at lazy load', { timeout: 300_000 }, () => {
+    // The v2 lazy contribution protocol changes the frozen property DELIBERATELY: in a consumer with NO
+    // compiler peers installed,
     //   - the root entry loads and renders (proven by the tests above, same consumer);
-    //   - `/renderer` legitimately does NOT, because it needs `vite-plugin-solid`.
-    // If the root ever re-exported `solidRenderer` "for convenience", the root tests above would
-    // start failing here with exactly this error - which is why the split is not merely tidiness.
-    let error = '';
-    try {
-      runInConsumer(`await import('@taujs/solid/renderer'); console.log('loaded');`);
-    } catch (e) {
-      error = String((e as { stderr?: string; message?: string }).stderr ?? (e as Error).message);
-    }
+    //   - `/renderer` now ALSO loads and declares (identity is synchronous and peer-free - this is what
+    //     keeps production processes free of the compiler toolchain);
+    //   - the OPTIONAL `vite-plugin-solid` peer is demanded exactly at `loadCompiler()` - the build/dev
+    //     seam - with the package named in the failure.
+    // If renderer.ts ever regains an eager compiler import, the declaration leg fails here; if the lazy
+    // load stops naming the missing peer, the load leg fails.
+    const out = runInConsumer(`
+      const { solidRenderer } = await import('@taujs/solid/renderer');
+      const c = solidRenderer({ project: './tsconfig.solid.json' });
+      let loadError = '';
+      try {
+        await c.loadCompiler();
+      } catch (e) {
+        loadError = String((e && e.message) || e);
+      }
+      console.log(JSON.stringify({ key: c.key, managedCompilation: c.managedCompilation, loadErrorNamesPeer: loadError.includes('vite-plugin-solid') }));
+    `);
 
-    expect(error).toMatch(/vite-plugin-solid/);
+    expect(JSON.parse(out)).toEqual({ key: 'solid', managedCompilation: true, loadErrorNamesPeer: true });
   });
 
   it('INTERNALS stay unreachable from the packed package', { timeout: 300_000 }, () => {

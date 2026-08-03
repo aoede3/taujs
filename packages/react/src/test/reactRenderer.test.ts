@@ -15,7 +15,7 @@ import type { ManagedContributionShape, ManagedGroupMember, RendererContribution
 // on @taujs/server. Compile-time equality with the host is enforced by the type-only brand imports; the
 // cross-package literal match is checked in fixtures/renderer-composition.
 const MANAGED_CONTRIBUTION_BRAND = 'taujs.managed-plugin-contribution/v1';
-const RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v1';
+const RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v2';
 
 const fixturesDir = path.dirname(fileURLToPath(new URL('../compiler/test/fixtures/tsconfig.owned.json', import.meta.url)));
 const UNSCOPED = Symbol.for('taujs.unscoped-compiler');
@@ -49,15 +49,35 @@ describe('buildReactContribution (the managed compiler contribution reactRendere
   });
 });
 
-describe('reactRenderer (the public renderer contribution)', () => {
-  it('wraps the React managed compiler contribution with managedCompilation + a render-module contract', () => {
+describe('reactRenderer (the public renderer contribution, v2 lazy protocol)', () => {
+  it('declares the v2 brand, identity and render-module contract synchronously, with a lazy compiler loader', async () => {
     const contribution = reactRenderer({ project: './tsconfig.react.json' }) as unknown as RendererContributionShape;
     expect(contribution.brand).toBe(RENDERER_CONTRIBUTION_BRAND);
     expect(contribution.key).toBe('react');
     expect(contribution.contractVersion).toBe('v1');
     expect(contribution.managedCompilation).toBe(true);
-    expect(contribution.compiler?.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
-    expect(contribution.compiler?.key).toBe('react');
+    expect(typeof contribution.loadCompiler).toBe('function');
+    const compiler = await contribution.loadCompiler!();
+    expect(compiler.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
+    expect(compiler.key).toBe('react');
+  });
+
+  it('validates options synchronously at construction (no lazy-load needed to see the error)', () => {
+    expect(() => reactRenderer({ project: '' })).toThrow(/requires a `project`/);
+    // @ts-expect-error include is reserved - ownership is computed from the project
+    expect(() => reactRenderer({ project: './t.json', include: ['x'] })).toThrow(/does not accept `include`/);
+  });
+
+  it('memoises the compiler load: one promise, one contribution instance per factory call', async () => {
+    const contribution = reactRenderer({ project: './tsconfig.react.json' }) as unknown as RendererContributionShape;
+    const [a, b] = await Promise.all([contribution.loadCompiler!(), contribution.loadCompiler!()]);
+    expect(a).toBe(b);
+  });
+
+  it('shares ONE impl reference across separately declared contributions (safeguard 1 across lazy loads)', async () => {
+    const one = reactRenderer({ project: './a.json' }) as unknown as RendererContributionShape;
+    const two = reactRenderer({ project: './b.json' }) as unknown as RendererContributionShape;
+    expect((await one.loadCompiler!()).impl).toBe((await two.loadCompiler!()).impl);
   });
 });
 
