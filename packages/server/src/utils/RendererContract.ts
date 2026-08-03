@@ -19,9 +19,18 @@ import type { RenderModule } from '../types';
  * discipline {@link ./ManagedPlugins} keeps.
  */
 
-/** Structural brand for a renderer contribution, versioned so an incompatible shape is a different brand. */
-export const RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v1' as const;
+/**
+ * Structural brand for a renderer contribution, versioned so an incompatible shape is a different brand.
+ * The brand IS the contribution-protocol discriminator: v2 is the LAZY protocol (compiler machinery is
+ * loaded through async loaders by build/dev only; production never invokes them). The eager v1 protocol
+ * is recognised explicitly BY ITS BRAND in {@link requireRendererContribution} and rejected with upgrade
+ * guidance - never inferred from missing properties.
+ */
+export const RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v2' as const;
 export type RendererContributionBrand = typeof RENDERER_CONTRIBUTION_BRAND;
+
+/** The superseded eager protocol brand, recognised only to name the required upgrade. */
+export const EAGER_RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v1' as const;
 
 /**
  * The render-MODULE contract version - the runtime `{ renderSSR, renderStream }` shape a framework's
@@ -40,32 +49,49 @@ export type DeclaredRenderContract = {
   contractVersion: string;
 };
 
-/**
- * The runtime shape a renderer factory produces. NON-public + unstable (versioned by the brand); the public
- * face is the opaque {@link TaujsRendererContribution}. App association is added by the host at grouping
- * time, not carried here.
- */
-export type RendererContributionShape = {
+/** The identity fields every v2 contribution carries, protocol-variant-independent. */
+type RendererContributionBase = {
   readonly brand: RendererContributionBrand;
   /** Framework identity + (when managed) the ESC-1 grouping key. */
   readonly key: string;
   /** The render-module contract version the app's loaded {@link RenderModule} must match. */
   readonly contractVersion: string;
-  /**
-   * True for frameworks whose JSX/TSX compilation COLLIDES and needs scoped ownership (React/Solid) - they
-   * carry {@link RendererContributionShape.compiler}; false for frameworks whose compiler is an ordinary
-   * unscoped Vite plugin (Vue) - they carry {@link RendererContributionShape.createEnvironmentPlugins}.
-   */
-  readonly managedCompilation: boolean;
-  /** The ESC-1 managed compiler contribution - present IFF `managedCompilation` (a JSX renderer). */
-  readonly compiler?: ManagedContributionShape;
-  /**
-   * A non-managed renderer's ordinary framework Vite plugin(s), built FRESH per environment (Vue's
-   * `pluginVue` pack). Typed `unknown` for the same cross-`@types/node` Vite type-identity reason as
-   * `PreparedPlan.createPlugin`; the host casts to its own `PluginOption` at the composition seam.
-   */
-  readonly createEnvironmentPlugins?: (lifecycle: 'dev' | 'build') => unknown;
 };
+
+/**
+ * A managed-compilation renderer (React/Solid): JSX/TSX compilation COLLIDES across frameworks and needs
+ * scoped ownership, carried as a lazy ESC-1 compiler contribution. `loadCompiler` is invoked by the host
+ * prepass (once per prepass invocation: one dev boot, one `taujsBuild` run); the factory memoises the
+ * contribution promise, so the managed contribution is CONSTRUCTED once per contribution lifetime.
+ * Production never invokes it, so the compiler toolchain never resolves in a production process.
+ */
+export type ManagedRendererContribution = RendererContributionBase & {
+  readonly managedCompilation: true;
+  readonly loadCompiler: () => Promise<ManagedContributionShape>;
+  readonly loadEnvironmentPlugins?: never;
+};
+
+/**
+ * A non-managed renderer (Vue): its compiler is an ordinary unscoped Vite plugin, produced lazily and
+ * FRESH once per Vite environment (the ESC-1 lifecycle lesson - plugin objects are never reused across
+ * environments; only the module import behind the loader is cached by ESM). The resolved value is typed
+ * `unknown` for the same cross-`@types/node` Vite type-identity reason as `PreparedPlan.createPlugin`;
+ * the host casts to its own `PluginOption` at the composition seam.
+ */
+export type EnvironmentRendererContribution = RendererContributionBase & {
+  readonly managedCompilation: false;
+  readonly loadCompiler?: never;
+  readonly loadEnvironmentPlugins: (lifecycle: 'dev' | 'build') => Promise<unknown>;
+};
+
+/**
+ * The runtime shape a renderer factory produces - a DISCRIMINATED UNION on `managedCompilation`, so the
+ * protocol's central invariant (exactly one loader, selected by the discriminant) is structural rather
+ * than asserted. NON-public + unstable (versioned by the brand); the public face is the opaque
+ * {@link TaujsRendererContribution}. App association is added by the host at grouping time, not carried
+ * here.
+ */
+export type RendererContributionShape = ManagedRendererContribution | EnvironmentRendererContribution;
 
 declare const RENDERER_OPAQUE: unique symbol;
 /**
@@ -76,13 +102,33 @@ declare const RENDERER_OPAQUE: unique symbol;
  */
 export type TaujsRendererContribution = { readonly [RENDERER_OPAQUE]: true };
 
-/** Structural, forgery-tolerant recogniser for a renderer contribution (host-side). */
+/**
+ * Structural, forgery-tolerant recogniser for a v2 renderer contribution (host-side). Acceptance is
+ * driven by the BRAND (the protocol discriminator); the loader checks are integrity validation of an
+ * already-branded value, not protocol detection. They enforce the union's EXCLUSIVITY: exactly the one
+ * loader the `managedCompilation` discriminant selects, never both.
+ */
 export function isRendererContribution(value: unknown): value is RendererContributionShape {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
-  return (
-    v.brand === RENDERER_CONTRIBUTION_BRAND && typeof v.key === 'string' && typeof v.contractVersion === 'string' && typeof v.managedCompilation === 'boolean'
-  );
+  if (
+    v.brand !== RENDERER_CONTRIBUTION_BRAND ||
+    typeof v.key !== 'string' ||
+    typeof v.contractVersion !== 'string' ||
+    typeof v.managedCompilation !== 'boolean'
+  ) {
+    return false;
+  }
+  return v.managedCompilation
+    ? typeof v.loadCompiler === 'function' && v.loadEnvironmentPlugins === undefined
+    : typeof v.loadEnvironmentPlugins === 'function' && v.loadCompiler === undefined;
+}
+
+/** Explicit recogniser for the superseded eager v1 protocol - used ONLY to word the upgrade error. */
+export function isEagerRendererContribution(value: unknown): value is { key: string } {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return v.brand === EAGER_RENDERER_CONTRIBUTION_BRAND && typeof v.key === 'string';
 }
 
 /** The declared render contract a contribution asserts of the app's render module. */
@@ -96,6 +142,11 @@ export function declaredContractOf(contribution: RendererContributionShape): Dec
  * contribution is a hard error here with ONE consistent message (not repeated per call site).
  */
 export function requireRendererContribution(appId: string, renderer: unknown): RendererContributionShape {
+  if (isEagerRendererContribution(renderer)) {
+    throw AppError.internal(
+      `[taujs] app "${appId}" declares renderer "${renderer.key}" using the eager v1 contribution protocol, which this @taujs/server no longer accepts. Upgrade @taujs/${renderer.key} to the release that provides the v2 lazy contribution protocol (see the @taujs/server changelog for the paired versions).`,
+    );
+  }
   if (!isRendererContribution(renderer)) {
     throw AppError.internal(
       `[taujs] app "${appId}" must declare a valid renderer: reactRenderer()/vueRenderer(). \`renderer:\` is required (found ${renderer === undefined ? 'none' : 'an invalid value'}).`,

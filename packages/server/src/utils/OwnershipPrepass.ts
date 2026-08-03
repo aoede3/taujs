@@ -69,24 +69,26 @@ function extractRawPlugins(appId: string, plugins: ReadonlyArray<unknown> | unde
 /**
  * The single ESC-1 managed compiler contribution an app's renderer carries (a JSX renderer), or none (Vue).
  * `renderer:` is REQUIRED: an absent or invalid contribution is a hard error here (dev boot + build; the
- * prod boot path enforces the same in AssetManager).
+ * prod boot path enforces the same in AssetManager). v2 protocol: the compiler is LOADED here - the one
+ * seam that awaits `loadCompiler()`, called only from `prepareOwnership`. The loader is INVOKED once per
+ * prepass invocation (one dev boot; one `taujsBuild` run); the factory memoises the contribution promise,
+ * so the managed contribution is CONSTRUCTED once per contribution lifetime. The compiler toolchain
+ * therefore resolves in build/dev processes and never in production.
  */
-function managedFromRenderer(appId: string, renderer: unknown): ManagedContributionShape | undefined {
+async function managedFromRenderer(appId: string, renderer: unknown): Promise<ManagedContributionShape | undefined> {
   const contribution = requireRendererContribution(appId, renderer);
   if (!contribution.managedCompilation) return undefined;
-  const compiler = contribution.compiler;
+  const compiler = await contribution.loadCompiler();
   if (!isManagedContribution(compiler)) {
-    throw new Error(`[taujs] app "${appId}": managed renderer "${contribution.key}" is missing its compiler contribution (internal error).`);
+    throw new Error(`[taujs] app "${appId}": managed renderer "${contribution.key}" loaded an invalid compiler contribution (internal error).`);
   }
   return compiler;
 }
 
 /** A non-managed renderer's ordinary framework plugin pack, built FRESH for this Vite environment (Vue). */
-function rendererEnvironmentPlugins(renderer: unknown, lifecycle: 'dev' | 'build'): PluginOption[] {
-  if (!isRendererContribution(renderer)) return [];
-  const make = renderer.createEnvironmentPlugins;
-  if (typeof make !== 'function') return [];
-  const produced = make(lifecycle);
+async function rendererEnvironmentPlugins(renderer: unknown, lifecycle: 'dev' | 'build'): Promise<PluginOption[]> {
+  if (!isRendererContribution(renderer) || renderer.managedCompilation) return [];
+  const produced = await renderer.loadEnvironmentPlugins(lifecycle);
   return (Array.isArray(produced) ? produced : [produced]) as PluginOption[];
 }
 
@@ -95,8 +97,13 @@ function rendererEnvironmentPlugins(renderer: unknown, lifecycle: 'dev' | 'build
  * renderer supplies (Vue). A raw plugin that DUPLICATES a renderer-supplied one (e.g. a raw `pluginVue()`
  * beside `vueRenderer()`) is a hard error - the renderer already provides it (design §2.4).
  */
-export function appEnvironmentPlugins(appId: string, rawPlugins: readonly PluginOption[], renderer: unknown, lifecycle: 'dev' | 'build'): PluginOption[] {
-  const rendererPlugins = rendererEnvironmentPlugins(renderer, lifecycle);
+export async function appEnvironmentPlugins(
+  appId: string,
+  rawPlugins: readonly PluginOption[],
+  renderer: unknown,
+  lifecycle: 'dev' | 'build',
+): Promise<PluginOption[]> {
+  const rendererPlugins = await rendererEnvironmentPlugins(renderer, lifecycle);
   if (rendererPlugins.length > 0) {
     const rendererNames = new Set(collectPluginNames(rendererPlugins));
     for (const name of collectPluginNames(rawPlugins)) {
@@ -133,10 +140,11 @@ export async function prepareOwnership(apps: ReadonlyArray<AppPluginInput>, inpu
   const members: ManagedGroupMember[] = [];
 
   for (const app of apps) {
-    // Renderer v1: `plugins` holds ordinary Vite plugins only (reject a leaked contribution); the managed
-    // compiler contribution is carried by the app's singular `renderer:` (React/Solid) - at most ONE.
+    // `plugins` holds ordinary Vite plugins only (reject a leaked contribution); the managed compiler
+    // contribution is carried by the app's singular `renderer:` (React/Solid) - at most ONE, loaded
+    // lazily here (v2 protocol) so declaration never resolves the compiler toolchain.
     rawByApp.set(app.appId, extractRawPlugins(app.appId, app.plugins));
-    const managed = managedFromRenderer(app.appId, app.renderer);
+    const managed = await managedFromRenderer(app.appId, app.renderer);
     keysByApp.set(app.appId, managed ? [managed.key] : []);
     if (managed) members.push({ contribution: managed, appId: app.appId, appRoot: app.appRoot });
   }
@@ -245,7 +253,12 @@ export async function assembleDevPluginChain(opts: {
   // Each app's plugins for the shared dev environment = its raw plugins + the FRESH framework plugins its
   // renderer supplies (Vue's pluginVue pack). Constructed ONCE here (not per composePlugins pass).
   const pluginsByApp = new Map<string, PluginOption[]>(
-    opts.apps.map((app) => [app.appId, appEnvironmentPlugins(app.appId, rawOf(app.appId), app.renderer, 'dev')]),
+    await Promise.all(
+      opts.apps.map(async (app): Promise<[string, PluginOption[]]> => [
+        app.appId,
+        await appEnvironmentPlugins(app.appId, rawOf(app.appId), app.renderer, 'dev'),
+      ]),
+    ),
   );
   const pluginsFor = (appId: string): PluginOption[] => pluginsByApp.get(appId) ?? [];
 

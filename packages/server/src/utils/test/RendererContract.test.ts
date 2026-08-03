@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { assertRenderContract, declaredContractOf, isRendererContribution, readRenderFnContract } from '../RendererContract';
+import { assertRenderContract, declaredContractOf, isRendererContribution, readRenderFnContract, requireRendererContribution } from '../RendererContract';
 
 import type { RendererContributionShape } from '../RendererContract';
 
@@ -74,10 +74,11 @@ describe('assertRenderContract (generic host identity validation)', () => {
 
 describe('isRendererContribution + declaredContractOf', () => {
   const valid: RendererContributionShape = {
-    brand: 'taujs.renderer-contribution/v1',
+    brand: 'taujs.renderer-contribution/v2',
     key: 'react',
     contractVersion: 'v1',
     managedCompilation: true,
+    loadCompiler: async () => ({}) as never,
   };
 
   it('recognises a structurally valid renderer contribution', () => {
@@ -91,7 +92,47 @@ describe('isRendererContribution + declaredContractOf', () => {
     expect(isRendererContribution({ ...valid, managedCompilation: undefined })).toBe(false);
   });
 
+  it('validates v2 loader integrity behind the brand: managed needs loadCompiler, non-managed needs loadEnvironmentPlugins', () => {
+    expect(isRendererContribution({ ...valid, loadCompiler: undefined })).toBe(false);
+    expect(isRendererContribution({ ...valid, managedCompilation: false })).toBe(false);
+    expect(isRendererContribution({ ...valid, managedCompilation: false, loadCompiler: undefined, loadEnvironmentPlugins: async () => [] })).toBe(true);
+  });
+
+  it('enforces the union exclusivity: a contribution carrying BOTH loaders is rejected', () => {
+    expect(isRendererContribution({ ...valid, loadEnvironmentPlugins: async () => [] })).toBe(false);
+    expect(isRendererContribution({ ...valid, managedCompilation: false, loadEnvironmentPlugins: async () => [] })).toBe(false);
+  });
+
   it('derives the declared render contract from a contribution', () => {
     expect(declaredContractOf(valid)).toEqual({ key: 'react', contractVersion: 'v1' });
+  });
+});
+
+// The contribution-protocol discriminator (Unit 1B gate): the brand names the protocol; an eager v1
+// contribution is recognised EXPLICITLY by its brand and rejected with upgrade guidance naming the
+// renderer package - never inferred from missing properties.
+describe('requireRendererContribution - protocol discrimination', () => {
+  const v2 = {
+    brand: 'taujs.renderer-contribution/v2',
+    key: 'react',
+    contractVersion: 'v1',
+    managedCompilation: true,
+    loadCompiler: async () => ({}) as never,
+  };
+
+  it('accepts a v2 lazy contribution', () => {
+    expect(requireRendererContribution('web', v2)).toBe(v2);
+  });
+
+  it('rejects an eager v1 contribution with the guided upgrade error naming the renderer', () => {
+    const v1 = { brand: 'taujs.renderer-contribution/v1', key: 'solid', contractVersion: 'v1', managedCompilation: true, compiler: {} };
+    expect(() => requireRendererContribution('web', v1)).toThrow(
+      /declares renderer "solid" using the eager v1 contribution protocol.*Upgrade @taujs\/solid to the release that provides the v2 lazy contribution protocol/,
+    );
+  });
+
+  it('keeps the generic required-renderer error for absent and arbitrary values', () => {
+    expect(() => requireRendererContribution('web', undefined)).toThrow(/must declare a valid renderer.*found none/);
+    expect(() => requireRendererContribution('web', { some: 'junk' })).toThrow(/must declare a valid renderer.*an invalid value/);
   });
 });

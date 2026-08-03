@@ -27,8 +27,9 @@ const MANAGED_CONTRIBUTION_BRAND = 'taujs.managed-plugin-contribution/v1';
  */
 
 // renderer v1: the ESC-1 managed compiler contribution now rides inside the renderer contribution as
-// its `.compiler`. Reach the ManagedContributionShape (with `.impl`/`.brand`/`.createPlugin`/...) through it.
-const managedOf = (renderer: unknown): ManagedContributionShape => (renderer as unknown as RendererContributionShape).compiler as ManagedContributionShape;
+// its lazy `loadCompiler` (v2 protocol). Reach the ManagedContributionShape (with `.impl`/`.brand`/`.createPlugin`/...) through it.
+const managedOf = (renderer: unknown): Promise<ManagedContributionShape> =>
+  (renderer as unknown as RendererContributionShape).loadCompiler!() as Promise<ManagedContributionShape>;
 
 let root: string;
 let outDir: string;
@@ -68,8 +69,8 @@ afterAll(() => {
 });
 
 async function buildScoped(): Promise<{ reactOut: string; solidOut: string }> {
-  const reactContribution = managedOf(reactRenderer({ project: 'tsconfig.react.json' }));
-  const solidContribution = managedOf(solidRenderer({ project: 'tsconfig.solid.json' }));
+  const reactContribution = await managedOf(reactRenderer({ project: 'tsconfig.react.json' }));
+  const solidContribution = await managedOf(solidRenderer({ project: 'tsconfig.solid.json' }));
   const prepareInput = { projectRoot: root, lifecycle: 'build' as const };
 
   const reactPlan = await reactContribution.impl.prepare(
@@ -118,9 +119,9 @@ async function buildScoped(): Promise<{ reactOut: string; solidOut: string }> {
 }
 
 describe('ESC-1 composition (real Vite build)', () => {
-  it('cross-package brand literal matches the host (dependency-free marker stays in sync)', () => {
-    expect(managedOf(reactRenderer({ project: 'tsconfig.react.json' })).brand).toBe(MANAGED_CONTRIBUTION_BRAND);
-    expect(managedOf(solidRenderer({ project: 'tsconfig.solid.json' })).brand).toBe(MANAGED_CONTRIBUTION_BRAND);
+  it('cross-package brand literal matches the host (dependency-free marker stays in sync)', async () => {
+    expect((await managedOf(reactRenderer({ project: 'tsconfig.react.json' }))).brand).toBe(MANAGED_CONTRIBUTION_BRAND);
+    expect((await managedOf(solidRenderer({ project: 'tsconfig.solid.json' }))).brand).toBe(MANAGED_CONTRIBUTION_BRAND);
   });
 
   it('cases 3 + 12 - React and Solid compile together with no cross-framework contamination', async () => {
@@ -138,7 +139,7 @@ describe('ESC-1 composition (real Vite build)', () => {
   });
 
   it('case 9 - the vitefu classifier claims a node_modules package with a solid export condition', async () => {
-    const contribution = managedOf(solidRenderer({ project: 'tsconfig.solid.json' }));
+    const contribution = await managedOf(solidRenderer({ project: 'tsconfig.solid.json' }));
     const plan = await contribution.impl.prepare([{ contribution, appId: 'admin', appRoot: path.join(root, 'src-solid') }], {
       projectRoot: root,
       lifecycle: 'build',

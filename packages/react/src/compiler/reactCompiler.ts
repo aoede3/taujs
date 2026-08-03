@@ -8,7 +8,10 @@
  */
 import react from '@vitejs/plugin-react';
 
+import { validateReactRendererOptions } from '../rendererOptions.js';
+
 import type { Plugin, PluginOption } from 'vite';
+import type { ReactRendererOptions } from '../rendererOptions.js';
 import type { CompilerImpl, ManagedContributionBrand, ManagedContributionShape, PreparedPlan } from '@taujs/server/renderer';
 
 type ReactOptions = NonNullable<Parameters<typeof react>[0]>;
@@ -56,9 +59,9 @@ export function tagUnscopedCompiler<T>(value: T, key: string): T {
   return value;
 }
 
-/** Options for {@link buildReactContribution}: a required tsconfig `project`, plus React options; the
- * ownership filters (`include`/`exclude`) are RESERVED - the host computes them from the project. */
-export type ReactCompilerOptions = { project: string } & Omit<ReactOptions, 'include' | 'exclude'>;
+/** Options for {@link buildReactContribution} - the compiler-free shared surface (`rendererOptions.ts`),
+ * so the synchronous factory and this lazy builder validate ONE definition that cannot drift. */
+export type ReactCompilerOptions = ReactRendererOptions;
 
 // Module-local object => REFERENCE identity (safeguard 1): every contribution from THIS installed
 // @taujs/react copy shares it; a second installed copy yields a distinct object, so the host detects
@@ -88,11 +91,7 @@ const reactCompilerImpl: CompilerImpl = {
 
 /** Build the React managed compiler contribution `reactRenderer()` carries (ESC-1 shape). */
 export function buildReactContribution(opts: ReactCompilerOptions): ManagedContributionShape {
-  const { project, ...reactOptions } = opts;
-  if (!project) throw new Error('[taujs] reactRenderer requires a `project` tsconfig path.');
-  if ('include' in reactOptions || 'exclude' in reactOptions) {
-    throw new Error('[taujs] reactRenderer does not accept `include`/`exclude` - ownership is computed from the tsconfig `project`.');
-  }
+  const { project, ...reactOptions } = validateReactRendererOptions(opts);
 
   return {
     brand: MANAGED_BRAND,

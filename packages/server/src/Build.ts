@@ -273,7 +273,7 @@ export async function taujsBuild({
     // and was extracted in phase 1) PLUS the fresh framework plugins its renderer supplies for THIS build
     // environment (Vue's pluginVue pack). Managed compilers are constructed below from the global plan and
     // prepended. A raw plugin duplicating a renderer-supplied one is a hard error (appEnvironmentPlugins).
-    const rawAppPlugins = appEnvironmentPlugins(appId, ownership.rawByApp.get(appId) ?? (plugins as PluginOption[]), renderer, 'build');
+    const rawAppPlugins = await appEnvironmentPlugins(appId, ownership.rawByApp.get(appId) ?? (plugins as PluginOption[]), renderer, 'build');
 
     const outDir = path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
     const root = entryPoint ? path.resolve(clientBaseDir, entryPoint) : clientBaseDir;

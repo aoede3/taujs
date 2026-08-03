@@ -9,7 +9,10 @@
 import picomatch from 'picomatch';
 import solid from 'vite-plugin-solid';
 
+import { validateSolidRendererOptions } from '../rendererOptions.js';
+
 import type { PluginOption } from 'vite';
+import type { SolidRendererOptions } from '../rendererOptions.js';
 import type { CompilerImpl, EffectiveScope, ManagedContributionBrand, ManagedContributionShape, PreparedPlan } from '@taujs/server/renderer';
 
 // vite-plugin-solid filters the RAW module id (query included) with a createFilter captured at
@@ -63,7 +66,7 @@ export function tagUnscopedCompiler<T>(value: T, key: string): T {
  * is forced is exactly the shape that hides defects. Raw `pluginSolid()` at `@taujs/solid/plugin`
  * retains the full portable Vite option surface for anyone who needs it.
  */
-export type SolidCompilerOptions = { project: string };
+export type SolidCompilerOptions = SolidRendererOptions;
 
 // Module-local object => REFERENCE identity (safeguard 1): every contribution from THIS installed
 // @taujs/solid copy shares it; a second installed copy yields a distinct object, so the host detects
@@ -107,17 +110,7 @@ const solidCompilerImpl: CompilerImpl = {
 
 /** Build the Solid managed compiler contribution `solidRenderer()` carries (ESC-1 shape). */
 export function buildSolidContribution(opts: SolidCompilerOptions): ManagedContributionShape {
-  const { project, ...rest } = opts;
-  if (!project) throw new Error('[taujs] solidRenderer requires a `project` tsconfig path.');
-  // `{ project }` is the entire surface. Anything else - including the previously-tolerated
-  // `include`/`exclude` and any vite-plugin-solid option - is rejected rather than silently
-  // dropped, so a caller is told their intent is not supported instead of it vanishing.
-  const unsupported = Object.keys(rest);
-  if (unsupported.length > 0) {
-    throw new Error(
-      `[taujs] solidRenderer accepts only \`project\` (received: ${unsupported.join(', ')}). Ownership is computed from the tsconfig project, and the transform mode is fixed. Use pluginSolid() from '@taujs/solid/plugin' for raw Vite options.`,
-    );
-  }
+  const { project } = validateSolidRendererOptions(opts);
 
   return {
     brand: MANAGED_BRAND,

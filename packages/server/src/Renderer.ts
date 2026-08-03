@@ -11,8 +11,17 @@
  * `@taujs/server/config`.
  */
 
-// The renderer-contribution contract (the config-time declaration half).
-export type { RenderContractVersion, RendererContributionBrand, RendererContributionShape, TaujsRendererContribution } from './utils/RendererContract';
+// The renderer-contribution contract (the config-time declaration half). The shape is a discriminated
+// union on `managedCompilation`; the variant types are exported so a renderer factory can type its
+// contribution against the exact protocol variant it implements.
+export type {
+  EnvironmentRendererContribution,
+  ManagedRendererContribution,
+  RenderContractVersion,
+  RendererContributionBrand,
+  RendererContributionShape,
+  TaujsRendererContribution,
+} from './utils/RendererContract';
 
 // The ESC-1 managed compiler-author contract a JSX renderer (managedCompilation:true) implements.
 export type {

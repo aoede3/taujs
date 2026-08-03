@@ -13,7 +13,7 @@ import type { ManagedContributionShape, ManagedGroupMember, RendererContribution
 // on @taujs/server. Compile-time equality with the host is enforced by the type-only brand imports; the
 // cross-package literal match is checked in fixtures/renderer-composition.
 const MANAGED_CONTRIBUTION_BRAND = 'taujs.managed-plugin-contribution/v1';
-const RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v1';
+const RENDERER_CONTRIBUTION_BRAND = 'taujs.renderer-contribution/v2';
 
 const fixturesDir = path.dirname(fileURLToPath(new URL('../compiler/test/fixtures/tsconfig.owned.json', import.meta.url)));
 const UNSCOPED = Symbol.for('taujs.unscoped-compiler');
@@ -54,15 +54,30 @@ describe('buildSolidContribution (the managed compiler contribution solidRendere
   });
 });
 
-describe('solidRenderer (PUBLIC as of renderer v1 - `@taujs/solid/renderer`)', () => {
-  it('wraps the Solid managed compiler contribution with managedCompilation', () => {
+describe('solidRenderer (PUBLIC as of renderer v1 - `@taujs/solid/renderer`, v2 lazy protocol)', () => {
+  it('declares the v2 brand and identity synchronously, with a lazy compiler loader', async () => {
     const contribution = solidRenderer({ project: './tsconfig.solid.json' }) as unknown as RendererContributionShape;
     expect(contribution.brand).toBe(RENDERER_CONTRIBUTION_BRAND);
     expect(contribution.key).toBe('solid');
     expect(contribution.contractVersion).toBe('v1');
     expect(contribution.managedCompilation).toBe(true);
-    expect(contribution.compiler?.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
-    expect(contribution.compiler?.key).toBe('solid');
+    expect(typeof contribution.loadCompiler).toBe('function');
+    const compiler = await contribution.loadCompiler!();
+    expect(compiler.brand).toBe(MANAGED_CONTRIBUTION_BRAND);
+    expect(compiler.key).toBe('solid');
+  });
+
+  it('validates options synchronously at construction (no lazy-load needed to see the error)', () => {
+    expect(() => solidRenderer({ project: '' })).toThrow(/requires a `project`/);
+    expect(() => solidRenderer({ project: './t.json', ssr: true } as never)).toThrow(/accepts only `project`/);
+  });
+
+  it('memoises the compiler load and keeps impl reference identity across contributions', async () => {
+    const one = solidRenderer({ project: './a.json' }) as unknown as RendererContributionShape;
+    const two = solidRenderer({ project: './b.json' }) as unknown as RendererContributionShape;
+    const [a, b] = await Promise.all([one.loadCompiler!(), one.loadCompiler!()]);
+    expect(a).toBe(b);
+    expect((await one.loadCompiler!()).impl).toBe((await two.loadCompiler!()).impl);
   });
 });
 
