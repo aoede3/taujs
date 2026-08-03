@@ -1,9 +1,27 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 
 import { isAuthRequired, hasAuthenticate, verifyContracts, formatCspLoadedMsg } from '../VerifyMiddleware';
 
 import type { ContractReport } from '../VerifyMiddleware';
+
+// The runtime mode is snapshotted at module evaluation, so the CSP advisory follows the mode this
+// module was imported under - not whatever NODE_ENV holds when `verifyContracts` is called. The
+// statically imported module above runs under the suite's ambient `NODE_ENV=test`, which the single
+// runtime-mode derivation treats as PRODUCTION; a development expectation selects the environment
+// and then imports.
+async function importVerifyMiddlewareWithEnv(nodeEnv: string) {
+  const previous = process.env.NODE_ENV;
+  process.env.NODE_ENV = nodeEnv;
+
+  vi.resetModules();
+
+  try {
+    return await import('../VerifyMiddleware');
+  } finally {
+    process.env.NODE_ENV = previous;
+  }
+}
 
 type Route = {
   path?: string;
@@ -44,10 +62,6 @@ describe('VerifyMiddleware helpers', () => {
 });
 
 describe('verifyContracts', () => {
-  beforeEach(() => {
-    process.env.NODE_ENV = 'test';
-  });
-
   afterEach(() => {
     process.env = { ...ORIG_ENV };
   });
@@ -171,8 +185,10 @@ describe('verifyContracts', () => {
     ]);
   });
 
-  it('CSP: no global, development; overrides present and disabled routes counted', () => {
-    process.env.NODE_ENV = 'development';
+  it('CSP: no global, development; overrides present and disabled routes counted', async () => {
+    // Development is the ONLY mode without the production advisory, and it must be requested
+    // explicitly - hence the environment-selected import rather than a mid-test NODE_ENV write.
+    const { verifyContracts } = await importVerifyMiddlewareWithEnv('development');
 
     const app = {} as any;
     const routes: Route[] = [
@@ -211,8 +227,6 @@ describe('verifyContracts', () => {
   });
 
   it('CSP: no global, PRODUCTION -> status warning with tail note on the summary line', () => {
-    process.env.NODE_ENV = 'production';
-
     const app = {} as any;
     const routes: Route[] = [
       { path: '/a' }, // default
@@ -250,8 +264,9 @@ describe('verifyContracts', () => {
   });
 
   it('Multiple contracts: mix CSP and other verified counts together', () => {
-    process.env.NODE_ENV = 'test';
-
+    // RECORDED DELTA: this ran under `NODE_ENV=test` and expected the development defaults
+    // message with `verified` status. `test` is production mode now, so a missing global CSP is
+    // the production advisory here exactly as it is under `NODE_ENV=production`.
     const app = { authenticate: () => {} } as any;
     const routes: Route[] = [
       { path: '/a', attr: { middleware: { auth: true } } },
@@ -290,20 +305,19 @@ describe('verifyContracts', () => {
       },
       {
         key: 'csp',
-        status: 'verified',
-        message: 'Loaded development defaults with 1 route override(s)',
+        status: 'warning',
+        message: 'No global CSP configured; 1 route override(s) only (no global CSP header is sent in production without security.csp)',
       },
       {
         key: 'csp',
-        status: 'verified',
+        status: 'warning',
         message: '✓ Verified (3 enabled, 1 disabled, 4 total).',
       },
     ]);
   });
 
   it('CSP: has global config WITH overrides -> "Loaded global config with N route override(s)" (no tail)', () => {
-    process.env.NODE_ENV = 'test'; // non-production: no tail anyway
-
+    // A global config short-circuits the advisory, so this holds in every mode.
     const app = {} as any;
     const routes: Route[] = [
       { path: '/a', attr: { middleware: { csp: { mode: 'merge' } } } }, // override #1
@@ -343,8 +357,6 @@ describe('verifyContracts', () => {
   });
 
   it('CSP: has global config WITH overrides in PRODUCTION → still no warning tail', () => {
-    process.env.NODE_ENV = 'production';
-
     const app = {} as any;
     const routes: Route[] = [
       { path: '/a', attr: { middleware: { csp: { mode: 'replace' } } } }, // override

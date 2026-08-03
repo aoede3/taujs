@@ -1,3 +1,5 @@
+import { runtimeMode } from '../System';
+
 import type { FastifyInstance } from 'fastify';
 import type { CoreSecurityConfig, Route } from '../core/config/types';
 
@@ -65,7 +67,7 @@ export const verifyContracts = (app: FastifyInstance, routes: Route[], contracts
       const enabled = total - disabled;
       const hasGlobal = !!security?.csp;
 
-      const prodNoGlobal = !hasGlobal && process.env.NODE_ENV === 'production';
+      const prodNoGlobal = !hasGlobal && runtimeMode === 'production';
 
       let status: ContractItem['status'] = 'verified';
       let tail = '';

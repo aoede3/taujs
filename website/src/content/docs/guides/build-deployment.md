@@ -18,6 +18,36 @@ The deployment strategies below cover the most common patterns, but the underlyi
 
 The build process is designed for multi-app architectures with separate bundles per application.
 
+## Runtime Mode
+
+τjs derives ONE runtime mode from `NODE_ENV`, once, when `@taujs/server` is imported:
+
+| `NODE_ENV`                           | Runtime mode |
+| ------------------------------------ | ------------ |
+| `development`                        | development  |
+| `production`                         | production   |
+| `test`                               | production   |
+| unset                                | production   |
+| any other value, including `staging` | production   |
+
+Development is requested explicitly. Every other value - including an unset variable, which is what
+many process supervisors leave behind - takes the production paths: assets resolve under
+`dist/client`, no Vite development server starts, and logging uses the production minimum level and
+ISO timestamps. Changing `process.env.NODE_ENV` after import does not move part of a running
+process.
+
+Two consequences worth internalising when writing your own conditionals:
+
+- Ask `NODE_ENV === "development"`, never `!== "production"`. The second form sends `test`,
+  `staging` and an unset variable down the development branch while τjs runs them as production -
+  which is how an application ends up looking for production manifests under `src/client`.
+- Do not key security or transport decisions to `NODE_ENV` at all. A secure-cookie flag describes
+  how the process is served, not how it was built. See
+  [Authentication](/guides/authentication/#1-use-secure-session-configuration).
+
+The scaffolded scripts set `NODE_ENV` explicitly for every command, so a generated application
+already satisfies this. Set it explicitly in your own process manager, container or supervisor too.
+
 ## Build Process
 
 ### Build Steps

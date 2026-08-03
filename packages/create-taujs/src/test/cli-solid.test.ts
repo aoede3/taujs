@@ -348,3 +348,20 @@ describe('scaffolder baseline - the Vite builds pin NODE_ENV', () => {
     });
   }
 });
+
+describe('scaffolder baseline - generated code asks the runtime-mode question the way τjs does', () => {
+  for (const framework of ['react', 'vue', 'solid'] as Framework[]) {
+    it(`${framework}: development is explicit, never "not production"`, () => {
+      const { read } = generate(framework);
+      const server = read('src/server/index.ts');
+
+      // τjs resolves ONE runtime mode: development is requested explicitly and every other value -
+      // production, test, staging, unset - is production. A generated `!== "production"` taught the
+      // opposite partition, which is the mixture that made an unset NODE_ENV read production
+      // manifests from src/client and crash-loop under a supervisor.
+      expect(server).toContain('process.env.NODE_ENV === "development"');
+      expect(server).not.toContain('!== "production"');
+      expect(server).not.toContain("!== 'production'");
+    });
+  }
+});

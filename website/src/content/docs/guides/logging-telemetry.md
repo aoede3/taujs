@@ -34,22 +34,26 @@ For a caller-owned host, configure logging directly on Fastify:
 ```ts
 import Fastify from "fastify";
 
+// Development is requested explicitly; `production`, `test`, `staging` and an unset variable all
+// take the production branch. This matches how τjs derives its own runtime mode, so the host
+// logger and τjs records never disagree about which mode the process is in.
+const isDevelopment = process.env.NODE_ENV === "development";
+
 const fastify = Fastify({
   logger: {
-    level: process.env.NODE_ENV === "production" ? "info" : "debug",
+    level: isDevelopment ? "debug" : "info",
     redact: [
       "req.headers.authorization",
       "req.headers.cookie",
       "params.password",
       "params.token",
     ],
-    transport:
-      process.env.NODE_ENV === "production"
-        ? undefined
-        : {
-            target: "pino-pretty",
-            options: { colorize: true },
-          },
+    transport: isDevelopment
+      ? {
+          target: "pino-pretty",
+          options: { colorize: true },
+        }
+      : undefined,
   },
 });
 

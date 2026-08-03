@@ -201,12 +201,18 @@ fastify.decorate("authenticate", async function (req, reply) {
 import fastifySession from "@fastify/session";
 import fastifyCookie from "@fastify/cookie";
 
+// A secure cookie describes the TRANSPORT this process is served over, not the build mode.
+// Keying it to `NODE_ENV === "production"` sends session cookies in clear whenever the variable
+// is `staging`, `test` or unset - all of which τjs runs as production. Declare the transport and
+// default to secure, so a missing value fails closed.
+const secureCookies = process.env.COOKIE_SECURE !== "false";
+
 // Register session plugins
 await fastify.register(fastifyCookie);
 await fastify.register(fastifySession, {
   secret: process.env.SESSION_SECRET,
   cookie: {
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookies,
   },
 });
 
@@ -335,10 +341,15 @@ needs, and never expose session tokens through critical or deferred route data.
 ### 1. Use Secure Session Configuration
 
 ```typescript
+// Default secure; set COOKIE_SECURE=false only where the application is served over plain HTTP,
+// such as local development. Never derive this from NODE_ENV: `staging`, `test` and an unset
+// variable are all production to τjs, and would silently drop the flag.
+const secureCookies = process.env.COOKIE_SECURE !== "false";
+
 await fastify.register(fastifySession, {
   secret: process.env.SESSION_SECRET,
   cookie: {
-    secure: process.env.NODE_ENV === "production", // HTTPS only
+    secure: secureCookies, // HTTPS only
     httpOnly: true, // Prevent XSS
     sameSite: "lax", // CSRF protection
     maxAge: 24 * 60 * 60 * 1000, // 24 hours

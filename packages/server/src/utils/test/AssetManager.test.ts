@@ -83,6 +83,7 @@ async function importer(isDev: boolean) {
 
   vi.doMock('../../System', () => ({
     isDevelopment: isDev,
+    runtimeMode: isDev ? 'development' : 'production',
   }));
 
   const mod = await import('../AssetManager');

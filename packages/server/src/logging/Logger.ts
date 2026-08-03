@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 
 import { parseDebugInput } from './Parser';
+import { runtimeMode } from '../System';
 import { DEBUG_CATEGORIES, type BaseLogger, type DebugCategory, type DebugConfig, type Logs, type LogLevel } from '../core/logging/types';
 
 export { DEBUG_CATEGORIES };
@@ -68,7 +69,7 @@ export class Logger implements Logs {
   private shouldIncludeStack(level: LogLevel): boolean {
     const include = this.config.includeStack;
 
-    if (include === undefined) return level === 'error' || (level === 'warn' && process.env.NODE_ENV !== 'production');
+    if (include === undefined) return level === 'error' || (level === 'warn' && runtimeMode !== 'production');
 
     if (typeof include === 'boolean') return include;
 
@@ -96,7 +97,7 @@ export class Logger implements Logs {
 
   private formatTimestamp(): string {
     const now = new Date();
-    if (process.env.NODE_ENV === 'production') return now.toISOString();
+    if (runtimeMode === 'production') return now.toISOString();
 
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');

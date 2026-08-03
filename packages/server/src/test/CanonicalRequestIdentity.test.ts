@@ -215,6 +215,15 @@ describe('SC-09 identity matrix - supplied host (caller policy)', () => {
     const page = observe(await host.app.inject(PATHS.taujsPage));
 
     expect(expectOneIdentity(page, captured)).toBe(CALLER_REQUEST_ID);
+
+    // The binding is proven on a record that exists in EVERY runtime mode. A successful render
+    // emits only request-scoped debug records, and debug is a development facility: since the
+    // single runtime-mode derivation, `NODE_ENV=test` runs as production, so the runtime logger
+    // sits at minLevel `info`. The failure leg emits at error level through the same
+    // request-scoped logger, which is where correlation actually earns its keep - and it matches
+    // the numeric leg below, which has always proven the binding this way.
+    observe(await host.app.inject(PATHS.taujsFailure));
+
     expect(host.logs.some((record) => (record.meta as Record<string, unknown>).reqId === CALLER_REQUEST_ID)).toBe(true);
   });
 

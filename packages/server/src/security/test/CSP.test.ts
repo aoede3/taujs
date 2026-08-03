@@ -57,6 +57,7 @@ async function importer(isDev = true) {
 
   vi.doMock('../../System', () => ({
     isDevelopment: isDev,
+    runtimeMode: isDev ? 'development' : 'production',
   }));
 
   return await import('../CSP');

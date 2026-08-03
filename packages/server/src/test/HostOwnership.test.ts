@@ -222,6 +222,12 @@ describe('RFC 0010 - caller-owned host', () => {
 
     const page = observe(await host.app.inject(PATHS.taujsPage));
 
+    // Correlation is asserted after the failure leg because that record exists in every runtime
+    // mode: a successful render only emits request-scoped DEBUG records, and since the single
+    // runtime-mode derivation `NODE_ENV=test` runs as production, where the runtime logger sits at
+    // minLevel `info`.
+    observe(await host.app.inject(PATHS.taujsFailure));
+
     expect(page.requestId).toBe(String(NUMERIC_REQUEST_ID));
     expect(page.requestId).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
     expect(JSON.stringify(host.logs)).toContain(String(NUMERIC_REQUEST_ID));

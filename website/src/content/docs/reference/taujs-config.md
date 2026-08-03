@@ -1123,7 +1123,9 @@ export default defineConfig({
 ### Conditional Configuration
 
 ```typescript
-const isDev = process.env.NODE_ENV !== "production";
+// Development is requested explicitly. Every other value - `production`, `test`, `staging`,
+// unset - is production, which is how τjs derives its own runtime mode.
+const isDev = process.env.NODE_ENV === "development";
 
 export default defineConfig({
   server: {

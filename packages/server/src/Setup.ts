@@ -1,4 +1,5 @@
 import { CONTENT } from './constants';
+import { runtimeMode } from './System';
 
 import type { Plugin } from 'vite';
 import type { CoreSecurityConfig } from './core/config/types';
@@ -38,7 +39,7 @@ export function printSecuritySummary(logger: Logger, routes: Route[], security: 
     if (hasReporting) detail += ', reporting';
     if (custom > 0) detail += `, ${custom} route override(s)`;
   } else {
-    if (process.env.NODE_ENV === 'production') {
+    if (runtimeMode === 'production') {
       logger.warn({}, '(consider explicit config for production)');
     }
   }
