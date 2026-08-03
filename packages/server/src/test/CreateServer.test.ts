@@ -176,7 +176,9 @@ describe('createServer', () => {
       }),
     );
 
-    expect(createLoggerSpy).toHaveBeenCalledWith(expect.objectContaining({ minLevel: 'debug', includeContext: true }));
+    // RECORDED DELTA: this suite boots under `NODE_ENV=test` and expected `debug`. Development is
+    // requested explicitly now, so `test` takes the production minimum level.
+    expect(createLoggerSpy).toHaveBeenCalledWith(expect.objectContaining({ minLevel: 'info', includeContext: true }));
 
     expect(registerMock).toHaveBeenNthCalledWith(
       2,
@@ -520,5 +522,87 @@ describe('createServer', () => {
     });
 
     expect(createLoggerSpy).toHaveBeenCalledWith(expect.objectContaining({ custom: customLogger }));
+  });
+});
+
+// The evidence matrix for the single runtime-mode derivation, driven through the real public
+// `createServer` rather than the resolver alone. Before this unit, `resolveClientRoot` partitioned
+// on `=== 'production'` while the asset loader partitioned on `=== 'development'`, so `test`, unset
+// and any arbitrary value selected a DEVELOPMENT client root and then loaded assets the PRODUCTION
+// way - a guaranteed `src/client/.vite/manifest.json` ENOENT at boot, and an infinite crash-loop
+// under a supervisor that restarts failed workers.
+describe('createServer runtime-mode matrix', () => {
+  const bootWith = async (nodeEnv: string | undefined, opts: { clientRoot?: string } = {}) => {
+    const previous = process.env.NODE_ENV;
+
+    if (nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnv;
+
+    try {
+      const { createServer } = await importer();
+
+      await createServer({
+        config: minimalConfig,
+        serviceRegistry: dummyRegistry,
+        ...opts,
+      });
+    } finally {
+      if (previous === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous;
+    }
+
+    const ssrCall = registerMock.mock.calls.find(([plugin]) => plugin === SSRServerPlugin);
+
+    return {
+      clientRoot: (ssrCall?.[1] as any).clientRoot as string,
+      minLevel: firstLoggerArgs().minLevel,
+    };
+  };
+
+  // `createLoggerSpy` is declared with no parameters, so its recorded call tuple is typed empty.
+  const firstLoggerArgs = () => (createLoggerSpy.mock.calls[0] as unknown as [{ minLevel: string }])[0];
+
+  it('development: the development client root and debug logging', async () => {
+    const boot = await bootWith('development');
+
+    expect(boot.clientRoot).toBe(path.resolve(process.cwd(), 'src/client'));
+    expect(boot.minLevel).toBe('debug');
+  });
+
+  // One row per production-mode class. `test` and unset are the states that used to produce the
+  // mixed boot; `staging` stands for the arbitrary-value class the ruling covers explicitly.
+  it.each([['production'], ['test'], [undefined], ['staging']])('NODE_ENV=%s: the production client root and info logging', async (nodeEnv) => {
+    const boot = await bootWith(nodeEnv as string | undefined);
+
+    expect(boot.clientRoot).toBe(path.resolve(process.cwd(), 'dist/client'));
+    expect(boot.clientRoot).not.toContain(`${path.sep}src${path.sep}client`);
+    expect(boot.minLevel).toBe('info');
+  });
+
+  it('unset with an explicit clientRoot: the caller wins, which is why fail-fast was rejected', async () => {
+    const explicitRoot = path.resolve(process.cwd(), 'somewhere/else/client');
+    const boot = await bootWith(undefined, { clientRoot: explicitRoot });
+
+    expect(boot.clientRoot).toBe(explicitRoot);
+  });
+
+  it('the mode is a process-lifetime snapshot: changing NODE_ENV after import does not move it', async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+
+    try {
+      const { createServer } = await importer();
+
+      process.env.NODE_ENV = 'production';
+
+      await createServer({ config: minimalConfig, serviceRegistry: dummyRegistry });
+
+      const ssrCall = registerMock.mock.calls.find(([plugin]) => plugin === SSRServerPlugin);
+
+      expect((ssrCall?.[1] as any).clientRoot).toBe(path.resolve(process.cwd(), 'src/client'));
+      expect(firstLoggerArgs().minLevel).toBe('debug');
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
   });
 });

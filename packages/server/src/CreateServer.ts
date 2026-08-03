@@ -16,7 +16,7 @@ import { bannerPlugin } from './network/Network';
 import { verifyContracts, isAuthRequired, hasAuthenticate } from './security/VerifyMiddleware';
 import { printConfigSummary, printContractReport, printSecuritySummary } from './Setup';
 import { ssrServerPlugin } from './SSRServer';
-import { isDevelopment } from './System';
+import { isDevelopment, runtimeMode } from './System';
 
 import type { FastifyInstance } from 'fastify';
 import type { ServiceRegistry } from './core/services/DataServices';
@@ -58,7 +58,7 @@ const resolveClientRoot = (userClientRoot?: string): string => {
 
   const cwd = process.cwd();
 
-  if (process.env.NODE_ENV === 'production') return path.resolve(cwd, 'dist/client');
+  if (runtimeMode === 'production') return path.resolve(cwd, 'dist/client');
 
   return path.resolve(cwd, 'src/client');
 };
@@ -95,7 +95,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     source: opts.logger ? 'explicit' : fastifyLogger ? 'fastify' : 'fallback',
     debug: opts.debug,
     custom: opts.logger ?? fastifyLogger,
-    minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+    minLevel: runtimeMode === 'production' ? 'info' : 'debug',
   };
   const logger = createRuntimeLogger(runtimeLogger, {
     includeContext: true,

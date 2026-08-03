@@ -24,6 +24,24 @@ const parseDebugInputMock = parseDebugInput as unknown as Mock;
 
 const originalEnv = { ...process.env };
 
+// The runtime mode is snapshotted at module evaluation, so a Logger test that needs a specific
+// mode selects the environment and then imports Logger - it never mutates NODE_ENV mid-test and
+// never substitutes an assertion on the resolver for one on Logger's own behaviour.
+async function importLoggerWithEnv(nodeEnv: string | undefined) {
+  const previous = process.env.NODE_ENV;
+
+  if (nodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = nodeEnv;
+
+  vi.resetModules();
+
+  try {
+    return await import('../Logger');
+  } finally {
+    process.env.NODE_ENV = previous;
+  }
+}
+
 describe('Logger', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let warnSpy: ReturnType<typeof vi.spyOn>;
@@ -46,18 +64,24 @@ describe('Logger', () => {
     process.env = { ...originalEnv };
   });
 
-  it('formatTimestamp uses HH:mm:ss.SSS in non-production and ISO in production', () => {
-    const logger = createLogger();
-    logger.info({}, 'hello');
+  it('formatTimestamp uses HH:mm:ss.SSS in development and ISO in every production-mode environment', async () => {
+    const development = await importLoggerWithEnv('development');
+    development.createLogger().info({}, 'hello');
 
     const firstArg = (console.log as any).mock.calls[0][0] as string;
     expect(firstArg).toMatch(/^03:04:05\.006 \[info\] hello$/);
 
-    (console.log as any).mockClear();
-    process.env.NODE_ENV = 'production';
-    logger.info({}, 'prod');
-    const prodArg = (console.log as any).mock.calls[0][0] as string;
-    expect(prodArg).toMatch(/^\d{4}-\d{2}-\d{2}T03:04:05\.006Z \[info\] prod$/);
+    // `production`, `test`, unset and any other value are ONE mode, so the production timestamp
+    // is pinned across all four rather than only the literal `production`.
+    for (const nodeEnv of ['production', 'test', undefined, 'staging']) {
+      (console.log as any).mockClear();
+
+      const productionMode = await importLoggerWithEnv(nodeEnv);
+      productionMode.createLogger().info({}, 'prod');
+
+      const prodArg = (console.log as any).mock.calls[0][0] as string;
+      expect(prodArg, `NODE_ENV=${String(nodeEnv)}`).toMatch(/^\d{4}-\d{2}-\d{2}T03:04:05\.006Z \[info\] prod$/);
+    }
   });
 
   it('minLevel gating: info suppressed when minLevel=warn, warn+error allowed; debug suppressed unless enabled', () => {
@@ -110,8 +134,9 @@ describe('Logger', () => {
     expect(msg).toContain('[debug:routes] enabled');
   });
 
-  it('includeStack: default includes warn (in non-prod) and error, strips stack otherwise; boolean and fn work', () => {
-    const loggerA = createLogger({ minLevel: 'debug' });
+  it('includeStack: default includes warn (in development) and error, strips stack otherwise; boolean and fn work', async () => {
+    const development = await importLoggerWithEnv('development');
+    const loggerA = development.createLogger({ minLevel: 'debug' });
 
     const circular: any = { a: 1, stack: 'S', inner: { someStack: 'X' } };
     circular.self = circular;
@@ -128,11 +153,17 @@ describe('Logger', () => {
     const warnMeta = warnArgs[1];
     expect(warnMeta.stack).toBe('S2');
 
-    process.env.NODE_ENV = 'production';
-    const loggerB = createLogger({ minLevel: 'debug' });
-    loggerB.warn({ stack: 'S3' }, 'prod warn');
-    const prodWarn = (console.warn as any).mock.calls.pop()!;
-    expect(prodWarn.length).toBe(1);
+    // Every non-development environment is production mode, so `test` strips warn stacks exactly
+    // as `production` does - the delta this unit deliberately introduced.
+    for (const nodeEnv of ['production', 'test']) {
+      const productionMode = await importLoggerWithEnv(nodeEnv);
+      const loggerB = productionMode.createLogger({ minLevel: 'debug' });
+
+      loggerB.warn({ stack: 'S3' }, 'prod warn');
+
+      const prodWarn = (console.warn as any).mock.calls.pop()!;
+      expect(prodWarn.length, `NODE_ENV=${nodeEnv}`).toBe(1);
+    }
 
     const loggerC = createLogger({ includeStack: true, minLevel: 'debug' });
     loggerC.info({ stack: 'S4' }, 'boolean true');

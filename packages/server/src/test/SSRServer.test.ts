@@ -123,9 +123,14 @@ vi.mock('../security/CSP', () => ({ cspPlugin: cspPluginMock }));
 
 vi.mock('../security/CSPReporting', () => ({ cspReportPlugin: cspReportPluginMock }));
 
+// The controlled System mock mirrors the real module's single derivation: one mode drives both
+// exports, so the mock cannot express the mixed state this unit removed.
 vi.mock('../System', () => ({
   get isDevelopment() {
     return devRef.value;
+  },
+  get runtimeMode() {
+    return devRef.value ? 'development' : 'production';
   },
 }));
 
@@ -666,9 +671,11 @@ describe('SSRServer', () => {
     expect(mockReply.send).not.toHaveBeenCalled();
   });
 
-  it('uses minLevel "debug" when not in production', async () => {
-    const orig = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'test';
+  // RECORDED DELTA: these two selected the level by writing NODE_ENV mid-test, and `test` used to
+  // mean debug. The level follows the one runtime mode now, so they select the mode instead -
+  // `test`, unset and any other value all resolve to the production branch.
+  it('uses minLevel "debug" in development', async () => {
+    devRef.value = true;
 
     await app.register(SSRServer, {
       alias: {},
@@ -682,12 +689,11 @@ describe('SSRServer', () => {
     const args = (createLogger as unknown as Mock).mock.calls[0]![0];
     expect(args.minLevel).toBe('debug');
 
-    process.env.NODE_ENV = orig;
+    devRef.value = false;
   });
 
-  it('uses minLevel "info" when NODE_ENV=production', async () => {
-    const orig = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
+  it('uses minLevel "info" in production mode', async () => {
+    devRef.value = false;
 
     await app.register(SSRServer, {
       alias: {},
@@ -700,8 +706,6 @@ describe('SSRServer', () => {
 
     const args = (createLogger as unknown as Mock).mock.calls[0]![0];
     expect(args.minLevel).toBe('info');
-
-    process.env.NODE_ENV = orig;
   });
 
   it('registers static assets with default empty options when options is undefined', async () => {

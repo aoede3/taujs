@@ -14,7 +14,7 @@ import { TEMPLATE } from './constants';
 import { AppError } from './core/errors/AppError';
 import { logResponseFailure } from './core/errors/ResponseFailureLog';
 import { fastifyConfigForRoute, selectedRouteFrom } from './core/routes/FastifyRoutes';
-import { isDevelopment } from './System';
+import { isDevelopment, runtimeMode } from './System';
 
 import { printVitePluginSummary } from './Setup';
 import { createLogger } from './logging/Logger';
@@ -56,7 +56,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     : createLogger({
         debug: opts.debug,
         context: { component: 'ssr-server' },
-        minLevel: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+        minLevel: runtimeMode === 'production' ? 'info' : 'debug',
         includeContext: true,
         singleLine: true,
       });
