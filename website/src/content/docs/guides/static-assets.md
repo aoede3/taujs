@@ -54,9 +54,12 @@ Pass a plugin and options when the defaults do not fit:
 import fastifyStatic from "@fastify/static";
 import path from "node:path";
 
+// Ask the same question τjs asks: development is explicit, everything else is production.
+// Testing for `!== "production"` would send `NODE_ENV=test`, `staging` or an unset variable
+// down the development branch while τjs itself loads production assets.
 const clientRoot = path.resolve(
   process.cwd(),
-  process.env.NODE_ENV === "production" ? "dist/client" : "src/client",
+  process.env.NODE_ENV === "development" ? "src/client" : "dist/client",
 );
 
 await createServer({
