@@ -1,5 +1,17 @@
 # @taujs/cli
 
+## 0.7.1
+
+### Patch Changes
+
+- [#61](https://github.com/aoede3/taujs/pull/61) [`b2e7c93`](https://github.com/aoede3/taujs/commit/b2e7c93eb8eaeb143e2e28609bd779d7797e4f8a) Thanks [@aoede3](https://github.com/aoede3)! - Generated applications ask the runtime-mode question the way τjs answers it. The server template
+  derived its debug setting from `process.env.NODE_ENV !== "production"`, which treats `test`,
+  `staging` and an unset variable as development while the server runs them as production. It now
+  reads `process.env.NODE_ENV === "development"`, with a comment stating the rule.
+
+  No behaviour change for `npm run dev` or `npm start`, which set `NODE_ENV` explicitly; the
+  difference appears when a supervisor, CI runner or container leaves it at some other value.
+
 ## 0.7.0
 
 ### Minor Changes
