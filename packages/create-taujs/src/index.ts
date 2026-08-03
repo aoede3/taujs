@@ -484,7 +484,7 @@ function generatePackageJson(projectName: string, framework: Framework) {
 
 function generateBuildTs() {
   return `import path from "node:path";
-import { taujsBuild } from "@taujs/server";
+import { taujsBuild } from "@taujs/server/build";
 import config from "./taujs.config.ts";
 
 await taujsBuild({

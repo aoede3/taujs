@@ -24,14 +24,11 @@ import { createAuthHook } from './security/Auth';
 import { cspPlugin } from './security/CSP';
 import { cspReportPlugin } from './security/CSPReporting';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
-import { setupDevServer } from './utils/DevServer';
-import { resolveDevViteConfig } from './utils/ViteMergeEngine';
 import { createRequestContext, getRequestContext } from './utils/Telemetry';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { registerStaticAssets } from './utils/StaticAssets';
 import { pluginCollisionMessage, reservedPluginMessage } from './utils/VitePlugins';
-import { assembleDevPluginChain } from './utils/OwnershipPrepass';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -113,6 +110,12 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
   });
 
   if (isDevelopment) {
+    // Development-only modules load here, never statically: OwnershipPrepass reaches `vite` at
+    // module scope, and the production module graph must not resolve the Vite toolchain.
+    const { setupDevServer } = await import('./utils/DevServer');
+    const { resolveDevViteConfig } = await import('./utils/ViteMergeEngine');
+    const { assembleDevPluginChain } = await import('./utils/OwnershipPrepass');
+
     // RFC 0005 §1 (VS4): resolve `config.vite` ONCE, with the discriminated `serve` context arm
     // (no `appId` - per-app dev servers are rejected by maintainer ruling). Resolution happens
     // HERE rather than inside the engine so the override's plugins can enter the same §5

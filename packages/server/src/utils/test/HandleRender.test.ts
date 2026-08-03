@@ -60,7 +60,7 @@ vi.mock('../../core/errors/AppError', async () => {
 
 vi.mock('../../logging/Logger');
 
-vi.mock('../../Build', () => ({
+vi.mock('../Entry', () => ({
   resolveEntryFile: vi.fn((clientRoot: string, entryServer: string) => entryServer),
 }));
 
