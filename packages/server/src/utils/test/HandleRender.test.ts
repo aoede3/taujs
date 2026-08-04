@@ -134,6 +134,22 @@ vi.mock('node:stream', () => {
   return { ...mod, default: mod };
 });
 
+/**
+ * The streamed head is written from one normalised object. `reply.getHeaders()` returns lowercase
+ * keys and `writeHead` serialises the keys it is given, so a key differing only by case is a second
+ * header line on the wire. Required headers are pinned by the individual tests; this pins the
+ * property that makes them safe, without freezing the complete header set.
+ *
+ * Wire-level proof that duplicate keys really do reach the socket lives in
+ * `test/StreamingHeadNormalisation.test.ts` (a real listener reading `rawHeaders`).
+ */
+const expectNormalisedHead = (headers: Record<string, unknown>): void => {
+  const keys = Object.keys(headers);
+
+  expect(keys.map((key) => key.toLowerCase())).toEqual(keys);
+  expect(new Set(keys.map((key) => key.toLowerCase())).size).toBe(keys.length);
+};
+
 describe('handleRender', () => {
   let mockReq: any;
   let mockReply: any;
@@ -2053,8 +2069,11 @@ describe('handleRender', () => {
       expect(mockReply.raw.writeHead).toHaveBeenCalledTimes(1);
       expect(mockReply.raw.writeHead).toHaveBeenCalledWith(
         500,
-        expect.objectContaining({ 'Content-Type': 'text/html; charset=utf-8', 'x-request-id': 'fatal-episode-1' }),
+        expect.objectContaining({ 'content-type': 'text/html; charset=utf-8', 'x-request-id': 'fatal-episode-1' }),
       );
+      // The pre-head 500 commits the SAME normalised object as the 200 path, so it cannot
+      // reintroduce a case variant of a header the reply already carries.
+      expectNormalisedHead(mockReply.raw.writeHead.mock.calls[0][1]);
       expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
       expect(mockReply.raw.destroy).not.toHaveBeenCalled();
     });
@@ -2270,7 +2289,7 @@ describe('handleRender', () => {
       expect(writes).not.toContain('taujs:data-ready');
     });
 
-    it('streaming: does not add CSP header when getHeader returns undefined', async () => {
+    it('streaming: carries no CSP header when the reply has none', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
 
@@ -2296,7 +2315,51 @@ describe('handleRender', () => {
       await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       const [, headers] = mockReply.raw.writeHead.mock.calls[0];
+      expect(headers['content-security-policy']).toBeUndefined();
       expect(headers['Content-Security-Policy']).toBeUndefined();
+      expectNormalisedHead(headers);
+    });
+
+    it('streaming: a CSP already on the reply reaches the head exactly once, and existing headers survive', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+      mockSelectedRoute = mockRoute;
+
+      // Exactly what the CSP plugin leaves behind: a lowercase entry in the reply's header store.
+      mockReply.getHeaders = vi.fn().mockReturnValue({
+        'content-security-policy': "default-src 'self'",
+        'x-request-id': 'head-normalisation-1',
+        'x-host-policy': 'caller-owned',
+      });
+
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '',
+        beforeBody: '</head><body>',
+        afterBody: '</body></html>',
+      });
+
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      mockMaps.renderModules.set('/test/client', {
+        renderStream: vi.fn((writable: any, callbacks: any) => {
+          callbacks.onHead?.('<title>X</title>');
+          writable.emit('finish');
+          return { abort: vi.fn(), done: Promise.resolve() };
+        }),
+      });
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      const [status, headers] = mockReply.raw.writeHead.mock.calls[0];
+
+      expect(status).toBe(200);
+      expectNormalisedHead(headers);
+      expect(headers['content-security-policy']).toBe("default-src 'self'");
+      expect(headers['content-type']).toBe('text/html; charset=utf-8');
+      // Everything the reply already carried survives the normalisation.
+      expect(headers['x-request-id']).toBe('head-normalisation-1');
+      expect(headers['x-host-policy']).toBe('caller-owned');
     });
   });
 
