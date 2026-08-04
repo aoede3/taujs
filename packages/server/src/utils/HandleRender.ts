@@ -463,10 +463,12 @@ export const handleRender = async (
         });
       }
 
-      const headers = reply.getHeaders(); // includes x-request-id from createRequestContext
-      headers['Content-Type'] = 'text/html; charset=utf-8';
-      const cspHeader = reply.getHeader('Content-Security-Policy');
-      if (cspHeader) headers['Content-Security-Policy'] = cspHeader as any;
+      // ONE normalised head object for both commit paths. `reply.getHeaders()` returns LOWERCASE
+      // keys (Fastify lowercases on set), and `writeHead` serialises whatever keys the object
+      // carries, so a mixed-case key added here becomes a SECOND header line on the wire. That is
+      // how any CSP established before the handoff - including τjs's own, set by the CSP plugin in
+      // `onRequest` - was being emitted twice. Every key added here must be lowercase.
+      const headers = { ...reply.getHeaders(), 'content-type': 'text/html; charset=utf-8' }; // includes x-request-id from createRequestContext
 
       // The raw socket is ours from here. The status is committed on first
       // output (onHead) rather than up front, so a render failure before any
@@ -477,7 +479,7 @@ export const handleRender = async (
         if (!reply.raw.headersSent) reply.raw.writeHead(200, headers as any);
       };
       const commitErrorHead = () => {
-        if (!reply.raw.headersSent) reply.raw.writeHead(500, { ...headers, 'Content-Type': 'text/html; charset=utf-8' } as any);
+        if (!reply.raw.headersSent) reply.raw.writeHead(500, headers as any);
       };
 
       const abortedState = { aborted: false };
