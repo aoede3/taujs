@@ -113,6 +113,82 @@ inbound correlation header after Fastify has created the request; a caller that 
 inbound correlation configures it at Fastify construction with a validating `genReqId`. See
 [Logging and Telemetry](/guides/logging-telemetry/#request-identity) for the recipe.
 
+## Response policy and lifecycle hooks
+
+Host response policy, such as cache headers, security headers or a marker header, is applied with a
+Fastify lifecycle hook. Where that hook must sit depends on the render strategy, because a streamed
+response commits its head as soon as the renderer produces one and writes the rest to the socket
+directly.
+
+Two questions decide whether a hook is a usable policy point, and they have different answers:
+
+1. Is the hook **invoked**?
+2. Does a header set there **reach the client**?
+
+| Hook | SSR: invoked | SSR: header reaches client | Streaming: invoked | Streaming: header reaches client |
+| --- | --- | --- | --- | --- |
+| `onRequest` | Yes | Yes | Yes | Yes |
+| `preParsing` | Yes | Yes | Yes | Yes |
+| `preValidation` | Yes | Yes | Yes | Yes |
+| `preHandler` | Yes | Yes | Yes | Yes |
+| `preSerialization` | No | Not applicable | No | Not applicable |
+| `onSend` | Yes | Yes | **No** | **No** |
+| `onResponse` | Yes | No, already sent | Yes | No, already sent |
+
+The table is identical for both installation shapes. It is verified against a real listener, not an
+injected request, because header behaviour on a streamed response is only observable on the wire.
+
+Both `onRequest` and `preHandler` reach every strategy, so either covers all rendered pages. Which
+one depends on what the policy is:
+
+- **`onRequest`** for unconditional host-wide policy, such as security headers.
+- **`preHandler`** for route-selected or authentication-sensitive policy, such as HTML caching. It
+  runs after authentication and validation have succeeded, so a rejected request does not carry a
+  header that assumed success.
+- **`onSend`** only when SSR pages and ordinary Fastify responses are deliberately the entire
+  target.
+
+`onSend` is the important exception. A streaming page hands the raw socket to the renderer, so
+Fastify's send phase never runs for it: an `onSend` policy silently applies to SSR pages and to
+ordinary JSON routes while skipping every streamed page. Nothing reports the difference, so compare
+responses rather than assuming coverage.
+
+`preSerialization` runs only when Fastify serialises a payload. τjs page responses are an HTML
+string or a raw stream, so neither shape is serialised. This is payload shape, not a τjs omission:
+the same hook on the same server runs normally for a route returning an object.
+
+`onResponse` is invoked for every strategy and is the right place to observe completion, including
+the final status of a streamed response. It runs after the response has been sent, so it is an
+observation point rather than a policy point.
+
+### Where to register hooks
+
+On a caller-owned instance, register hooks before passing the instance to `createServer`:
+
+```ts
+app.addHook('onRequest', async (_request, reply) => {
+  reply.header('X-Host-Policy', 'applied');
+});
+
+await createServer({ config, fastify: app });
+```
+
+On a τjs-created instance, add them to the returned app before `listen()`:
+
+```ts
+const { app } = await createServer({ config });
+
+app.addHook('onRequest', async (_request, reply) => {
+  reply.header('X-Host-Policy', 'applied');
+});
+
+await app.listen({ port: 3000 });
+```
+
+Both flows reach τjs page routes, including the routes τjs registers in its own encapsulated scope.
+The boundary is the server boot: Fastify rejects `addHook` once the instance has booted, so hooks
+must be installed before `listen()`.
+
 ## Running τjs inside another runtime
 
 Because a supplied instance keeps its own lifecycle, τjs can run as a subsystem of a larger Fastify
