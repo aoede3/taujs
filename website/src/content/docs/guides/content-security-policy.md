@@ -64,6 +64,16 @@ The nonce is automatically applied to:
 
 **You do not add nonces manually** - τjs handles this.
 
+### Applying your own CSP from a hook
+
+τjs manages the policy for the pages it renders. If the host applies its own CSP, or any other
+response header, the hook it uses decides which pages receive it: an `onSend` policy reaches SSR
+pages but never streamed ones, because a streamed response commits its head before Fastify's send
+phase. Use `onRequest` for an unconditional policy like this one, or `preHandler` when the policy
+depends on the route or on authentication having succeeded. Both reach every strategy. See
+[Response policy and lifecycle hooks](/guides/host-ownership/#response-policy-and-lifecycle-hooks)
+for the verified matrix.
+
 ## Development vs Production
 
 ### Development Mode
