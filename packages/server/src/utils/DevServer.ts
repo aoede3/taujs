@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { CONTENT } from '../constants';
+import { selectedRouteFrom } from '../core/routes/FastifyRoutes';
 import { createLogger } from '../logging/Logger';
 import { overrideCSSHMRConsoleError } from './Templates';
 import { layerAlias } from './ViteAlias';
@@ -188,7 +189,21 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
 
   overrideCSSHMRConsoleError();
 
+  /**
+   * Caller-owned host: Vite must not answer a request the CALLER's own route was selected for -
+   * that is how a caller route ended up returning Vite's 403 block page behind a proxy.
+   *
+   * `request.is404` is Fastify's existing selection result, read rather than recomputed, so no
+   * second lookup can disagree with it. Declared τjs pages deliberately STAY in the middleware
+   * path: they are selected too, and skipping it would also skip Vite's host check for them.
+   */
+  const callerOwnedRootDelegator = options.viteRequestHookOwner !== undefined;
+
   (options.viteRequestHookOwner ?? app).addHook('onRequest', async (request, reply) => {
+    // Classification is only meaningful on the caller-owned root delegator; the created-host path
+    // stays exactly as it was, including never reading the request's route identity.
+    if (callerOwnedRootDelegator && !request.is404 && selectedRouteFrom(request) === null) return;
+
     await new Promise<void>((resolve) => {
       viteDevServer.middlewares(request.raw, reply.raw, () => {
         if (!reply.sent) resolve();
