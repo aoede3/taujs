@@ -24,7 +24,7 @@
  * `Config.ts`); the Vite-typed surface belongs alongside `Config.ts`/`Build.ts`, which already
  * import from `vite`.
  */
-import type { DepOptimizationOptions, ESBuildOptions, LogLevel, PluginOption, ResolveOptions, Rollup } from 'vite';
+import type { DepOptimizationOptions, ESBuildOptions, LogLevel, PluginOption, ResolveOptions, Rollup, ServerOptions } from 'vite';
 import type { BuildOptions, CSSOptions } from 'vite';
 
 /**
@@ -39,12 +39,44 @@ import type { BuildOptions, CSSOptions } from 'vite';
 export type TaujsOptimizeDeps = Pick<DepOptimizationOptions, 'include' | 'exclude' | 'esbuildOptions'>;
 
 /**
+ * INTERNAL shape for `TaujsViteConfig['server']` - not exported from the package. Reference it as
+ * `TaujsViteConfig['server']` if you need to name it.
+ *
+ * An ALLOWLIST of one, matching every other surface in this file, rather than "`ServerOptions`
+ * minus what we own". The exclusion form was tried and rejected: it admitted options τjs cannot
+ * honestly honour in middleware mode, and it would silently widen the public surface every time
+ * Vite adds a field.
+ *
+ * Deliberately withheld, each for a reason:
+ *
+ * - `ws` - Vite documents `ws: false` as disabling the WebSocket connection, which would break the
+ *   HMR facility τjs owns through `server.hmr`. Admitting a field that disables an invariant we
+ *   claim is a contradiction, not a customisation.
+ * - `host`, `port`, `strictPort`, `https`, `open` - these configure Vite's own HTTP listener, and
+ *   in middleware mode Vite has no listener. Fastify owns it. They would be inert, which is worse
+ *   than absent: the editor would suggest them and nothing would happen.
+ * - `proxy` - overlaps caller-route ownership, which is a separate, unresolved design question.
+ *   It cannot be admitted before that is settled.
+ *
+ * More can be admitted later, one at a time, each with evidence that it works in middleware mode.
+ * That is the same bar `optimizeDeps` was held to.
+ *
+ * Development-only: nothing under `server` reaches a build, silently, exactly like `optimizeDeps`.
+ */
+type TaujsViteServer = Pick<ServerOptions, 'allowedHosts'>;
+
+/**
  * RFC 0005 Amended contract §4 (support matrix) - the allowlisted Vite override object. Only the
  * matrix-admitted fields appear; the protected invariants (`root`, `base`, `publicDir`,
- * `configFile`, `server`, `appType`, `build.outDir`/`ssr`/`ssrManifest`/`format`/`target`/`manifest`,
+ * `configFile`, `appType`, `server.middlewareMode`, `server.hmr`,
+ * `build.outDir`/`ssr`/`ssrManifest`/`format`/`target`/`manifest`,
  * `build.rollupOptions.input`, `resolve.alias`) are ABSENT from the type, so the editor refuses them
  * up front rather than the merge dropping them later. Aliases have their own declarative home
  * (top-level `alias`), so `resolve` here is the alias-free `ResolveOptions`.
+ *
+ * Under `server`, ONLY `allowedHosts` is admitted. It applies to the shared development server, and
+ * is silently absent from every build (like `optimizeDeps`) rather than reported there as a
+ * rejected override.
  */
 export type TaujsViteConfig = {
   /** Appended to the framework plugin list (append + dedupe by name; §5). */
@@ -63,6 +95,11 @@ export type TaujsViteConfig = {
   logLevel?: LogLevel;
   /** `resolve` subset - `alias` is intentionally excluded (use top-level `alias`). */
   resolve?: ResolveOptions;
+  /**
+   * Dev-server subset - `middlewareMode` and `hmr` are framework-owned and excluded. Declare
+   * `allowedHosts` here to run development behind a proxy that presents a non-localhost `Host`.
+   */
+  server?: TaujsViteServer;
   /** Build-tuning subset - the framework owns everything else under `build`. */
   build?: {
     sourcemap?: BuildOptions['sourcemap'];

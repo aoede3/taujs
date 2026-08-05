@@ -91,7 +91,7 @@ async function runDev(viteOverride?: TaujsViteOverride) {
   return createServerMock.mock.calls[0]![0] as any;
 }
 
-async function runBuild(viteOverride?: TaujsViteOverride) {
+async function runBuild(viteOverride?: TaujsViteOverride, options: { isSSRBuild?: boolean } = {}) {
   const setup = await import('../core/config/Setup');
   const assets = await import('../utils/AssetManager');
   const apps = [
@@ -110,9 +110,10 @@ async function runBuild(viteOverride?: TaujsViteOverride) {
   vi.mocked(assets.processConfigs).mockReturnValue(apps as any);
 
   const { taujsBuild } = await import('../Build');
-  await taujsBuild({ config: { apps: [], vite: viteOverride } as any, projectRoot, clientBaseDir, isSSRBuild: false });
+  await taujsBuild({ config: { apps: [], vite: viteOverride } as any, projectRoot, clientBaseDir, isSSRBuild: options.isSSRBuild ?? false });
 
-  return buildMock.mock.calls[0]![0] as any;
+  // The LAST call: a single test may compose both the client and the SSR build.
+  return buildMock.mock.calls.at(-1)![0] as any;
 }
 
 beforeEach(() => {
@@ -182,33 +183,92 @@ describe('VS4 - optimizeDeps is dev-only', () => {
   });
 });
 
-describe('VS4 - dev invariants are protected: warned, never applied', () => {
-  it('smuggled server / resolve.alias / root warn via the engine and do not reach the dev config', async () => {
+describe('VS4 - server.* is dev-only', () => {
+  it('a declared server.* reaches development and is SILENTLY absent from client and SSR builds', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    // The allowlist `TaujsViteConfig` type forbids all three; a JS/`as any` cast still reaches the
+    // `config.vite` is ONE declaration feeding the dev server and every app build. The documented
+    // `allowedHosts` recipe must therefore be silent on the build side - warning would report normal
+    // configuration as misuse, once per app, on every build.
+    const fixture: TaujsViteConfig = { server: { allowedHosts: ['app.internal'] } };
+
+    const devConfig = await runDev(fixture);
+    expect(devConfig.server.allowedHosts).toEqual(['app.internal']);
+
+    const clientBuild = await runBuild(fixture);
+    expect(clientBuild.server).toBeUndefined();
+
+    const ssrBuild = await runBuild(fixture, { isSSRBuild: true });
+    expect(ssrBuild.server).toBeUndefined();
+
+    const warned = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(warned).not.toContain('server');
+  });
+});
+
+describe('VS4 - dev invariants are protected: warned, never applied', () => {
+  it('smuggled framework-owned server fields / resolve.alias / root warn and do not reach the dev config', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // The allowlist `TaujsViteConfig` type forbids all of these; a JS/`as any` cast still reaches the
     // runtime engine, which must warn and drop them (RFC 0005 §4 - Protected in dev).
     const smuggled = {
-      server: { port: 9999 },
+      // `ws` and the listener-owned fields are withheld from the type; a JS/`as any` cast still
+      // reaches the runtime, which must refuse them. `ws: false` would disable the WebSocket
+      // channel HMR runs on, and `host`/`port` describe a listener Vite does not own here.
+      server: { middlewareMode: false, hmr: { port: 24678 }, ws: false, host: '0.0.0.0', port: 5173 },
       resolve: { alias: { '@evil': '/tmp/evil' } },
       root: '/tmp/not-the-root',
     } as unknown as TaujsViteConfig;
 
     const devConfig = await runDev(smuggled);
 
-    // One aggregated warn line names every rejected field.
+    // One aggregated warn line names every rejected field. The owned SUBKEYS are named, not the
+    // whole `server` key - `server` itself is now a supported surface in dev.
     const warned = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
     expect(warned).toContain('[taujs:dev]');
-    expect(warned).toContain('server');
+    expect(warned).toContain('server.middlewareMode');
+    expect(warned).toContain('server.hmr');
+    expect(warned).toContain('server.ws');
+    expect(warned).toContain('server.host');
+    expect(warned).toContain('server.port');
     expect(warned).toContain('resolve.alias');
     expect(warned).toContain('root');
 
     // None applied: dev keeps its own middlewareMode + hmr, its own root, and no smuggled alias.
     expect(devConfig.server.middlewareMode).toBe(true);
-    expect(devConfig.server.hmr).toBeDefined();
-    expect(devConfig.server.port).toBeUndefined();
+    expect(devConfig.server.hmr).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
     expect(devConfig.root).toBe(clientBaseDir);
     expect(devConfig.resolve.alias).not.toHaveProperty('@evil');
+
+    // Refused, not applied inertly: nothing that could disable HMR or describe a listener Vite does
+    // not own survives into the dev config.
+    expect(devConfig.server.ws).toBeUndefined();
+    expect(devConfig.server.host).toBeUndefined();
+    expect(devConfig.server.port).toBeUndefined();
+  });
+
+  it('a declared server.allowedHosts survives composition, and the framework keeps middlewareMode and hmr', async () => {
+    // The unit's reason to exist: Vite 6.1+ rejects a non-localhost `Host` unless it is allowed, so
+    // development behind a proxy or supervisor commonly needs this field to reach Vite.
+    const devConfig = await runDev({ server: { allowedHosts: ['web.plt.local'] } } as TaujsViteConfig);
+
+    expect(devConfig.server.allowedHosts).toEqual(['web.plt.local']);
+
+    // The framework's two fields are applied AFTER the user spread, with hmr replaced WHOLE.
+    expect(devConfig.server.middlewareMode).toBe(true);
+    expect(devConfig.server.hmr).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
+  });
+
+  it('composition does not mutate the caller-supplied config object', async () => {
+    const declared = { server: { allowedHosts: ['web.plt.local'] } } as TaujsViteConfig;
+    const snapshot = structuredClone(declared);
+
+    await runDev(declared);
+
+    // A caller may reuse or freeze the object it declared; composition must read it, never write it.
+    expect(declared).toEqual(snapshot);
   });
 });
 

@@ -83,11 +83,15 @@ export type ViteMergeProfile = {
   admitBuild: boolean;
   protectedTop: readonly string[];
   protectedBuild: readonly string[];
+  /** Whether `server.*` is configurable at all: dev has a dev server, a build does not. */
+  admitServer: boolean;
+  /** The ONLY `server` subkeys a user may set. Anything else is warned and dropped. */
+  admittedServer: readonly string[];
 };
 
 /**
- * Build profile (RFC 0005 §4 matrix): the framework owns roots, outputs, inputs, aliases, manifests
- * and the dev-only `server.*`. `manifest` is protected here WITH a warning - aligning it to its
+ * Build profile (RFC 0005 §4 matrix): the framework owns roots, outputs, inputs, aliases and
+ * manifests. `server.*` is dev-only and simply never reaches a build config. `manifest` is protected here WITH a warning - aligning it to its
  * siblings (it was silently restored before, the one Ground-truth inconsistency VS3 fixes).
  * `configFile` is an EXPLICIT protected invariant (pinned to `false` by the framework), no longer
  * merely never-copied. `appType` is protected here too (VS8): the §4 matrix lists it Protected in
@@ -97,13 +101,19 @@ export type ViteMergeProfile = {
 export const BUILD_PROFILE: ViteMergeProfile = {
   mode: 'build',
   admitBuild: true,
-  protectedTop: ['root', 'base', 'publicDir', 'configFile', 'server', 'appType'],
+  protectedTop: ['root', 'base', 'publicDir', 'configFile', 'appType'],
   protectedBuild: ['outDir', 'ssr', 'ssrManifest', 'format', 'target', 'manifest'],
+  // A build has no dev server. `server` is DROPPED SILENTLY rather than warned about, because
+  // `config.vite` is shared: warning would make the documented dev-only recipe look like misuse on
+  // every build. Same treatment as `optimizeDeps`.
+  admitServer: false,
+  admittedServer: [],
 };
 
 /**
  * Dev profile (RFC 0005 §4 matrix + §6). CONSUMED by `resolveDevViteConfig` (VS4). `build.*` is not
- * admitted in dev (the whole `build` key is rejected), and the framework owns `server.*`, `appType`,
+ * admitted in dev (the whole `build` key is rejected), and the framework owns `server.middlewareMode`
+ * and `server.hmr` (the rest of `server.*` is a supported dev surface), `appType`,
  * `root`, `base`, `publicDir`, `configFile`, and `resolve.alias`. `optimizeDeps` is dev-only and
  * merged separately via `mergeOptimizeDeps` (never through this field-copy path).
  *
@@ -117,8 +127,24 @@ export const BUILD_PROFILE: ViteMergeProfile = {
 export const DEV_PROFILE: ViteMergeProfile = {
   mode: 'dev',
   admitBuild: false,
-  protectedTop: ['root', 'base', 'publicDir', 'configFile', 'server', 'appType'],
+  protectedTop: ['root', 'base', 'publicDir', 'configFile', 'appType'],
   protectedBuild: [],
+  /**
+   * ONE `server` field is configurable in dev: `allowedHosts`.
+   *
+   * Rejecting the whole key made the declared surface unable to express it, which Vite requires
+   * whenever a proxy or supervisor presents a non-localhost `Host` - so development behind such a
+   * host answered 403 with no supported way to allow it.
+   *
+   * Everything else is refused, and the reasons differ. `middlewareMode` must stay `true` (τjs owns
+   * the request pipeline). `hmr` is host-derived and replaced WHOLE, never deep-merged: a
+   * partially-user-supplied `hmr` would silently pair a user port with a framework host, which is
+   * worse than refusing it. `ws` would disable the channel that HMR runs on; `host`/`port`/
+   * `strictPort`/`https`/`open` describe a listener Vite does not own in middleware mode; `proxy`
+   * overlaps caller-route ownership.
+   */
+  admitServer: true,
+  admittedServer: ['allowedHosts'],
 };
 
 /** A resolved user override layer (function forms already resolved) with its source label. */
@@ -300,10 +326,33 @@ function applyLayer(
     }
   }
 
-  // Protected top-level keys. `server` keeps its truthy check (legacy string in the warning).
-  if (userConfig.server) ignoredKeys.push('server');
+  // server.*: admitted in dev only, and SILENTLY absent from builds - exactly like `optimizeDeps`.
+  //
+  // It must not warn there. `config.vite` is the SHARED surface: one declaration feeds the dev
+  // server and every app build, so warning would make the documented dev-only recipe report itself
+  // as misuse once per app on every build. Dev-only means dev-only in both directions.
+  if (userConfig.server && profile.admitServer) {
+    const userServer = userConfig.server as Record<string, unknown>;
+
+    merged.server ??= {};
+
+    for (const [key, value] of Object.entries(userServer)) {
+      // An ALLOWLIST, not "everything except what we own". Vite's `server` carries fields τjs
+      // cannot honour in middleware mode - `ws` would disable the HMR channel the framework owns,
+      // and `host`/`port`/`https` configure a listener Vite does not have here - so an unadmitted
+      // key is warned and dropped exactly like a protected one, rather than applied inertly.
+      if (!profile.admittedServer.includes(key)) {
+        ignoredKeys.push(`server.${key}`);
+        continue;
+      }
+
+      claim(`server.${key}`, source);
+      (merged.server as Record<string, any>)[key] = value;
+    }
+  }
+
+  // Protected top-level keys.
   for (const key of profile.protectedTop) {
-    if (key === 'server') continue;
     if (key in userConfig) ignoredKeys.push(key);
   }
 
@@ -392,9 +441,11 @@ export function mergeOptimizeDeps(layers: readonly OptimizeDepsLayer[]): TaujsOp
  *   default, NOT replacing it), `esbuild`, `logLevel`, and non-`alias` `resolve` keys.
  * - `optimizeDeps` (§6 subset) is merged and validated separately via `mergeOptimizeDeps`
  *   (include/exclude contradiction throws here) and is DEV-ONLY - it never reaches a build config.
- * - Dev invariants (`server.*`, `appType`, `root`, `base`, `publicDir`, `configFile`,
- *   `resolve.alias`) are protected by DEV_PROFILE: supplying them via `config.vite` WARNS, never
- *   applies. `taujsBuild({ vite })` is build-only and deliberately NOT consulted here.
+ * - `server.*` is a supported DEV-ONLY surface (`allowedHosts` and the rest), merged here and, like
+ *   `optimizeDeps`, silently absent from every build rather than warned about there.
+ * - Dev invariants (`server.middlewareMode`, `server.hmr`, `appType`, `root`, `base`, `publicDir`,
+ *   `configFile`, `resolve.alias`) are protected by DEV_PROFILE: supplying them via `config.vite`
+ *   WARNS, never applies. `taujsBuild({ vite })` is build-only and deliberately NOT consulted here.
  *
  * Returns an `InlineConfig` fragment carrying only the admitted dev fields (plus the framework css
  * default and the app+config.vite plugin list). Framework invariants are applied by `setupDevServer`.

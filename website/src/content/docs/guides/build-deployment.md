@@ -267,8 +267,34 @@ Allowed customisations: `plugins` (appended after app plugins, then deduped by n
 Protected fields (framework-controlled; supplying one logs a warning and the framework value
 is kept): `root`, `base`, `publicDir`, `appType`, `build.outDir`, `build.ssr` / `ssrManifest`,
 `build.format`, `build.target`, `build.manifest`, `build.rollupOptions.input`, `resolve.alias`
-(use the `alias` option instead), `server.*`, `configFile`. `appType`, `build.manifest`, and
-`configFile` warn on supply like every other protected field.
+(use the `alias` option instead), `configFile`. `appType`, `build.manifest`, and `configFile`
+warn on supply like every other protected field.
+
+Development-only fields are a separate case: `optimizeDeps` and `server.*` configure the shared
+development server and are absent from every build **without** a warning, because the same
+`config.vite` declaration feeds both. See below.
+
+### Development server options (`config.vite.server`)
+
+These apply to the shared development server only, never to a build.
+
+Vite refuses any request whose `Host` is not localhost-like unless you allow it, which is a
+DNS-rebinding defence. A reverse proxy or process supervisor commonly presents such a host, and
+development behind one then answers Vite's 403 block page until the host is declared:
+
+```typescript
+// taujs.config.ts
+export default defineConfig({
+  vite: {
+    server: { allowedHosts: ["app.internal"] },
+  },
+});
+```
+
+τjs keeps two fields for itself: `middlewareMode` (it owns the request pipeline) and `hmr`
+(derived from the resolved development host and port, and applied whole rather than field by
+field). Declaring either warns and is not applied. A host you have not declared is still
+refused.
 
 ### Alias Configuration
 

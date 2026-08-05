@@ -64,8 +64,10 @@ export function resolveInputs(isSSRBuild: boolean, mainExists: boolean, paths: {
  * - `resolve.*` (except `alias`): Merged with framework resolve config
  * - `esbuild`, `logLevel`: Direct overrides
  *
- * `optimizeDeps` is development-only (RFC 0005 §6) and is stripped from every build config -
- * declare it on `vite` in `taujs.config.ts` for the dev server instead.
+ * `optimizeDeps` and `server.*` are development-only and are stripped from every build config
+ * SILENTLY - `config.vite` is one declaration feeding the dev server and every build, so warning
+ * here would report ordinary configuration as misuse. Declare them on `vite` in `taujs.config.ts`
+ * for the dev server.
  *
  * **Protected fields (warned when supplied, never applied):**
  * - `root`, `base`, `publicDir`, `appType`, `configFile`: Framework-controlled
@@ -73,7 +75,6 @@ export function resolveInputs(isSSRBuild: boolean, mainExists: boolean, paths: {
  * - `build.ssr`, `ssrManifest`, `format`, `target`, `manifest`: Framework-controlled for SSR integrity
  * - `build.rollupOptions.input`: Framework manages entry points
  * - `resolve.alias`: Use the top-level `alias` in `taujs.config.ts` (or the `taujsBuild()` option) instead
- * - `server.*`: Dev-mode only; never applies to builds
  *
  * @example
  * ```ts

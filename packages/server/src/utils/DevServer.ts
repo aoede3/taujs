@@ -50,8 +50,10 @@ export type SetupDevServerOptions = {
    * The resolved, engine-merged dev Vite fragment (VS4), assembled ONCE in `SSRServer` via
    * `resolveDevViteConfig`: `plugins` (apps -> config.vite), `define`, `css` (scss `modern-compiler`
    * default merged with any user `css.preprocessorOptions`), `esbuild`, `logLevel`, `optimizeDeps`,
-   * and non-`alias` `resolve` keys. Framework invariants (`root`, `server`, `appType`, `configFile`,
-   * `mode`, `resolve.alias`) are applied HERE and NEVER read from this fragment.
+   * non-`alias` `resolve` keys, and the admitted `server.*` fields. Framework invariants (`root`,
+   * `appType`, `configFile`, `mode`, `resolve.alias`) are applied HERE and NEVER read from this
+   * fragment - as are `server.middlewareMode` and `server.hmr`, which are applied on top of whatever
+   * `server.*` the fragment carries.
    */
   viteConfig?: InlineConfig;
 };
@@ -98,7 +100,7 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
   // Split the engine-merged fragment (VS4) into its admitted dev fields. `build` (an empty `{}` the
   // engine spreads from the framework layer) and the invariant carriers are dropped; everything else
   // (`define`, `esbuild`, `logLevel`, `optimizeDeps`) rides through untouched in `...admittedDevFields`.
-  const { build: _ignoredBuild, plugins: mergedPlugins, resolve: mergedResolve, css: mergedCss, ...admittedDevFields } = viteConfig ?? {};
+  const { build: _ignoredBuild, plugins: mergedPlugins, resolve: mergedResolve, css: mergedCss, server: mergedServer, ...admittedDevFields } = viteConfig ?? {};
 
   const viteDevServer = await createServer({
     ...admittedDevFields,
@@ -164,7 +166,16 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
       alias: resolvedAlias,
     },
     root: baseClientRoot,
+    // MERGE, never replace. Writing this object whole discarded every declared `server.*` field,
+    // `allowedHosts` among them - so development behind a proxy presenting a non-localhost `Host`
+    // was unreachable, with no supported way to allow it.
+    //
+    // The framework stays authoritative for exactly two fields, applied AFTER the spread so no
+    // declared value can displace them. `hmr` is replaced WHOLE rather than deep-merged: a
+    // half-user, half-framework `hmr` would pair a user port with a framework host and fail in a
+    // way that looks like a τjs bug. The merge engine already warns on both.
     server: {
+      ...mergedServer,
       middlewareMode: true,
       hmr: {
         clientPort: hmrPort,
