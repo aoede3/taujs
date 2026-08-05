@@ -55,8 +55,11 @@ void fullCallback;
 // ── §4: `TaujsViteConfig` rejects the protected invariants ───────────────────────────────────────
 // @ts-expect-error - `root` is framework-controlled; not part of the surface.
 const _root: TaujsViteConfig = { root: '/nope' };
-// @ts-expect-error - `server.*` is dev-owned and protected.
-const _server: TaujsViteConfig = { server: { port: 5173 } };
+// @ts-expect-error - `server.middlewareMode` is framework-owned: τjs runs Vite as middleware.
+const _middlewareMode: TaujsViteConfig = { server: { middlewareMode: true } };
+// @ts-expect-error - `server.hmr` is framework-owned, derived from the resolved dev host/port and
+// applied whole rather than deep-merged.
+const _hmr: TaujsViteConfig = { server: { hmr: { port: 24678 } } };
 // @ts-expect-error - `configFile` is pinned to `false` by the framework.
 const _configFile: TaujsViteConfig = { configFile: false };
 // @ts-expect-error - `base` is framework-controlled.
@@ -71,7 +74,23 @@ const _resolveAlias: TaujsViteConfig = { resolve: { alias: { '@x': '/x' } } };
 const _outDir: TaujsViteConfig = { build: { outDir: 'out' } };
 // @ts-expect-error - `build.rollupOptions.input` is framework-managed (entry points).
 const _input: TaujsViteConfig = { build: { rollupOptions: { input: { main: 'x' } } } };
-void [_root, _server, _configFile, _base, _publicDir, _appType, _resolveAlias, _outDir, _input];
+void [_root, _middlewareMode, _hmr, _configFile, _base, _publicDir, _appType, _resolveAlias, _outDir, _input];
+
+// `allowedHosts` is the whole admitted `server` surface, and the reason it exists: without it, a
+// development server behind a proxy presenting a non-localhost `Host` answers 403 with no declared
+// way to allow it.
+const _allowedHosts: TaujsViteConfig = { server: { allowedHosts: ['web.plt.local'] } };
+void _allowedHosts;
+
+// @ts-expect-error - `ws` is withheld: `ws: false` disables the WebSocket connection, which would
+// break the HMR facility the framework owns through `server.hmr`.
+const _ws: TaujsViteConfig = { server: { ws: false } };
+// @ts-expect-error - `host`/`port` configure Vite's own HTTP listener, which does not exist in
+// middleware mode; Fastify owns the listener.
+const _listener: TaujsViteConfig = { server: { host: '0.0.0.0', port: 5173 } };
+// @ts-expect-error - `proxy` overlaps caller-route ownership, an unresolved design question.
+const _proxy: TaujsViteConfig = { server: { proxy: {} } };
+void [_ws, _listener, _proxy];
 
 // Admitted fields DO type-check.
 const _ok: TaujsViteConfig = {

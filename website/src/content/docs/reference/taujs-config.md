@@ -284,6 +284,9 @@ type TaujsViteConfig = {
   logLevel?: LogLevel;
   // resolve subset - alias is intentionally excluded (use the top-level alias field).
   resolve?: ResolveOptions;
+  // Dev-only. An allowlist of one: everything else under Vite's `server` is either
+  // framework-owned or meaningless in middleware mode. See the matrix below.
+  server?: Pick<ServerOptions, "allowedHosts">;
   // Build-tuning subset - the framework owns everything else under build.
   build?: {
     sourcemap?: BuildOptions["sourcemap"];
@@ -417,13 +420,27 @@ The matrix is the supported set. `Dev` is the shared development server; `Client
 | `build.rollupOptions.external`                         | N/A       | Yes          | Yes       | Override                               |
 | `build.rollupOptions.output.manualChunks`              | N/A       | Yes          | Yes       | Merge into output                      |
 | aliases                                                | Yes       | Yes          | Yes       | Via top-level `alias` only             |
-| `root`, `base`, `publicDir`, `configFile`, `appType`, `server.*`, `build.outDir`, `build.ssr` / `ssrManifest`, `build.format` / `target` / `manifest`, `build.rollupOptions.input`, `resolve.alias` | Protected | Protected | Protected | Rejected; logged at warn |
+| `server.allowedHosts`                                  | Yes       | N/A          | N/A       | Dev-only; stripped from builds         |
+| `server.*` other than `allowedHosts`                   | Protected | N/A          | N/A       | Dev: warned and dropped. Builds: stripped silently with the whole dev-only `server` object |
+| `root`, `base`, `publicDir`, `configFile`, `appType`, `build.outDir`, `build.ssr` / `ssrManifest`, `build.format` / `target` / `manifest`, `build.rollupOptions.input`, `resolve.alias` | Protected | Protected | Protected | Rejected; logged at warn |
 
 Protected fields are absent from `TaujsViteConfig`, so they cannot be supplied through the
 typed surface at all. If one reaches the merge engine anyway (a JavaScript config, or an
 `as any` cast), it is rejected and logged at warn rather than silently applied - including
 `build.manifest`, which warns like its siblings. In dev the whole `build` key is rejected
-(builds are a per-app concern), and `optimizeDeps` never reaches any build config.
+(builds are a per-app concern).
+
+**Development-only fields are the exception to "always warned".** `optimizeDeps` and
+`server.allowedHosts` configure the shared development server, and the same `config.vite`
+declaration also reaches every app build - so a build strips them **silently**. Warning there
+would report ordinary configuration as misuse once per app on every build.
+
+Under `server`, only `allowedHosts` is admitted. `ws` is withheld because `ws: false` disables
+the WebSocket connection HMR runs on, which the framework owns through `server.hmr`; `host`,
+`port`, `strictPort`, `https` and `open` configure Vite's own HTTP listener, which does not
+exist in middleware mode because Fastify owns the listener; and `proxy` overlaps caller-route
+ownership. Supplying any of them **in development** warns and is not applied. In a build the
+whole `server` object is stripped silently, so nothing under it warns there.
 
 ### How τjs composes Vite config
 

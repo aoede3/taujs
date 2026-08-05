@@ -28,11 +28,21 @@ describe('ViteMergeEngine - profiles (declared data)', () => {
     expect(BUILD_PROFILE.admitBuild).toBe(true);
     expect(BUILD_PROFILE.protectedBuild).toContain('manifest');
     // VS8: `appType` protected in build too (§4 matrix lists it Protected in all columns), matching dev.
-    expect(BUILD_PROFILE.protectedTop).toEqual(expect.arrayContaining(['root', 'base', 'publicDir', 'configFile', 'server', 'appType']));
+    expect(BUILD_PROFILE.protectedTop).toEqual(expect.arrayContaining(['root', 'base', 'publicDir', 'configFile', 'appType']));
+    // A build has no dev server, so `server` never reaches a build config - SILENTLY, like
+    // `optimizeDeps`, because the same `config.vite` declaration also feeds the dev server.
+    expect(BUILD_PROFILE.admitServer).toBe(false);
 
     expect(DEV_PROFILE.admitBuild).toBe(false);
     // VS4 ruling: dev protects `base`/`publicDir` too (matrix Protected in all columns).
-    expect(DEV_PROFILE.protectedTop).toEqual(expect.arrayContaining(['root', 'base', 'publicDir', 'configFile', 'server', 'appType']));
+    expect(DEV_PROFILE.protectedTop).toEqual(expect.arrayContaining(['root', 'base', 'publicDir', 'configFile', 'appType']));
+    // Dev admits exactly ONE `server` field. Rejecting the whole key is what made `allowedHosts`
+    // inexpressible, and with it development behind a proxy.
+    expect(DEV_PROFILE.admitServer).toBe(true);
+    // An ALLOWLIST of one. `ws` would disable the HMR channel the framework owns, and
+    // `host`/`port`/`https` configure a listener Vite does not have in middleware mode.
+    expect(DEV_PROFILE.admittedServer).toEqual(['allowedHosts']);
+    expect(DEV_PROFILE.protectedTop).not.toContain('server');
   });
 
   it('normalisePlugins and getFrameworkInvariants remain reachable from the engine', () => {
@@ -163,7 +173,6 @@ describe('ViteMergeEngine - composeViteConfig (build profile)', () => {
       'base',
       'publicDir',
       'configFile',
-      'server',
       'appType',
       'build.outDir',
       'build.manifest',
@@ -173,6 +182,10 @@ describe('ViteMergeEngine - composeViteConfig (build profile)', () => {
     ]) {
       expect(msg).toContain(field);
     }
+
+    // `server` is NOT among them any more: it is a supported dev-only surface, silently absent from
+    // builds rather than reported as a rejected override.
+    expect(msg).not.toContain('server');
 
     // VS8: the smuggled build-side `appType` is warned and never applied (not silently dropped).
     expect((merged as any).appType).toBeUndefined();
@@ -198,6 +211,47 @@ describe('ViteMergeEngine - composeViteConfig (build profile)', () => {
     );
 
     expect((merged as any).optimizeDeps).toBeUndefined();
+    warn.mockRestore();
+  });
+
+  it('strips server from the composed build config SILENTLY, exactly like optimizeDeps', () => {
+    const warn = spyWarn();
+
+    // `config.vite` is the SHARED surface: the same declaration feeds the dev server and every app
+    // build. Warning here would make the documented dev-only `allowedHosts` recipe report itself as
+    // misuse once per app on every build, which is why this is silent rather than protected.
+    const merged = composeViteConfig(
+      buildFramework(),
+      [{ source: 'config.vite', config: { server: { allowedHosts: ['app.internal'] } } as any }],
+      BUILD_PROFILE,
+      '[taujs:build:admin]',
+    );
+
+    expect((merged as any).server).toBeUndefined();
+
+    const warned = warn.mock.calls.map(([m]) => String(m)).join('\n');
+    expect(warned).not.toContain('server');
+
+    warn.mockRestore();
+  });
+
+  it('is silent for the build-only escape hatch too - one rule, whichever layer supplied it', () => {
+    const warn = spyWarn();
+
+    // `taujsBuild({ vite })` is explicitly build-only, and takes a WIDER type (`Partial<InlineConfig>`)
+    // than `config.vite`, so `server` is reachable there without any cast. It is still silent, on
+    // the same rule rather than a special case: dev-only fields are stripped from builds by their
+    // own semantics, not by which layer supplied them - exactly as `optimizeDeps` already behaves.
+    const merged = composeViteConfig(
+      buildFramework(),
+      [{ source: 'taujsBuild.vite', config: { server: { allowedHosts: ['app.internal'] } } as any }],
+      BUILD_PROFILE,
+      '[taujs:build:admin]',
+    );
+
+    expect((merged as any).server).toBeUndefined();
+    expect(warn.mock.calls.map(([m]) => String(m)).join('\n')).not.toContain('server');
+
     warn.mockRestore();
   });
 });

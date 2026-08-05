@@ -1502,7 +1502,7 @@ describe('Build.ts - Full Coverage', () => {
       consoleWarnSpy.mockRestore();
     });
 
-    it('should warn about server config in build (dev-only)', async () => {
+    it('does NOT warn about server config in a build - it is dev-only, exactly like optimizeDeps', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       await taujsBuild({
@@ -1516,7 +1516,12 @@ describe('Build.ts - Full Coverage', () => {
         },
       });
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('[taujs:build:admin] Ignored Vite config overrides: server'));
+      // `server` used to be rejected outright, so warning was right then. It is now a supported
+      // DEV-ONLY surface declared through the same shared `config.vite`, so a build must ignore it
+      // silently - otherwise the documented `allowedHosts` recipe reports itself as misuse, once per
+      // app, on every build.
+      const warned = consoleWarnSpy.mock.calls.map((call) => String(call[0])).join('\n');
+      expect(warned).not.toContain('Ignored Vite config overrides: server');
 
       consoleWarnSpy.mockRestore();
     });
@@ -2498,7 +2503,7 @@ describe('Build.ts - Full Coverage', () => {
       });
     });
 
-    it('mergeViteConfig restores invariants, initialises rollupOptions, and warns when protected fields/server are overridden without context', () => {
+    it('mergeViteConfig restores invariants, initialises rollupOptions, and warns for protected fields without context', () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       // framework with only the minimal bits we care about, no build/rollupOptions
@@ -2510,13 +2515,13 @@ describe('Build.ts - Full Coverage', () => {
       };
 
       const userOverride: ViteConfigOverride = {
-        // top-level protected + server to populate ignoredKeys
+        // top-level protected fields, to populate ignoredKeys
         root: '/user-root',
         base: '/user-base/',
         publicDir: '/user-public',
-        server: {
-          port: 4000,
-        } as any,
+        // `server` is deliberately NOT here any more: it is dev-only and silently absent from a
+        // build, so it no longer contributes to this warning. Its build-side silence is asserted
+        // in ViteMergeEngine.test.ts and Build.test.ts's own dev-only cell.
       };
 
       // NOTE: no context passed → should use "[taujs:build]" prefix branch
@@ -2544,7 +2549,6 @@ describe('Build.ts - Full Coverage', () => {
       expect(msg).toContain('root');
       expect(msg).toContain('base');
       expect(msg).toContain('publicDir');
-      expect(msg).toContain('server');
 
       consoleWarnSpy.mockRestore();
     });
