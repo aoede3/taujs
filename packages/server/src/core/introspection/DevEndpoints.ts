@@ -75,6 +75,14 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
 
     if (accept.includes('text/event-stream')) {
       // Consumed via fetch() + ReadableStream so the token travels as a header (RFC Q2).
+      //
+      // The LAST `reply.hijack()` in the codebase, intentionally out of scope for the streaming
+      // transport change rather than inherent to SSE: Fastify can own an SSE response through a
+      // Readable, which would compose with hooks, backpressure, disconnect handling and the normal
+      // response headers (including `x-request-id`) exactly as application streaming now does.
+      // Assessing that needs SSE-specific evidence - immediate header flush, event delivery,
+      // disconnect cleanup, backpressure, request identity, hooks and shutdown - so it is left
+      // alone here rather than changed without it.
       reply.hijack();
       reply.raw.writeHead(200, {
         'content-type': 'text/event-stream',

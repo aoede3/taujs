@@ -116,9 +116,10 @@ inbound correlation configures it at Fastify construction with a validating `gen
 ## Response policy and lifecycle hooks
 
 Host response policy, such as cache headers, security headers or a marker header, is applied with a
-Fastify lifecycle hook. Where that hook must sit depends on the render strategy, because a streamed
-response commits its head as soon as the renderer produces one and writes the rest to the socket
-directly.
+Fastify lifecycle hook. Fastify owns the response transport for every strategy: a streamed page is
+sent by returning a document Fastify consumes, exactly as an ordinary response returns a body. What
+differs is *when* the response becomes irreversible - a streamed response commits as soon as its
+first byte is delivered, and after that its status can no longer change.
 
 Two questions decide whether a hook is a usable policy point, and they have different answers:
 
@@ -132,11 +133,69 @@ Two questions decide whether a hook is a usable policy point, and they have diff
 | `preValidation` | Yes | Yes | Yes | Yes |
 | `preHandler` | Yes | Yes | Yes | Yes |
 | `preSerialization` | No | Not applicable | No | Not applicable |
-| `onSend` | Yes | Yes | **No** | **No** |
+| `onSend` | Yes | Yes | Yes | Yes |
 | `onResponse` | Yes | No, already sent | Yes | No, already sent |
 
 The table is identical for both installation shapes. It is verified against a real listener, not an
 injected request, because header behaviour on a streamed response is only observable on the wire.
+
+### A streamed response that fails before its first byte
+
+A streamed page hands Fastify a document that has not started producing bytes. If rendering fails
+before the first of them, Fastify never sent that document, so it falls back to its error path -
+and it runs its send phase **once per payload**:
+
+1. `onSend` is invoked with the streamed document that was about to be sent;
+2. rendering fails before any byte reaches the client;
+3. `onSend` is invoked again with the error representation Fastify sends instead;
+4. `onResponse` describes the request **once**, as it always does.
+
+This sequence belongs to a document Fastify has already been handed. A request that fails **before**
+that - a configuration error, or a `preHandler` that throws - never produces a document at all, so
+it takes Fastify's ordinary single error path with one `onSend`.
+
+Write `onSend` hooks so they are safe across response attempts. Do not assume one invocation per
+request, and do not assume the payload you are handed is the one the client receives.
+
+A failure **after** the first byte cannot become an error response: the transfer is aborted with
+whatever was already delivered.
+
+### Replacing or wrapping the payload
+
+An `onSend` hook may replace the streamed document outright. If it does, the renderer never runs at
+all - the document is cold until Fastify consumes it - and the response completes with whatever the
+hook returned.
+
+A hook may also wrap the payload in a transform. **The wrapper must propagate source errors to the
+stream it returns**: Node's `.pipe()` alone does not, so a wrapper built with it leaves a failed
+response hanging rather than terminating. If the document's error has no other listener, it can
+also surface as an uncaught exception. Compose the two ends and return the wrapper immediately -
+**do not await the transformation**. Fastify consumes the wrapper's readable side, so nothing drains
+it while you are awaiting: the request completes only if the entire document happens to fit in the
+transform's high-water mark, and a document larger than that never completes at all. Awaiting is
+therefore worst in production, where it can pass on a small page and deadlock on a real one:
+
+```ts
+import { Transform, pipeline } from "node:stream";
+
+app.addHook("onSend", async (request, reply, payload) => {
+  if (!payload || typeof (payload as NodeJS.ReadableStream).pipe !== "function") {
+    return payload;
+  }
+
+  const wrapper = new Transform({
+    transform(chunk, _encoding, callback) {
+      callback(null, chunk);
+    },
+  });
+
+  // `pipeline` forwards destruction in both directions, so a failing document
+  // tears the wrapper down too. Not awaited: the stream is returned immediately.
+  pipeline(payload as NodeJS.ReadableStream, wrapper, () => {});
+
+  return wrapper;
+});
+```
 
 Both `onRequest` and `preHandler` reach every strategy, so either covers all rendered pages. Which
 one depends on what the policy is:
@@ -145,13 +204,13 @@ one depends on what the policy is:
 - **`preHandler`** for route-selected or authentication-sensitive policy, such as HTML caching. It
   runs after authentication and validation have succeeded, so a rejected request does not carry a
   header that assumed success.
-- **`onSend`** only when SSR pages and ordinary Fastify responses are deliberately the entire
-  target.
+- **`onSend`** for a deliberate transformation of the final response, once the caveats above are
+  understood.
 
-`onSend` is the important exception. A streaming page hands the raw socket to the renderer, so
-Fastify's send phase never runs for it: an `onSend` policy silently applies to SSR pages and to
-ordinary JSON routes while skipping every streamed page. Nothing reports the difference, so compare
-responses rather than assuming coverage.
+`onSend` reaches streamed responses as well as ordinary ones, because τjs hands Fastify a document
+to send rather than taking over the socket. It is the right place for a deliberate transformation of
+the final response, with the two caveats above: a pre-byte failure produces a second send pass, and
+a wrapper must propagate source errors itself.
 
 `preSerialization` runs only when Fastify serialises a payload. τjs page responses are an HTML
 string or a raw stream, so neither shape is serialised. This is payload shape, not a τjs omission:

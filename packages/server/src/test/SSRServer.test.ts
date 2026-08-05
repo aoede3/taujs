@@ -624,6 +624,9 @@ describe('SSRServer', () => {
     const mockReply = {
       raw: { headersSent: false, end: vi.fn() },
       status: vi.fn().mockReturnThis(),
+      // The error handler DECLARES its media type: `toHttp` always produces a structured body, so
+      // its representation must not depend on whatever the abandoned response happened to declare.
+      type: vi.fn().mockReturnThis(),
       send: vi.fn().mockReturnThis(),
     };
     mockLogger.error.mockClear();
@@ -657,6 +660,9 @@ describe('SSRServer', () => {
         end: vi.fn(),
       },
       status: vi.fn().mockReturnThis(),
+      // The error handler DECLARES its media type: `toHttp` always produces a structured body, so
+      // its representation must not depend on whatever the abandoned response happened to declare.
+      type: vi.fn().mockReturnThis(),
       send: vi.fn().mockReturnThis(),
     };
 

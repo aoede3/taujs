@@ -252,7 +252,16 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       const selectedRoute = selectedRouteFrom(req);
       if (!selectedRoute) throw AppError.internal(`Fastify selected route "${route.path}" without its τjs route identity`);
 
-      await handleRender(req, reply, selectedRoute, processedConfigs, serviceRegistry, maps, {
+      // The streaming strategy returns a COLD document stream as the Fastify payload, so the
+      // handler must return what `handleRender` returns.
+      //
+      // `handleRender` does NOT send, and nothing is ever "in flight": the document only renders if
+      // Fastify is handed it. Resolving `undefined` instead makes Fastify send an empty response
+      // ITSELF - `wrap-thenable` sees an unsent reply whose headers have not gone out and calls
+      // `reply.send(undefined)` - so the client gets a clean, empty 200 and the renderer never
+      // starts. That is ONE response, not a second one; the hijacked transport was safe here only
+      // because `wrap-thenable` returns early for a hijacked reply.
+      return await handleRender(req, reply, selectedRoute, processedConfigs, serviceRegistry, maps, {
         debug: opts.debug,
         logger,
         viteDevServer,
@@ -308,7 +317,12 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
 
     if (!reply.raw.headersSent) {
       const { status, body } = toHttp(e);
-      reply.status(status).send(body);
+      // `toHttp` ALWAYS produces a structured body, so its media type must not depend on whatever
+      // representation the abandoned response happened to declare. A streaming response declares
+      // `text/html` up front - Fastify copies that onto the raw response before pulling the
+      // document - so without this an error body would be sent under a text/html declaration and
+      // Fastify would throw `FST_ERR_REP_INVALID_PAYLOAD_TYPE` instead of answering.
+      reply.status(status).type('application/json').send(body);
     } else {
       reply.raw.end();
     }

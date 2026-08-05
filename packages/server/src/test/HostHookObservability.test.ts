@@ -9,6 +9,9 @@
 //   1. is the hook INVOKED;
 //   2. does a header mutation made there SURVIVE to the wire.
 //
+// τjs streams by handing Fastify a COLD document, so Fastify's send path runs for a streamed
+// response exactly as it does for an ordinary one - `onSend` is a usable policy point on both.
+//
 // `onResponse` is why: it is invoked for both strategies, but it runs after the response has
 // completed, so mutation is not available there at all.
 //
@@ -38,21 +41,29 @@ const HOOKS = ['onRequest', 'preParsing', 'preValidation', 'preHandler', 'preSer
 
 type Hook = (typeof HOOKS)[number];
 /** `json` is the payload-shape control, not a τjs render strategy. */
-type Probe = 'ssr' | 'streaming' | 'json';
+/** The probes the MATRIX table covers. */
+type MatrixProbe = 'ssr' | 'streaming' | 'json';
+/** Every probe the harness observes, including cases the table cannot express. */
+type Probe = MatrixProbe | 'pre-byte-failure';
 type HostMode = 'caller-owned' | 'taujs-created';
 
-const PATHS: Record<Probe, string> = { ssr: '/matrix-ssr', streaming: '/matrix-streamed', json: '/matrix-json' };
+const PATHS: Record<MatrixProbe, string> = { ssr: '/matrix-ssr', streaming: '/matrix-streamed', json: '/matrix-json' };
+/** A streamed route whose renderer fails BEFORE any document byte. */
+const PRE_BYTE_FAILURE = '/matrix-streamed-pre-byte-failure';
+
+const probePaths: Record<Probe, string> = { ...PATHS, 'pre-byte-failure': PRE_BYTE_FAILURE };
 const MUTATION = 'hook-mutation';
 
 const headerFor = (hook: Hook): string => `x-hook-${hook.toLowerCase()}`;
-const probeOf = (url: string | undefined): Probe | undefined => (Object.entries(PATHS) as Array<[Probe, string]>).find(([, value]) => value === url)?.[0];
+const probeOf = (url: string | undefined): Probe | undefined => (Object.entries(probePaths) as Array<[Probe, string]>).find(([, value]) => value === url)?.[0];
 
 /** Real SSR and streaming render functions: the streaming one reaches `onHead` and the terminal. */
 const RENDER_MODULE = [
   "const tag = Symbol.for('taujs.render-contract/v1');",
   "const brand = (fn) => Object.defineProperty(fn, tag, { value: { key: 'test', contractVersion: 'v1' } });",
   "export const renderSSR = brand(async () => ({ headContent: '', appHtml: '<main>ssr</main>' }));",
-  'export const renderStream = brand((writable, callbacks) => {',
+  'export const renderStream = brand((writable, callbacks, _data, url) => {',
+  `  if (url === '${PRE_BYTE_FAILURE}') { callbacks.onError(new Error('pre-byte failure')); return { abort() {}, done: Promise.resolve() }; }`,
   '  callbacks.onHead(\'<meta name="matrix" content="taujs">\');',
   "  writable.write('<main>streamed</main>');",
   '  callbacks.onShellReady?.();',
@@ -90,6 +101,7 @@ const config: TaujsConfig = {
       routes: [
         { path: PATHS.ssr, attr: { render: 'ssr' } },
         { path: PATHS.streaming, attr: { render: 'streaming', meta: {} } },
+        { path: PRE_BYTE_FAILURE, attr: { render: 'streaming', meta: {} } },
       ],
     },
   ],
@@ -98,12 +110,14 @@ const config: TaujsConfig = {
 type Observations = {
   invocations: Map<string, number>;
   completions: Array<{ probe: Probe; statusCode: number }>;
+  /** What the host was HANDED on each send pass: Fastify runs its send path per payload. */
+  sendPasses: Array<'document' | 'error'>;
 };
 
-const key = (hook: Hook, probe: Probe): string => `${hook}|${probe}`;
+const key = (hook: Hook, probe: Probe | MatrixProbe): string => `${hook}|${probe}`;
 
 /** Installs all seven hooks; each records its invocation and attempts a header mutation. */
-const installHooks = (app: FastifyInstance, seen: Observations): void => {
+const installHooks = (app: FastifyInstance, seen: Observations, options: { replaceOnSend?: boolean } = {}): void => {
   const note = (hook: Hook, url: string | undefined) => {
     const probe = probeOf(url);
     if (!probe) return;
@@ -143,7 +157,12 @@ const installHooks = (app: FastifyInstance, seen: Observations): void => {
   app.addHook('onSend', (request, reply, payload, done) => {
     note('onSend', request.url);
     reply.header(headerFor('onSend'), MUTATION);
-    done(null, payload);
+
+    if (probeOf(request.url)) {
+      seen.sendPasses.push(payload && typeof (payload as { pipe?: unknown }).pipe === 'function' ? 'document' : 'error');
+    }
+
+    done(null, options.replaceOnSend ? 'REPLACED-BY-HOST' : payload);
   });
 
   app.addHook('onResponse', (request, reply, done) => {
@@ -206,22 +225,22 @@ afterEach(async () => {
  * - τjs-created: hooks added to the RETURNED app AFTER `createServer` and BEFORE `listen`, which is
  *   why created mode returns `{ app, net }`.
  */
-const boot = async (mode: HostMode): Promise<{ app: FastifyInstance; port: number; seen: Observations }> => {
+const boot = async (mode: HostMode, options: { replaceOnSend?: boolean } = {}): Promise<{ app: FastifyInstance; port: number; seen: Observations }> => {
   const { root, clientRoot } = await fixture();
   roots.push(root);
 
-  const seen: Observations = { invocations: new Map(), completions: [] };
+  const seen: Observations = { invocations: new Map(), completions: [], sendPasses: [] };
   let app: FastifyInstance;
 
   if (mode === 'caller-owned') {
     app = fastify({ logger: false });
-    installHooks(app, seen);
+    installHooks(app, seen, options);
     app.get(PATHS.json, async () => ({ probe: 'json' }));
     await createServer({ config, fastify: app, clientRoot });
   } else {
     const created = await createServer({ config, clientRoot });
     app = created.app!;
-    installHooks(app, seen);
+    installHooks(app, seen, options);
     app.get(PATHS.json, async () => ({ probe: 'json' }));
   }
 
@@ -233,20 +252,20 @@ const boot = async (mode: HostMode): Promise<{ app: FastifyInstance; port: numbe
   return { app, port: typeof address === 'object' && address !== null ? address.port : 0, seen };
 };
 
-const invocationsOf = (seen: Observations, probe: Probe): Record<Hook, number> =>
+const invocationsOf = (seen: Observations, probe: MatrixProbe): Record<Hook, number> =>
   Object.fromEntries(HOOKS.map((hook) => [hook, seen.invocations.get(key(hook, probe)) ?? 0])) as Record<Hook, number>;
 
 const survivorsOf = (wire: Wire): Record<Hook, string | null> =>
   Object.fromEntries(HOOKS.map((hook) => [hook, wire.headers.get(headerFor(hook))?.[0] ?? null])) as Record<Hook, string | null>;
 
 // The frozen matrix. Same in both ownership modes; any divergence is a finding, not a detail.
-const INVOKED: Record<Probe, Record<Hook, number>> = {
+const INVOKED: Record<MatrixProbe, Record<Hook, number>> = {
   ssr: { onRequest: 1, preParsing: 1, preValidation: 1, preHandler: 1, preSerialization: 0, onSend: 1, onResponse: 1 },
-  streaming: { onRequest: 1, preParsing: 1, preValidation: 1, preHandler: 1, preSerialization: 0, onSend: 0, onResponse: 1 },
+  streaming: { onRequest: 1, preParsing: 1, preValidation: 1, preHandler: 1, preSerialization: 0, onSend: 1, onResponse: 1 },
   json: { onRequest: 1, preParsing: 1, preValidation: 1, preHandler: 1, preSerialization: 1, onSend: 1, onResponse: 1 },
 };
 
-const SURVIVES: Record<Probe, Record<Hook, string | null>> = {
+const SURVIVES: Record<MatrixProbe, Record<Hook, string | null>> = {
   ssr: {
     onRequest: MUTATION,
     preParsing: MUTATION,
@@ -262,7 +281,7 @@ const SURVIVES: Record<Probe, Record<Hook, string | null>> = {
     preValidation: MUTATION,
     preHandler: MUTATION,
     preSerialization: null, // not invoked: a raw stream is not serialised
-    onSend: null, // NOT invoked: the head was committed after `reply.hijack()`
+    onSend: MUTATION, // invoked WITH the cold document, and its mutation reaches the client
     onResponse: null, // invoked, but the response has already completed
   },
   json: {
@@ -276,11 +295,40 @@ const SURVIVES: Record<Probe, Record<Hook, string | null>> = {
   },
 };
 
+describe('host hook observability: cases the matrix table cannot express', () => {
+  it('a PRE-BYTE streamed failure gives the host TWO send passes: the stream attempt, then the error representation', async () => {
+    const { port, seen } = await boot('caller-owned');
+    const wire = await readWire(port, PRE_BYTE_FAILURE);
+
+    // Fastify runs its send path PER PAYLOAD. The cold document is offered first; when it fails
+    // before yielding a byte, Fastify's error path offers the structured error instead. Host hooks
+    // must therefore be safe across response attempts and must NOT assume one onSend per request.
+    expect(wire.status).toBe(500);
+    // `sendPasses` is the load-bearing assertion: this probe never requests the plain streaming
+    // route, so an `invocations` lookup keyed on it could only ever be undefined and would prove
+    // nothing about the two passes.
+    expect(seen.sendPasses).toEqual(['document', 'error']);
+
+    // `onResponse` still describes the request ONCE.
+    await vi.waitFor(() => expect(seen.completions.filter((entry) => entry.probe === 'pre-byte-failure')).toHaveLength(1), { timeout: 5000 });
+  });
+
+  it('payload replacement: the host replaces the cold document and the renderer never starts', async () => {
+    const { port, seen } = await boot('caller-owned', { replaceOnSend: true });
+    const wire = await readWire(port, PATHS.streaming);
+
+    expect(wire.status).toBe(200);
+    expect(wire.body).toBe('REPLACED-BY-HOST');
+    expect(wire.body).not.toContain('<!doctype');
+    expect(seen.invocations.get(key('onSend', 'streaming'))).toBe(1);
+  });
+});
+
 describe.each(['caller-owned', 'taujs-created'] as const)('host hook observability matrix (real listener): %s', (mode) => {
   it('pins invocation, mutation survival and completion for every hook and both render strategies', async () => {
     const { app, port, seen } = await boot(mode);
 
-    const wires: Record<Probe, Wire> = {
+    const wires: Record<MatrixProbe, Wire> = {
       ssr: await readWire(port, PATHS.ssr),
       streaming: await readWire(port, PATHS.streaming),
       json: await readWire(port, PATHS.json),
