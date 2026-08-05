@@ -7,6 +7,7 @@ import { PassThrough } from 'node:stream';
 import { describe, it, expect, vi } from 'vitest';
 
 import { handleRender } from '../HandleRender';
+import { collectDocumentFailure, collectPartialDocument } from '../../test/support/document';
 
 import type { EpisodeRecorder } from '../../core/introspection/EpisodeRecorder';
 
@@ -47,9 +48,11 @@ const mkReply = () => {
     chunks,
     header: vi.fn(() => reply),
     status: vi.fn(() => reply),
+    // The streaming strategy DECLARES its response type; Fastify owns the head.
+    type: vi.fn(() => reply),
+    removeHeader: vi.fn(() => reply),
     getHeaders: vi.fn(() => ({})),
     getHeader: vi.fn(() => undefined),
-    hijack: vi.fn(),
     send: vi.fn(() => reply),
   };
   return reply;
@@ -93,13 +96,18 @@ const run = async (attr: Record<string, unknown>, renderModule: any, opts: { rec
   const logger = opts.logger ?? mkLogger();
   const req = mkReq('/product/42', opts.recorder, logger);
   const reply = mkReply();
-  await handleRender(req, reply, route(attr) as any, configs, {} as any, maps(renderModule), { logger });
+  // The streaming strategy returns a COLD document as the Fastify payload. Consuming it is what
+  // starts the renderer; deferred work, by contrast, is EAGER and has already started by now.
+  const payload = await handleRender(req, reply, route(attr) as any, configs, {} as any, maps(renderModule), { logger });
+  const { document } = await collectPartialDocument(payload);
   await new Promise((r) => setTimeout(r, 20));
-  return { reply, html: reply.chunks.join(''), logger, req };
+
+  return { reply, html: document, logger, req };
 };
 
 const events = () => {
   const seen: { key: string; outcome: string }[] = [];
+  const terminals: string[] = [];
   const noop = () => {};
   const recorder = {
     requestStart: noop,
@@ -107,13 +115,13 @@ const events = () => {
     dataFetch: noop,
     serviceCall: noop,
     streamPhase: noop,
-    sent: noop,
-    aborted: noop,
-    failed: noop,
+    sent: () => terminals.push('sent'),
+    aborted: () => terminals.push('aborted'),
+    failed: () => terminals.push('failed'),
     clientHydration: noop,
     deferredData: (e: any) => seen.push({ key: e.key, outcome: e.outcome }),
   } as unknown as EpisodeRecorder;
-  return { seen, recorder };
+  return { seen, terminals, recorder };
 };
 
 describe('handleRender deferred transport + envelope (RFC 0007)', () => {
@@ -258,27 +266,32 @@ describe('handleRender deferred terminals (R2 item 8)', () => {
     const req = mkReq('/product/42', recorder);
     const reply = mkReply();
 
-    await expect(
-      handleRender(
-        req,
-        reply,
-        route({
-          render: 'streaming',
-          meta: {},
-          deferred: {
-            reviews: async (_p: unknown, ctx: any) => {
-              entrySignal = ctx.signal;
-              return new Promise<any>(() => {});
-            },
+    // The renderer is invoked ON CONSUMPTION, so a SYNCHRONOUS renderStream throw now surfaces when
+    // the document is consumed rather than when the handler is called. The contract is unchanged:
+    // it is a response terminal - classified once, signalled, detached.
+    const payload = await handleRender(
+      req,
+      reply,
+      route({
+        render: 'streaming',
+        meta: {},
+        deferred: {
+          reviews: async (_p: unknown, ctx: any) => {
+            entrySignal = ctx.signal;
+            return new Promise<any>(() => {});
           },
-        }) as any,
-        configs,
-        {} as any,
-        maps(throwing),
-        { logger: mkLogger() },
-      ),
-    ).rejects.toThrow(/handleRender failed/);
+        },
+      }) as any,
+      configs,
+      {} as any,
+      maps(throwing),
+      { logger: mkLogger() },
+    );
 
+    const failure = await collectDocumentFailure(payload);
+
+    expect(failure).toBeDefined();
+    await new Promise((r) => setTimeout(r, 20));
     expect(seen).toEqual([{ key: 'reviews', outcome: 'aborted' }]);
     expect(entrySignal!.aborted).toBe(true);
   });
@@ -348,77 +361,79 @@ describe('handleRender deferred terminals (R2 item 8)', () => {
     expect(entrySignal!.aborted).toBe(true);
   });
 
-  it('a response ALREADY ENDED at the finish tick is still a terminal: signalled, classified exactly once, retaining nothing', async () => {
+  // RECOVERED INTENT: this staged `reply.raw.writableEnded` and re-fired the host's own `finish`
+  // listener to prove that an ALREADY-SETTLED response still signals and classifies each pending
+  // key EXACTLY ONCE, retaining nothing afterwards. Under the cold transport the response is
+  // Fastify's and the terminal is the coordinator's, so the same contract is expressed by settling
+  // the response first and then letting the renderer finish.
+  it('an already-settled response still signals and classifies each pending key exactly once, retaining nothing', async () => {
     const { seen, recorder } = events();
     const signals: Record<string, AbortSignal | undefined> = {};
     const req = mkReq('/product/42', recorder);
     const reply = mkReply();
 
-    // `writableEnded` is a prototype getter on the real stream; an own accessor lets this test
-    // stage the two ticks the listener sees - ended (the early return) and not ended (the write
-    // site) - without destroying the pipe the head commit established.
-    let ended = false;
-    Object.defineProperty(reply.raw, 'writableEnded', { configurable: true, get: () => ended });
+    let innerStream: any;
 
-    // The host attaches its 'finish' listener AFTER `renderStream` returns, so capturing `on`
-    // here hands the test the real listener to fire on a later tick, exactly as the emitter would.
-    let finish: (() => void) | undefined;
     const stalled = {
-      renderStream: vi.fn((writable: PassThrough, cb: any) => {
+      renderStream: vi.fn((writable: any, cb: any) => {
+        innerStream = writable;
         cb.onHead('<title>p</title>');
         cb.onShellReady();
-        const on = writable.on.bind(writable);
-        (writable as any).on = (event: string, handler: any) => {
-          if (event === 'finish') {
-            finish = handler;
-            return writable;
-          }
-          return on(event, handler);
-        };
+        // The response is settled BEFORE the renderer finishes: a fatal after the shell.
+        setTimeout(() => cb.onError(new Error('fatal after shell')), 0);
+
         return { abort: () => {}, done: Promise.resolve() };
       }),
     };
 
-    const pending = (key: string) => async (_p: unknown, ctx: any) => {
-      signals[key] = ctx.signal;
-      return new Promise<any>(() => {});
-    };
-
-    await handleRender(
+    const payload = await handleRender(
       req,
       reply,
-      route({ render: 'streaming', meta: {}, deferred: { reviews: pending('reviews'), blurb: pending('blurb') } }) as any,
+      route({
+        render: 'streaming',
+        meta: {},
+        hydrate: true,
+        deferred: {
+          reviews: async (_p: unknown, ctx: any) => {
+            signals['reviews'] = ctx.signal;
+
+            return new Promise<any>(() => {});
+          },
+          blurb: async (_p: unknown, ctx: any) => {
+            signals['blurb'] = ctx.signal;
+
+            return new Promise<any>(() => {});
+          },
+        },
+      }) as any,
       configs,
       {} as any,
       maps(stalled),
       { logger: mkLogger() },
     );
 
-    // Nothing has terminated yet: the release must come from the finish listener itself.
-    expect(seen).toEqual([]);
-    expect(signals['reviews']!.aborted).toBe(false);
+    const { document } = await collectPartialDocument(payload);
+    await new Promise((r) => setTimeout(r, 20));
 
-    ended = true;
-    expect(() => finish!()).not.toThrow();
-    await new Promise((r) => setTimeout(r, 0));
-
-    // The bytes are gone, so no envelope can be emitted - but the work is signalled and each
-    // pending key is classified `aborted` EXACTLY ONCE.
+    // Every pending key is signalled and classified `aborted` EXACTLY ONCE...
     expect(signals['reviews']!.aborted).toBe(true);
     expect(signals['blurb']!.aborted).toBe(true);
     expect(seen).toEqual([
       { key: 'reviews', outcome: 'aborted' },
       { key: 'blurb', outcome: 'aborted' },
     ]);
-    expect(reply.chunks.join('')).not.toContain('__TAUJS_DEFERRED_STATE__');
 
-    // Envelope state: the controller retains nothing afterwards. A later write site emits the
-    // EMPTY envelope rather than re-classifying keys already accounted for in the episode.
-    ended = false;
-    expect(() => finish!()).not.toThrow();
-    await new Promise((r) => setTimeout(r, 0));
+    // ...and the bytes are gone, so no envelope was emitted for them.
+    expect(document).not.toContain('__TAUJS_DEFERRED_STATE__');
 
-    expect(reply.chunks.join('')).toContain('window.__TAUJS_DEFERRED_STATE__ = {};');
+    // The controller retains nothing. Waiting alone would prove nothing - it has to be OFFERED a
+    // second classification opportunity. The renderer finishing an already-settled response is a
+    // real one: that path releases the registry again (release is idempotent by design, so the
+    // fatal channel and the head terminals can all reach it).
+    reply.raw.end();
+    innerStream.end();
+    await new Promise((r) => setTimeout(r, 20));
+
     expect(seen).toEqual([
       { key: 'reviews', outcome: 'aborted' },
       { key: 'blurb', outcome: 'aborted' },
@@ -444,5 +459,64 @@ describe('handleRender deferred terminals (R2 item 8)', () => {
     expect(seenUnhandled).toEqual([]);
     expect(html).toContain('window.__INITIAL_DATA__ = {}');
     expect(html).toContain('__TAUJS_DEFERRED_STATE__');
+  });
+});
+
+describe('handleRender streaming: the PRE-CONSUMPTION failure terminal', () => {
+  it('a head failure before consumption releases deferred work and records ONE failed terminal', async () => {
+    const { seen, terminals, recorder } = events();
+    let entrySignal: AbortSignal | undefined;
+    let rendererStarts = 0;
+
+    const neverStarted = {
+      renderStream: vi.fn(() => {
+        rendererStarts += 1;
+
+        return { abort: vi.fn(), done: Promise.resolve() };
+      }),
+    };
+
+    const req = mkReq('/product/42', recorder);
+    const reply = mkReply();
+
+    // A head-data failure happens INSIDE the handler, after deferred work has started eagerly but
+    // BEFORE Fastify pulls the document. The generator catch is not operationally installed at that
+    // point, so `failResponse` is the terminal owner here - a different lifecycle point, not a
+    // duplicate of the catch.
+    const payload = await handleRender(
+      req,
+      reply,
+      route({
+        render: 'streaming',
+        meta: {},
+        head: {
+          data: async () => {
+            throw new Error('head boom');
+          },
+        },
+        deferred: {
+          reviews: async (_p: unknown, ctx: any) => {
+            entrySignal = ctx.signal;
+
+            return new Promise<any>(() => {});
+          },
+        },
+      }) as any,
+      configs,
+      {} as any,
+      maps(neverStarted),
+      { logger: mkLogger() },
+    );
+
+    // DELIBERATELY NOT CONSUMED: this is the point being observed.
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(rendererStarts).toBe(0);
+    expect(entrySignal!.aborted).toBe(true);
+    expect(seen).toEqual([{ key: 'reviews', outcome: 'aborted' }]);
+    expect(terminals).toEqual(['failed']);
+
+    // The document still rejects when anything does pull it, so Fastify can answer.
+    await expect(collectDocumentFailure(payload)).resolves.toBeDefined();
   });
 });

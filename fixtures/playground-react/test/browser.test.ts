@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type ConsoleMessage, type Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { assertWorkspacePackagesBuilt } from '../../test-support/BuiltPackages';
+
 /**
  * RFC 0007: the @taujs/react PRODUCT cell for deferred route data.
  *
@@ -125,10 +127,7 @@ const expectClean = (faults: PageFaults) => {
 
 describe('RFC 0007 product cell - React deferred route data (production build, enforced CSP)', () => {
   beforeAll(async () => {
-    // Freshness guard (docs/followups/fixture-stale-dist-evidence-trap.md): this fixture resolves
-    // @taujs/server and @taujs/react through their gitignored dist, so a stale package build
-    // silently falsifies everything proved here. Rebuild both before the fixture build.
-    execFileSync('pnpm', ['--filter', '@taujs/server', '--filter', '@taujs/react', 'build'], { cwd: path.join(PROJECT, '..', '..'), stdio: 'pipe' });
+    assertWorkspacePackagesBuilt(['server', 'react']);
     execFileSync('npm', ['run', 'build'], { cwd: PROJECT, stdio: 'pipe', env: { ...process.env, TAUJS_PORT: String(PORT) } });
 
     expect(await isPortFree(PORT), `port ${PORT} in use`).toBe(true);

@@ -12,6 +12,7 @@ import * as Telemetry from '../Telemetry';
 import { handleRender } from '../HandleRender';
 import { createLogger } from '../../logging/Logger';
 import { testRenderer, brandedRenderModule } from '../../test/support/renderer';
+import { collectDocument, collectDocumentFailure, collectPartialDocument } from '../../test/support/document';
 
 import type { Mock } from 'vitest';
 
@@ -64,91 +65,9 @@ vi.mock('../Entry', () => ({
   resolveEntryFile: vi.fn((clientRoot: string, entryServer: string) => entryServer),
 }));
 
-vi.mock('node:stream', () => {
-  class MockPassThrough {
-    private _dest: any = null;
-    listeners: Record<string, Function[]> = {};
-    writableEnded = false;
-
-    on(event: string, cb: Function) {
-      (this.listeners[event] ||= []).push(cb);
-      return this;
-    }
-
-    once(event: string, cb: Function) {
-      const wrapper = (...args: any[]) => {
-        this.removeListener(event, wrapper);
-        cb(...args);
-      };
-      return this.on(event, wrapper);
-    }
-
-    removeListener(event: string, cb: Function) {
-      const arr = this.listeners[event];
-      if (arr) this.listeners[event] = arr.filter((fn) => fn !== cb);
-      return this;
-    }
-
-    removeAllListeners(event?: string) {
-      if (event) delete this.listeners[event];
-      else this.listeners = {};
-      return this;
-    }
-
-    emit(event: string, ...args: any[]) {
-      (this.listeners[event] || []).forEach((cb) => cb(...args));
-      return true;
-    }
-
-    pipe(dest: any) {
-      this._dest = dest;
-      return dest;
-    }
-
-    write(chunk: any) {
-      if (this._dest?.write) this._dest.write(chunk);
-      this.emit('data', chunk);
-      return true;
-    }
-
-    end(chunk?: any) {
-      if (chunk !== undefined) this.write(chunk);
-      this.writableEnded = true;
-      if (this._dest?.end) this._dest.end();
-      this.emit('finish');
-      this.emit('end');
-      return this;
-    }
-
-    destroy(err?: any) {
-      if (err) this.emit('error', err);
-      this.writableEnded = true;
-      this.emit('close');
-    }
-
-    cork() {}
-    uncork() {}
-  }
-
-  const mod = { PassThrough: MockPassThrough };
-  return { ...mod, default: mod };
-});
-
-/**
- * The streamed head is written from one normalised object. `reply.getHeaders()` returns lowercase
- * keys and `writeHead` serialises the keys it is given, so a key differing only by case is a second
- * header line on the wire. Required headers are pinned by the individual tests; this pins the
- * property that makes them safe, without freezing the complete header set.
- *
- * Wire-level proof that duplicate keys really do reach the socket lives in
- * `test/StreamingHeadNormalisation.test.ts` (a real listener reading `rawHeaders`).
- */
-const expectNormalisedHead = (headers: Record<string, unknown>): void => {
-  const keys = Object.keys(headers);
-
-  expect(keys.map((key) => key.toLowerCase())).toEqual(keys);
-  expect(new Set(keys.map((key) => key.toLowerCase())).size).toBe(keys.length);
-};
+// REAL streams throughout. The cold document consumes the renderer's writable with `for await`,
+// so a double that fires `finish` synchronously would conflate writable finish with readable end -
+// exactly the truncation this transport exists to avoid. Tests drive chunks with write()/end().
 
 describe('handleRender', () => {
   let mockReq: any;
@@ -203,12 +122,16 @@ describe('handleRender', () => {
       callNotFound: vi.fn(),
       status: vi.fn().mockReturnThis(),
       header: vi.fn().mockReturnThis(),
+      // The streaming strategy DECLARES its response type: Fastify owns the head now.
+      type: vi.fn().mockReturnThis(),
+      removeHeader: vi.fn().mockReturnThis(),
       send: vi.fn(),
       hijack: vi.fn(),
       getHeader: vi.fn().mockReturnValue('default-src self'),
       getHeaders: vi.fn().mockReturnValue({}),
       raw: {
         headersSent: false,
+        writableFinished: false,
         writeHead: vi.fn(function (this: any) {
           this.headersSent = true;
         }),
@@ -984,12 +907,10 @@ describe('handleRender', () => {
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
         // basic behaviour
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') handler();
-        });
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onShellReady?.();
         callbacks.onAllReady?.({ streamed: 'data' });
+        writable.end();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
@@ -998,10 +919,9 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
-      expect(mockReply.raw.write).toHaveBeenCalled();
+      const document = await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
+      // Status is Fastify's (spine cell 1); at this layer the contract is the document itself.
+      expect(document.length).toBeGreaterThan(0);
 
       expect(mockRenderStream).toHaveBeenCalled();
 
@@ -1069,18 +989,16 @@ describe('handleRender', () => {
       });
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') handler();
-        });
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onShellReady?.();
         callbacks.onAllReady?.({});
+        writable.end();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
       // renderStream opts is index 7 (positional cspNonce removed in ESC-2).
       const opts = (mockRenderStream.mock.calls[0] as any[])[7];
@@ -1117,8 +1035,10 @@ describe('handleRender', () => {
         callbacks.onAllReady?.({ data: 'test' });
 
         setTimeout(() => {
-          writable.emit('finish');
+          writable.end();
         }, 0);
+
+        writable.end();
 
         return { abort: vi.fn(), done: Promise.resolve() };
       });
@@ -1281,15 +1201,11 @@ describe('handleRender', () => {
       });
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') {
-            handler();
-          }
-        });
-
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onShellReady?.();
         callbacks.onAllReady?.({ streamed: 'data' });
+
+        writable.end();
 
         return { abort: vi.fn(), done: Promise.resolve() };
       });
@@ -1299,13 +1215,20 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const document = await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
-      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
-      expect(mockReply.raw.write).toHaveBeenCalled();
+      // CONTRACT PRESERVED: the previous `writeHead(200)` + `raw.write` pair protected "the head
+      // commits and the shell reaches the client". Fastify owns the status now, so status lives in
+      // the real-listener suite; at this layer the contract is that the document CARRIES the shell.
+      expect(document).toContain('<html><head>');
+      expect(document).toContain('<title>Stream</title>');
     });
 
-    it('R1-01: streaming threads the request AbortSignal into the data ctx, and a client disconnect CANCELS it', async () => {
+    // SCOPE CORRECTED: a unit test emitting an EventEmitter event proves REACTION to an abort
+    // observation, not a network disconnect. Signal IDENTITY and THREADING are the unit contract
+    // here; the real disconnect cancelling those signals is spine cell 5, which asserts the
+    // renderer signal and the deferred child signal each abort exactly once.
+    it('R1-01: streaming threads the request AbortSignal into the initial-data ctx, and an abort observation cancels it', async () => {
       // Faithful AbortController: the suite's default mock has a no-op abort(); here abort() must flip
       // signal.aborted so we can prove the loader's signal actually cancels on disconnect (gate-review
       // "Additional Observations": presence alone is not enough).
@@ -1345,20 +1268,23 @@ describe('handleRender', () => {
       // Drive the initialData loader the way createSSRStore would (so fetchInitialData runs), but do
       // NOT fire 'finish' — that would unregister the 'aborted' handler before we can trigger it.
       const mockRenderStream = vi.fn((writable, callbacks, initialData) => {
-        writable.on = vi.fn();
         void (initialData as () => Promise<unknown>)();
         callbacks.onHead?.('<title>Stream</title>');
+        writable.end();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      // The CRITICAL INITIAL-DATA closure (`attr.data`), not an RFC 0007 deferred loader: it is
+      // invoked BY THE RENDERER, so it only runs on CONSUMPTION. Deferred work remains eager and
+      // starts in the handler, before the payload is returned.
+      await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
       // The loader received the signal (regression guard: dropping `ctx.signal = ac.signal` leaves it
-      // undefined) and it is the SAME signal the disconnect path aborts.
+      // undefined) and it is the SAME signal an abort observation cancels.
       expect(loaderCtx?.signal).toBeDefined();
       expect(loaderCtx.signal.aborted).toBe(false);
-      abortHandler?.(); // simulate the client disconnecting mid-stream
+      abortHandler?.(); // simulated abort observation (the network event is spine cell 5)
       expect(loaderCtx.signal.aborted).toBe(true);
     });
 
@@ -1375,9 +1301,9 @@ describe('handleRender', () => {
 
       const mockRenderStream = vi.fn((writable, callbacks, _initialData, _location, bootstrapModules) => {
         expect(bootstrapModules).toBeUndefined();
-
-        writable.on = vi.fn();
         callbacks.onHead?.('<title>Stream</title>');
+
+        writable.end();
 
         return { abort: vi.fn(), done: Promise.resolve() };
       });
@@ -1387,7 +1313,7 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
       expect(mockRenderStream).toHaveBeenCalled();
     });
@@ -1409,7 +1335,6 @@ describe('handleRender', () => {
       });
 
       const mockRenderStream = vi.fn((writable) => {
-        writable.on = vi.fn();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
@@ -1441,7 +1366,6 @@ describe('handleRender', () => {
       });
 
       const mockRenderStream = vi.fn((writable) => {
-        writable.on = vi.fn();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
@@ -1500,8 +1424,12 @@ describe('handleRender', () => {
         afterBody: '</body></html>',
       });
 
-      const mockRenderStream = vi.fn((writable) => {
+      const mockRenderStream = vi.fn((writable: any, callbacks: any) => {
+        // The shell must be produced, otherwise the document waits on it forever and the auxiliary
+        // error this test is about would never be reached.
+        callbacks.onHead?.('<title>S</title>');
         writable.emit('error', new Error('Unknown error'));
+        writable.end();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
@@ -1510,7 +1438,9 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      // AUXILIARY inner-stream logging, kept distinct from response classification: the renderer
+      // only runs on consumption, so the document must be driven for the error to be observed.
+      await collectPartialDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
       expect(mockLogger.error).toHaveBeenCalledWith(expect.any(Object), 'PassThrough error:');
     });
@@ -1542,17 +1472,22 @@ describe('handleRender', () => {
         setupStreamingRoute();
 
         const mockRenderStream = vi.fn((writable, callbacks) => {
-          writable.on = vi.fn();
           callbacks.onError?.(err); // request still live: abortedState is false
           return { abort: vi.fn(), done: Promise.resolve() };
         });
         mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+        // INVARIANT: `onError` is the renderer's FATAL channel. An application-controlled error that
+        // merely RESEMBLES a socket error stays fatal - only genuine request-abort state makes it
+        // benign - so this must reach the failure path. Proved by CONSUMING, because a renderer
+        // failure only occurs once the document is consumed.
+        const failure = await collectDocumentFailure(
+          await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps),
+        );
 
+        expect(failure).toBeDefined();
         expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
         expect(mockLogger.warn).not.toHaveBeenCalledWith({}, 'Client disconnected before stream finished');
-        expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
       });
     }
 
@@ -1567,22 +1502,31 @@ describe('handleRender', () => {
       } as any);
       const failure = new InitialDataFailure(AppError.internal('service unavailable'), { id: '42' } as any);
       const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn();
         callbacks.onError?.(failure);
         return { abort: vi.fn(), done: Promise.resolve() };
       });
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      // PRE-BYTE: the failure is raised before any shell byte, so consumption must REJECT -
+      // that rejection is what lets Fastify answer with a real 500 (spine cell 2 owns the status).
+      const rejection = await collectDocumentFailure(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps),
+      );
+
+      expect(rejection).toBeDefined();
 
       expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ component: 'fetch-initial-data', params: { id: '42' } }), 'service unavailable');
       expect(mockLogger.error).not.toHaveBeenCalledWith(expect.anything(), 'Critical rendering error during stream');
       expect(failed).toHaveBeenCalledTimes(1);
       expect(abortControllers.some((controller) => controller.abort.mock.calls.length > 0)).toBe(true);
-      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.any(Object));
+      // The real 500 is the spine's (cell 2); here the contract is the terminal being recorded once.
     });
 
-    it('gate finding 1: onError after an ACTUAL client disconnect (abortedState set) is benign', async () => {
+    // RETAINED as a unit EVENT-ORDER test, renamed: a mocked `reply.raw` close event is an abort
+    // OBSERVATION, not a network disconnect - the real network event is spine cell 5. What this
+    // still protects, and the spine does not, is the CLASSIFICATION: a subsequent onError after an
+    // abort observation is benign (warn), never the fatal channel.
+    it('gate finding 1: onError after an abort OBSERVATION is benign, never fatal', async () => {
       setupStreamingRoute();
 
       // Capture the real disconnect channel (reply.raw 'close') so we can trigger a genuine abort.
@@ -1594,18 +1538,19 @@ describe('handleRender', () => {
       mockReply.raw.writableEnded = false;
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn();
-        closeHandler?.(); // genuine client disconnect → abortedState.aborted = true
+        closeHandler?.(); // simulated abort observation → abortedState.aborted = true
         callbacks.onError?.(new Error('any subsequent render error'));
         return { abort: vi.fn(), done: Promise.resolve() };
       });
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const { document } = await collectPartialDocument(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps),
+      );
 
       expect(mockLogger.warn).toHaveBeenCalledWith({}, 'Client disconnected before stream finished');
       expect(mockLogger.error).not.toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
-      expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
+      expect(document).not.toContain('__INITIAL_DATA__');
     });
 
     // Recheck: the fatal onError callback must never throw on a HOSTILE unknown (a component can
@@ -1641,21 +1586,33 @@ describe('handleRender', () => {
         setupStreamingRoute();
 
         const mockRenderStream = vi.fn((writable, callbacks) => {
-          writable.on = vi.fn();
           callbacks.onError?.(make()); // live request → fatal branch, with a hostile error
           return { abort: vi.fn(), done: Promise.resolve() };
         });
         mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-        // No uncaught escapes, and the response is torn down deterministically (headers not sent → 500).
-        await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+        // COLD-START DISTINCTION: the handler returns BEFORE the renderer runs, so asserting that
+        // it resolves proves nothing here. The renderer - and therefore the hostile error - is only
+        // exercised by CONSUMING the document, and the contract is that a hostile error cannot
+        // prevent the failure reaching the client.
+        const failure = await collectDocumentFailure(
+          await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps),
+        );
 
+        // The document rejects through the proper failure path, and the hostile error did not
+        // replace the renderer failure with a formatting crash.
+        expect(failure).toBeInstanceOf(Error);
         expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Critical rendering error during stream');
-        expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.any(Object));
+        // The real 500 is the spine's (`StreamingTransport.test.ts` cell 2): a fatal before the
+        // first byte terminates rather than hanging.
       });
     }
 
-    it('recheck: onError with a hostile error AFTER headers are sent → socket destroy teardown, no throw', async () => {
+    // RECOVERED INTENT: "after headers are sent" was the hijacked transport's way of saying AFTER
+    // COMMITMENT. The boundary is now the first document byte YIELDED to Fastify, and the contract
+    // is that a hostile error past it cannot upgrade into a fresh error response - the transfer
+    // aborts with whatever was delivered.
+    it('recheck: onError with a hostile error AFTER the first yielded byte aborts the transfer, no throw', async () => {
       setupStreamingRoute();
 
       const hostile: Record<string, unknown> = {};
@@ -1665,18 +1622,22 @@ describe('handleRender', () => {
         },
       });
 
-      const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn();
-        callbacks.onHead?.('<title>S</title>'); // commits headers (headersSent = true)
-        callbacks.onError?.(hostile); // headers already sent → destroy(safeToReason(err)) branch
+      const mockRenderStream = vi.fn((writable: any, callbacks: any) => {
+        callbacks.onHead?.('<title>S</title>'); // the shell: this IS the first document byte
+        // The fatal must land AFTER that byte is yielded, or it is a pre-byte failure instead.
+        setTimeout(() => callbacks.onError?.(hostile), 0);
         return { abort: vi.fn(), done: Promise.resolve() };
       });
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeUndefined();
+      const { document, error } = await collectPartialDocument(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps),
+      );
 
-      expect(mockReply.raw.destroy).toHaveBeenCalled();
-      expect(mockReply.raw.writeHead).not.toHaveBeenCalledWith(500, expect.any(Object));
+      // Bytes were delivered, then the document failed: a partial response, never a second one.
+      expect(document).toContain('<title>S</title>');
+      expect(error).toBeDefined();
+      expect(document).not.toContain('__INITIAL_DATA__');
     });
 
     it('R0-04: streaming route with non-serializable (circular) final data terminates deterministically — no data script, no crash', async () => {
@@ -1701,25 +1662,24 @@ describe('handleRender', () => {
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onShellReady?.();
         callbacks.onAllReady?.(circular); // finalData is non-serializable
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') finishHandler = handler;
-        });
+        writable.end();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-      expect(finishHandler).toBeTypeOf('function');
+      // BYTE BOUNDARY: the shell was yielded before the data script is assembled, so a
+      // serialization failure here is POST-byte. It must abort the partial transfer - never
+      // upgrade into a fresh error response - and never throw out of the terminal listener.
+      const { document, error } = await collectPartialDocument(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps),
+      );
 
-      // Fire 'finish' on a later tick (post-return): the listener must handle the serialization
-      // failure LOCALLY and NEVER throw — an uncaught throw here would be an uncaughtException.
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(() => finishHandler!()).not.toThrow();
-
+      expect(document).toContain('<html><head>');
+      expect(document).not.toContain('__INITIAL_DATA__');
+      expect(error).toBeDefined();
       expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ url: mockReq.url }), 'Failed to serialize streaming initial data');
-      expect(mockReply.raw.write.mock.calls.some((args: any[]) => String(args[0]).includes('__INITIAL_DATA__'))).toBe(false);
     });
 
     it('R0-04: SSR route with non-serializable (circular) data → 500 via the request try/catch', async () => {
@@ -1749,33 +1709,10 @@ describe('handleRender', () => {
       );
       expect(mockReply.send).not.toHaveBeenCalled();
     });
-
-    it('should handle finish event when already aborted', async () => {
-      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
-      vi.mocked(Templates.processTemplate).mockReturnValue({
-        beforeHead: '<html><head>',
-        afterHead: '</head>',
-        beforeBody: '<body>',
-        afterBody: '</body></html>',
-      });
-
-      const mockRenderStream = vi.fn((writable, callbacks) => {
-        callbacks.onError?.(new Error('EPIPE'));
-        writable.emit('finish');
-        return { abort: vi.fn(), done: Promise.resolve() };
-      });
-
-      const mockRenderModule = { renderStream: mockRenderStream };
-      mockMaps.renderModules.set('/test/client', mockRenderModule);
-
-      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
-
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(mockReply.raw.write).not.toHaveBeenCalledWith(expect.stringContaining('__INITIAL_DATA__'));
-    });
+    // RETIRED: this asserted only that an already-aborted response emits no data script, which is
+    // proven observably by `test/StreamingTransport.test.ts` cell 5d - "late renderer completion
+    // after cancellation cannot emit initial-data bytes" - on a real listener. Reproducing it here
+    // would need a more elaborate socket mock to duplicate evidence that already exists.
 
     it('should handle finish event when already ended', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
@@ -1793,11 +1730,7 @@ describe('handleRender', () => {
       const mockRenderStream = vi.fn((writable, callbacks) => {
         callbacks.onHead?.('<title>Test</title>');
 
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') {
-            handler();
-          }
-        });
+        writable.end();
 
         return { abort: vi.fn(), done: Promise.resolve() };
       });
@@ -1849,11 +1782,7 @@ describe('handleRender', () => {
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onAllReady?.({ html: '<script>alert("xss")</script>' });
 
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') {
-            handler();
-          }
-        });
+        writable.end();
 
         return { abort: vi.fn(), done: Promise.resolve() };
       });
@@ -1863,9 +1792,9 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const document = await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
-      expect(mockReply.raw.write).toHaveBeenCalledWith(expect.stringContaining('\\u003c'));
+      expect(document).toContain('\\u003c');
     });
 
     it('should dispatch taujs:data-ready event in streaming', async () => {
@@ -1883,11 +1812,7 @@ describe('handleRender', () => {
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onAllReady?.({ data: 'test' });
 
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') {
-            handler();
-          }
-        });
+        writable.end();
 
         return { abort: vi.fn(), done: Promise.resolve() };
       });
@@ -1897,12 +1822,12 @@ describe('handleRender', () => {
 
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const document = await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
-      expect(mockReply.raw.write).toHaveBeenCalledWith(expect.stringContaining("window.dispatchEvent(new Event('taujs:data-ready'))"));
+      expect(document).toContain("window.dispatchEvent(new Event('taujs:data-ready')");
     });
 
-    it('benign onError logs "destroy() failed" when destroy throws', async () => {
+    it('benign teardown: a failing inner-stream disposal after an abort observation cannot prevent settlement', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
@@ -1914,85 +1839,55 @@ describe('handleRender', () => {
       });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      // The benign onError path is now reached only via ACTUAL request-abort state (gate finding 1),
-      // so trigger a genuine disconnect through the reply.raw 'close' channel first.
+      // OWNERSHIP: raw-response destruction is Fastify's now. What τjs still owns is disposal of the
+      // INNER stream, and the contract is that a defensive failure there cannot stop settlement.
+      // Benign-ness is decided by GENUINE abort state, never by error shape.
+      const aborted = vi.fn();
+      const failed = vi.fn();
+
+      vi.mocked(Telemetry.createRequestContext).mockReturnValue({
+        requestId: 'benign-teardown',
+        logger: mockLogger,
+        headers: { host: 'localhost' },
+        recorder: { ...noopEpisodeRecorder, aborted, failed },
+      } as any);
+
       let closeHandler: (() => void) | undefined;
       mockReply.raw.on = vi.fn((event: string, cb: any) => {
         if (event === 'close') closeHandler = cb;
         return mockReply.raw;
       });
-      mockReply.raw.writableEnded = false;
-      mockReply.raw.destroy = vi.fn(() => {
-        throw new Error('destroy fail (benign)');
-      });
+      mockReply.raw.writableFinished = false;
 
-      const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn();
-        closeHandler?.(); // genuine client disconnect → abortedState.aborted = true
-        callbacks.onError?.(new Error('subsequent render error'));
-        writable.emit?.('finish');
-        return { abort: vi.fn(), done: Promise.resolve() };
-      });
-
-      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
-
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        'ssr',
-        expect.objectContaining({
-          error: expect.objectContaining({ message: 'destroy fail (benign)' }),
-        }),
-        'stream teardown: destroy() failed',
-      );
-    });
-
-    it('critical onError logs "abort() failed" when AbortController.abort throws', async () => {
-      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
-      vi.mocked(Templates.processTemplate).mockReturnValue({
-        beforeHead: '<html><head>',
-        afterHead: '</head>',
-        beforeBody: '<body>',
-        afterBody: '</body></html>',
-      });
-      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
-
-      const OriginalAbortController = globalThis.AbortController;
-      (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
-        return {
-          abort: vi.fn(() => {
-            throw new Error('abort fail');
-          }),
-          signal: { aborted: false },
+      const mockRenderStream = vi.fn((writable: any, callbacks: any) => {
+        writable.destroy = () => {
+          throw new Error('inner disposal failed');
         };
-      });
-      mockReply.raw.destroy = vi.fn();
+        closeHandler?.(); // simulated abort observation → abortedState.aborted = true
+        callbacks.onError?.(new Error('subsequent render error'));
 
-      const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn();
-        callbacks.onError?.(new Error('boom'));
-        writable.emit?.('finish');
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      // The document is COLD, so the renderer only runs when it is consumed. Merely resolving the
+      // handler would exercise none of the above: the throwing disposal, the close observation and
+      // the subsequent error all live inside `renderStream`, which never runs unless the payload is
+      // pulled. Consuming it is what makes this cell test its own premise.
+      const payload = await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        'ssr',
-        expect.objectContaining({
-          error: expect.objectContaining({ message: 'abort fail' }),
-        }),
-        'stream teardown: abort() failed',
-      );
+      await collectPartialDocument(payload);
 
-      (globalThis as any).AbortController = OriginalAbortController;
+      expect(mockRenderStream).toHaveBeenCalledTimes(1);
+      // The contract: a defensive failure in inner-stream disposal does not become the response's
+      // problem. The abort observation owns the terminal, and the app error that followed it is
+      // NOT promoted to a second classification.
+      expect(aborted).toHaveBeenCalledTimes(1);
+      expect(failed).not.toHaveBeenCalled();
     });
 
-    it('critical onError logs "destroy() failed" when reply.raw.destroy throws', async () => {
+    it('critical teardown: a throwing AbortController cannot prevent the coordinator finalising', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
@@ -2005,108 +1900,35 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
       const OriginalAbortController = globalThis.AbortController;
-      (globalThis as any).AbortController = vi.fn().mockImplementation(function () {
-        return { abort: vi.fn(), signal: { aborted: false } };
-      });
-      mockReply.raw.headersSent = true; // post-commit failure: teardown path, not the 500 path
-      mockReply.raw.destroy = vi.fn(() => {
-        throw new Error('destroy fail (critical)');
-      });
+      class ThrowingAbortController extends OriginalAbortController {
+        override abort(): void {
+          throw new Error('abort fail');
+        }
+      }
+      (globalThis as any).AbortController = ThrowingAbortController;
 
-      const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn();
-        callbacks.onError?.(new Error('boom'));
-        writable.emit?.('finish');
-        return { abort: vi.fn(), done: Promise.resolve() };
-      });
+      try {
+        const mockRenderStream = vi.fn((_writable: any, callbacks: any) => {
+          callbacks.onError?.(new Error('fatal'));
 
-      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+          return { abort: vi.fn(), done: Promise.resolve() };
+        });
+        mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+        // AbortController signalling is τjs-owned, and a defensive failure there must not stop the
+        // response being settled: the document still fails rather than hanging.
+        const failure = await collectDocumentFailure(
+          await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps),
+        );
 
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        'ssr',
-        expect.objectContaining({
-          error: expect.objectContaining({ message: 'destroy fail (critical)' }),
-        }),
-        'stream teardown: destroy() failed',
-      );
-
-      (globalThis as any).AbortController = OriginalAbortController;
+        expect(failure).toBeDefined();
+      } finally {
+        (globalThis as any).AbortController = OriginalAbortController;
+      }
     });
-
-    it('fatal onError before any output sends a 500 instead of destroying the socket', async () => {
-      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
-      vi.mocked(Templates.processTemplate).mockReturnValue({
-        beforeHead: '<html><head>',
-        afterHead: '</head>',
-        beforeBody: '<body>',
-        afterBody: '</body></html>',
-      });
-      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
-
-      const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn();
-        callbacks.onError?.(new Error('boom'));
-        return { abort: vi.fn(), done: Promise.resolve() };
-      });
-
-      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
-
-      mockReq.taujsRequestContext = {
-        requestId: 'fatal-episode-1',
-        logger: mockLogger,
-        headers: { 'x-request-id': 'fatal-episode-1' },
-      };
-      // Fastify's reply header store is the source copied into the raw streaming response.
-      mockReply.getHeaders.mockReturnValue({ 'x-request-id': 'fatal-episode-1' });
-
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(mockReply.hijack).toHaveBeenCalled();
-      expect(mockReply.raw.writeHead).toHaveBeenCalledTimes(1);
-      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(
-        500,
-        expect.objectContaining({ 'content-type': 'text/html; charset=utf-8', 'x-request-id': 'fatal-episode-1' }),
-      );
-      // The pre-head 500 commits the SAME normalised object as the 200 path, so it cannot
-      // reintroduce a case variant of a header the reply already carries.
-      expectNormalisedHead(mockReply.raw.writeHead.mock.calls[0][1]);
-      expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
-      expect(mockReply.raw.destroy).not.toHaveBeenCalled();
-    });
-
-    it('does not commit the response status until onHead fires', async () => {
-      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
-      vi.mocked(Templates.processTemplate).mockReturnValue({
-        beforeHead: '<html><head>',
-        afterHead: '</head>',
-        beforeBody: '<body>',
-        afterBody: '</body></html>',
-      });
-      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
-
-      let capturedCallbacks: any;
-      const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn();
-        capturedCallbacks = callbacks;
-        return { abort: vi.fn(), done: Promise.resolve() };
-      });
-
-      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
-
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      expect(mockReply.raw.writeHead).not.toHaveBeenCalled();
-
-      capturedCallbacks.onHead?.('<title>Late</title>');
-
-      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
-    });
+    // RETIRED: asserted raw-response destruction, which Fastify owns now.
+    // RETIRED: asserted the raw 500 write; the real 500 is spine cell 2.
+    // RETIRED: asserted head commitment on the raw response; the commitment boundary is the first yielded byte and lives in the spine.
 
     it('streaming initialDataScript includes nonce attribute when cspNonce is present', async () => {
       (mockReq as any).cspNonce = 'nonce-abc-123';
@@ -2123,20 +1945,17 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({ foo: 'bar' });
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') handler();
-        });
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onAllReady?.({ hello: 'world' });
+        writable.end();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const document = await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
-      const scriptWrite = mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0];
-      expect(scriptWrite).toContain('nonce="nonce-abc-123"');
+      expect(document).toContain('nonce="nonce-abc-123"');
     });
 
     it('streaming initialDataScript omits nonce attribute when cspNonce is empty', async () => {
@@ -2154,21 +1973,18 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({ foo: 'bar' });
 
       const mockRenderStream = vi.fn((writable, callbacks) => {
-        writable.on = vi.fn((event: string, handler: any) => {
-          if (event === 'finish') handler();
-        });
         callbacks.onHead?.('<title>Stream</title>');
         callbacks.onAllReady?.({ ok: true });
+        writable.end();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
       mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const document = await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
-      const scriptWrite = mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0];
-      expect(scriptWrite).toContain('<script');
-      expect(scriptWrite).not.toContain('nonce=');
+      expect(document).toContain('<script');
+      expect(document).not.toContain('nonce=');
     });
 
     it('dev + streaming: does not inject nonce into devHead when nonce is empty', async () => {
@@ -2193,7 +2009,7 @@ describe('handleRender', () => {
         brandedRenderModule('test', {
           renderStream: vi.fn((writable: any, callbacks: any) => {
             callbacks.onHead?.('<title>X</title>');
-            writable.emit('finish');
+            writable.end();
             return { abort: vi.fn(), done: Promise.resolve() };
           }),
         }),
@@ -2202,13 +2018,16 @@ describe('handleRender', () => {
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
-        viteDevServer: mockViteDevServer,
-      });
+      // The nonce-bearing (or nonce-free) DOCUMENT is the contract here; wire-level CSP evidence
+      // stays with the real-listener tests.
+      const document = await collectDocument(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+          viteDevServer: mockViteDevServer,
+        }),
+      );
 
-      const writes = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
-      expect(writes).toContain('/@vite/client');
-      expect(writes).not.toContain('nonce=');
+      expect(document).toContain('/@vite/client');
+      expect(document).not.toContain('nonce=');
     });
 
     it('dev + streaming: does not inject nonce into devHead when nonce is empty', async () => {
@@ -2233,7 +2052,7 @@ describe('handleRender', () => {
         brandedRenderModule('test', {
           renderStream: vi.fn((writable: any, callbacks: any) => {
             callbacks.onHead?.('<title>X</title>');
-            writable.emit('finish');
+            writable.end();
             return { abort: vi.fn(), done: Promise.resolve() };
           }),
         }),
@@ -2242,125 +2061,34 @@ describe('handleRender', () => {
       vi.mocked(Templates.collectStyle).mockResolvedValue('');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
-        viteDevServer: mockViteDevServer,
-      });
-
-      const writes = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
-      expect(writes).toContain('/@vite/client');
-      expect(writes).not.toContain('nonce=');
-    });
-
-    it('streaming: does not record finalData when already aborted before onAllReady', async () => {
-      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      mockSelectedRoute = mockRoute;
-
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
-      vi.mocked(Templates.processTemplate).mockReturnValue({
-        beforeHead: '<html><head>',
-        afterHead: '',
-        beforeBody: '</head><body>',
-        afterBody: '</body></html>',
-      });
-
-      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
-
-      let closeHandler: Function | undefined;
-      mockReply.raw.on = vi.fn((event: string, cb: any) => {
-        if (event === 'close') closeHandler = cb;
-        return mockReply.raw;
-      });
-
-      const mockRenderStream = vi.fn((writable: any, callbacks: any) => {
-        // abort first
-        mockReply.raw.writableEnded = false;
-        closeHandler?.(); // sets abortedState.aborted=true in your implementation
-        callbacks.onAllReady?.({ shouldNotBeUsed: true });
-        writable.emit('finish');
-        return { abort: vi.fn(), done: Promise.resolve() };
-      });
-
-      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
-
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      // Should not write data-ready script because finish exits early when abortedState.aborted is true.
-      const writes = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
-      expect(writes).not.toContain('taujs:data-ready');
-    });
-
-    it('streaming: carries no CSP header when the reply has none', async () => {
-      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      mockSelectedRoute = mockRoute;
-
-      mockReply.getHeader = vi.fn().mockReturnValue(undefined);
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
-      vi.mocked(Templates.processTemplate).mockReturnValue({
-        beforeHead: '<html><head>',
-        afterHead: '',
-        beforeBody: '</head><body>',
-        afterBody: '</body></html>',
-      });
-
-      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
-
-      mockMaps.renderModules.set('/test/client', {
-        renderStream: vi.fn((writable: any, callbacks: any) => {
-          callbacks.onHead?.('<title>X</title>');
-          writable.emit('finish');
-          return { abort: vi.fn(), done: Promise.resolve() };
+      // The nonce-bearing (or nonce-free) DOCUMENT is the contract here; wire-level CSP evidence
+      // stays with the real-listener tests.
+      const document = await collectDocument(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+          viteDevServer: mockViteDevServer,
         }),
-      });
+      );
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      const [, headers] = mockReply.raw.writeHead.mock.calls[0];
-      expect(headers['content-security-policy']).toBeUndefined();
-      expect(headers['Content-Security-Policy']).toBeUndefined();
-      expectNormalisedHead(headers);
+      expect(document).toContain('/@vite/client');
+      expect(document).not.toContain('nonce=');
     });
+    // RETIRED by MUTATION CHECK, not by argument: removing the `if (!abortedState.aborted)` guard
+    // changed NO observable outcome - emitted bytes, deferred settlement, episode outcome and
+    // retained lifecycle state were all identical, because an abort irreversibly destroys the
+    // document and the coordinator is latched. This test pinned the private `finalData` variable
+    // through an unreachable mock sequence.
+    //
+    // The behaviour it was reaching for IS protected, at the layer where it is observable:
+    // `test/StreamingTransport.test.ts` cell 5d - "late renderer completion after cancellation
+    // cannot emit initial-data bytes" - on a real listener, with a renderer that completes 250ms
+    // after the client has gone.
 
-    it('streaming: a CSP already on the reply reaches the head exactly once, and existing headers survive', async () => {
-      const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
-      mockSelectedRoute = mockRoute;
-
-      // Exactly what the CSP plugin leaves behind: a lowercase entry in the reply's header store.
-      mockReply.getHeaders = vi.fn().mockReturnValue({
-        'content-security-policy': "default-src 'self'",
-        'x-request-id': 'head-normalisation-1',
-        'x-host-policy': 'caller-owned',
-      });
-
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
-      vi.mocked(Templates.processTemplate).mockReturnValue({
-        beforeHead: '<html><head>',
-        afterHead: '',
-        beforeBody: '</head><body>',
-        afterBody: '</body></html>',
-      });
-
-      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
-
-      mockMaps.renderModules.set('/test/client', {
-        renderStream: vi.fn((writable: any, callbacks: any) => {
-          callbacks.onHead?.('<title>X</title>');
-          writable.emit('finish');
-          return { abort: vi.fn(), done: Promise.resolve() };
-        }),
-      });
-
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
-      const [status, headers] = mockReply.raw.writeHead.mock.calls[0];
-
-      expect(status).toBe(200);
-      expectNormalisedHead(headers);
-      expect(headers['content-security-policy']).toBe("default-src 'self'");
-      expect(headers['content-type']).toBe('text/html; charset=utf-8');
-      // Everything the reply already carried survives the normalisation.
-      expect(headers['x-request-id']).toBe('head-normalisation-1');
-      expect(headers['x-host-policy']).toBe('caller-owned');
-    });
+    // RETIRED (header-object assertions): the streamed head was a τjs-assembled object; Fastify
+    // owns it now, so there is no object to inspect. Their contracts are covered where they are
+    // externally observable:
+    //   - an ACTIVE CSP reaches the wire exactly once, with existing reply headers surviving:
+    //     `test/StreamingHeadNormalisation.test.ts` (real listener, `rawHeaders`);
+    //   - no header key is emitted twice at all: `test/StreamingTransport.test.ts` cell 1.
   });
 
   describe('Development mode', () => {
@@ -2624,7 +2352,7 @@ describe('handleRender', () => {
       // 7. Minimal renderStream: emit head once, then finish
       const mockRenderStream = vi.fn((writable, callbacks) => {
         callbacks.onHead?.('<title>Dev Streaming</title>');
-        writable.emit('finish');
+        writable.end();
         return { abort: vi.fn(), done: Promise.resolve() };
       });
 
@@ -2634,10 +2362,11 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
       // 8. Execute
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+      const writtenHtml = await collectDocument(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer }),
+      );
 
       // 9. Assert: devHead script was nonce-patched
-      const writtenHtml = mockReply.raw.write.mock.calls.map((c: any[]) => String(c[0])).join('');
 
       expect(writtenHtml).toContain('<script nonce="nonce-dev-123" type="module" src="/@vite/client"></script>');
     });
@@ -2759,19 +2488,17 @@ describe('handleRender', () => {
 
       mockMaps.renderModules.set('/test/client', {
         renderStream: vi.fn((writable, callbacks) => {
-          writable.on = vi.fn((event: string, handler: any) => {
-            if (event === 'finish') handler();
-          });
           callbacks.onHead?.('<title>Stream</title>');
           callbacks.onAllReady?.(PAYLOAD);
+          writable.end();
           return { abort: vi.fn(), done: Promise.resolve() };
         }),
       });
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      const document = await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
-      const scriptWrite = String(mockReply.raw.write.mock.calls.find((c: any[]) => String(c[0]).includes('window.__INITIAL_DATA__'))?.[0] ?? '');
-      assertInert(evaluateEmitted(scriptWrite));
+      expect(document).toContain('window.__INITIAL_DATA__');
+      assertInert(evaluateEmitted(document));
     });
   });
 
@@ -2959,19 +2686,20 @@ describe('handleRender', () => {
         });
         vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
 
-        // Post-commit failures: uncommitted fatal errors take the 500 path instead
-        mockReply.raw.headersSent = true;
-
+        // A TEST-SPECIFIC driver: this scenario is deliberately post-commit, so the shell is
+        // yielded FIRST and the fatal arrives after it. `headersSent` is no longer the boundary -
+        // the first yielded byte is - so the driver expresses that directly.
         const mockRenderStream = vi.fn((writable, callbacks) => {
-          if (!writable.on) writable.on = vi.fn();
-          callbacks.onError?.(errValue);
-          writable.emit?.('finish');
+          callbacks.onHead?.('<title>S</title>'); // the shell: the first document byte
+          // The fatal must arrive AFTER the shell is actually yielded, otherwise it is a pre-byte
+          // failure - the boundary is the byte reaching Fastify, not the callback ordering.
+          setTimeout(() => callbacks.onError?.(errValue), 0);
           return { abort: vi.fn(), done: Promise.resolve() };
         });
 
         mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
 
-        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+        return collectPartialDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
       };
 
       it.each([
@@ -2982,9 +2710,12 @@ describe('handleRender', () => {
         { label: 'null', value: null },
         { label: 'undefined', value: undefined },
       ])('covers String((e as any)?.message ?? e ?? "") – $label', async ({ value }) => {
-        await setupStreamAndFire(value);
+        const { document, error } = await setupStreamAndFire(value);
 
-        expect(mockReply.raw.destroy).toHaveBeenCalledTimes(1);
+        // Whatever shape the error takes, formatting it must never crash the terminal: the partial
+        // document is delivered, the transfer aborts, and something is logged.
+        expect(document).toContain('<html><head>');
+        expect(error).toBeDefined();
         expect(mockLogger.error.mock.calls.length + mockLogger.warn.mock.calls.length).toBeGreaterThan(0);
       });
     });
@@ -3097,7 +2828,8 @@ describe('handleRender', () => {
       handlers['error']?.forEach((cb) => cb(new Error('kaboom')));
       expect(mockLogger.error).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(Error) }), 'HTTP socket error:');
 
-      await expect(p).resolves.toBeUndefined();
+      // The streaming strategy resolves with the Fastify payload, not undefined.
+      await expect(p).resolves.toBeDefined();
     });
 
     it('includeStack returns true only for "error" in production', async () => {
@@ -3193,8 +2925,20 @@ describe('handleRender', () => {
       return renderSSR;
     };
 
+    /**
+     * A renderer double that actually DRIVES the document: head, one body chunk, then `end()`.
+     * The cold document is consumed with `for await`, so a double that never ends would hang the
+     * consumer rather than assert anything.
+     */
     const streamModule = () => {
-      const renderStream = vi.fn(() => ({ abort: vi.fn(), done: Promise.resolve() }));
+      const renderStream = vi.fn((writable: any, callbacks: any) => {
+        callbacks?.onHead?.('<title>S</title>');
+        writable?.write?.('<main>app</main>');
+        callbacks?.onAllReady?.({});
+        writable?.end?.();
+
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
       mockMaps.renderModules.set('/test/client', { renderStream });
       return renderStream;
     };
@@ -3303,26 +3047,45 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchHeadData).mockResolvedValue({ t: 1 });
       const renderStream = streamModule();
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
       expect(renderStream).toHaveBeenCalledTimes(1);
       const opts = (renderStream as Mock).mock.calls[0]![7];
       expect(opts).toEqual(expect.objectContaining({ headData: { t: 1 } }));
     });
 
-    it('streaming: a non-optional head rejection terminates with a 500 on the hijacked reply - never a rethrow', async () => {
+    // A non-optional head rejection carries TWO contracts, and conflating them was what the old
+    // single test did. They are observed at different points, so they are two tests.
+    it('streaming, head rejection [internal settlement]: the renderer never starts and the failure is logged once', async () => {
       useRealAbortController();
       stubTemplate();
       mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } });
       vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('head boom'));
       const renderStream = streamModule();
 
+      // Observed at point 1 - the handler has created a payload nobody has consumed. Deliberately
+      // NOT consumed: a renderer that never starts is precisely what this asserts.
       await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
 
       expect(renderStream).not.toHaveBeenCalled();
-      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.anything());
-      expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
       expect(mockLogger.error).toHaveBeenCalledWith(expect.anything(), 'Head data failed; terminating streaming request');
+    });
+
+    it('streaming, head rejection [external delivery]: consuming the document REJECTS, so Fastify can answer', async () => {
+      useRealAbortController();
+      stubTemplate();
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } });
+      vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('head boom'));
+      streamModule();
+
+      // Observed at point 4. The document must FAIL BEFORE ITS FIRST BYTE - that rejection is what
+      // lets Fastify's error path produce a real 500 instead of a truncated 200. The HTTP status
+      // itself belongs to the spine (`StreamingTransport.test.ts`, cell 2), not here.
+      const failure = await collectDocumentFailure(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps),
+      );
+
+      expect(failure).toBeInstanceOf(Error);
     });
 
     it('streaming: deadline expiry degrades to an ABSENT headData key with an advisory warn (Policy ii)', async () => {
@@ -3332,7 +3095,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchHeadData).mockImplementation(() => new Promise(() => {}));
       const renderStream = streamModule();
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ timeoutMs: 20, optional: false }),
@@ -3349,7 +3112,7 @@ describe('handleRender', () => {
       vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('flaky head service'));
       const renderStream = streamModule();
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ optional: true, reason: 'flaky head service' }),
@@ -3366,14 +3129,17 @@ describe('handleRender', () => {
       mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       const renderStream = streamModule();
 
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
 
       expect(DataRoutes.fetchHeadData).not.toHaveBeenCalled();
       expect(renderStream).toHaveBeenCalledTimes(1);
       expect(Object.hasOwn((renderStream as Mock).mock.calls[0]![7], 'headData')).toBe(false);
     });
 
-    it('streaming: a THROWING host logger cannot skip the hijacked-socket teardown on head failure (belted telemetry)', async () => {
+    // RECOVERED INTENT: the old title said "hijacked-socket teardown", but the contract was BELTED
+    // TELEMETRY - a hostile logger must not prevent the response being settled. That contract
+    // survives the transport change; only its observation point moved.
+    it('streaming, hostile logger [internal settlement]: telemetry cannot prevent settlement or start the renderer', async () => {
       useRealAbortController();
       stubTemplate();
       mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } });
@@ -3383,28 +3149,51 @@ describe('handleRender', () => {
       });
       const renderStream = streamModule();
 
-      // Must resolve (no escape into the outer catch) AND still terminate the response.
-      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
-
+      // WHY handler settlement is meaningful HERE and not vacuous: this is a HEAD-RESOLUTION
+      // logger. Head data is awaited inside the handler, BEFORE the payload is returned, so the
+      // throwing logger is genuinely exercised on this path. Under the cold lifecycle a RENDERER
+      // fatal is different - the handler returns before the renderer runs - so a hostile logger on
+      // that path must be proved through consumption instead (see the onError cluster).
+      await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).resolves.toBeDefined();
+      expect(mockLogger.error).toHaveBeenCalled();
       expect(renderStream).not.toHaveBeenCalled();
-      expect(mockReply.raw.writeHead).toHaveBeenCalledWith(500, expect.anything());
-      expect(mockReply.raw.end).toHaveBeenCalledWith('Internal Server Error');
     });
 
-    it('streaming: caller abort during the head fetch destroys the hijacked socket without starting the stream', async () => {
+    it('streaming, hostile logger [external delivery]: the document still rejects, so the response is still answered', async () => {
+      useRealAbortController();
+      stubTemplate();
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } });
+      vi.mocked(DataRoutes.fetchHeadData).mockRejectedValue(new Error('head boom'));
+      mockLogger.error.mockImplementation(() => {
+        throw new Error('hostile logger');
+      });
+      streamModule();
+
+      const failure = await collectDocumentFailure(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps),
+      );
+
+      expect(failure).toBeInstanceOf(Error);
+    });
+
+    // RECOVERED INTENT: the old title said the socket was destroyed, but the contract was that a
+    // caller who leaves mid-head-fetch NEVER causes rendering work. Destroying a socket was the old
+    // transport's way of settling; the response is Fastify's to tear down now.
+    it('streaming, caller abort during the head fetch: the renderer never starts', async () => {
       useRealAbortController();
       stubTemplate();
       mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {}, head: { data: async () => ({}) } });
       vi.mocked(DataRoutes.fetchHeadData).mockImplementation(() => new Promise(() => {}));
       const renderStream = streamModule();
 
+      // Point 1 only. The payload is deliberately NOT consumed: an abort before consumption is
+      // exactly the state under test, and the client's disconnect terminal is the spine's (cell 5).
       const p = handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
       await new Promise((r) => setTimeout(r, 10));
       firedAbortedHandler();
       await p;
 
       expect(renderStream).not.toHaveBeenCalled();
-      expect(mockReply.raw.destroy).toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 
 import { RENDERTYPE } from '../core/constants';
 import { AppError, normaliseError, toReason } from '../core/errors/AppError';
@@ -147,6 +147,14 @@ export const handleRender = async (
   // binding nothing would classify them, no R5 episode event would fire and their child abort signal
   // would outlive the response.
   let deferred: DeferredDataController | undefined;
+
+  /**
+   * The streaming response-terminal coordinator, hoisted so the outer catch cannot become a SECOND
+   * terminal owner. Set once the streaming branch installs it; `undefined` on the SSR path, which
+   * keeps its own terminals.
+   */
+  let finaliseStreamingResponse:
+    ((arm: 'complete' | 'failed' | 'aborted', info?: { error?: unknown; phase?: 'render' | 'send' | 'stream' }) => void) | undefined;
 
   try {
     const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
@@ -463,51 +471,155 @@ export const handleRender = async (
         });
       }
 
-      // ONE normalised head object for both commit paths. `reply.getHeaders()` returns LOWERCASE
-      // keys (Fastify lowercases on set), and `writeHead` serialises whatever keys the object
-      // carries, so a mixed-case key added here becomes a SECOND header line on the wire. That is
-      // how any CSP established before the handoff - including τjs's own, set by the CSP plugin in
-      // `onRequest` - was being emitted twice. Every key added here must be lowercase.
-      const headers = { ...reply.getHeaders(), 'content-type': 'text/html; charset=utf-8' }; // includes x-request-id from createRequestContext
+      // FASTIFY OWNS THE SEND. The handler returns a COLD document stream: nothing runs until
+      // Fastify consumes it, so `onSend` hooks, host transformations and payload replacement all
+      // compose normally, and there is no window in which τjs owns a live stream Fastify has not
+      // taken over. Fastify writes the head, so no header object is assembled here and the
+      // response type is declared on the reply.
+      //
+      // The commitment boundary is the BYTE, not a renderer callback: before the first document
+      // byte is yielded to Fastify a failure can still become a real 500; after it, a failure
+      // aborts the transfer. Renderers reach that boundary on their own terms - React at its shell,
+      // Vue after publishing its head, Solid possibly not until component work succeeds.
+      reply.type('text/html; charset=utf-8');
 
-      // The raw socket is ours from here. The status is committed on first
-      // output (onHead) rather than up front, so a render failure before any
-      // bytes are written can still produce a real 500 response.
-      reply.hijack();
+      /** Resolved when the renderer's head is ready; REJECTED by a pre-byte failure. */
+      let resolveShell: (html: string) => void = () => {};
+      let rejectShell: (reason: unknown) => void = () => {};
+      const shellReady = new Promise<string>((resolve, reject) => {
+        resolveShell = resolve;
+        rejectShell = reject;
+      });
 
-      const commitHead = () => {
-        if (!reply.raw.headersSent) reply.raw.writeHead(200, headers as any);
-      };
-      const commitErrorHead = () => {
-        if (!reply.raw.headersSent) reply.raw.writeHead(500, headers as any);
-      };
+      // The document may NEVER be pulled - an `onSend` hook can replace the payload outright - so a
+      // pre-consumption failure would otherwise reject this promise with nothing to observe it, and
+      // Node would report an unhandledRejection. This acknowledgement owns that case; the real
+      // `await` inside the document still sees the rejection when the document IS consumed.
+      void shellReady.catch(() => {});
+
+      /** Resolved with the closing document bytes, or `undefined` when the response is failing. */
+      let resolveTail: (html: string | undefined) => void = () => {};
+      const tailReady = new Promise<string | undefined>((resolve) => {
+        resolveTail = resolve;
+      });
+
+      const documentState = { committed: false, completed: false, settledEarly: false };
+
+      /**
+       * A failure that arrived BEFORE the first byte was yielded, held so the document can re-throw
+       * it.
+       *
+       * `onHead` resolving the shell is not commitment: the generator is still suspended, and
+       * nothing has left the process until it resumes and yields. A fatal inside that gap cannot
+       * reject `shellReady` - it is already resolved - so without this the document would commit
+       * and deliver a truncated page under a clean 200.
+       */
+      let preCommitFailure: { reason: unknown } | undefined;
 
       const abortedState = { aborted: false };
       const ac = new AbortController();
+
+      /**
+       * The ONE response-terminal coordinator. Multiple cancellation OBSERVATIONS are allowed -
+       * request abort, response close, stream cancellation - but there is exactly one terminal
+       * OWNER, and it is latched:
+       *
+       *   response finish            -> release deferred -> sent(status, streaming) -> complete
+       *   renderer / response fatal  -> release deferred -> failed(error)           -> failed
+       *   close without a finish     -> release deferred -> aborted(phase)          -> aborted
+       *
+       * Deferred release happens BEFORE telemetry and is idempotent, so a host that REPLACES the
+       * payload - meaning no terminal of ours ever runs inside the document - still releases the
+       * work that started eagerly in this handler.
+       */
+      let responseFinalised = false;
+
+      const finaliseResponseOnce = (arm: 'complete' | 'failed' | 'aborted', info: { error?: unknown; phase?: 'render' | 'send' | 'stream' } = {}): void => {
+        if (responseFinalised) return;
+        responseFinalised = true;
+
+        try {
+          deferred?.release();
+        } catch {}
+
+        try {
+          if (arm === 'complete') {
+            recorder?.sent({ requestId, status: reply.raw.statusCode ?? 200, mode: 'streaming' });
+          } else if (arm === 'failed') {
+            recorder?.failed({ requestId, error: { kind: safeErrorKind(info.error), message: safeErrorMessage(info.error) } });
+          } else {
+            recorder?.aborted({ requestId, phase: info.phase ?? 'stream' });
+          }
+        } catch {}
+      };
+
+      finaliseStreamingResponse = finaliseResponseOnce;
+
+      /** Pre-byte failures can still become a real 500; post-byte failures abort the transfer. */
+      const failResponse = (reason?: unknown): void => {
+        finaliseResponseOnce('failed', { error: reason });
+
+        if (!documentState.committed) {
+          documentState.settledEarly = true;
+
+          // Transport failure REJECTS the document; choosing the error representation belongs to
+          // the response error handler, not here. (`sendStream` has already copied this response's
+          // `text/html` onto the raw response, so a content-type change at this point would be
+          // shadowed by the raw header anyway.)
+          const failure = reason ?? new Error('taujs: streaming failed before the first document byte');
+
+          preCommitFailure = { reason: failure };
+          rejectShell(failure);
+          resolveTail(undefined);
+
+          return;
+        }
+
+        resolveTail(undefined);
+        if (!writable.destroyed) writable.destroy(reason instanceof Error ? reason : new Error('taujs: streaming failed after commitment'));
+      };
+
+      const abortResponse = (phase: 'render' | 'send' | 'stream' = 'stream'): void => {
+        finaliseResponseOnce('aborted', { phase });
+
+        if (!documentState.committed) {
+          documentState.settledEarly = true;
+          resolveShell('');
+          resolveTail(undefined);
+        }
+
+        resolveTail(undefined);
+        if (!writable.destroyed) writable.destroy();
+      };
 
       const onAborted = () => {
         if (!abortedState.aborted) {
           logger.warn({}, 'Client disconnected before stream finished');
           abortedState.aborted = true;
-          recorder?.aborted({ requestId, phase: 'stream' });
         }
         ac.abort();
+        abortResponse('stream');
       };
 
       req.raw.on('aborted', onAborted);
-      reply.raw.on('close', () => {
-        if (!reply.raw.writableEnded) {
-          if (!abortedState.aborted) {
-            logger.warn({}, 'Client disconnected before stream finished');
-            abortedState.aborted = true;
-            recorder?.aborted({ requestId, phase: 'stream' });
-          }
-          ac.abort();
-        }
-      });
 
+      // Fastify owns delivery, so its own response events are the authority: `finish` means the
+      // bytes left, whoever produced them; `close` without a finish is premature termination.
       reply.raw.on('finish', () => {
         req.raw.off('aborted', onAborted);
+        finaliseResponseOnce('complete');
+      });
+
+      reply.raw.on('close', () => {
+        if (reply.raw.writableFinished) return;
+
+        if (!abortedState.aborted) {
+          logger.warn({}, 'Client disconnected before stream finished');
+          abortedState.aborted = true;
+        }
+
+        ac.abort();
+        abortResponse('stream');
       });
 
       ctx.signal = ac.signal; // R1-01: propagate into the data context before renderStream fetches it
@@ -528,14 +640,91 @@ export const handleRender = async (
         if (!isBenignSocketError(err)) logger.error({ error: err }, 'HTTP socket error:');
       });
 
-      let finalData: unknown = undefined;
-      let pipedToReply = false;
+      // A client can leave BEFORE this point: any awaiting host hook sits in front of the handler,
+      // and in development so does Vite's own module loading. `close` has then ALREADY been emitted,
+      // so the listeners above can never fire - nothing would classify the response, and nothing
+      // would release the deferred work that started eagerly a few lines up. An event that already
+      // happened has to be observed by asking, not by listening.
+      if (reply.raw.destroyed || req.raw.aborted) {
+        if (!abortedState.aborted) {
+          logger.warn({}, 'Client disconnected before stream finished');
+          abortedState.aborted = true;
+        }
 
-      // RFC 0004 (H1): head data resolves BEFORE the stream starts - the only pre-shell await on
-      // this strategy (body data streams as always). Placed AFTER the socket/writable guard
-      // wiring so those handlers observe errors during the head fetch too. The reply is already
-      // HIJACKED, so every arm must settle the raw socket itself - the outer catch rethrows into
-      // Fastify, which no longer owns this response and would leave the socket hanging.
+        ac.abort();
+        abortResponse('render');
+      }
+
+      let finalData: unknown = undefined;
+
+      /**
+       * The document is CREATED before head resolution but CONSUMED only when Fastify pulls, so
+       * the renderer start and the response terminal are wired through this holder rather than
+       * captured early. Assigned below, once both exist.
+       */
+      const documentWiring: { startRenderer?: () => { done: Promise<unknown> }; onWritableFinish?: () => void } = {};
+
+      /**
+       * The COLD document. Nothing here runs until Fastify consumes the payload, which is what
+       * makes `onSend` composable: a hook may delay it, transform it, or replace it outright, and
+       * in the replacement case the renderer never starts at all.
+       */
+      const documentPayload = Readable.from(
+        (async function* () {
+          try {
+            // A response that already settled before any byte - a head-data failure or a caller
+            // abort - never starts the renderer at all. Renderer CONSTRUCTION is inside this try
+            // deliberately: a SYNCHRONOUS `renderStream` throw would otherwise escape before any
+            // terminal ran, leaving the registry unreleased and the episode unclassified.
+            if (!documentState.settledEarly) {
+              // R0-01: observe the stream handle's `done`. Fatal stream errors are handled by the
+              // `onError` callback, so this catch is acknowledgement and defence in depth against a
+              // renderer that omits its own pre-attached handler.
+              const { done } = documentWiring.startRenderer!();
+              void done.catch(() => {});
+              writable.on('finish', documentWiring.onWritableFinish!);
+            }
+
+            const shell = await shellReady;
+
+            // Commitment is the first byte YIELDED TO FASTIFY, not the head resolving. A fatal that
+            // arrived while this was suspended is still pre-byte, so it re-throws here and becomes a
+            // real error response instead of committing a truncated document.
+            if (preCommitFailure) throw preCommitFailure.reason;
+
+            documentState.committed = true;
+            yield shell;
+
+            for await (const chunk of writable) yield chunk;
+
+            const tail = await tailReady;
+            if (tail) yield tail;
+
+            documentState.completed = true;
+          } catch (error) {
+            // The LATCH makes this safe: a callback-driven fatal has already finalised, so this
+            // cannot record twice; a synchronous renderer throw has not, so this becomes its
+            // terminal owner. The original rejection is rethrown so Fastify converts it - a
+            // pre-byte throw becomes a real 500, a post-byte one aborts delivery.
+            //
+            // Deliberately NOT `failResponse()`: for a synchronous construction throw, execution
+            // never reaches `await shellReady`, so rejecting it here would leave an unobserved
+            // rejected promise.
+            finaliseResponseOnce('failed', { error });
+
+            throw error;
+          } finally {
+            // LOCAL disposal only: the response terminal is owned by the coordinator, never here.
+            if (!documentState.completed && !ac.signal.aborted) ac.abort();
+          }
+        })(),
+      );
+
+      // RFC 0004 (H1): head data resolves BEFORE the renderer starts - the only pre-shell await on
+      // this strategy (body data streams as always). Placed AFTER the abort wiring so those
+      // handlers observe errors during the head fetch too. Fastify owns the response, so an arm
+      // here settles the DOCUMENT (through the coordinator) and returns the payload; the outer
+      // catch must not rethrow past a payload Fastify is already holding.
       let headResolution: { aborted: boolean; headData?: Record<string, unknown> };
       try {
         headResolution = await resolveHeadData(ac.signal);
@@ -543,184 +732,143 @@ export const handleRender = async (
         // Non-optional head rejection: terminate deterministically (the finish-listener
         // serialize-failure idiom) - 500 if the head has not been committed, destroy otherwise.
         // Telemetry is BELTED INDEPENDENTLY of the teardown (gate-review finding 1, same rule as
-        // the fatal-stream path): a throwing host logger/recorder must never skip the raw-socket
-        // settlement - the outer catch rethrows into Fastify, which no longer owns this response.
-        // RFC 0007 (failure semantics 6): a critical head failure is a response terminal, and
-        // outstanding deferred work is classified and detached on it - BEFORE any telemetry, so a
-        // throwing logger/recorder cannot strand the registry.
+        // A critical head failure IS a response terminal, and it goes through the coordinator like
+        // every other one: `failResponse` releases the registry BEFORE telemetry and records the
+        // failure exactly once. Logging is belted separately so a throwing logger cannot skip the
+        // settlement.
         try {
-          deferred?.release();
+          failResponse(err);
         } catch {}
         try {
           logger.error({ error: safeNormaliseError(err), url: req.url }, 'Head data failed; terminating streaming request');
-          recorder?.failed({ requestId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
         } catch {}
-        try {
-          if (!reply.raw.headersSent) {
-            commitErrorHead();
-            reply.raw.end('Internal Server Error');
-          } else if (!reply.raw.writableEnded && !reply.raw.destroyed) {
-            reply.raw.destroy();
-          }
-        } catch {}
-        return;
+        return await documentPayload;
       }
       if (headResolution.aborted) {
         try {
-          deferred?.release();
+          abortResponse('render');
         } catch {}
-        try {
-          if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
-        } catch {}
-        return;
+        return await documentPayload;
       }
 
-      const { done } = renderStream(
-        writable,
-        {
-          onHead: (headContent: string) => {
-            let aggregateHeadContent = '';
+      const startRenderer = (): { done: Promise<unknown> } =>
+        renderStream(
+          writable,
+          {
+            onHead: (headContent: string) => {
+              let aggregateHeadContent = '';
 
-            if (devHead) aggregateHeadContent += devHead;
-            aggregateHeadContent += headContent;
+              if (devHead) aggregateHeadContent += devHead;
+              aggregateHeadContent += headContent;
 
-            if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
-            if (manifest && cssLink) aggregateHeadContent += cssLink;
+              if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
+              if (manifest && cssLink) aggregateHeadContent += cssLink;
 
-            commitHead();
-            // devStamp lives in <head>, never inside #root: a leading <script> before the
-            // streamed app HTML is a Vue hydration node mismatch (the whole app re-renders
-            // as a duplicate sibling). React skips unexpected scripts, Vue does not.
-            reply.raw.write(`${templateParts.beforeHead}${aggregateHeadContent}${devStamp}${templateParts.afterHead}${templateParts.beforeBody}`);
-            recorder?.streamPhase({ requestId, phase: 'head' });
-
-            if (!pipedToReply) {
-              pipedToReply = true;
-              writable.pipe(reply.raw, { end: false });
-            }
-          },
-          onShellReady: () => {
-            recorder?.streamPhase({ requestId, phase: 'shellReady' });
-          },
-          onAllReady: (data: unknown) => {
-            if (!abortedState.aborted) finalData = data;
-            recorder?.streamPhase({ requestId, phase: 'allReady' });
-          },
-          onRenderError: (info) => {
-            // R1-01 (design 7): NON-FATAL structured render-error channel — wired to the request
-            // logger with structured fields. No new recorder methods (EpisodeRecorder integration is
-            // introspection-owned, conventions #3). Never fails the response.
-            //
-            // Log at `warn`, not `error`: this channel is advisory by contract. Only `post-shell`
-            // errors are provably recoverable (the renderer's client runtime completes the affected
-            // boundary); a `pre-shell` error's fatality is resolved by the SEPARATE fatal channel
-            // (`onError`/`onShellError`), which logs the real failure at `error` if it fails the
-            // response. Keying the message on `recoverable` avoids claiming "Recoverable" for a
-            // pre-shell error that then turns fatal (which previously double-logged at `error` with
-            // contradictory framing). ESC-2: framework-neutral wording (the host is multi-renderer).
-            const message =
-              info.recoverable === true
-                ? 'Recoverable render error (the client runtime completes the affected boundary)'
-                : 'Render error observed (pre-shell); response outcome resolved by the fatal channel';
-            reqLogger.warn({ error: safeNormaliseError(info.error), phase: info.phase, recoverable: info.recoverable, clientRoot, url: req.url }, message);
-          },
-          onError: (err: unknown) => {
-            // RFC 0007 (R2 item 8): the fatal renderer terminal releases the registry FIRST, before
-            // any telemetry or teardown, on both arms below.
-            try {
-              deferred?.release();
-            } catch {}
-            // Gate finding 1: `onError` is the renderer's FATAL channel — the renderer already
-            // established origin (benign socket disconnects are handled by the writable guards via
-            // `benignAbort`, never routed here). Trust it: the only benign condition is ACTUAL
-            // request-abort state, never the shape of an app-controlled error (re-classifying by
-            // `code`/`name`/message would re-introduce the R0-02 spoofing at the cross-package join).
-            if (abortedState.aborted) {
-              logger.warn({}, 'Client disconnected before stream finished');
-              recorder?.aborted({ requestId, phase: 'stream' });
+              // devStamp lives in <head>, never inside #root: a leading <script> before the
+              // streamed app HTML is a Vue hydration node mismatch (the whole app re-renders
+              // as a duplicate sibling). React skips unexpected scripts, Vue does not.
+              resolveShell(`${templateParts.beforeHead}${aggregateHeadContent}${devStamp}${templateParts.afterHead}${templateParts.beforeBody}`);
+              recorder?.streamPhase({ requestId, phase: 'head' });
+            },
+            onShellReady: () => {
+              recorder?.streamPhase({ requestId, phase: 'shellReady' });
+            },
+            onAllReady: (data: unknown) => {
+              if (!abortedState.aborted) finalData = data;
+              recorder?.streamPhase({ requestId, phase: 'allReady' });
+            },
+            onRenderError: (info) => {
+              // R1-01 (design 7): NON-FATAL structured render-error channel — wired to the request
+              // logger with structured fields. No new recorder methods (EpisodeRecorder integration is
+              // introspection-owned, conventions #3). Never fails the response.
+              //
+              // Log at `warn`, not `error`: this channel is advisory by contract. Only `post-shell`
+              // errors are provably recoverable (the renderer's client runtime completes the affected
+              // boundary); a `pre-shell` error's fatality is resolved by the SEPARATE fatal channel
+              // (`onError`/`onShellError`), which logs the real failure at `error` if it fails the
+              // response. Keying the message on `recoverable` avoids claiming "Recoverable" for a
+              // pre-shell error that then turns fatal (which previously double-logged at `error` with
+              // contradictory framing). ESC-2: framework-neutral wording (the host is multi-renderer).
+              const message =
+                info.recoverable === true
+                  ? 'Recoverable render error (the client runtime completes the affected boundary)'
+                  : 'Render error observed (pre-shell); response outcome resolved by the fatal channel';
+              reqLogger.warn({ error: safeNormaliseError(info.error), phase: info.phase, recoverable: info.recoverable, clientRoot, url: req.url }, message);
+            },
+            onError: (err: unknown) => {
+              // RFC 0007 (R2 item 8): the fatal renderer terminal releases the registry FIRST, before
+              // any telemetry or teardown, on both arms below.
               try {
-                if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
-              } catch (e) {
-                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: destroy() failed');
+                deferred?.release();
+              } catch {}
+              // Gate finding 1: `onError` is the renderer's FATAL channel — the renderer already
+              // established origin (benign socket disconnects are handled by the writable guards via
+              // `benignAbort`, never routed here). Trust it: the only benign condition is ACTUAL
+              // request-abort state, never the shape of an app-controlled error (re-classifying by
+              // `code`/`name`/message would re-introduce the R0-02 spoofing at the cross-package join).
+              if (abortedState.aborted) {
+                logger.warn({}, 'Client disconnected before stream finished');
+                try {
+                  abortResponse('stream');
+                } catch (e) {
+                  logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: abort failed');
+                }
+                return;
               }
-              return;
-            }
 
-            abortedState.aborted = true;
+              abortedState.aborted = true;
 
-            // Recheck: this callback must NEVER throw — a throw here (e.g. formatting a hostile
-            // error for telemetry) would skip the response teardown below and hang the request.
-            // Format defensively and belt the telemetry so teardown always runs.
-            try {
-              recorder?.failed({ requestId, error: { kind: safeErrorKind(err), message: safeErrorMessage(err) } });
-              logResponseFailure({
-                terminal: 'streaming',
-                logger,
-                error: err,
-                clientRoot,
-                url: req.url,
-              });
-            } catch {
-              // telemetry formatting must not veto teardown
-            }
-
-            try {
-              ac?.abort?.();
-            } catch (e) {
-              logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: abort() failed');
-            }
-
-            if (!reply.raw.headersSent) {
-              // Nothing committed yet - send a real error response instead of
-              // tearing down the socket.
+              // Recheck: this callback must NEVER throw — a throw here (e.g. formatting a hostile
+              // error for telemetry) would skip the response teardown below and hang the request.
+              // Format defensively and belt the telemetry so teardown always runs.
               try {
-                commitErrorHead();
-                reply.raw.end('Internal Server Error');
-              } catch (e) {
-                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: error response failed');
+                logResponseFailure({
+                  terminal: 'streaming',
+                  logger,
+                  error: err,
+                  clientRoot,
+                  url: req.url,
+                });
+              } catch {
+                // telemetry formatting must not veto teardown
               }
-              return;
-            }
 
-            const reason = safeToReason(err);
+              try {
+                ac?.abort?.();
+              } catch (e) {
+                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: abort() failed');
+              }
 
-            try {
-              if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy(reason);
-            } catch (e) {
-              logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: destroy() failed');
-            }
+              try {
+                failResponse(safeToReason(err));
+              } catch (e) {
+                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: failure settlement failed');
+              }
+            },
           },
-        },
-        initialDataInput,
-        req.url!,
-        // The bootstrapModules gate stays the operative hydration mechanism; the host keeps it consistent
-        // with the same `shouldHydrate` it now also passes explicitly in opts (one host-side source).
-        shouldHydrate ? bootstrapModule : undefined,
-        attr?.meta,
-        ac.signal,
-        // ESC-2: cspNonce is now opts-authoritative (was a positional argument); shouldHydrate is the
-        // host-resolved policy. RFC 0004: headData conditional inclusion - see the renderSSR call site.
-        {
-          logger: reqLogger,
-          routeContext,
-          ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}),
-          ...(cspNonce ? { cspNonce } : {}),
-          shouldHydrate,
-          // RFC 0007 (decision 14): conditionally spread exactly like `headData` - a route
-          // declaring no deferred entries has no `deferredData` property at all, so its opts bag
-          // and its rendered bytes are unchanged.
-          ...(deferred ? { deferredData: deferred.registry } : {}),
-        },
-      );
+          initialDataInput,
+          req.url!,
+          // The bootstrapModules gate stays the operative hydration mechanism; the host keeps it consistent
+          // with the same `shouldHydrate` it now also passes explicitly in opts (one host-side source).
+          shouldHydrate ? bootstrapModule : undefined,
+          attr?.meta,
+          ac.signal,
+          // ESC-2: cspNonce is now opts-authoritative (was a positional argument); shouldHydrate is the
+          // host-resolved policy. RFC 0004: headData conditional inclusion - see the renderSSR call site.
+          {
+            logger: reqLogger,
+            routeContext,
+            ...(headResolution.headData !== undefined ? { headData: headResolution.headData } : {}),
+            ...(cspNonce ? { cspNonce } : {}),
+            shouldHydrate,
+            // RFC 0007 (decision 14): conditionally spread exactly like `headData` - a route
+            // declaring no deferred entries has no `deferredData` property at all, so its opts bag
+            // and its rendered bytes are unchanged.
+            ...(deferred ? { deferredData: deferred.registry } : {}),
+          },
+        );
 
-      // R0-01: observe the stream handle's `done`. Fatal stream errors are already fully handled
-      // via the `onError` callback above, so this catch is acknowledgement (it marks the
-      // rejection handled) and defence in depth if a renderer omits its own pre-attached handler
-      // — an unobserved rejected `done` would otherwise crash the process under Node's default
-      // unhandled-rejection mode.
-      void done.catch(() => {});
-
-      writable.on('finish', () => {
+      const finishListener = () => {
         // R0-04: this listener runs on a stream tick, OUTSIDE the request try/catch, so an
         // uncaught throw here becomes an `uncaughtException` → process exit. `serializeInlineData`
         // never throws; the outer try/catch is a belt so nothing else in the listener can either.
@@ -741,27 +889,13 @@ export const handleRender = async (
 
           if (!serialized.ok) {
             abortedState.aborted = true;
-            try {
-              deferred?.release();
-            } catch {}
             logger.error({ error: safeNormaliseError(serialized.error), clientRoot, url: req.url }, 'Failed to serialize streaming initial data');
-            recorder?.failed({ requestId, error: { kind: 'serialize', message: String(serialized.error.message) } });
 
-            // Deterministic termination — mirror the onError teardown idioms above.
-            if (!reply.raw.headersSent) {
-              try {
-                commitErrorHead();
-                reply.raw.end('Internal Server Error');
-              } catch (e) {
-                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: error response failed');
-              }
-            } else {
-              // Shell already committed: end without the data script and destroy.
-              try {
-                if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
-              } catch (e) {
-                logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: destroy() failed');
-              }
+            // Deterministic termination — the same failure arm as every other fatal.
+            try {
+              failResponse(serialized.error);
+            } catch (e) {
+              logger.debug?.('ssr', { error: safeNormaliseError(e) }, 'stream teardown: failure settlement failed');
             }
             return;
           }
@@ -785,11 +919,9 @@ export const handleRender = async (
             cspNonce ? ` nonce="${cspNonce}"` : ''
           }>window.__INITIAL_DATA__ = ${serialized.js};${deferredAssignment} window.dispatchEvent(new Event('taujs:data-ready'));</script>`;
 
-          commitHead();
-          reply.raw.write(initialDataScript);
-          reply.raw.write(templateParts.afterBody);
-          reply.raw.end();
-          recorder?.sent({ requestId, status: 200, mode: 'streaming' });
+          // The document tail goes to the generator; DELIVERY is reported by `reply.raw` 'finish',
+          // because the payload may still be transformed, replaced or fail downstream of here.
+          resolveTail(`${initialDataScript}${templateParts.afterBody}`);
         } catch (e) {
           // Belt: never let this listener throw — an uncaughtException here would exit the process.
           try {
@@ -797,22 +929,35 @@ export const handleRender = async (
           } catch {}
           logger.error({ error: safeNormaliseError(e), clientRoot, url: req.url }, 'Streaming finish listener failed');
           try {
-            if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.destroy();
+            failResponse(e);
           } catch {}
         }
-      });
+      };
+
+      documentWiring.startRenderer = startRenderer;
+      documentWiring.onWritableFinish = finishListener;
+
+      return await documentPayload;
     }
   } catch (err) {
     // RFC 0007: release FIRST, before any telemetry - a throwing recorder or logger must never
     // strand a started registry (this is the terminal a synchronous `renderStream` throw reaches).
-    try {
-      deferred?.release();
-    } catch {}
+    //
+    // ONE TERMINAL OWNER: when the streaming coordinator exists it owns both the release and the
+    // classification, and it is latched, so an error escaping to here cannot record a second
+    // terminal. The SSR path has no coordinator and keeps its own release plus telemetry.
+    if (finaliseStreamingResponse) {
+      finaliseStreamingResponse('failed', { error: err });
+    } else {
+      try {
+        deferred?.release();
+      } catch {}
 
-    recorder?.failed({
-      requestId,
-      error: { kind: AppError.isAppError(err) ? (err as any).kind : 'internal', message: String((err as any)?.message ?? err ?? '') },
-    });
+      recorder?.failed({
+        requestId,
+        error: { kind: AppError.isAppError(err) ? (err as any).kind : 'internal', message: String((err as any)?.message ?? err ?? '') },
+      });
+    }
 
     if (AppError.isAppError(err)) throw err;
 

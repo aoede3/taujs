@@ -241,17 +241,18 @@ fastify.addHook("preHandler", async (request, reply) => {
 });
 ```
 
-Use `preHandler`, not `onSend` and not `onRequest`. A streamed page commits its response head
-before Fastify's send phase, so an `onSend` policy reaches SSR pages and ordinary JSON routes while
-silently skipping every streamed page. `onRequest` reaches both strategies but runs before
-authentication and validation, so a rejected protected request could still carry a public cache
-header. `preHandler` reaches both and runs only once those stages have succeeded. See
+Use `preHandler`. `onRequest` reaches every strategy but runs before authentication and validation,
+so a rejected protected request could still carry a public cache header. `onSend` reaches streamed
+responses too, but a streamed page that fails before its first byte gives you a second send pass, so
+cache policy expressed there has to be safe across response attempts. `preHandler` reaches both
+strategies and runs only once authentication and validation have succeeded. See
 [Response policy and lifecycle hooks](/guides/host-ownership/#response-policy-and-lifecycle-hooks).
 
-Streaming cache policy is necessarily decided before rendering, because the head is committed as
-soon as the renderer produces one. If caching must depend on successful completion or on the final
-status, enforce it at a proxy or CDN that can observe the complete response, rather than through an
-early hook.
+Streaming cache policy is necessarily decided before rendering. A streamed document is cold:
+nothing renders until Fastify begins consuming it. By then all header-mutating lifecycle hooks have
+completed; the response becomes irreversible only when the document yields its first byte. If
+caching must depend on successful completion or on the final status, enforce it at a proxy or CDN
+that can observe the complete response, rather than through an early hook.
 
 τjs does not provide static-site generation, build-time HTML export or automatic cache headers.
 `hydrate: false` removes the client application from a rendered route; it does not make the HTML

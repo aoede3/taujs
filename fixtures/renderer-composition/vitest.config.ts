@@ -22,5 +22,16 @@ export default defineConfig({
     // Real Vite builds are slower than unit tests.
     testTimeout: 60000,
     hookTimeout: 60000,
+    server: {
+      deps: {
+        // Load the BUILT @taujs/server the way Node does, not through Vite's transform.
+        //
+        // These suites drive the package distribution as a consumer sees it. Native Node loading
+        // keeps lazy runtime imports such as `@fastify/static` inside @taujs/server's dependency
+        // boundary. The fixture declares only packages it imports itself; it must not duplicate
+        // the server's private dependencies to make transformed distribution code resolve.
+        external: [/packages[\\/]server[\\/]dist[\\/]/],
+      },
+    },
   },
 });

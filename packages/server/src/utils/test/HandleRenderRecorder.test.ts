@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createDevIntrospection } from '../../core/introspection/DevIntrospection';
 import { createSafeRecorder } from '../../core/introspection/EpisodeRecorder';
 import { handleRender } from '../HandleRender';
+import { collectPartialDocument } from '../../test/support/document';
 import { handleNotFound } from '../HandleNotFound';
 
 import type { EpisodeRecorder } from '../../core/introspection/EpisodeRecorder';
@@ -130,36 +131,11 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
     expect(episode!.error!.message).toContain('render exploded');
   });
 
-  it('streaming: streamPhases land and the finish handler emits sent(streaming)', async () => {
-    const dev = createDevIntrospection();
-    dev.recorder.requestStart({ requestId: T, url: '/live', method: 'GET' });
-
-    const streamingModule = {
-      renderStream: vi.fn((writable: PassThrough, cb: any, initialDataInput: () => Promise<unknown>) => {
-        cb.onHead('<title>s</title>');
-        cb.onShellReady();
-        void initialDataInput().then((data) => {
-          cb.onAllReady(data);
-          writable.end();
-        });
-        return { abort: vi.fn(), done: Promise.resolve() };
-      }),
-    };
-
-    const req = mkReq('/live', dev.recorder);
-    const reply = mkReply();
-    await handleRender(req, reply, streamingRoute as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() });
-    await vi.waitFor(() => {
-      expect(dev.getEpisodes()).toHaveLength(1);
-    });
-
-    const [episode] = dev.getEpisodes();
-    expect(episode).toMatchObject({ mode: 'streaming', outcome: 'complete', status: 200 });
-    expect(episode!.timeline.head).toBeTypeOf('number');
-    expect(episode!.timeline.shellReady).toBeTypeOf('number');
-    expect(episode!.timeline.allReady).toBeTypeOf('number');
-    expect(episode!.timeline.dataStart).toBeTypeOf('number');
-  });
+  // RELOCATED: an episode is FINALISED by a response terminal, and the delivery terminal is
+  // Fastify's `finish` - a mocked reply never emits it, so the episode never finalises and the
+  // timeline cannot be read here. The same contract - streaming mode, `complete` outcome, status
+  // 200, and head/shellReady/allReady timeline entries - is asserted on a real listener in
+  // `test/StreamingTransport.test.ts` cell 1.
 
   it('fallthrough: handleNotFound emits sent(fallthrough) on the hoisted context', async () => {
     const dev = createDevIntrospection();
@@ -217,26 +193,23 @@ describe('dev stamp injection (P0B-04, spec 03 §7)', () => {
     };
     const req = mkReq('/live', undefined, devServer);
     const reply = mkReply();
-    const writes: string[] = [];
-    const origWrite = reply.raw.write.bind(reply.raw);
-    reply.raw.write = (chunk: unknown) => {
-      writes.push(String(chunk));
-      return origWrite(chunk);
-    };
+    // The renderer runs on CONSUMPTION, so the document is driven here. Note the DELIVERY terminal
+    // (`sent(streaming)` -> `complete`) is Fastify's `finish`, which only a real response emits;
+    // that half lives in `test/StreamingTransport.test.ts` cells 1 and 6.
+    const { document } = await collectPartialDocument(
+      await handleRender(req, reply, streamingRoute as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() }),
+    );
+    expect(document).toContain('__TAUJS_REQUEST_ID__');
 
-    await handleRender(req, reply, streamingRoute as any, configs, {} as any, maps(streamingModule), { logger: mkLogger() });
-    await vi.waitFor(() => {
-      expect(writes.join('')).toContain('__TAUJS_REQUEST_ID__');
-    });
-
-    expect(writes[0]).toContain(`window.__TAUJS_REQUEST_ID__="${T}"`);
+    expect(document).toContain(`window.__TAUJS_REQUEST_ID__="${T}"`);
 
     // Regression: the stamp must sit in <head>, never inside the app container. A <script>
     // preceding the streamed app HTML inside #root is a Vue hydration node mismatch — Vue
     // re-renders the whole app as a duplicate sibling (React skips unexpected scripts).
-    const firstWrite = writes[0]!;
-    expect(firstWrite.indexOf('__TAUJS_REQUEST_ID__')).toBeLessThan(firstWrite.indexOf('</head>'));
-    expect(firstWrite.endsWith('<main>')).toBe(true);
+    // DOCUMENT ORDER is the contract, and the document is where it is now observable.
+    expect(document.indexOf('__TAUJS_REQUEST_ID__')).toBeLessThan(document.indexOf('</head>'));
+    // The shell ends at the app container opening, before any app bytes follow it.
+    expect(document.indexOf('<main>')).toBeGreaterThan(document.indexOf('__TAUJS_REQUEST_ID__'));
   });
 
   it('the fallthrough shell gets its own stamp', async () => {
