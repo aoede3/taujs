@@ -1,29 +1,13 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { expect } from 'vitest';
+import { assertWorkspacePackagesBuilt } from '../../../test-support/BuiltPackages';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** The BUILT server these suites drive, exactly as a consumer resolves it. */
 export const SERVER_DIST = path.join(HERE, '..', '..', 'node_modules', '@taujs', 'server', 'dist', 'index.js');
-
-const SERVER_SRC = path.join(HERE, '..', '..', '..', '..', 'packages', 'server', 'src');
-
-const newestMtimeUnder = (dir: string): number => {
-  let newest = 0;
-
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'test' || entry.name === 'node_modules') continue;
-
-    const full = path.join(dir, entry.name);
-
-    newest = Math.max(newest, entry.isDirectory() ? newestMtimeUnder(full) : statSync(full).mtimeMs);
-  }
-
-  return newest;
-};
 
 /**
  * A LOCAL stale-build guard: fails when `dist` is older than the server source it was built from.
@@ -40,19 +24,12 @@ const newestMtimeUnder = (dir: string): number => {
  * accepts a stale build afterwards. That is not hypothetical - a whole renderer acceptance round
  * was run against a stale `dist` because its sentinel still matched.
  *
- * This guard ENFORCES the build rather than performing it, deliberately. Building from inside this
- * package is what NOT to do: `playground-react` already rebuilds `@taujs/server` and `@taujs/react`
- * in its own `beforeAll`, pnpm runs sibling packages concurrently, and two builds racing on one
- * `dist` fail unrelated suites in whichever package happens to be resolving modules at the time.
+ * This guard ENFORCES the build rather than performing it. No fixture may build a shared workspace
+ * package during `pnpm -r test`: sibling suites run concurrently, so cleaning and rewriting one
+ * `dist` there can invalidate another suite's imports.
  */
 export const assertBuiltServerIsFresh = (): void => {
-  const built = statSync(SERVER_DIST).mtimeMs;
-  const source = newestMtimeUnder(SERVER_SRC);
-
-  expect(
-    built >= source,
-    `Built @taujs/server is OLDER than packages/server/src. These cells drive the built package, so this run would prove nothing about the current tree. Run \`pnpm --filter @taujs/server build\`.`,
-  ).toBe(true);
+  assertWorkspacePackagesBuilt(['server']);
 };
 
 /**

@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type ConsoleMessage, type Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { assertWorkspacePackagesBuilt } from '../../test-support/BuiltPackages';
+
 /**
  * Slice-7 group C: the real-browser acceptance leg (design 7.3).
  *
@@ -148,10 +150,7 @@ const expectNoSecretsInFaults = (faults: PageFaults, secrets: string[]) => {
 
 describe.skipIf(!HAS_PINNED_BROWSER)('slice 7 group C - real browser (production build, enforced CSP)', () => {
   beforeAll(async () => {
-    // Freshness guard (docs/followups/fixture-stale-dist-evidence-trap.md): this fixture resolves
-    // @taujs/server and @taujs/solid through their gitignored dist, so a stale package build
-    // silently falsifies everything proved here. Rebuild both before the fixture build.
-    execFileSync('pnpm', ['--filter', '@taujs/server', '--filter', '@taujs/solid', 'build'], { cwd: path.join(PROJECT, '..', '..'), stdio: 'pipe' });
+    assertWorkspacePackagesBuilt(['server', 'solid']);
     execFileSync('npm', ['run', 'build'], { cwd: PROJECT, stdio: 'pipe' });
 
     expect(await isPortFree(PORT), `port ${PORT} in use`).toBe(true);
