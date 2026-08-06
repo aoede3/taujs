@@ -7,7 +7,10 @@ vi.mock('vite', () => ({
   }),
 }));
 
-vi.mock('../core/config/Setup', () => ({
+vi.mock('../core/config/Setup', async (importOriginal) => ({
+  // RFC 0012: keep the real pure exports (extractPathCoordinates, viteBaseFor) - only the
+  // extraction this suite drives is replaced.
+  ...(await importOriginal<typeof import('../core/config/Setup')>()),
   extractBuildConfigs: vi.fn().mockReturnValue([]),
 }));
 
@@ -361,6 +364,40 @@ describe('Build.ts - Full Coverage', () => {
       const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
       expect(buildConfig.base).toBe('/admin/');
       expect(buildConfig.root).toBe('/project/src/client/admin');
+    });
+
+    // RFC 0012 (PR-1 review, finding 4): the SEAM regression - viteBaseFor proven installed at
+    // the Build.ts base assignment, not merely correct in isolation. Default-coordinate
+    // retention ('/' and '/admin/') is the two tests above; reverting the wiring to the legacy
+    // inline formula keeps those green and fails these two.
+    it('RFC 0012: publicBasePath composes into the build base for a root app', async () => {
+      const rootAppConfig = {
+        ...mockAppConfig,
+        entryPoint: '',
+      };
+      vi.mocked(processConfigs).mockReturnValue([rootAppConfig] as any);
+
+      await taujsBuild({
+        config: { apps: [], server: { publicBasePath: '/app' } },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.base).toBe('/app/');
+    });
+
+    it('RFC 0012: publicBasePath composes AROUND a named entryPoint in the build base', async () => {
+      await taujsBuild({
+        config: { apps: [], server: { publicBasePath: '/app' } },
+        projectRoot: mockProjectRoot,
+        clientBaseDir: mockClientBaseDir,
+        isSSRBuild: false,
+      });
+
+      const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
+      expect(buildConfig.base).toBe('/app/admin/');
     });
 
     it('should process multiple apps sequentially', async () => {

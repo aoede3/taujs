@@ -302,6 +302,25 @@ export type CoreTaujsConfig = {
     host?: string;
     port?: number;
     hmrPort?: number;
+    /**
+     * RFC 0012: where Fastify RECEIVES the τjs installation - the single scope prefix under
+     * which every declared route (all apps), τjs static and the development `/__taujs/*`
+     * surface register. Installation-level; `entryPoint` remains the per-app layout
+     * namespace and is never a substitute for this. Canonical form only (`''` or
+     * `/segment(/segment)*`, no trailing slash) - non-canonical values are rejected at
+     * config validation, never silently normalised. Default `''` (root - today's behaviour
+     * byte-for-byte).
+     */
+    mountPrefix?: string;
+    /**
+     * RFC 0012: what τjs EMITS in front of every URL it generates (asset, preload and CSS
+     * links, the bootstrap module URL, the dev beacon) and the value the Vite `base`
+     * derives from. Defaults to `mountPrefix`; the two differ exactly when a proxy STRIPS
+     * the public prefix (declare `mountPrefix: ''` with the public prefix here). Explicit
+     * `''` alongside a non-empty `mountPrefix` is rejected as unsupported (no measured
+     * topology). Same canonical form as `mountPrefix`.
+     */
+    publicBasePath?: string;
   };
   // RFC 0005 (VS2): the declarative home for the alias maps that are programmatic-only today
   // (`createServer`/`taujsBuild` options). Vite-free (plain `Record`), so it lives on the core

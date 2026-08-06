@@ -32,7 +32,7 @@ export default defineConfig({
   apps: [
     {
       appId: "web",
-      entryPoint: "client",
+      entryPoint: "",
       routes: [
         {
           path: "/",
@@ -62,6 +62,8 @@ type ServerConfig = {
   host?: string; // Default: 'localhost'
   port?: number; // Default: 5173
   hmrPort?: number; // Default: 5174
+  mountPrefix?: string; // Default: '' (root)
+  publicBasePath?: string; // Default: mountPrefix
 };
 
 type AppConfig = {
@@ -129,6 +131,61 @@ server: {
 npm run dev -- --host    # Automatically becomes 0.0.0.0
 ```
 
+### Non-root mounting: `mountPrefix` and `publicBasePath`
+
+Two installation-level coordinates make a τjs installation deployable under a non-root
+prefix. They describe external addressing, not project layout:
+
+- **`mountPrefix`** - where Fastify RECEIVES the installation. One scope prefix under which
+  every declared route (all apps), τjs static assets and the development introspection
+  surface register. Default `''` (root).
+- **`publicBasePath`** - what τjs EMITS in front of every URL it generates: asset, preload
+  and CSS links, the bootstrap module URL and the development beacon. It also derives each
+  app's Vite `base`. Defaults to `mountPrefix`.
+
+The two differ exactly when a reverse proxy STRIPS the public prefix before forwarding:
+
+```typescript
+// Root (default) - no configuration needed; existing deployments are unchanged.
+server: {}
+
+// Prefix-preserving proxy: /app/x arrives as /app/x.
+server: { mountPrefix: "/app" }
+
+// Stripping proxy: browsers use /app/x, the proxy forwards /x.
+server: { mountPrefix: "", publicBasePath: "/app" }
+```
+
+**Validation.** A coordinate is either `''` or `/segment(/segment)*` - leading `/`, no
+trailing `/`, segments of URI-unreserved characters only (`[A-Za-z0-9._~-]`). Anything else
+is rejected at startup with a message naming the rule; values are never silently
+normalised. Declaring `publicBasePath: ""` alongside a non-empty `mountPrefix` (emit
+root-absolute while mounted) is rejected as unsupported.
+
+**Separation from `entryPoint`.** `entryPoint` keeps its layout meaning: `''` remains the
+canonical single-application root layout, and a named entry point remains a subordinate
+application directory. The deployment coordinates compose AROUND it - `publicBasePath:
+"/app"` with `entryPoint: "admin"` emits `/app/admin/assets/...`. Never substitute
+`entryPoint: "app"` for `publicBasePath: "/app"`; deployment does not change layout.
+
+**Routing boundary.** `/app` and `/app/` both reach the mounted root route. Deeper
+trailing-slash matching remains the Fastify owner's policy - a caller-owned host keeps its
+own `ignoreTrailingSlash` choice, and the τjs-created default stays strict. On a
+τjs-created host the SPA fallback is confined to the mounted subtree; outside it the
+server answers an ordinary 404. Application routers and hard-coded links need their own
+base configuration, because τjs does not rewrite them.
+
+**What τjs does not do.** Application-authored links (`href` values in your components) are
+never rewritten - τjs prefixes only the URLs it generates itself. Proxy rewrite
+configuration stays proxy-owned; τjs reads no forwarding headers
+(`X-Forwarded-Prefix` included).
+
+**Development.** The shared dev Vite `base` follows `publicBasePath`, so dev module URLs
+and the HMR socket pathname compose with the prefix, and dev delegation is confined to the
+mounted subtree. Two adjacent concerns remain separate limitations: HMR socket origin and
+port under process supervisors, and reverse-proxy host admission for the `/__taujs/*`
+introspection endpoints.
+
 ## App Configuration
 
 Define frontend applications with their entry points and routes.
@@ -137,7 +194,7 @@ Define frontend applications with their entry points and routes.
 apps: [
   {
     appId: "web",
-    entryPoint: "client",
+    entryPoint: "", // canonical root layout: the app lives at the client root
     routes: [
       /* ... */
     ],
@@ -147,7 +204,7 @@ apps: [
   },
   {
     appId: "admin",
-    entryPoint: "admin",
+    entryPoint: "admin", // subordinate application directory and build namespace
     routes: [
       /* ... */
     ],
@@ -160,7 +217,7 @@ apps: [
 | Property     | Type             | Required | Description                    |
 | ------------ | ---------------- | -------- | ------------------------------ |
 | `appId`      | `string`         | Yes      | Unique identifier for this app |
-| `entryPoint` | `string`         | Yes      | Directory under client root    |
+| `entryPoint` | `string`         | Yes      | `''` for the canonical root layout, or a directory under the client root |
 | `routes`     | `AppRoute[]`     | No       | Route definitions              |
 | `plugins`    | `PluginOption[]` | No       | Vite plugins for this app      |
 
@@ -230,6 +287,9 @@ client/{entryPoint}/
 ├── entry-client.tsx    # Client hydration entry
 └── entry-server.tsx    # SSR render entry
 ```
+
+With `entryPoint: ""` (the canonical root layout) these files live directly in the client
+root.
 
 ## Vite Configuration
 

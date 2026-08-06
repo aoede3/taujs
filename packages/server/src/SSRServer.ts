@@ -45,7 +45,7 @@ export { TEMPLATE };
  * form and the ownership behaviour from drifting apart.
  */
 const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions, callerOwnedHost: boolean): Promise<void> => {
-  const { alias, configs, routes, serviceRegistry = {}, clientRoot, security } = opts;
+  const { alias, configs, routes, serviceRegistry = {}, clientRoot, security, publicBasePath = '' } = opts;
 
   const logger = opts.runtimeLogger
     ? createRuntimeLogger(opts.runtimeLogger, {
@@ -77,7 +77,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     maps.renderModules,
     maps.ssrManifests,
     maps.templates,
-    { logger },
+    { logger, publicBasePath },
   );
 
   // Tri-state contract: `undefined` installs the default production registration, explicit
@@ -183,6 +183,11 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       logger,
       devNet: opts.devNet,
       viteConfig: devViteConfig,
+      // RFC 0012 (PR 2): reception stays single-sourced from Fastify - the register-time
+      // prefix IS `scope.prefix` on the encapsulated registration; emission is the validated
+      // coordinate threaded from createServer.
+      mountPrefix: scope.prefix || '',
+      publicBasePath,
     });
 
     // RFC 0010: τjs creates the Vite server, so τjs closes it. Guarded because `onClose` can be
@@ -265,6 +270,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
         debug: opts.debug,
         logger,
         viteDevServer,
+        publicBasePath,
       });
     });
   }
@@ -289,6 +295,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
           debug: opts.debug,
           logger,
           viteDevServer,
+          publicBasePath,
         },
       );
     });
@@ -336,9 +343,15 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
  * ruled thesis: a caller-supplied instance gets an encapsulated child, and an instance τjs created
  * gets the complete experience installed at its root. Both forms are wrapped, so the plugin is named
  * in the host's plugin tree either way - registration is visible, policy is not.
+ *
+ * RFC 0012: `mounted` also selects the encapsulated form. fastify-plugin ignores a register-time
+ * `prefix` when it breaks encapsulation, so a MOUNTED τjs-created host must encapsulate for the
+ * scope-prefix primitive to apply at all - and that same prefixed scope is what confines the
+ * created-host shell (prefix-keyed not-found) to the mounted subtree, with an ordinary 404 outside.
+ * Unmounted created hosts keep today's root installation byte-for-byte.
  */
-export const ssrServerPlugin = ({ callerOwnedHost }: { callerOwnedHost: boolean }): FastifyPluginAsync<SSRServerOptions> =>
+export const ssrServerPlugin = ({ callerOwnedHost, mounted = false }: { callerOwnedHost: boolean; mounted?: boolean }): FastifyPluginAsync<SSRServerOptions> =>
   fp(async (scope: FastifyInstance, opts: SSRServerOptions) => installOwnedScope(scope, opts, callerOwnedHost), {
     name: 'τjs-ssr-server',
-    encapsulate: callerOwnedHost,
+    encapsulate: callerOwnedHost || mounted,
   });

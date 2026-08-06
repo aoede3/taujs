@@ -125,6 +125,8 @@ export const handleRender = async (
     debug?: DebugConfig;
     logger?: Logs;
     viteDevServer?: ViteDevServer;
+    /** RFC 0012: the installation's validated emission coordinate; prefixes the dev beacon URL. */
+    publicBasePath?: string;
   } = {},
 ) => {
   const { viteDevServer } = opts;
@@ -256,7 +258,7 @@ export const handleRender = async (
     // Dev stamp (spec 03 §7): present only when the structural gate holds — the decoration
     // exists solely on dev boots, so production HTML never carries it.
     const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
-    const devStamp = devtools ? buildTaujsDevStamp(requestId, devtools.token, cspNonce) : '';
+    const devStamp = devtools ? buildTaujsDevStamp(requestId, devtools.token, cspNonce, opts.publicBasePath ?? '') : '';
     // R1-01 (design 4): each branch sets `ctx.signal` from its request AbortController BEFORE the
     // data is fetched, so loaders that honour `ctx.signal` stop on client disconnect / deadline.
     const ctx = { requestId, logger: reqLogger, headers, recorder, signal: undefined as AbortSignal | undefined };

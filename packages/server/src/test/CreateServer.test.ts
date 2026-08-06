@@ -384,7 +384,7 @@ describe('createServer', () => {
     expect(registerMock).toHaveBeenCalledTimes(1);
     expect(registerMock).toHaveBeenNthCalledWith(1, SSRServerPlugin, expect.any(Object));
     expect(registerMock).not.toHaveBeenCalledWith(bannerPluginMock, expect.anything());
-    expect(ssrServerPluginCalls.at(-1)).toEqual({ callerOwnedHost: true });
+    expect(ssrServerPluginCalls.at(-1)).toEqual({ callerOwnedHost: true, mounted: false });
   });
 
   it('sets logger minLevel to "info" in production NODE_ENV', async () => {

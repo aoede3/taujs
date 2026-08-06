@@ -124,6 +124,18 @@ staticAssets: [
 τjs sorts mounts by prefix depth before registration so a more specific prefix is registered first.
 Fastify still rejects exact route collisions at boot.
 
+### Composition with a mounted installation
+
+When the installation declares a `server.mountPrefix`, custom static registrations compose
+with it exactly as Fastify composes any nested plugin route: a registration with
+`prefix: "/cdn/"` inside an installation mounted at `/app` serves at `/app/cdn/`. Existing
+option semantics are unchanged; τjs does not rewrite the configured static prefix to
+account for the installation mount - Fastify composes it with the enclosing scope.
+
+A host-root mount is still available when you want it: pass `staticAssets: false` so τjs
+registers nothing, and register your static plugin on the Fastify instance you own - a
+caller-root `/cdn/` then serves at `/cdn/` regardless of where τjs is mounted.
+
 ## Caller-owned Fastify and terminal wildcards
 
 A supplied host may register its own `@fastify/static` before τjs. That works when the route shapes do

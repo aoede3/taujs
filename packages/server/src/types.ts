@@ -40,6 +40,13 @@ export type SSRServerOptions = {
   security?: SecurityConfig;
   /** `undefined` → default production registration; `false` → no static plugin; otherwise the caller's registration. */
   staticAssets?: StaticAssetsRegistration;
+  /**
+   * RFC 0012: the validated installation-level EMISSION coordinate, threaded from
+   * `createServer` (`extractPathCoordinates`). Composed in front of every τjs-generated URL
+   * (bootstrap, css, preload, dev beacon). `''` (the default) is today's root-absolute
+   * emission byte-for-byte. RECEPTION is the register-time `prefix`, not this value.
+   */
+  publicBasePath?: string;
   debug?: DebugConfig;
   /** Internal runtime logger selection threaded from createServer; not a public createServer option. */
   runtimeLogger?: RuntimeLoggerSelection;

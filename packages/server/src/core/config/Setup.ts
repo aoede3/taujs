@@ -33,6 +33,75 @@ export const extractBuildConfigs = <A extends CoreAppConfig = CoreAppConfig>(con
   return config.apps.map(({ appId, entryPoint, plugins, renderer }) => ({ appId, entryPoint, plugins, renderer })) as A[];
 };
 
+/**
+ * RFC 0012: the canonical form for the two installation-level path coordinates. Either `''`
+ * (root) or slash-led segments of unreserved characters with no trailing slash. Deliberately
+ * conservative: no percent-encoding, no sub-delimiters, no dot segments - widen only on a
+ * demonstrated topology. The charset also keeps the value inert inside the single-quoted
+ * beacon script string and double-quoted HTML attributes, so composition sites need no
+ * per-site escaping argument.
+ */
+const CANONICAL_PATH_COORDINATE = /^\/[A-Za-z0-9._~-]+(\/[A-Za-z0-9._~-]+)*$/;
+
+const DOT_SEGMENT = /(^|\/)\.\.?(\/|$)/;
+
+export type PathCoordinates = {
+  mountPrefix: string;
+  publicBasePath: string;
+};
+
+const assertCanonicalCoordinate = (field: 'mountPrefix' | 'publicBasePath', value: string): void => {
+  if (value === '') return;
+  if (value === '/') throw new Error(`server.${field}: '/' is not a value - the root form is spelled '' (or omit the field)`);
+  if (DOT_SEGMENT.test(value) || !CANONICAL_PATH_COORDINATE.test(value)) {
+    throw new Error(
+      `server.${field}: '${value}' is not canonical. Expected '' or '/segment(/segment)*' - leading '/', no trailing '/', ` +
+        `segments of [A-Za-z0-9._~-] only, no '.' or '..' segments, no query, fragment, scheme or host. Values are rejected, never normalised.`,
+    );
+  }
+};
+
+/**
+ * RFC 0012: validate and resolve the installation-level addressing coordinates. `mountPrefix`
+ * is where Fastify receives the installation; `publicBasePath` is what τjs emits and what the
+ * Vite `base` derives from. `publicBasePath` defaults to `mountPrefix`; the inverse corner
+ * (explicit `''` with a non-empty mount) is rejected as unsupported pending a real topology
+ * (RFC 0012 §2 rule 1). Called by BOTH `createServer` and `taujsBuild`, so dev and build
+ * cannot disagree about validity.
+ */
+export const extractPathCoordinates = (config: Pick<CoreTaujsConfig, 'server'>): PathCoordinates => {
+  const declaredMount = config.server?.mountPrefix;
+  const declaredPublic = config.server?.publicBasePath;
+
+  if (declaredMount !== undefined && typeof declaredMount !== 'string') throw new Error('server.mountPrefix must be a string');
+  if (declaredPublic !== undefined && typeof declaredPublic !== 'string') throw new Error('server.publicBasePath must be a string');
+
+  const mountPrefix = declaredMount ?? '';
+  assertCanonicalCoordinate('mountPrefix', mountPrefix);
+
+  if (declaredPublic === '' && mountPrefix !== '') {
+    throw new Error(
+      `server.publicBasePath: '' alongside mountPrefix '${mountPrefix}' (emit root-absolute while mounted) is unsupported pending a real topology (RFC 0012). ` +
+        `Omit publicBasePath to inherit the mountPrefix.`,
+    );
+  }
+
+  const publicBasePath = declaredPublic ?? mountPrefix;
+  assertCanonicalCoordinate('publicBasePath', publicBasePath);
+
+  return { mountPrefix, publicBasePath };
+};
+
+/**
+ * RFC 0012 (verdict-round ruling): the per-app Vite `base`, composing the canonical
+ * `publicBasePath` AROUND the existing `entryPoint` spelling. With `publicBasePath: ''` this
+ * reproduces the pre-RFC formula byte-for-byte (`entryPoint ? '/entryPoint/' : '/'`), so
+ * root-mounted output is unchanged by construction. `entryPoint` is deliberately NOT
+ * normalised here - existing non-canonical spellings are preserved for compatibility, without
+ * endorsement (RFC 0012 §2 intent statement).
+ */
+export const viteBaseFor = (publicBasePath: string, entryPoint: string): string => (entryPoint ? `${publicBasePath}/${entryPoint}/` : `${publicBasePath}/`);
+
 // This is deliberately a migration lint, not a second route parser. Fastify remains the only
 // authority for valid route syntax. These are stale path-to-regexp forms that Fastify may accept
 // as literals (or with materially different semantics), allowing a formerly live route to die
