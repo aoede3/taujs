@@ -26,16 +26,7 @@ import { extractPathCoordinates, viteBaseFor } from '../core/config/Setup';
 import { createMaps, loadAssets, processConfigs } from '../utils/AssetManager';
 import { buildTaujsDevStamp } from '../utils/Templates';
 import { testRenderer } from './support/renderer';
-import {
-  OWNER,
-  PATHS,
-  TAUJS_ASSET_PATH,
-  closeAll,
-  createCreatedHost,
-  createEmbeddedHost,
-  productionFixture,
-  taujsConfig,
-} from './support/hostOwnership';
+import { OWNER, PATHS, TAUJS_ASSET_PATH, closeAll, createCreatedHost, createEmbeddedHost, productionFixture, taujsConfig } from './support/hostOwnership';
 
 import type { AppConfig, TaujsConfig } from '../Config';
 import type { AppRoute } from '../core/config/types';
@@ -113,9 +104,7 @@ describe('RFC 0012 - canonical coordinate validation (cell 7)', () => {
     app.decorate('authenticate', async () => undefined);
     const before = app.printRoutes();
 
-    await expect(
-      createServer({ config: withAddressing({ mountPrefix: '/bad/' }), fastify: app, clientRoot: '/nowhere' }),
-    ).rejects.toThrow(/not canonical/);
+    await expect(createServer({ config: withAddressing({ mountPrefix: '/bad/' }), fastify: app, clientRoot: '/nowhere' })).rejects.toThrow(/not canonical/);
 
     expect(app.printRoutes()).toBe(before);
     await app.close();
@@ -224,7 +213,7 @@ describe('RFC 0012 - strip-shape cell: emission differs from reception (cell 1, 
 });
 
 describe('RFC 0012 - root byte-compatibility (cell 4, response level)', () => {
-  it('emits today\'s root-absolute URLs exactly when both coordinates default', async () => {
+  it("emits today's root-absolute URLs exactly when both coordinates default", async () => {
     const host = await createEmbeddedHost();
     await host.activate(createServer as never, withAddressing({}, [ROOT_ROUTE]));
 
@@ -288,7 +277,10 @@ describe('RFC 0012 - loadAssets emission regression (PR-1 review, finding 4)', (
     await mkdir(path.join(appRoot, '.vite'), { recursive: true });
     await mkdir(path.join(ssrRoot, '.vite'), { recursive: true });
     await writeFile(path.join(root, 'package.json'), '{"type":"module"}\n');
-    await writeFile(path.join(appRoot, 'index.html'), '<!doctype html><html><head><!--ssr-head--></head><body><div id="app"><!--ssr-html--></div></body></html>');
+    await writeFile(
+      path.join(appRoot, 'index.html'),
+      '<!doctype html><html><head><!--ssr-head--></head><body><div id="app"><!--ssr-html--></div></body></html>',
+    );
     await writeFile(
       path.join(appRoot, '.vite', 'manifest.json'),
       JSON.stringify({ 'entry-client.ts': { file: 'assets/rfc0012-client.js', css: ['assets/rfc0012.css'] } }),
