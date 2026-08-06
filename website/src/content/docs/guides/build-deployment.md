@@ -661,6 +661,51 @@ server {
 }
 ```
 
+### Non-root base paths
+
+A τjs installation can be mounted behind a prefix in either ordinary proxy topology. Two
+`server` coordinates describe it: `mountPrefix` is where Fastify receives the installation,
+`publicBasePath` is what browsers are told (see the
+[configuration reference](/reference/taujs-config/#non-root-mounting-mountprefix-and-publicbasepath)
+for validation and defaults). Existing root deployments need no changes.
+
+**Root (default).** No configuration; behaviour is unchanged.
+
+**Prefix-preserving proxy.** The proxy forwards the path intact, so Fastify receives
+`/app/...`:
+
+```nginx
+location /app/ {
+  proxy_pass http://nodejs;   # no URI part: the path is preserved
+}
+```
+
+```typescript
+server: {
+  mountPrefix: "/app";        // publicBasePath inherits '/app'
+}
+```
+
+**Stripping proxy.** The proxy removes the prefix before forwarding, so Fastify receives
+root-space paths while browsers use `/app/...`:
+
+```nginx
+location /app/ {
+  proxy_pass http://nodejs/;  # trailing slash: /app/x is forwarded as /x
+}
+```
+
+```typescript
+server: {
+  mountPrefix: "",            // receive at root
+  publicBasePath: "/app";     // emit under the public prefix
+}
+```
+
+Whether your proxy strips or preserves is the proxy's own configuration - τjs expresses
+both topologies through the two coordinates and never infers the prefix from forwarding
+headers.
+
 ### Option D: Container Deployment
 
 ```dockerfile
