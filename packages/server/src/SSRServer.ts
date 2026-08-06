@@ -183,6 +183,11 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       logger,
       devNet: opts.devNet,
       viteConfig: devViteConfig,
+      // RFC 0012 (PR 2): reception stays single-sourced from Fastify - the register-time
+      // prefix IS `scope.prefix` on the encapsulated registration; emission is the validated
+      // coordinate threaded from createServer.
+      mountPrefix: scope.prefix || '',
+      publicBasePath,
     });
 
     // RFC 0010: τjs creates the Vite server, so τjs closes it. Guarded because `onClose` can be

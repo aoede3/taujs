@@ -57,10 +57,27 @@ export type SetupDevServerOptions = {
    * `server.*` the fragment carries.
    */
   viteConfig?: InlineConfig;
+  /**
+   * RFC 0012 (PR 2): the installation's RECEPTION coordinate, single-sourced from Fastify
+   * (`scope.prefix` of the one τjs registration). When non-empty, the delegator's domain is
+   * CONFINED to the mounted subtree - outside the subtree is not τjs's to answer (the dev
+   * face of the frozen ownership contract). No request rewriting happens: pinned Vite's
+   * middleware mode natively accepts BOTH public-prefixed and proxy-stripped request paths
+   * (base mismatch → plain `next()` into its own transform/static middlewares).
+   */
+  mountPrefix?: string;
+  /**
+   * RFC 0012 (PR 2): the installation's validated EMISSION coordinate. Derives the shared dev
+   * Vite `base` (`publicBasePath + '/'`), which carries dev module URLs and the HMR socket
+   * PATHNAME.
+   */
+  publicBasePath?: string;
 };
 
 export const setupDevServer = async (options: SetupDevServerOptions): Promise<ViteDevServer> => {
   const { app, clientRoot: baseClientRoot, alias, declarativeAlias, projectRoot, debug, devNet, viteConfig } = options;
+  const mountPrefix = options.mountPrefix ?? '';
+  const publicBasePath = options.publicBasePath ?? '';
 
   const logger =
     options.logger ??
@@ -167,6 +184,11 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
       alias: resolvedAlias,
     },
     root: baseClientRoot,
+    // RFC 0012 (PR 2): the shared dev base derives from the installation's emission coordinate,
+    // carrying dev module URLs AND the HMR socket PATHNAME with it. `''` yields `'/'` - Vite's
+    // own default, byte-compatible. A framework invariant like `root`: the engine already
+    // protects `base` from user layers in both profiles, and that ruling is unchanged.
+    base: `${publicBasePath}/`,
     // MERGE, never replace. Writing this object whole discarded every declared `server.*` field,
     // `allowedHosts` among them - so development behind a proxy presenting a non-localhost `Host`
     // was unreachable, with no supported way to allow it.
@@ -203,6 +225,18 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
     // Classification is only meaningful on the caller-owned root delegator; the created-host path
     // stays exactly as it was, including never reading the request's route identity.
     if (callerOwnedRootDelegator && !request.is404 && selectedRouteFrom(request) === null) return;
+
+    // RFC 0012 (PR 2): when mounted, the delegator's DOMAIN is the mounted subtree - an
+    // out-of-mount URL is not τjs's to answer (frozen ownership contract), so it never
+    // reaches Vite and falls straight through to the host's own handling. No request
+    // rewriting: Vite's middleware mode accepts both public-prefixed and proxy-stripped
+    // paths natively, so mount-space URLs are delegated AS RECEIVED.
+    if (mountPrefix !== '') {
+      const rawUrl = request.raw.url ?? '';
+      const queryIndex = rawUrl.indexOf('?');
+      const pathname = queryIndex === -1 ? rawUrl : rawUrl.slice(0, queryIndex);
+      if (!(pathname === mountPrefix || pathname.startsWith(`${mountPrefix}/`))) return;
+    }
 
     await new Promise<void>((resolve) => {
       viteDevServer.middlewares(request.raw, reply.raw, () => {

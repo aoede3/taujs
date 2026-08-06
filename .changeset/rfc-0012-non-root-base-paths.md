@@ -21,8 +21,9 @@ rejected, never silently normalised; explicit `publicBasePath: ''` alongside a n
 mount is rejected as unsupported. On a taujs-created host the SPA fallback is confined to
 the mounted subtree, with an ordinary 404 outside it. Caller-supplied static registrations
 compose with the mount as normal Fastify nested routes; host-root static remains available
-via `staticAssets: false` plus a caller registration. In development, requests delegated to
-Vite are projected between the mount and public path spaces (pathname only, query preserved
-byte-exact), so module URLs and the HMR pathname compose correctly under a prefix. HMR
+via `staticAssets: false` plus a caller registration. In development the shared Vite base
+derives from `publicBasePath`, carrying module URLs and the HMR pathname; Vite's middleware
+mode natively accepts both public-prefixed and proxy-stripped request paths, so taujs owns
+only the base derivation and the confinement of dev delegation to the mounted subtree. HMR
 socket origin and port under supervisors, and reverse-proxy host admission for the
 introspection endpoints, remain separate follow-ups.
