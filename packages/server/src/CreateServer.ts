@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import Fastify from 'fastify';
 import pc from 'picocolors';
 
-import { extractBuildConfigs, extractRoutes, extractSecurity } from './core/config/Setup';
+import { extractBuildConfigs, extractPathCoordinates, extractRoutes, extractSecurity } from './core/config/Setup';
 import { REGEX } from './core/constants';
 import { normaliseError } from './core/errors/AppError';
 
@@ -66,6 +66,12 @@ const resolveClientRoot = (userClientRoot?: string): string => {
 export const createServer = async (opts: CreateServerOptions): Promise<CreateServerResult> => {
   const t0 = performance.now();
   const clientRoot = resolveClientRoot(opts.clientRoot);
+
+  // RFC 0012 (PR-1 review): the two installation-level addressing coordinates, validated at
+  // FUNCTION ENTRY - invalid configuration must fail before any host state exists, so neither a
+  // τjs-created Fastify instance nor a caller-host registration (banner) happens first. Build
+  // validates identically via taujsBuild. Defaults ('' / '') are today's behaviour.
+  const { mountPrefix, publicBasePath } = extractPathCoordinates(opts.config);
 
   // RFC 0010: the one internal ownership fact. Supplying a Fastify instance means the caller owns
   // the server and τjs owns only an encapsulated scope within it; omitting one means τjs created
@@ -130,6 +136,15 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       : `${CONTENT.TAG} [ownership] Fastify created by τjs - whole-server shell, CSP and request identity`,
   );
 
+  // RFC 0012: mounting is boot-visible for the same reason ownership is - without this line a
+  // reader cannot tell from the logs why every τjs URL moved.
+  if (mountPrefix !== '' || publicBasePath !== '') {
+    logger.info(
+      { component: 'addressing', mountPrefix, publicBasePath },
+      `${CONTENT.TAG} [addressing] mounted at '${mountPrefix || '/'}', emitting under '${publicBasePath || '/'}'`,
+    );
+  }
+
   // RFC security model §2: relaxing the loopback guard must shout in the boot summary —
   // exact text, not a debug line.
   if (isDevelopment && opts.config.introspection?.allowNonLoopback) {
@@ -159,7 +174,13 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   printContractReport(logger, report);
 
   try {
-    await app.register(ssrServerPlugin({ callerOwnedHost }), {
+    // RFC 0012: the mount is Fastify's own scope-prefix primitive on the one τjs registration.
+    // `mounted` flips the plugin to its encapsulated form on a τjs-created host too - fastify-plugin
+    // ignores `prefix` when it breaks encapsulation, and an encapsulated prefixed scope is also what
+    // CONFINES the created-host shell to the mounted subtree (prefix-keyed not-found).
+    await app.register(ssrServerPlugin({ callerOwnedHost, mounted: mountPrefix !== '' }), {
+      prefix: mountPrefix || undefined,
+      publicBasePath,
       clientRoot,
       configs,
       routes,

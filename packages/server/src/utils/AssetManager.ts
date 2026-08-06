@@ -86,9 +86,14 @@ export const loadAssets = async (
   renderModules: Map<string, RenderModule>,
   ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
-  opts: { logger?: Logs } = {},
+  opts: { logger?: Logs; publicBasePath?: string } = {},
 ) => {
   const logger = resolveLogs(opts.logger);
+  // RFC 0012: every URL this function produces gains the installation's emission coordinate.
+  // Canonical ('' or '/x' with no trailing slash), so plain prepending composes; '' is today's
+  // output byte-for-byte. The per-app segment stays `adjustedRelativePath` (the entryPoint
+  // spelling, deliberately unnormalised - RFC 0012 §2 intent statement).
+  const publicBasePath = opts.publicBasePath ?? '';
 
   for (const config of processedConfigs) {
     const { clientRoot, entryServer, entryClient, htmlTemplate, entryPoint } = config;
@@ -104,7 +109,7 @@ export const loadAssets = async (
         // The bootstrap URL must point at the real file for Vite dev; probe the
         // stem against ENTRY_EXTENSIONS the same way the server entry is resolved.
         const entryClientFile = resolveEntryFile(clientRoot, entryClient);
-        const bootstrapModule = `/${adjustedRelativePath}/${entryClientFile}`.replace(/\/{2,}/g, '/');
+        const bootstrapModule = `${publicBasePath}${`/${adjustedRelativePath}/${entryClientFile}`.replace(/\/{2,}/g, '/')}`;
         bootstrapModules.set(clientRoot, bootstrapModule);
         continue;
       }
@@ -135,11 +140,11 @@ export const loadAssets = async (
         });
       }
 
-      const bootstrapModule = `/${adjustedRelativePath}/${manifestEntry.file}`.replace(/\/{2,}/g, '/');
+      const bootstrapModule = `${publicBasePath}${`/${adjustedRelativePath}/${manifestEntry.file}`.replace(/\/{2,}/g, '/')}`;
       bootstrapModules.set(clientRoot, bootstrapModule);
 
-      preloadLinks.set(clientRoot, renderPreloadLinks(ssrManifest, adjustedRelativePath));
-      cssLinks.set(clientRoot, getCssLinks(manifest, adjustedRelativePath));
+      preloadLinks.set(clientRoot, renderPreloadLinks(ssrManifest, `${publicBasePath}${adjustedRelativePath}`));
+      cssLinks.set(clientRoot, getCssLinks(manifest, `${publicBasePath}${adjustedRelativePath}`));
 
       // Renderer v1: every app MUST declare a valid renderer contribution (fail-closed at boot - the outer
       // catch rethrows in production). Every renderer ships a render module the host validates; there is

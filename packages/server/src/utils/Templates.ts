@@ -215,14 +215,16 @@ export const extractHeadInner = (html: string): string => {
 // structural dev gate holds (callers check for the introspection decoration) — the Gate 0B
 // prod test asserts its absence. Values are JSON-encoded; requestId is SAFE_REQUEST_ID-validated
 // upstream and the token is base64url, so neither can break out of the script context.
-export const buildTaujsDevStamp = (requestId: string, token: string, nonce?: string): string => {
+// RFC 0012: `basePath` is the installation's validated emission coordinate; its canonical
+// charset ([A-Za-z0-9._~-] segments) cannot break out of the single-quoted URL string.
+export const buildTaujsDevStamp = (requestId: string, token: string, nonce?: string, basePath = ''): string => {
   const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
   const script =
     `window.__TAUJS_REQUEST_ID__=${JSON.stringify(requestId)};window.__TAUJS_DEV_TOKEN__=${JSON.stringify(token)};` +
     '(function(){var t=window.__TAUJS_REQUEST_ID__,k=window.__TAUJS_DEV_TOKEN__;if(!t||!k)return;var t0=null,sent=false;' +
     'function send(ok,err){if(sent)return;sent=true;var b={requestId:t,ok:ok};if(t0!=null)b.ms=Math.round(performance.now()-t0);' +
     'if(err)b.error=String(err).slice(0,500);' +
-    "try{fetch('/__taujs/beacon',{method:'POST',headers:{'content-type':'application/json','x-taujs-token':k},body:JSON.stringify(b),keepalive:true}).catch(function(){})}catch(e){}}" +
+    `try{fetch('${basePath}/__taujs/beacon',{method:'POST',headers:{'content-type':'application/json','x-taujs-token':k},body:JSON.stringify(b),keepalive:true}).catch(function(){})}catch(e){}}` +
     "window.__TAUJS_DEVTOOLS_HOOK__={emit:function(ev,p){if(ev==='hydration:start')t0=performance.now();" +
     "else if(ev==='hydration:success')send(true);else if(ev==='hydration:error')send(false,(p&&p.message)||p)}};})();";
 

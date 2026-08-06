@@ -31,6 +31,8 @@ export const handleNotFound = async (
     debug?: DebugConfig;
     logger?: Logs;
     viteDevServer?: ViteDevServer;
+    /** RFC 0012: the installation's validated emission coordinate; prefixes the dev beacon URL. */
+    publicBasePath?: string;
   } = {},
 ) => {
   const { viteDevServer } = opts;
@@ -92,7 +94,10 @@ export const handleNotFound = async (
     // with, so it gets its own — only when the structural gate holds (dev decoration).
     const devtools = (req as { server?: { taujsIntrospection?: { token: string } } }).server?.taujsIntrospection;
     if (devtools && requestContext) {
-      processedTemplate = processedTemplate.replace('</body>', `${buildTaujsDevStamp(requestContext.requestId, devtools.token, cspNonce)}</body>`);
+      processedTemplate = processedTemplate.replace(
+        '</body>',
+        `${buildTaujsDevStamp(requestContext.requestId, devtools.token, cspNonce, opts.publicBasePath ?? '')}</body>`,
+      );
     }
 
     logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');

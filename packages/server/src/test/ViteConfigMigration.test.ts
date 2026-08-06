@@ -43,7 +43,10 @@ vi.mock('../utils/Templates', () => ({
   overrideCSSHMRConsoleError: hoisted.overrideCSSHMRConsoleErrorMock,
 }));
 
-vi.mock('../core/config/Setup', () => ({
+vi.mock('../core/config/Setup', async (importOriginal) => ({
+  // RFC 0012: keep the real pure exports (extractPathCoordinates, viteBaseFor) - only the
+  // extraction this suite drives is replaced.
+  ...(await importOriginal<typeof import('../core/config/Setup')>()),
   extractBuildConfigs: vi.fn(),
 }));
 

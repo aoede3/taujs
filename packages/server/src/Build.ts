@@ -14,7 +14,7 @@ import path from 'node:path';
 import { build } from 'vite';
 
 import { TEMPLATE } from './constants';
-import { extractBuildConfigs } from './core/config/Setup';
+import { extractBuildConfigs, extractPathCoordinates, viteBaseFor } from './core/config/Setup';
 import { emitGraphArtifact } from './core/introspection/EmitGraph';
 import { processConfigs } from './utils/AssetManager';
 import { resolveEntryFile } from './utils/Entry';
@@ -214,6 +214,10 @@ export async function taujsBuild({
   const extractedConfigs = extractBuildConfigs(config);
   const processedConfigs = processConfigs(extractedConfigs, clientBaseDir, TEMPLATE);
 
+  // RFC 0012: the same validation createServer runs, so dev and build cannot disagree about a
+  // coordinate's validity; `publicBasePath` composes into every app's Vite `base` below.
+  const { publicBasePath } = extractPathCoordinates(config);
+
   // ESC-1 (RFC 0006) phase 1 - GLOBAL ownership preparation over ALL apps (never the filtered
   // `configsToBuild`), before the per-app build loop. Exclusions are computed against the global
   // other-key claims even for a filtered build, so chain-global contributions never leak into an
@@ -315,7 +319,10 @@ export async function taujsBuild({
     if (discovered) console.warn(`[taujs:build:${entryPoint}] ${formerlyDiscoveredViteConfigWarning(discovered)}`);
 
     const frameworkConfig: InlineConfig = {
-      base: entryPoint ? `/${entryPoint}/` : '/',
+      // RFC 0012 (verdict-round ruling): the canonical publicBasePath composes AROUND the
+      // existing entryPoint spelling; with publicBasePath '' this is the pre-RFC formula
+      // byte-for-byte. entryPoint is deliberately not normalised here.
+      base: viteBaseFor(publicBasePath, entryPoint),
       configFile: false,
       build: {
         outDir,
