@@ -41,6 +41,12 @@ const mkReply = (): any => {
   const raw = new PassThrough() as any;
   raw.writeHead = vi.fn();
   raw.headersSent = false;
+  // A real `reply.raw` is a `ServerResponse`, and the response terminal reads its status at
+  // `finish`. Fastify sets it; the mock declares the same default so cells can change it.
+  raw.statusCode = 200;
+  // ...and it carries the SOCKET the terminal classifies from, captured when the SSR arm installs
+  // its listeners. The mock declares a healthy one; the cells that need a dead peer kill it.
+  raw.socket = { destroyed: false, errored: null };
   const reply: any = {
     raw,
     sent: [] as unknown[],
@@ -96,12 +102,69 @@ const runSSR = async (recorder?: EpisodeRecorder) => {
   return reply;
 };
 
+/**
+ * The response LIFECYCLE, driven by hand. `mkReply().raw` is a `PassThrough`, so it emits nothing
+ * on its own, and an SSR episode is finalised by the response's own events rather than by
+ * `reply.send()` returning - `send()` queues a response and says nothing about its delivery.
+ */
+const emitFinish = (reply: any): Promise<void> =>
+  new Promise<void>((resolve) => {
+    reply.raw.on('finish', () => resolve());
+    reply.raw.end();
+  });
+
+/** Premature termination: the socket closes with the response still unfinished. */
+const emitClose = (reply: any): void => {
+  reply.raw.emit('close');
+};
+
+type TerminalCall = { terminal: 'sent' | 'aborted' | 'failed'; event: Record<string, unknown> };
+
+/**
+ * Terminal CALLS, not merely finalised episodes: the assembler drops a second terminal silently, so
+ * counting the calls is what proves the LATCH rather than the assembler's tolerance. Same idiom as
+ * `test/StreamingTransport.test.ts`.
+ */
+const watchTerminals = (recorder: EpisodeRecorder): TerminalCall[] => {
+  const calls: TerminalCall[] = [];
+
+  for (const terminal of ['sent', 'aborted', 'failed'] as const) {
+    const original = recorder[terminal].bind(recorder);
+
+    (recorder as unknown as Record<string, unknown>)[terminal] = (event: Record<string, unknown>) => {
+      calls.push({ terminal, event });
+
+      return original(event as never);
+    };
+  }
+
+  return calls;
+};
+
+const DISCONNECT_WARNING = 'Client disconnected before the SSR response finished';
+
+const warningsFor = (logger: any, message: string): unknown[] => logger.warn.mock.calls.filter((call: unknown[]) => call[1] === message);
+
+/** One SSR request with its request-context logger exposed, so response-terminal logs are readable. */
+const ssrHarness = (recorder?: EpisodeRecorder, renderModule: unknown = renderSSRModule) => {
+  const logger = mkLogger();
+  const req = mkReq('/product/42', recorder);
+  req.taujsRequestContext.logger = logger;
+  const reply = mkReply();
+
+  return { req, reply, logger, run: () => handleRender(req, reply, ssrRoute as any, configs, {} as any, maps(renderModule), { logger: mkLogger() }) };
+};
+
 describe('handleRender recorder events (P0B-02 hook sites)', () => {
-  it('SSR happy path: routeMatched → dataFetch → sent(ssr, 200)', async () => {
+  it('SSR happy path: routeMatched → dataFetch → response finish → sent(ssr, 200)', async () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: T, url: '/product/42?ref=mail', method: 'GET' });
 
-    await runSSR(dev.recorder);
+    const reply = await runSSR(dev.recorder);
+    // REWRITTEN, not relocated: the assertions below are the original ones. What changed is the
+    // moment the episode finalises - the delivery terminal is the response's own `finish`, which a
+    // mocked reply only produces when it is driven.
+    await emitFinish(reply);
 
     const [episode] = dev.getEpisodes();
     expect(episode).toMatchObject({
@@ -153,6 +216,191 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
 
     const [episode] = dev.getEpisodes();
     expect(episode).toMatchObject({ route: null, mode: 'fallthrough', outcome: 'complete', status: 200 });
+  });
+});
+
+// The first observable SSR terminal wins. `finish` is NOT delivery - it means the payload was
+// handed to the operating system, not that the client received it, and on this buffered arm it
+// fires even after the peer has reset (measured). So the terminal classifies from the SOCKET
+// captured when the listeners installed: dead socket at `finish` records `aborted`, healthy or
+// absent records `complete`. A `close` while the latch is open records `aborted` at the current
+// stage; a τjs-observed failure records `failed`. `writableFinished` appears nowhere - event
+// ordering plus the latch owns normal finish-then-close.
+//
+// These cells drive the lifecycle by hand. The real-socket half is in
+// `test/SsrResponseLifecycle.test.ts`; a healthy `inject()` producing no false disconnect is
+// guarded by `test/HostOwnership.test.ts`.
+describe('SSR response terminal: the first observable terminal wins', () => {
+  it('1: reply.send() returning does NOT record a terminal', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = ssrHarness(dev.recorder);
+
+    await harness.run();
+
+    // The handler has handed a complete document to `send()` and returned. Nothing about the
+    // RESPONSE has been observed yet, so the episode has no terminal at all - this is precisely the
+    // moment that used to be recorded as a successful 200.
+    expect(harness.reply.sent).toHaveLength(1);
+    expect(terminals).toEqual([]);
+    expect(dev.getEpisodes()).toEqual([]);
+  });
+
+  it('2: finish on a HEALTHY captured socket records exactly one sent, using the final raw status', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = ssrHarness(dev.recorder);
+
+    await harness.run();
+    // What the response actually carried, not what the handler asked for: a host hook may render an
+    // SSR page under a different status (a soft 404 is the ordinary case), and the record has to
+    // describe the wire.
+    harness.reply.raw.statusCode = 404;
+    await emitFinish(harness.reply);
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['sent']);
+    expect(terminals[0]!.event).toMatchObject({ requestId: T, status: 404, mode: 'ssr' });
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'complete', status: 404, mode: 'ssr' });
+  });
+
+  it('3: finish on a DESTROYED captured socket records one aborted at send plus one warning', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = ssrHarness(dev.recorder);
+
+    await harness.run();
+    // The peer left while the payload was still going out. `finish` fires anyway - that is Node's
+    // contract, and it is why the socket rather than the event decides the arm.
+    harness.reply.raw.socket.destroyed = true;
+    await emitFinish(harness.reply);
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['aborted']);
+    expect(terminals[0]!.event).toMatchObject({ requestId: T, phase: 'send' });
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'aborted' });
+    expect(warningsFor(harness.logger, DISCONNECT_WARNING)).toHaveLength(1);
+  });
+
+  it('3b: finish on an ERRORED captured socket is classified the same way', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = ssrHarness(dev.recorder);
+
+    await harness.run();
+    // The measured shape leaves ECONNRESET on the socket in the same tick as `finish`; a socket
+    // that errored is as dead as one already destroyed.
+    harness.reply.raw.socket.errored = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+    await emitFinish(harness.reply);
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['aborted']);
+    expect(terminals[0]!.event).toMatchObject({ phase: 'send' });
+    expect(warningsFor(harness.logger, DISCONNECT_WARNING)).toHaveLength(1);
+  });
+
+  it('4: a close while the latch is open records one aborted at the CURRENT stage, and a later finish is latched out', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = ssrHarness(dev.recorder);
+
+    await harness.run();
+    emitClose(harness.reply);
+    await emitFinish(harness.reply);
+
+    // The stage is `send` because the close arrived after the handoff; the phase is preserved
+    // rather than blanket-reported, so the earlier arms keep the phases they already record. The
+    // measured defect was TWO-fold - the episode said `complete`, and nothing else in the record
+    // hinted that the response had been abandoned - so the warning is part of the cell.
+    expect(terminals.map((call) => call.terminal)).toEqual(['aborted']);
+    expect(terminals[0]!.event).toMatchObject({ requestId: T, phase: 'send' });
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'aborted' });
+    expect(warningsFor(harness.logger, DISCONNECT_WARNING)).toHaveLength(1);
+  });
+
+  it('5: finish followed by close remains complete - no aborted terminal, no warning', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = ssrHarness(dev.recorder);
+
+    await harness.run();
+    await emitFinish(harness.reply);
+    emitClose(harness.reply);
+
+    // Every response closes eventually. EVENT ORDERING plus the latch is what stops the ordinary
+    // close that follows a successful delivery from reclassifying it - there is no
+    // `writableFinished` guard here, because that read is unsound in both directions.
+    expect(terminals.map((call) => call.terminal)).toEqual(['sent']);
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'complete' });
+    expect(warningsFor(harness.logger, DISCONNECT_WARNING)).toHaveLength(0);
+  });
+
+  it('6: a response already destroyed when the listeners attach records one aborted plus one warning', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = ssrHarness(dev.recorder);
+
+    // The client left while a host hook - or, in development, Vite's module loading - was still
+    // awaiting in front of the handler. `close` has already been emitted, so no listener attached
+    // afterwards can ever fire: the event has to be observed by asking, not by listening.
+    harness.reply.raw.destroy();
+    await harness.run();
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['aborted']);
+    expect(terminals[0]!.event).toMatchObject({ phase: 'pre-render' });
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'aborted' });
+    expect(warningsFor(harness.logger, DISCONNECT_WARNING)).toHaveLength(1);
+  });
+
+  it('7: a close followed by a signal-abort branch still records exactly ONE aborted terminal', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    let harness: ReturnType<typeof ssrHarness>;
+
+    // The socket closes DURING the render, so the close arm classifies at stage `render` and the
+    // post-render signal check then reaches its own abort site. Two observations, one owner.
+    const closingModule = {
+      renderSSR: vi.fn(async () => {
+        emitClose(harness.reply);
+        return { headContent: '', appHtml: '<div>app</div>' };
+      }),
+    };
+
+    harness = ssrHarness(dev.recorder, closingModule);
+    await harness.run();
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['aborted']);
+    expect(terminals[0]!.event).toMatchObject({ phase: 'render' });
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'aborted' });
+
+    // The signal-abort site keeps its own log line - only the TERMINAL is latched, not the arm's
+    // existing diagnostics.
+    expect(warningsFor(harness.logger, 'SSR completed but client disconnected')).toHaveLength(1);
+    expect(warningsFor(harness.logger, DISCONNECT_WARNING)).toHaveLength(1);
+  });
+
+  it('8: a render failure followed by finish and close records exactly ONE failed terminal', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/product/42', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const failingModule = { renderSSR: vi.fn(async () => Promise.reject(new Error('render exploded'))) };
+    const harness = ssrHarness(dev.recorder, failingModule);
+
+    await expect(harness.run()).rejects.toThrow();
+    // Fastify's error response finishes normally afterwards. The latch is what stops that `finish`
+    // from adding a `sent` on top of a failure the outer catch already owns.
+    await emitFinish(harness.reply);
+    emitClose(harness.reply);
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['failed']);
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'failed' });
+    expect(dev.getEpisodes()[0]!.error!.message).toContain('render exploded');
+    expect(warningsFor(harness.logger, DISCONNECT_WARNING)).toHaveLength(0);
   });
 });
 
