@@ -158,6 +158,19 @@ export const handleRender = async (
   let finaliseStreamingResponse:
     ((arm: 'complete' | 'failed' | 'aborted', info?: { error?: unknown; phase?: 'render' | 'send' | 'stream' }) => void) | undefined;
 
+  /**
+   * The SSR response-terminal coordinator, hoisted for the same reason: the outer catch must not
+   * become a SECOND terminal owner. Set once the SSR branch installs it; `undefined` on the
+   * streaming path, and `undefined` on the SSR path for a throw that happens BEFORE the branch is
+   * reached, which is why the outer catch still keeps its direct arm.
+   */
+  let finaliseSsrResponse:
+    | ((
+        arm: 'complete' | 'failed' | 'aborted',
+        info?: { error?: unknown; kind?: string; phase?: 'pre-render' | 'render' | 'post-render' | 'send'; disconnect?: boolean },
+      ) => void)
+    | undefined;
+
   try {
     const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
 
@@ -349,17 +362,111 @@ export const handleRender = async (
       const ac = new AbortController();
       const onAborted = () => ac.abort('client_aborted');
 
+      /**
+       * The ONE SSR response-terminal coordinator - parallel in REACH to the streaming one, not in
+       * complexity. Cancellation OBSERVATIONS stay plural (request abort, response close, a
+       * τjs-observed failure); the terminal OWNER is singular and latched:
+       *
+       *   finish, captured socket healthy  -> sent(reply.raw.statusCode, ssr) -> complete
+       *   finish, captured socket dead     -> aborted('send') + warning        -> aborted
+       *   τjs-observed failure             -> failed(error)                    -> failed
+       *   close while the latch is open    -> aborted(current stage) + warning -> aborted
+       *
+       * `reply.send()` merely QUEUES a response, so recording delivery from its return classified
+       * an abandoned response as a successful 200. `finish` is not delivery either: it means the
+       * payload was handed to the operating system for transmission, NOT that the client received
+       * it (Node's documented `ServerResponse` contract), and on this BUFFERED arm it fires even
+       * after the peer has reset - measured. So the SOCKET is the discriminator, not the event.
+       */
+      let ssrFinalised = false;
+      /** How far the SSR arm got, so an abort keeps the phase it already reported. */
+      let ssrStage: 'pre-render' | 'render' | 'post-render' | 'send' = 'pre-render';
+
+      const finaliseSsrOnce = (
+        arm: 'complete' | 'failed' | 'aborted',
+        info: { error?: unknown; kind?: string; phase?: 'pre-render' | 'render' | 'post-render' | 'send'; disconnect?: boolean } = {},
+      ): void => {
+        if (ssrFinalised) return;
+        ssrFinalised = true;
+
+        // Release-first ordering, mirroring the streaming coordinator. `deferred` is created only
+        // in the streaming branch, so this is a deliberate no-op here; it keeps the outer catch's
+        // rewiring honest rather than making the ordering a streaming-only property.
+        try {
+          deferred?.release();
+        } catch {}
+
+        try {
+          if (arm === 'complete') {
+            recorder?.sent({ requestId, status: reply.raw.statusCode ?? 200, mode: 'ssr' });
+          } else if (arm === 'failed') {
+            // Each failing site keeps the kind it records today - 'send' for a send failure, the
+            // AppError kind (or 'internal') for a throw reaching the outer catch. Only the OWNER
+            // moved; the recorded classification did not.
+            recorder?.failed({
+              requestId,
+              error: {
+                kind: info.kind ?? (AppError.isAppError(info.error) ? (info.error as { kind: string }).kind : 'internal'),
+                message: safeErrorMessage(info.error),
+              },
+            });
+          } else {
+            recorder?.aborted({ requestId, phase: info.phase ?? ssrStage });
+          }
+        } catch {}
+
+        // Classification FIRST, warning second: a throwing logger must never prevent the terminal.
+        // The latch makes the warning exactly-once, and `disconnect` confines it to socket-observed
+        // aborts - the signal-abort sites keep their own existing log lines.
+        if (arm === 'aborted' && info.disconnect) {
+          try {
+            logger.warn({ url: req.url, phase: info.phase ?? ssrStage }, 'Client disconnected before the SSR response finished');
+          } catch {}
+        }
+      };
+
+      finaliseSsrResponse = finaliseSsrOnce;
+
+      // The response socket, captured HERE and never re-read: by `finish` time `reply.raw.socket`
+      // already reads null (measured), so the reference has to be taken as the listeners install.
+      const sock = reply.raw.socket;
+
       req.raw.on('aborted', onAborted);
       reply.raw.on('close', () => {
         if (!reply.raw.writableEnded) ac.abort('socket_closed');
+
+        // No guard: a close that follows a healthy `finish` is latched out by event ordering, and
+        // that ordering plus the latch is what owns normal finish-then-close. `writableFinished` is
+        // deliberately absent everywhere in this arm - it is measurably unsound in BOTH directions
+        // (true on a real mid-delivery reset, false on a healthy `inject()` response).
+        finaliseSsrOnce('aborted', { phase: ssrStage, disconnect: true });
       });
-      reply.raw.on('finish', () => req.raw.off('aborted', onAborted));
+      reply.raw.on('finish', () => {
+        req.raw.off('aborted', onAborted);
+
+        // The peer's departure is only visible on the SOCKET, so that is what decides the arm. An
+        // ABSENT socket is not by itself evidence of failure - it classifies `complete`, and a
+        // response already dead when the listeners attached is owned by the check below.
+        //
+        // HONEST LIMITATION: this detects socket failure OBSERVED BY THE TIME `finish` RUNS. A reset
+        // observed only after a healthy `finish` cannot be classified retroactively without claiming
+        // knowledge the server did not have, and an abandonment further downstream - a proxy timing
+        // out behind us - is not detectable here at all. Neither is claimed.
+        if (sock && (sock.destroyed || sock.errored)) finaliseSsrOnce('aborted', { phase: 'send', disconnect: true });
+        else finaliseSsrOnce('complete');
+      });
+
+      // A client can leave BEFORE this point: an awaiting host hook sits in front of the handler,
+      // and in development so does Vite's own module loading. `close` has then ALREADY been
+      // emitted, so the listeners above can never fire and nothing would classify the response. An
+      // event that already happened has to be observed by asking, not by listening.
+      if (reply.raw.destroyed) finaliseSsrOnce('aborted', { phase: ssrStage, disconnect: true });
 
       ctx.signal = ac.signal; // R1-01: propagate into the data context before fetching
 
       if (ac.signal.aborted) {
         logger.warn({ url: req.url }, 'SSR skipped; already aborted');
-        recorder?.aborted({ requestId, phase: 'pre-render' });
+        finaliseSsrOnce('aborted', { phase: 'pre-render' });
         return;
       }
 
@@ -370,13 +477,14 @@ export const handleRender = async (
       const headResolution = await resolveHeadData(ac.signal);
       if (headResolution.aborted) {
         logger.warn({ url: req.url }, 'SSR skipped; client disconnected during head data');
-        recorder?.aborted({ requestId, phase: 'pre-render' });
+        finaliseSsrOnce('aborted', { phase: 'pre-render' });
         return;
       }
 
       let headContent = '';
       let appHtml = '';
       try {
+        ssrStage = 'render';
         // RFC 0004: `headData` is present only when the route's head RESOLVED to a value -
         // conditional spread so no-head (and degraded) routes show no observable key.
         const res = await renderSSR(initialDataResolved, req.url!, attr?.meta, ac.signal, {
@@ -389,12 +497,13 @@ export const handleRender = async (
         });
         headContent = res.headContent;
         appHtml = res.appHtml;
+        ssrStage = 'post-render';
 
         logger.debug?.('ssr', {}, 'ssr data resolved');
 
         if (ac.signal.aborted) {
           logger.warn({}, 'SSR completed but client disconnected');
-          recorder?.aborted({ requestId, phase: 'post-render' });
+          finaliseSsrOnce('aborted', { phase: 'post-render' });
           return;
         }
       } catch (err) {
@@ -410,7 +519,7 @@ export const handleRender = async (
             },
             'SSR aborted mid-render (client disconnected)',
           );
-          recorder?.aborted({ requestId, phase: 'render' });
+          finaliseSsrOnce('aborted', { phase: 'render' });
           return;
         }
 
@@ -448,7 +557,9 @@ export const handleRender = async (
 
       try {
         const sendResult = reply.status(200).header('Content-Type', 'text/html').send(fullHtml);
-        recorder?.sent({ requestId, status: 200, mode: 'ssr' });
+        // HANDOFF, not delivery: `send()` queues the response and returns. Only the stage advances
+        // here - the terminal belongs to `finish` (or to a `close` that beats it).
+        ssrStage = 'send';
         return sendResult;
       } catch (err) {
         const msg = String((err as any)?.message ?? err ?? '');
@@ -457,10 +568,10 @@ export const handleRender = async (
 
         if (!benign) {
           logger.error({ url: req.url, error: safeNormaliseError(err) }, 'SSR send failed');
-          recorder?.failed({ requestId, error: { kind: 'send', message: msg } });
+          finaliseSsrOnce('failed', { error: err, kind: 'send' });
         } else {
           logger.warn({ url: req.url, reason: msg }, 'SSR send aborted (benign)');
-          recorder?.aborted({ requestId, phase: 'send' });
+          finaliseSsrOnce('aborted', { phase: 'send' });
         }
 
         return;
@@ -945,11 +1056,15 @@ export const handleRender = async (
     // RFC 0007: release FIRST, before any telemetry - a throwing recorder or logger must never
     // strand a started registry (this is the terminal a synchronous `renderStream` throw reaches).
     //
-    // ONE TERMINAL OWNER: when the streaming coordinator exists it owns both the release and the
-    // classification, and it is latched, so an error escaping to here cannot record a second
-    // terminal. The SSR path has no coordinator and keeps its own release plus telemetry.
+    // ONE TERMINAL OWNER: each strategy installs a latched coordinator that owns both the release
+    // and the classification, so an error escaping to here routes through whichever one exists and
+    // cannot record a second terminal - a render failure whose 500 response later emits `finish`
+    // stays `failed`. The final arm still covers a throw that happened BEFORE either branch was
+    // reached, which has no coordinator to route through.
     if (finaliseStreamingResponse) {
       finaliseStreamingResponse('failed', { error: err });
+    } else if (finaliseSsrResponse) {
+      finaliseSsrResponse('failed', { error: err });
     } else {
       try {
         deferred?.release();
