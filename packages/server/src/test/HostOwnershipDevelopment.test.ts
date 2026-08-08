@@ -228,3 +228,66 @@ describe('SC-09 - τjs-created development host', () => {
     }
   }, 30_000);
 });
+
+// RFC 0013: the attached HMR transport is a MODE-A facility. These cells run the PRODUCT PATH
+// (createServer), not the resolver helper, because the contract is "reject BEFORE mutation" -
+// a later move or mis-threading of the helper call would silently break that, and a
+// helper-only test would stay green.
+describe('RFC 0013 - attached transport and host ownership (product path)', () => {
+  const attachedConfig = () => {
+    const config = taujsConfig() as any;
+    config.server = { ...(config.server ?? {}), hmrTransport: 'attached' };
+
+    return config;
+  };
+
+  it('DEVELOPMENT mode B: rejects, and the caller host is left untouched', async () => {
+    const { root, clientRoot } = await developmentFixture();
+    const app = buildCallerHost();
+    await app.ready();
+
+    // Inventory BEFORE: what the caller owns on its own server.
+    const upgradeBefore = app.server.listenerCount('upgrade');
+    const routesBefore = app.printRoutes();
+
+    process.chdir(root);
+    try {
+      const createServer = await loadDevelopmentCreateServer();
+
+      await expect(createServer({ config: attachedConfig(), fastify: app, clientRoot, projectRoot: root })).rejects.toThrow(
+        /requires a τjs-created Fastify host/,
+      );
+
+      // Rejected BEFORE mutation: no upgrade listener installed, no routes registered.
+      expect(app.server.listenerCount('upgrade')).toBe(upgradeBefore);
+      expect(app.printRoutes()).toBe(routesBefore);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('PRODUCTION mode B: the same configuration completes createServer - the option is inert', async () => {
+    // A real production fixture (built manifests), so completion is genuine rather than
+    // masked by an unrelated asset failure.
+    const clientRoot = await productionFixture();
+    const app = buildCallerHost();
+    // Self-contained cwd. Earlier cells chdir into temp fixtures that their cleanup then
+    // deletes, so even READING `process.cwd()` here can throw `uv_cwd` - move to a directory
+    // known to exist before anything else, and never ask where we were.
+    process.chdir(path.dirname(clientRoot));
+
+    // Production installs no HMR facility, so a mode-B deployment sharing ONE configuration
+    // file must still boot rather than being refused for a development-only option.
+    const original = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    vi.resetModules();
+
+    try {
+      const { createServer } = await import('../CreateServer');
+      await expect(createServer({ config: attachedConfig(), fastify: app, clientRoot })).resolves.toBeDefined();
+    } finally {
+      process.env.NODE_ENV = original;
+      await app.close();
+    }
+  });
+});

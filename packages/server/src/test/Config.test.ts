@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
 
+import { resolveHmrTransport } from '../core/config/Setup';
+
 vi.mock('./core/services/DataServices', () => {
   return {
     callServiceMethod: vi.fn(async () => ({ ok: true })),
@@ -83,5 +85,48 @@ describe('Config', async () => {
       expect(out).toBe(cfg);
       expect(out.apps.length).toBe(1);
     });
+  });
+});
+
+// RFC 0013: the development HMR transport selector. Validation and the Mode-B rejection both
+// happen at configuration time - before Vite installs an upgrade listener or τjs touches a
+// caller's root - because silently ignoring an explicit transport request would be worse than
+// refusing an unsupported combination.
+describe('resolveHmrTransport (RFC 0013)', () => {
+  const cfg = (hmrTransport?: unknown) => ({ server: hmrTransport === undefined ? {} : { hmrTransport } }) as any;
+  const DEV = true;
+  const PROD = false;
+
+  it('defaults to fixed-port when undeclared, on either ownership mode', () => {
+    expect(resolveHmrTransport(cfg(), false, DEV)).toBe('fixed-port');
+    expect(resolveHmrTransport(cfg(), true, DEV)).toBe('fixed-port');
+  });
+
+  it('accepts an explicit fixed-port on either ownership mode', () => {
+    expect(resolveHmrTransport(cfg('fixed-port'), false, DEV)).toBe('fixed-port');
+    expect(resolveHmrTransport(cfg('fixed-port'), true, DEV)).toBe('fixed-port');
+  });
+
+  it('accepts attached when τjs owns the host', () => {
+    expect(resolveHmrTransport(cfg('attached'), false, DEV)).toBe('attached');
+  });
+
+  it('REJECTS attached on a caller-supplied host IN DEVELOPMENT, naming the remedy', () => {
+    expect(() => resolveHmrTransport(cfg('attached'), true, DEV)).toThrow(/requires a τjs-created Fastify host/);
+    expect(() => resolveHmrTransport(cfg('attached'), true, DEV)).toThrow(/fixed-port/);
+  });
+
+  it('ACCEPTS attached on a caller-supplied host IN PRODUCTION - the option is inert there', () => {
+    // A Mode-B production deployment sharing one configuration file must still boot; production
+    // installs no HMR facility, so there is nothing to reject.
+    expect(() => resolveHmrTransport(cfg('attached'), true, PROD)).not.toThrow();
+    expect(resolveHmrTransport(cfg('attached'), true, PROD)).toBe('attached');
+  });
+
+  it('REJECTS an unknown value in EVERY mode rather than falling back to the default', () => {
+    for (const mode of [DEV, PROD]) {
+      expect(() => resolveHmrTransport(cfg('attatched'), false, mode)).toThrow(/is not a valid transport/);
+      expect(() => resolveHmrTransport(cfg(true), true, mode)).toThrow(/is not a valid transport/);
+    }
   });
 });

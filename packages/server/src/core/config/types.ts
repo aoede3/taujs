@@ -321,6 +321,31 @@ export type CoreTaujsConfig = {
      * topology). Same canonical form as `mountPrefix`.
      */
     publicBasePath?: string;
+    /**
+     * RFC 0013: how the development HMR WebSocket is carried. Installation-level, because
+     * choosing the transport is an installation decision of the same kind as the RFC 0012
+     * coordinates above.
+     *
+     * - `'fixed-port'` (DEFAULT) - the dedicated `hmrPort` listener, today's behaviour
+     *   byte-for-byte.
+     * - `'attached'` - the HMR socket rides the application's own HTTP server, so it flows
+     *   wherever that channel flows. This is what makes development work where a second
+     *   fixed port cannot be reached: a supervisor that virtualises worker binds, a firewall,
+     *   or a single-channel proxy.
+     *
+     * OFF BY DEFAULT and never inferred: τjs does not detect its host or sniff the
+     * environment, so an attached transport is REQUESTED explicitly, exactly as development
+     * mode itself is. `'attached'` requires τjs to own the Fastify host (mode A); with a
+     * caller-supplied host it fails at configuration time rather than mutating the caller's
+     * listeners. `hmrPort`, `HMR_PORT` and `--hmr-port` remain accepted so an existing
+     * configuration can switch transport without being rewritten, but they do not select or
+     * alter the attached channel. No effect in production, where no HMR facility exists.
+     *
+     * Carrying an attached channel through a proxy is a HOST deployment matter (prefix
+     * preservation, a real upstream, watcher scope) and requires a trusted development
+     * network - see the τjs documentation; τjs adds no proxy machinery of its own.
+     */
+    hmrTransport?: 'fixed-port' | 'attached';
   };
   // RFC 0005 (VS2): the declarative home for the alias maps that are programmatic-only today
   // (`createServer`/`taujsBuild` options). Vite-free (plain `Record`), so it lives on the core

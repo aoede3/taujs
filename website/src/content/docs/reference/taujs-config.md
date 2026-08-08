@@ -64,7 +64,57 @@ type ServerConfig = {
   hmrPort?: number; // Default: 5174
   mountPrefix?: string; // Default: '' (root)
   publicBasePath?: string; // Default: mountPrefix
+  hmrTransport?: 'fixed-port' | 'attached'; // Default: 'fixed-port'
 };
+
+### `server.hmrTransport`
+
+How the development HMR WebSocket is carried. Development only - it has no effect on a build.
+
+| Value | Behaviour |
+| --- | --- |
+| `'fixed-port'` (default) | HMR listens on its own dedicated port (`hmrPort`, default 5174). |
+| `'attached'` | HMR rides the application's own HTTP server, so it flows wherever that channel flows. |
+
+The default is unchanged behaviour. Choose `'attached'` when a second fixed port cannot be
+reached - a supervisor that virtualises worker binds, a firewall, or a proxy that forwards only
+one channel. The served client then derives its socket from the origin that served it, rather
+than from a hard-coded port.
+
+```ts
+export default defineConfig({
+  server: {
+    hmrTransport: 'attached',
+  },
+});
+```
+
+Two rules to know:
+
+- **It is never inferred.** τjs does not detect its host or read the environment to decide;
+  an attached transport is requested explicitly.
+- **It requires a τjs-created host.** If you pass your own Fastify instance to `createServer`,
+  `'attached'` is rejected at configuration time rather than τjs attaching to, or reordering
+  listeners on, a server it does not own. `hmrPort`, `HMR_PORT` and `--hmr-port` stay accepted
+  so an existing configuration can switch transport without being rewritten, but they do not
+  affect the attached channel.
+
+#### Running an attached channel behind a proxy
+
+τjs adds no proxy machinery. Carrying the channel through one is host configuration, and the
+host must:
+
+- expose a real TCP upstream for the application (on Platformatic Watt, `useHttp: true`);
+- **preserve the path prefix**, so the pathname reaching Vite matches the base it serves - set
+  the proxy to keep the prefix and give τjs matching `mountPrefix` and `publicBasePath`. A
+  proxy that strips the prefix cannot carry an attached channel;
+- **exclude client sources from its restart watcher**, or an edit will both hot-update and
+  restart the worker.
+
+> **Requires a trusted development network.** Proxies commonly drop `Origin` and rewrite
+> `Host`, and Vite's WebSocket admission depends on those headers - its host and token checks
+> do not survive that rewriting. The protections that apply to a direct connection do not
+> project through such a proxy. Use this on development networks you trust.
 
 type AppConfig = {
   appId: string;

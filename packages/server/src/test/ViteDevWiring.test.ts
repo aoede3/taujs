@@ -295,3 +295,56 @@ describe('VS4 - scss modern-compiler default survives a user css merge', () => {
     expect(devConfig.css.preprocessorOptions.scss.additionalData).toBe('@use "shared/vars" as *;');
   });
 });
+
+// RFC 0013: the attached HMR transport, asserted on the INLINE CONFIG Vite is actually handed.
+// These are load-bearing: deleting the `server.ws.server` selection in DevServer fails them.
+describe('RFC 0013 - hmrTransport wiring (what setupDevServer hands Vite)', () => {
+  async function runDevWithTransport(hmrTransport: 'fixed-port' | 'attached', devNet?: { host: string; hmrPort: number }) {
+    const { setupDevServer } = await import('../utils/DevServer');
+    const viteConfig = resolveDevViteConfig({ clientRoot: clientBaseDir, appPlugins: [] });
+    const app = makeApp();
+    await setupDevServer({ app, clientRoot: clientBaseDir, debug: false, viteConfig, hmrTransport, devNet });
+
+    return { inline: createServerMock.mock.calls[0]![0] as any, app };
+  }
+
+  it('ATTACHED hands Vite the application server through the canonical server.ws.server', async () => {
+    const { inline, app } = await runDevWithTransport('attached');
+
+    expect(inline.server.ws.server).toBe(app.server);
+  });
+
+  it('ATTACHED declares no port fields and no deprecated server.hmr', async () => {
+    const { inline } = await runDevWithTransport('attached');
+
+    expect(inline.server.hmr).toBeUndefined();
+    expect(inline.server.ws.port).toBeUndefined();
+    expect(inline.server.ws.clientPort).toBeUndefined();
+    expect(inline.server.ws.protocol).toBeUndefined();
+  });
+
+  it('ATTACHED ignores a configured HMR port entirely', async () => {
+    const { inline, app } = await runDevWithTransport('attached', { host: 'localhost', hmrPort: 9999 });
+
+    expect(inline.server.ws.server).toBe(app.server);
+    expect(JSON.stringify(inline.server.ws)).not.toContain('9999');
+  });
+
+  it('FIXED-PORT uses the canonical server.ws with the port fields, and never server.hmr', async () => {
+    const { inline } = await runDevWithTransport('fixed-port', { host: 'localhost', hmrPort: 5174 });
+
+    expect(inline.server.hmr).toBeUndefined();
+    expect(inline.server.ws).toMatchObject({ port: 5174, clientPort: 5174, protocol: 'ws' });
+    expect(inline.server.ws.server).toBeUndefined();
+  });
+
+  it('DEFAULTS to the fixed-port transport when none is supplied', async () => {
+    const { setupDevServer } = await import('../utils/DevServer');
+    const viteConfig = resolveDevViteConfig({ clientRoot: clientBaseDir, appPlugins: [] });
+    await setupDevServer({ app: makeApp(), clientRoot: clientBaseDir, debug: false, viteConfig });
+    const inline = createServerMock.mock.calls[0]![0] as any;
+
+    expect(inline.server.ws.server).toBeUndefined();
+    expect(inline.server.ws.port).toBeDefined();
+  });
+});

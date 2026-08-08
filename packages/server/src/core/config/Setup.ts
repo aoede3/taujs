@@ -62,6 +62,43 @@ const assertCanonicalCoordinate = (field: 'mountPrefix' | 'publicBasePath', valu
 };
 
 /**
+ * RFC 0013: validate and resolve the development HMR transport.
+ *
+ * In DEVELOPMENT, `'attached'` requires τjs to own the Fastify host: on a caller-supplied host it
+ * is REJECTED here, at configuration time, before Vite installs an upgrade listener or τjs
+ * touches the caller's root - silently ignoring an explicit transport request would be less
+ * honest than refusing an unsupported combination.
+ *
+ * In PRODUCTION the combination is accepted and inert, because no HMR facility is installed
+ * there; a Mode-B production deployment sharing one configuration file must still boot.
+ *
+ * Unknown values are rejected in EVERY mode rather than falling back, so a typo cannot silently
+ * keep the fixed-port transport.
+ */
+export const resolveHmrTransport = (config: Pick<CoreTaujsConfig, 'server'>, callerOwnedHost: boolean, development: boolean): 'fixed-port' | 'attached' => {
+  const declared = config.server?.hmrTransport;
+  if (declared === undefined) return 'fixed-port';
+
+  if (declared !== 'fixed-port' && declared !== 'attached') {
+    throw new Error(`server.hmrTransport: '${String(declared)}' is not a valid transport. Expected 'fixed-port' (default) or 'attached'.`);
+  }
+
+  // Development-only. The transport configures a development facility that production never
+  // installs, so a Mode-B PRODUCTION deployment sharing one configuration must still boot -
+  // rejecting it there would contradict the inert-in-production contract. Unknown values are
+  // still rejected above, in every mode, because a typo is a mistake anywhere.
+  if (declared === 'attached' && callerOwnedHost && development) {
+    throw new Error(
+      `server.hmrTransport: 'attached' requires a τjs-created Fastify host, but one was supplied to createServer. ` +
+        `The attached transport rides the application's own server, and τjs does not attach to or reorder listeners on a host it does not own. ` +
+        `Omit the 'fastify' option to let τjs create the host, or use the default 'fixed-port' transport.`,
+    );
+  }
+
+  return declared;
+};
+
+/**
  * RFC 0012: validate and resolve the installation-level addressing coordinates. `mountPrefix`
  * is where Fastify receives the installation; `publicBasePath` is what τjs emits and what the
  * Vite `base` derives from. `publicBasePath` defaults to `mountPrefix`; the inverse corner

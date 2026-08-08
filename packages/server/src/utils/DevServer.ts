@@ -72,11 +72,20 @@ export type SetupDevServerOptions = {
    * PATHNAME.
    */
   publicBasePath?: string;
+  /**
+   * RFC 0013: the resolved development HMR transport. `'fixed-port'` (default) keeps the
+   * dedicated `hmrPort` listener; `'attached'` carries the socket on the application's own
+   * HTTP server via Vite's canonical `server.ws.server`, so it flows wherever that channel
+   * flows. Resolved and validated in `createServer` - by the time it arrives here the
+   * ownership check has already passed.
+   */
+  hmrTransport?: 'fixed-port' | 'attached';
 };
 
 export const setupDevServer = async (options: SetupDevServerOptions): Promise<ViteDevServer> => {
   const { app, clientRoot: baseClientRoot, alias, declarativeAlias, projectRoot, debug, devNet, viteConfig } = options;
   const mountPrefix = options.mountPrefix ?? '';
+  const hmrTransport = options.hmrTransport ?? 'fixed-port';
   const publicBasePath = options.publicBasePath ?? '';
 
   const logger =
@@ -207,12 +216,15 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
       // Vite then serves `hmrPort = null`, so the client derives its socket from the origin that
       // served it. `hmr` is OMITTED in that arm rather than set false, which would disable HMR
       // instead of attaching it. The fixed-port arm is unchanged.
-      ws: {
-        clientPort: hmrPort,
-        host: host !== 'localhost' ? host : undefined,
-        port: hmrPort,
-        protocol: 'ws',
-      },
+      ws:
+        hmrTransport === 'attached'
+          ? { server: app.server }
+          : {
+              clientPort: hmrPort,
+              host: host !== 'localhost' ? host : undefined,
+              port: hmrPort,
+              protocol: 'ws',
+            },
     },
   });
 

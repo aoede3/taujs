@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import Fastify from 'fastify';
 import pc from 'picocolors';
 
-import { extractBuildConfigs, extractPathCoordinates, extractRoutes, extractSecurity } from './core/config/Setup';
+import { extractBuildConfigs, extractPathCoordinates, extractRoutes, extractSecurity, resolveHmrTransport } from './core/config/Setup';
 import { REGEX } from './core/constants';
 import { normaliseError } from './core/errors/AppError';
 
@@ -79,6 +79,13 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   // threaded through plugin options - it selects the registration form below, so the form and the
   // behaviour cannot drift apart.
   const callerOwnedHost = opts.fastify !== undefined;
+
+  // RFC 0013: resolve the development HMR transport at FUNCTION ENTRY, for the same reason the
+  // addressing coordinates are - an unsupported ownership/transport combination must fail before
+  // any host state exists, never after Vite has installed an upgrade listener. The ownership
+  // rejection is DEVELOPMENT-only: production installs no HMR facility, so a Mode-B production
+  // deployment sharing one configuration must still boot.
+  const hmrTransport = resolveHmrTransport(opts.config, callerOwnedHost, isDevelopment);
 
   // SC-09 ruling 4: on a τjs-created host, request identity aligns at Fastify construction - the
   // one place τjs legitimately owns that policy. A single valid inbound `x-request-id` becomes
@@ -181,6 +188,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     await app.register(ssrServerPlugin({ callerOwnedHost, mounted: mountPrefix !== '' }), {
       prefix: mountPrefix || undefined,
       publicBasePath,
+      hmrTransport,
       clientRoot,
       configs,
       routes,
