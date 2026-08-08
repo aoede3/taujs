@@ -183,7 +183,7 @@ that delivers the application shell:
 
 The shell loads the client bundle and the client router can take over. This is how τjs supports
 incremental adoption without pretending every client screen has declared request orchestration. See
-[App Shell Architecture](/reference/app-shell-pattern) for the complete pattern.
+[App Shell Architecture](/guides/app-shell-pattern) for the complete pattern.
 
 ## Failure and cancellation boundaries
 

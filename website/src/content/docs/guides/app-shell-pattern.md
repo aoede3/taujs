@@ -3,6 +3,14 @@ title: App Shell Architecture in τjs
 description: A practical guide to building an app-shell–style system using τjs as it exists today
 ---
 
+:::note[One option, not the default shape]
+A τjs application does not need a shell. The generated `create-taujs` project is a single
+application whose routes Fastify selects at the HTTP boundary, and
+[Micro-Frontends](/guides/micro-frontend/) composes several applications the same way, with no
+browser-side shell involved. Reach for the pattern below only when you specifically want
+client-side composition - shared chrome, a client router and global state spanning sections.
+:::
+
 An **app shell** is a single application - in this case React - that:
 
 - Provides **global chrome**: header, footer, navigation, layout.
