@@ -19,11 +19,23 @@ A lightweight, Vue 3 SSR library with streaming capabilities, built for modern T
 >
   τjs @taujs/vue
 </LinkButton>
+
+`@taujs/vue` provides:
+
+- **Streaming SSR** with `renderToSimpleStream` from `@vue/server-renderer`
+- **Static SSR** with `renderToString` for simpler use cases and `<Teleport>` support
+- **Automatic hydration** with built-in data synchronisation and CSR fallback
+- **Vue-native data store** using reactive refs, `provide`/`inject` and `<Suspense>`
+- **App-instance customisation** via `setupApp` - the integration point for Pinia, vue-i18n, directives and global components
+- **Robust error handling** routed through `app.config.errorHandler`
+- **Runtime agnostic** - works with Node.js, Fastify, Express, or any HTTP server
+
+`@taujs/vue` mirrors the *contract and capability* of `@taujs/react` - the same render surface, the same server behaviour, the same hydration beacon events - but it is Vue-native, not a React transliteration. Where React throws promises and uses `useSyncExternalStore`, Vue uses reactivity, async `setup` and `<Suspense>`. The documented divergences (for example, `useSSRStore` returning the store) are deliberate and called out in place.
+
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Installation](#installation)
 - [Core Concepts](#core-concepts)
 - [Consuming SSR data](#consuming-ssr-data)
@@ -40,26 +52,11 @@ A lightweight, Vue 3 SSR library with streaming capabilities, built for modern T
 - [App customisation with setupApp](#app-customisation-with-setupapp)
 - [Lazy hydration](#lazy-hydration)
 - [Handling hydration mismatches](#handling-hydration-mismatches)
+- [Client navigation](#client-navigation)
 - [Usage in the taujs ecosystem](#usage-in-the-taujs-ecosystem)
 - [Standalone usage](#standalone-usage)
 - [TypeScript support](#typescript-support)
 - [Best practices](#best-practices)
-
----
-
-## Overview
-
-`@taujs/vue` provides:
-
-- **Streaming SSR** with `renderToSimpleStream` from `@vue/server-renderer`
-- **Static SSR** with `renderToString` for simpler use cases and `<Teleport>` support
-- **Automatic hydration** with built-in data synchronisation and CSR fallback
-- **Vue-native data store** using reactive refs, `provide`/`inject` and `<Suspense>`
-- **App-instance customisation** via `setupApp` - the integration point for Pinia, vue-i18n, directives and global components
-- **Robust error handling** routed through `app.config.errorHandler`
-- **Runtime agnostic** - works with Node.js, Fastify, Express, or any HTTP server
-
-`@taujs/vue` mirrors the *contract and capability* of `@taujs/react` - the same render surface, the same server behaviour, the same hydration beacon events - but it is Vue-native, not a React transliteration. Where React throws promises and uses `useSyncExternalStore`, Vue uses reactivity, async `setup` and `<Suspense>`. The documented divergences (for example, `useSSRStore` returning the store) are deliberate and called out in place.
 
 ---
 
@@ -873,6 +870,14 @@ For content that is *intentionally* different between server and client - timest
 ```
 
 `data-allow-mismatch` accepts an optional value to narrow what is allowed to differ: `text`, `children`, `class`, `style`, or `attribute` (for example `data-allow-mismatch="text"`). Use it sparingly and only for genuinely intentional divergence - it silences a correctness signal, so a stray mismatch elsewhere in the subtree can go unnoticed.
+
+---
+
+## Client navigation
+
+τjs governs the response for a URL. What a _subsequent_ navigation does is renderer-independent: a navigation between τjs apps is a full document load and a new governed response, while within one application the app's own client router (Vue Router or a custom router) owns the transition and any data it needs. See [Navigation boundaries](/guides/micro-frontend/#navigation-boundaries) for the model, and [App Shell Architecture](/guides/app-shell-pattern/) when one shell composes several sections client-side.
+
+For data that changes after the first render, fetch it from your own `/api/*` endpoints with a client library such as TanStack Query or SWR. τjs keeps SSR request-first and adds no generic client data channel; the initial snapshot stays the authority for the response it was built for.
 
 ---
 

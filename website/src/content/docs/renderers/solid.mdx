@@ -19,11 +19,23 @@ A lightweight Solid SSR library with streaming and hydration support, built for 
 >
   τjs @taujs/solid
 </LinkButton>
+
+`@taujs/solid` provides:
+
+- **Streaming SSR** with Solid's `renderToStream`, including deferred patches for app-owned async work
+- **Static SSR** with `renderToStringAsync` for the request-first `ssr` strategy
+- **Automatic hydration** with built-in data synchronisation and a CSR fallback
+- **Solid-native data store** built on a signal `Accessor`, provided through Solid context
+- **Managed compilation** - `@taujs/solid/renderer` owns `vite-plugin-solid` internally with `ssr: true` forced, so an app never lists the compiler plugin itself
+- **A fixed-identity error sanitiser** - a post-shell resource rejection reaches the client redacted, never leaking server detail through the error channel
+- **HTTP-framework-independent on Node, with a portable static-rendering path** - the streaming API writes to a Node `Writable`, so it can be integrated with Fastify, Express or another Node HTTP server. Static SSR (`renderSSR`) returns strings and does not use the streaming sink. Worker/edge deployment still depends on the target selecting Solid's server-compatible export conditions and on the surrounding application being portable; `@taujs/server` itself is Node-based, and this package does not expose a Web Streams renderer.
+
+`@taujs/solid` conforms to the same private host-facing render contract as `@taujs/react` and `@taujs/vue`, and uses the same hydration-beacon vocabulary, but it does **not** pretend that the frameworks have identical rendering semantics. Route data flows through a signal store you read like any other Solid accessor, and app-owned async uses Solid's own `createResource` + `<Suspense>` rather than a bespoke composable. The public author surface is deliberately small; Solid-specific completion, error and hydration behaviour is called out in place.
+
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Installation](#installation)
 - [Core Concepts](#core-concepts)
 - [Consuming SSR data](#consuming-ssr-data)
@@ -45,22 +57,6 @@ A lightweight Solid SSR library with streaming and hydration support, built for 
 - [Standalone usage](#standalone-usage)
 - [TypeScript support](#typescript-support)
 - [Best practices](#best-practices)
-
----
-
-## Overview
-
-`@taujs/solid` provides:
-
-- **Streaming SSR** with Solid's `renderToStream`, including deferred patches for app-owned async work
-- **Static SSR** with `renderToStringAsync` for the request-first `ssr` strategy
-- **Automatic hydration** with built-in data synchronisation and a CSR fallback
-- **Solid-native data store** built on a signal `Accessor`, provided through Solid context
-- **Managed compilation** - `@taujs/solid/renderer` owns `vite-plugin-solid` internally with `ssr: true` forced, so an app never lists the compiler plugin itself
-- **A fixed-identity error sanitiser** - a post-shell resource rejection reaches the client redacted, never leaking server detail through the error channel
-- **HTTP-framework-independent on Node, with a portable static-rendering path** - the streaming API writes to a Node `Writable`, so it can be integrated with Fastify, Express or another Node HTTP server. Static SSR (`renderSSR`) returns strings and does not use the streaming sink. Worker/edge deployment still depends on the target selecting Solid's server-compatible export conditions and on the surrounding application being portable; `@taujs/server` itself is Node-based, and this package does not expose a Web Streams renderer.
-
-`@taujs/solid` conforms to the same private host-facing render contract as `@taujs/react` and `@taujs/vue`, and uses the same hydration-beacon vocabulary, but it does **not** pretend that the frameworks have identical rendering semantics. Route data flows through a signal store you read like any other Solid accessor, and app-owned async uses Solid's own `createResource` + `<Suspense>` rather than a bespoke composable. The public author surface is deliberately small; Solid-specific completion, error and hydration behaviour is called out in place.
 
 ---
 
@@ -656,13 +652,9 @@ The practical consequences:
 
 ## Client navigation
 
-τjs governs the response for a URL. What a _subsequent_ navigation does depends on whether it crosses a τjs app boundary:
+τjs governs the response for a URL. What a _subsequent_ navigation does is renderer-independent: a navigation between τjs apps is a full document load and a new governed response, while within one application the app's own client router (Solid Router, TanStack Router or a custom router) owns the transition and any data it needs. See [Navigation boundaries](/guides/micro-frontend/#navigation-boundaries) for the model, and [App Shell Architecture](/guides/app-shell-pattern/) when one shell composes several sections client-side.
 
-- **Between τjs apps** (a different `appId`): a full-document navigation. The browser requests the new URL, τjs matches it, resolves its data and policy, and returns a new governed response - the same request-to-response path as the first load. See [Navigation Between Apps](/guides/micro-frontend/#navigation-between-apps).
-- **Within a single app shell:** the application's own client-side router (Solid Router, TanStack Router, or a custom router) owns navigation and any subsequent data fetching. τjs delivers the governed first response; the shell drives client-side transitions from there. See [App Shell Architecture](/reference/app-shell-pattern/).
-
-For data that changes _after_ the first render - within the shell - fetch it from your own `/api/*` endpoints with a client library such as TanStack Solid Query. τjs keeps SSR request-first and adds no generic client data channel; the initial snapshot stays the authority for the response it was built for.
-
+For data that changes after the first render, fetch it from your own `/api/*` endpoints with a client library such as TanStack Solid Query. τjs keeps SSR request-first and adds no generic client data channel; the initial snapshot stays the authority for the response it was built for.
 ---
 
 ## Hydration and CSP

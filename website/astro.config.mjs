@@ -61,6 +61,7 @@ export default defineConfig({
           label: "Multi-App Architecture",
           items: [
             { label: "Micro-Frontends", slug: "guides/micro-frontend" },
+            { label: "App Shell Pattern", slug: "guides/app-shell-pattern" },
             {
               label: "Dependency Management",
               slug: "guides/dependency-management",
@@ -94,7 +95,6 @@ export default defineConfig({
           label: "Reference",
           items: [
             { label: "τjs Configuration", slug: "reference/taujs-config" },
-            { label: "App Shell Pattern", slug: "reference/app-shell-pattern" },
             { label: "MCP Server", slug: "reference/mcp" },
             // { label: "Platformatic Watt", slug: "reference/platformatic-watt" },
           ],
