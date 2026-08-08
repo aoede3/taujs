@@ -3,7 +3,7 @@ title: App Shell Architecture in τjs
 description: A practical guide to building an app-shell–style system using τjs as it exists today
 ---
 
-An **app shell** is a single React application that:
+An **app shell** is a single application - in this case React - that:
 
 - Provides **global chrome**: header, footer, navigation, layout.
 - Owns **client-side routing** (React Router, TanStack Router, custom router).

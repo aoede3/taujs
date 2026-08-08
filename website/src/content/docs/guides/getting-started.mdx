@@ -9,6 +9,23 @@ description: Create a Fastify-hosted React, Vue or Solid application with declar
 
 τjs registers application routes from `taujs.config.ts` as real Fastify routes. After Fastify dispatches one of those routes, τjs coordinates its policy, data and rendering before handing the response to the React, Vue or Solid renderer selected by the application.
 
+
+::::caution[Prerequisites]
+**Node `^20.19.0 || >=22.12.0`**, inherited from Vite 8. Check with `node --version`.
+
+**New projects** generated with `@taujs/create-taujs` ship with Vite and its renderer plugin already
+pinned. There is nothing else to install.
+
+**Existing projects** adding τjs should satisfy peers as follows:
+
+| Package         | Peer requirement              |
+| --------------- | ----------------------------- |
+| `@taujs/server` | `vite ^8.2.1`                 |
+| `@taujs/react`  | `@vitejs/plugin-react ^5.2.0` |
+| `@taujs/vue`    | `@vitejs/plugin-vue ^6.0.3`   |
+| `@taujs/solid`  | `vite-plugin-solid ^2.11.11`  |
+::::
+
 ## Create a project
 
 `@taujs/create-taujs` scaffolds a working application and asks which framework and package manager to use:

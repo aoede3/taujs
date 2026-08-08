@@ -40,6 +40,11 @@ Or add a package to an existing project:
 pnpm add @taujs/server @taujs/react   # npm install / yarn add also fine
 ```
 
+**Requirements:** Node `^20.19.0 || >=22.12.0` and Vite `^8.2.1` (both are Vite 8's own floors;
+note the Node range excludes 21.x and 22.0-22.11). The renderer packages additionally peer on
+their framework plugin: `@vitejs/plugin-react` `^5.2.0`, `@vitejs/plugin-vue` `^6.0.3` or
+`vite-plugin-solid` `^2.11.11`.
+
 ## Repository layout
 
 ```
@@ -63,7 +68,7 @@ taujs/
 
 ## Development
 
-Requires **Node ≥ 20.11** (the repo uses `22.17.0` - see [`.nvmrc`](.nvmrc)) and **pnpm** (pinned via `packageManager`; `corepack enable` will provide it).
+Requires **Node `^20.19.0 || >=22.12.0`** (the repo pins `22.19.0` - see [`.nvmrc`](.nvmrc)) and **pnpm** (pinned via `packageManager`; `corepack enable` will provide it).
 
 ```bash
 pnpm install          # single root install for the whole workspace
