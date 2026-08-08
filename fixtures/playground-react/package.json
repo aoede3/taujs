@@ -27,7 +27,7 @@
     "tsx": "^4.19.3",
     "typescript": "^5.5.4",
     "vite": "^8.2.1",
-    "vitest": "^3.2.4",
+    "vitest": "^4.1.9",
     "@taujs/mcp": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0"
   }
