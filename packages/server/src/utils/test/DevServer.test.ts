@@ -134,10 +134,10 @@ describe('setupDevServer', () => {
     expect(cfg.resolve.alias['~foo']).toBe('/bar');
 
     // HMR from devNet overrides env/defaults
-    expect(cfg.server.hmr.clientPort).toBe(7777);
-    expect(cfg.server.hmr.host).toBe('dev.example.com');
-    expect(cfg.server.hmr.port).toBe(7777);
-    expect(cfg.server.hmr.protocol).toBe('ws');
+    expect(cfg.server.ws.clientPort).toBe(7777);
+    expect(cfg.server.ws.host).toBe('dev.example.com');
+    expect(cfg.server.ws.port).toBe(7777);
+    expect(cfg.server.ws.protocol).toBe('ws');
 
     // CSS preprocessor config is set
     expect(cfg.css?.preprocessorOptions?.scss?.api).toBe('modern-compiler');
@@ -216,7 +216,7 @@ describe('setupDevServer', () => {
     expect(next).toHaveBeenCalled();
   });
 
-  it('hmr host/port fallbacks: from env when devNet not provided', async () => {
+  it('socket host/port fallbacks (server.ws): from env when devNet not provided', async () => {
     process.env.HOST = ' example.org ';
     process.env.HMR_PORT = '12345';
 
@@ -228,12 +228,12 @@ describe('setupDevServer', () => {
     const cfg = createServerMock.mock.calls[0]![0];
 
     // host trimmed from env, not localhost => present in cfg
-    expect(cfg.server.hmr.clientPort).toBe(12345);
-    expect(cfg.server.hmr.port).toBe(12345);
-    expect(cfg.server.hmr.host).toBe('example.org');
+    expect(cfg.server.ws.clientPort).toBe(12345);
+    expect(cfg.server.ws.port).toBe(12345);
+    expect(cfg.server.ws.host).toBe('example.org');
   });
 
-  it('hmr host uses FASTIFY_ADDRESS when HOST not set; omits host when localhost', async () => {
+  it('socket host (server.ws) uses FASTIFY_ADDRESS when HOST not set; omits host when localhost', async () => {
     process.env.FASTIFY_ADDRESS = 'localhost';
     process.env.HMR_PORT = ''; // force default 5174
 
@@ -243,10 +243,10 @@ describe('setupDevServer', () => {
     await setupDevServer({ app: app as any, clientRoot: '/root/client' });
 
     const cfg = createServerMock.mock.calls[0]![0];
-    expect(cfg.server.hmr.clientPort).toBe(5174);
-    expect(cfg.server.hmr.port).toBe(5174);
+    expect(cfg.server.ws.clientPort).toBe(5174);
+    expect(cfg.server.ws.port).toBe(5174);
     // when host === 'localhost', code sets host: undefined
-    expect(cfg.server.hmr.host).toBeUndefined();
+    expect(cfg.server.ws.host).toBeUndefined();
   });
 
   it('alias option merges and overrides defaults if needed', async () => {

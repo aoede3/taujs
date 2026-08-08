@@ -239,29 +239,35 @@ describe('VS4 - dev invariants are protected: warned, never applied', () => {
     expect(warned).toContain('resolve.alias');
     expect(warned).toContain('root');
 
-    // None applied: dev keeps its own middlewareMode + hmr, its own root, and no smuggled alias.
+    // None applied: dev keeps its own middlewareMode + canonical `ws` block, its own root, and
+    // no smuggled alias. (Vite 8 vocabulary: the socket block is `server.ws`, not `server.hmr`.)
     expect(devConfig.server.middlewareMode).toBe(true);
-    expect(devConfig.server.hmr).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
+    expect(devConfig.server.hmr).toBeUndefined();
+    expect(devConfig.server.ws).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
     expect(devConfig.root).toBe(clientBaseDir);
     expect(devConfig.resolve.alias).not.toHaveProperty('@evil');
 
     // Refused, not applied inertly: nothing that could disable HMR or describe a listener Vite does
     // not own survives into the dev config.
-    expect(devConfig.server.ws).toBeUndefined();
+    // `ws` is no longer merely refused: it is the framework's OWN socket block in Vite 8, so the
+    // smuggled `ws: false` must not survive while the framework's block does (asserted above).
+    expect(devConfig.server.ws).not.toBe(false);
     expect(devConfig.server.host).toBeUndefined();
     expect(devConfig.server.port).toBeUndefined();
   });
 
-  it('a declared server.allowedHosts survives composition, and the framework keeps middlewareMode and hmr', async () => {
+  it('a declared server.allowedHosts survives composition, and the framework keeps middlewareMode and its ws block', async () => {
     // The unit's reason to exist: Vite 6.1+ rejects a non-localhost `Host` unless it is allowed, so
     // development behind a proxy or supervisor commonly needs this field to reach Vite.
     const devConfig = await runDev({ server: { allowedHosts: ['web.plt.local'] } } as TaujsViteConfig);
 
     expect(devConfig.server.allowedHosts).toEqual(['web.plt.local']);
 
-    // The framework's two fields are applied AFTER the user spread, with hmr replaced WHOLE.
+    // The framework's two fields are applied AFTER the user spread, with the socket block
+    // replaced WHOLE.
     expect(devConfig.server.middlewareMode).toBe(true);
-    expect(devConfig.server.hmr).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
+    expect(devConfig.server.hmr).toBeUndefined();
+    expect(devConfig.server.ws).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
   });
 
   it('composition does not mutate the caller-supplied config object', async () => {
@@ -287,5 +293,58 @@ describe('VS4 - scss modern-compiler default survives a user css merge', () => {
 
     expect(devConfig.css.preprocessorOptions.scss.api).toBe('modern-compiler');
     expect(devConfig.css.preprocessorOptions.scss.additionalData).toBe('@use "shared/vars" as *;');
+  });
+});
+
+// RFC 0013: the attached HMR transport, asserted on the INLINE CONFIG Vite is actually handed.
+// These are load-bearing: deleting the `server.ws.server` selection in DevServer fails them.
+describe('RFC 0013 - hmrTransport wiring (what setupDevServer hands Vite)', () => {
+  async function runDevWithTransport(hmrTransport: 'fixed-port' | 'attached', devNet?: { host: string; hmrPort: number }) {
+    const { setupDevServer } = await import('../utils/DevServer');
+    const viteConfig = resolveDevViteConfig({ clientRoot: clientBaseDir, appPlugins: [] });
+    const app = makeApp();
+    await setupDevServer({ app, clientRoot: clientBaseDir, debug: false, viteConfig, hmrTransport, devNet });
+
+    return { inline: createServerMock.mock.calls[0]![0] as any, app };
+  }
+
+  it('ATTACHED hands Vite the application server through the canonical server.ws.server', async () => {
+    const { inline, app } = await runDevWithTransport('attached');
+
+    expect(inline.server.ws.server).toBe(app.server);
+  });
+
+  it('ATTACHED declares no port fields and no deprecated server.hmr', async () => {
+    const { inline } = await runDevWithTransport('attached');
+
+    expect(inline.server.hmr).toBeUndefined();
+    expect(inline.server.ws.port).toBeUndefined();
+    expect(inline.server.ws.clientPort).toBeUndefined();
+    expect(inline.server.ws.protocol).toBeUndefined();
+  });
+
+  it('ATTACHED ignores a configured HMR port entirely', async () => {
+    const { inline, app } = await runDevWithTransport('attached', { host: 'localhost', hmrPort: 9999 });
+
+    expect(inline.server.ws.server).toBe(app.server);
+    expect(JSON.stringify(inline.server.ws)).not.toContain('9999');
+  });
+
+  it('FIXED-PORT uses the canonical server.ws with the port fields, and never server.hmr', async () => {
+    const { inline } = await runDevWithTransport('fixed-port', { host: 'localhost', hmrPort: 5174 });
+
+    expect(inline.server.hmr).toBeUndefined();
+    expect(inline.server.ws).toMatchObject({ port: 5174, clientPort: 5174, protocol: 'ws' });
+    expect(inline.server.ws.server).toBeUndefined();
+  });
+
+  it('DEFAULTS to the fixed-port transport when none is supplied', async () => {
+    const { setupDevServer } = await import('../utils/DevServer');
+    const viteConfig = resolveDevViteConfig({ clientRoot: clientBaseDir, appPlugins: [] });
+    await setupDevServer({ app: makeApp(), clientRoot: clientBaseDir, debug: false, viteConfig });
+    const inline = createServerMock.mock.calls[0]![0] as any;
+
+    expect(inline.server.ws.server).toBeUndefined();
+    expect(inline.server.ws.port).toBeDefined();
   });
 });

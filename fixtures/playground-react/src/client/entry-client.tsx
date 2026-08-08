@@ -1,3 +1,4 @@
+import './styles.css';
 import { hydrateApp } from '@taujs/react';
 import { App } from './App';
 

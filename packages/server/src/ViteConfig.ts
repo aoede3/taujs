@@ -24,7 +24,7 @@
  * `Config.ts`); the Vite-typed surface belongs alongside `Config.ts`/`Build.ts`, which already
  * import from `vite`.
  */
-import type { DepOptimizationOptions, ESBuildOptions, LogLevel, PluginOption, ResolveOptions, Rollup, ServerOptions } from 'vite';
+import type { DepOptimizationOptions, ESBuildOptions, LogLevel, PluginOption, ResolveOptions, Rolldown, Rollup, ServerOptions } from 'vite';
 import type { BuildOptions, CSSOptions } from 'vite';
 
 /**
@@ -50,7 +50,8 @@ export type TaujsOptimizeDeps = Pick<DepOptimizationOptions, 'include' | 'exclud
  * Deliberately withheld, each for a reason:
  *
  * - `ws` - Vite documents `ws: false` as disabling the WebSocket connection, which would break the
- *   HMR facility τjs owns through `server.hmr`. Admitting a field that disables an invariant we
+ *   HMR facility τjs owns through `server.ws` (Vite 8's canonical surface; the deprecated
+ *   `server.hmr` stays protected as legacy input). Admitting a field that disables an invariant we
  *   claim is a contradiction, not a customisation.
  * - `host`, `port`, `strictPort`, `https`, `open` - these configure Vite's own HTTP listener, and
  *   in middleware mode Vite has no listener. Fastify owns it. They would be inert, which is worse
@@ -108,7 +109,33 @@ export type TaujsViteConfig = {
     rollupOptions?: {
       external?: Rollup.ExternalOption;
       output?: {
-        manualChunks?: Rollup.ManualChunksOption;
+        /**
+         * @deprecated MIGRATION SURFACE ONLY, and FUNCTION FORM ONLY.
+         *
+         * Vite 8/Rolldown does NOT support the Rollup OBJECT form (`{ vendor: ['react'] }`), and
+         * Rolldown documents `manualChunks` as deprecated in favour of `output.codeSplitting`.
+         * τjs deliberately does NOT translate the object form: exact Rollup object semantics
+         * involve module resolution and dependency capture, so an approximation would risk
+         * producing different bundles.
+         *
+         * Declaring the object form is REJECTED at the configuration boundary with a migration
+         * error. Prefer `build.rolldownOptions.output.codeSplitting`.
+         *
+         * The type is derived from the bundler's own option shape, so it tracks exactly what the
+         * installed bundler accepts.
+         */
+        manualChunks?: Rollup.OutputOptions['manualChunks'];
+      };
+    };
+    /**
+     * The CANONICAL Vite 8 chunking surface, replacing the deprecated `manualChunks`.
+     * Declaring BOTH this and `build.rollupOptions.output.manualChunks` is rejected: Rolldown
+     * would otherwise silently ignore `manualChunks`, so τjs fails with an error naming both
+     * paths rather than choosing one.
+     */
+    rolldownOptions?: {
+      output?: {
+        codeSplitting?: Rolldown.OutputOptions['codeSplitting'];
       };
     };
   };

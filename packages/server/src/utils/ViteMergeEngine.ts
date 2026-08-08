@@ -113,7 +113,8 @@ export const BUILD_PROFILE: ViteMergeProfile = {
 /**
  * Dev profile (RFC 0005 §4 matrix + §6). CONSUMED by `resolveDevViteConfig` (VS4). `build.*` is not
  * admitted in dev (the whole `build` key is rejected), and the framework owns `server.middlewareMode`
- * and `server.hmr` (the rest of `server.*` is a supported dev surface), `appType`,
+ * and the WebSocket block `server.ws` (canonical; deprecated `server.hmr` stays protected as
+ * legacy input, and the rest of `server.*` is a supported dev surface), `appType`,
  * `root`, `base`, `publicDir`, `configFile`, and `resolve.alias`. `optimizeDeps` is dev-only and
  * merged separately via `mergeOptimizeDeps` (never through this field-copy path).
  *
@@ -213,6 +214,26 @@ export function composeViteConfig(framework: InlineConfig, layers: readonly Vite
     ((merged.build as any).rollupOptions ??= {}).input = invariants.build.rollupOptions.input;
   }
 
+  // Chunking exclusivity, checked AFTER every layer has composed so it fires regardless of
+  // which option appeared first or whether they came from the same layer or different ones.
+  // Rolldown silently ignores `manualChunks` when `codeSplitting` is present, so a silent
+  // winner would mean a build quietly chunked the other way; τjs names both paths instead.
+  {
+    const b = merged.build as any;
+    const mergedOutput = Array.isArray(b?.rollupOptions?.output) ? b.rollupOptions.output[0] : b?.rollupOptions?.output;
+    const hasManualChunks = mergedOutput?.manualChunks !== undefined;
+    const hasCodeSplitting = mergedOutput?.codeSplitting !== undefined;
+
+    if (hasManualChunks && hasCodeSplitting) {
+      throw new Error(
+        `[taujs] chunking is configured twice: build.rollupOptions.output.manualChunks (deprecated) and ` +
+          `build.rolldownOptions.output.codeSplitting (canonical) are both declared. Rolldown ignores manualChunks ` +
+          `when codeSplitting is present, so τjs refuses to pick a winner silently - remove one. Keep ` +
+          `build.rolldownOptions.output.codeSplitting.`,
+      );
+    }
+  }
+
   if (ignoredKeys.length > 0) {
     console.warn(`${prefix} Ignored Vite config overrides: ${[...new Set(ignoredKeys)].join(', ')}`);
   }
@@ -303,12 +324,47 @@ function applyLayer(
         if (userRollup.output) {
           const uo = Array.isArray(userRollup.output) ? userRollup.output[0] : userRollup.output;
 
-          if (uo?.manualChunks) claim('build.rollupOptions.output.manualChunks', source);
+          if (uo?.manualChunks) {
+            // Vite 8 accepts the FUNCTION form only: Vite 8/Rolldown does NOT support the former
+            // Rollup object form. Reject it here - before Vite runs - with a migration-oriented
+            // error. τjs deliberately does not translate it.
+            if (typeof uo.manualChunks !== 'function') {
+              throw new Error(
+                `[taujs] build.rollupOptions.output.manualChunks: the object form is no longer supported - ` +
+                  `Vite 8/Rolldown does not support it. Use the canonical build.rolldownOptions.output.codeSplitting ` +
+                  `instead, or supply the FUNCTION form: ` +
+                  `manualChunks: (id) => (id.includes('node_modules') ? 'vendor' : null).`,
+              );
+            }
+            claim('build.rollupOptions.output.manualChunks', source);
+          }
 
           ro.output = {
             ...(Array.isArray(ro.output) ? ro.output[0] : ro.output),
             ...(uo?.manualChunks ? { manualChunks: uo.manualChunks } : {}),
           };
+        }
+      }
+
+      // The canonical Vite 8 chunking path, claimed independently so ordinary same-path
+      // precedence applies to it exactly as it does to manualChunks.
+      //
+      // MEASURED: Vite 8 documents `build.rollupOptions` as an ALIAS of `build.rolldownOptions`,
+      // and they occupy ONE slot - declaring both makes the second wipe the first, which would
+      // destroy the framework's `rollupOptions.input` invariant (measured: "Cannot resolve entry
+      // module"). So the DECLARED surface is the canonical `rolldownOptions.output.codeSplitting`,
+      // while the composed value is written into the single options object the framework already
+      // owns. Users declare the canonical path; τjs keeps one slot internally.
+      if (uBuild.rolldownOptions?.output) {
+        const uro = uBuild.rolldownOptions.output as { codeSplitting?: unknown };
+
+        if ('codeSplitting' in uro && uro.codeSplitting !== undefined) {
+          claim('build.rolldownOptions.output.codeSplitting', source);
+          const ro = (mBuild.rollupOptions ??= {});
+          ro.output = {
+            ...(Array.isArray(ro.output) ? ro.output[0] : ro.output),
+            codeSplitting: uro.codeSplitting,
+          } as any;
         }
       }
     }
@@ -443,7 +499,7 @@ export function mergeOptimizeDeps(layers: readonly OptimizeDepsLayer[]): TaujsOp
  *   (include/exclude contradiction throws here) and is DEV-ONLY - it never reaches a build config.
  * - `server.*` is a supported DEV-ONLY surface (`allowedHosts` and the rest), merged here and, like
  *   `optimizeDeps`, silently absent from every build rather than warned about there.
- * - Dev invariants (`server.middlewareMode`, `server.hmr`, `appType`, `root`, `base`, `publicDir`,
+ * - Dev invariants (`server.middlewareMode`, `server.ws` (and legacy `server.hmr`), `appType`, `root`, `base`, `publicDir`,
  *   `configFile`, `resolve.alias`) are protected by DEV_PROFILE: supplying them via `config.vite`
  *   WARNS, never applies. `taujsBuild({ vite })` is build-only and deliberately NOT consulted here.
  *

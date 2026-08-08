@@ -45,7 +45,7 @@ export { TEMPLATE };
  * form and the ownership behaviour from drifting apart.
  */
 const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions, callerOwnedHost: boolean): Promise<void> => {
-  const { alias, configs, routes, serviceRegistry = {}, clientRoot, security, publicBasePath = '' } = opts;
+  const { alias, configs, routes, serviceRegistry = {}, clientRoot, security, publicBasePath = '', hmrTransport = 'fixed-port' } = opts;
 
   const logger = opts.runtimeLogger
     ? createRuntimeLogger(opts.runtimeLogger, {
@@ -188,6 +188,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       // coordinate threaded from createServer.
       mountPrefix: scope.prefix || '',
       publicBasePath,
+      hmrTransport,
     });
 
     // RFC 0010: τjs creates the Vite server, so τjs closes it. Guarded because `onClose` can be

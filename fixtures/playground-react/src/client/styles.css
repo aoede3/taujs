@@ -1,0 +1,7 @@
+:root {
+  --taujs-accent: #6b46ff;
+}
+
+#reviews {
+  color: var(--taujs-accent);
+}

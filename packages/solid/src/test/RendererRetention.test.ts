@@ -38,7 +38,7 @@ import type { JSX } from 'solid-js';
  * was never observing the right object.
  *
  * Skipped visibly, never silently passed, when the runner has no `--expose-gc`
- * (`vitest.config.ts` supplies it via `poolOptions`).
+ * (`vitest.config.ts` supplies it via top-level `test.execArgv`).
  */
 const html = (markup: string): JSX.Element => ssr(markup) as never;
 const appComponent = (): JSX.Element => html('<div id="app">x</div>');

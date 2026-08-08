@@ -8,6 +8,7 @@
  */
 import react from '@vitejs/plugin-react';
 
+import { NON_TRANSFORMABLE_EXCLUDE, narrowToTransformableScope } from './tsconfigOwnership.js';
 import { validateReactRendererOptions } from '../rendererOptions.js';
 
 import type { Plugin, PluginOption } from 'vite';
@@ -82,7 +83,18 @@ const reactCompilerImpl: CompilerImpl = {
       // cross-key exclusions via `scope.exclude`. A managed compiler is NOT tagged - the unscoped tag
       // exists only so the host can spot a RAW `pluginReact()` running chain-globally.
       createPlugin: (scope): PluginOption => [
-        react({ ...(options as ReactOptions), include: scope.include, exclude: [...exclude, ...scope.exclude] }),
+        // The plugin scope is the INTERSECTION of the host-supplied claims and the extensions
+        // React can transform. Vite 8's oxc transform parses whatever is claimed as JavaScript,
+        // so an unnarrowed `src/client/**\/*` claim makes it choke on `.css`/`.html` - fatal in
+        // development SSR, not merely at build time.
+        react({
+          ...(options as ReactOptions),
+          include: narrowToTransformableScope(scope.include),
+          // The exclusion is what makes the intersection GENUINE for every claim shape -
+          // extension-bearing globs, mixed groups and RegExp matchers alike, none of which a
+          // glob rewrite alone can narrow.
+          exclude: [...exclude, ...scope.exclude, NON_TRANSFORMABLE_EXCLUDE],
+        }),
         taujsReactPreambleFix(),
       ],
     } satisfies PreparedPlan;

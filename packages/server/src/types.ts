@@ -47,6 +47,8 @@ export type SSRServerOptions = {
    * emission byte-for-byte. RECEPTION is the register-time `prefix`, not this value.
    */
   publicBasePath?: string;
+  /** RFC 0013: resolved development HMR transport (`'fixed-port'` default). */
+  hmrTransport?: 'fixed-port' | 'attached';
   debug?: DebugConfig;
   /** Internal runtime logger selection threaded from createServer; not a public createServer option. */
   runtimeLogger?: RuntimeLoggerSelection;

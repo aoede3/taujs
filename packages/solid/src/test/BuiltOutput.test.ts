@@ -44,7 +44,7 @@ const installPackedConsumer = (withOptionalPeers: boolean): string => {
 
   // No workspace, no hoisting: nothing on disk but what the tarballs bring plus the peers a real
   // consumer would install. `solid-js` is a REQUIRED peer, so it is always present.
-  const optionalPeers = withOptionalPeers ? ['vite@7.3.6', 'vite-plugin-solid@2.11.12', 'typescript@5.9.3'] : [];
+  const optionalPeers = withOptionalPeers ? ['vite@8.2.1', 'vite-plugin-solid@2.11.12', 'typescript@5.9.3'] : [];
   execFileSync('npm', ['init', '-y'], { cwd: dir, stdio: 'pipe' });
   execFileSync('npm', ['install', '--no-audit', '--no-fund', ...tarballs, 'solid-js@1.9.14', ...optionalPeers], { cwd: dir, stdio: 'pipe' });
 

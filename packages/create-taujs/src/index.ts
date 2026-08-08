@@ -367,6 +367,8 @@ function generatePackageJson(projectName: string, framework: Framework) {
       name: projectName,
       version: '0.1.0',
       private: true,
+      // Vite 8 requires this floor; a generated project must declare what it needs.
+      engines: { node: '^20.19.0 || >=22.12.0' },
       type: 'module',
       scripts: {
         dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
@@ -389,14 +391,14 @@ function generatePackageJson(projectName: string, framework: Framework) {
       devDependencies: {
         '@taujs/mcp': 'latest',
         '@types/node': '^22.10.5',
-        '@vitejs/plugin-vue': '^6.0.0',
+        '@vitejs/plugin-vue': '^6.0.3',
         'cross-env': '^7.0.3',
         // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
         // of the generated project - it is not inherited from vite's own copy.
-        esbuild: '^0.25.0',
+        esbuild: '^0.28.1',
         tsx: '^4.19.3',
         typescript: '^5.7.3',
-        vite: '^7.1.11',
+        vite: '^8.2.1',
         'vue-tsc': '^2.1.10',
       },
     };
@@ -407,6 +409,8 @@ function generatePackageJson(projectName: string, framework: Framework) {
       name: projectName,
       version: '0.1.0',
       private: true,
+      // Vite 8 requires this floor; a generated project must declare what it needs.
+      engines: { node: '^20.19.0 || >=22.12.0' },
       type: 'module',
       scripts: {
         dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
@@ -431,13 +435,13 @@ function generatePackageJson(projectName: string, framework: Framework) {
         'cross-env': '^7.0.3',
         // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
         // of the generated project - it is not inherited from vite's own copy.
-        esbuild: '^0.25.0',
+        esbuild: '^0.28.1',
         tsx: '^4.19.3',
         typescript: '^5.7.3',
-        vite: '^7.1.11',
+        vite: '^8.2.1',
         // The managed compiler instantiates this internally with `ssr: true` forced; the app never
         // adds it to `plugins` itself.
-        'vite-plugin-solid': '^2.11.0',
+        'vite-plugin-solid': '^2.11.11',
       },
     };
   }
@@ -446,6 +450,8 @@ function generatePackageJson(projectName: string, framework: Framework) {
     name: projectName,
     version: '0.1.0',
     private: true,
+    // Vite 8 requires this floor; a generated project must declare what it needs.
+    engines: { node: '^20.19.0 || >=22.12.0' },
     type: 'module',
     scripts: {
       dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
@@ -470,14 +476,14 @@ function generatePackageJson(projectName: string, framework: Framework) {
       '@types/node': '^22.10.5',
       '@types/react': '^19.0.2',
       '@types/react-dom': '^19.0.2',
-      '@vitejs/plugin-react': '^4.6.0',
+      '@vitejs/plugin-react': '^5.2.0',
       'cross-env': '^7.0.3',
       // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
       // of the generated project - it is not inherited from vite's own copy.
-      esbuild: '^0.25.0',
+      esbuild: '^0.28.1',
       tsx: '^4.19.3',
       typescript: '^5.7.3',
-      vite: '^7.1.11',
+      vite: '^8.2.1',
     },
   };
 }

@@ -152,6 +152,9 @@ await taujsBuild({
   "name": "demo-app",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose",
@@ -174,12 +177,12 @@ await taujsBuild({
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
-    "@vitejs/plugin-react": "^4.6.0",
+    "@vitejs/plugin-react": "^5.2.0",
     "cross-env": "^7.0.3",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.1",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
-    "vite": "^7.1.11"
+    "vite": "^8.2.1"
   }
 }",
   "src/client/App.tsx": "import { Suspense } from 'react';

@@ -8,6 +8,8 @@ import { serviceData } from './src/server/services/registry.ts';
 // README.md. Deliberately NO wildcard route: fallthrough must stay reachable
 // (/spa/anything is the SPA-path example).
 export default defineConfig({
+  // RFC 0013: canonical Vite 8 chunking - proves a real named chunk is produced.
+  vite: { build: { rolldownOptions: { output: { codeSplitting: { groups: [{ name: 'vendor-react', test: /node_modules/ }] } } } } },
   server: {
     // The real-browser suite boots this fixture on its own port (5301) so it never collides with a
     // developer's dev server; everything else keeps the fixture's stable default.

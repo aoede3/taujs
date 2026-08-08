@@ -116,6 +116,50 @@ export const deriveBoundaries = (absoluteIncludeGlobs: OwnershipMatcher[]): Owne
   return [...bases].map((base) => `${base}/**/*`);
 };
 
+/**
+ * The extensions `@vitejs/plugin-react` actually transforms (its own default is `/\.[tj]sx?$/`).
+ * Vite 8's builtin (oxc) transform parses whatever the plugin claims AS JAVASCRIPT, so a tsconfig
+ * claim like `src/client/**\/*` - which legitimately covers `.css`, `.html` and other assets for
+ * TYPE-CHECKING purposes - must not be handed to the plugin verbatim. On Vite 7 esbuild tolerated
+ * this; on Vite 8 it is fatal, and it broke development SSR for any application importing CSS.
+ */
+export const REACT_TRANSFORMABLE_EXTENSIONS = ['js', 'jsx', 'ts', 'tsx'] as const;
+
+const EXTENSION_GROUP = `{${REACT_TRANSFORMABLE_EXTENSIONS.join(',')}}`;
+
+/**
+ * The genuine COMPLEMENT of what `@vitejs/plugin-react` transforms.
+ *
+ * plugin-react's own default is `/\.[tj]sx?$/`, so anything that does not end in `.js`, `.jsx`,
+ * `.ts` or `.tsx` is out of scope - including EXTENSIONLESS paths and unusual suffixes like
+ * `.foo-bar`, which an "any other alphanumeric extension" rule would silently admit. Expressing
+ * it as the complement keeps the two definitions in step by construction.
+ *
+ * This is what makes the intersection GENUINE for every matcher shape. Narrowing include globs
+ * alone cannot do it: a claim may already carry an extension (`src/**\/*.css`), carry a group
+ * containing non-transformable members (`src/**\/*.{ts,tsx,css}`), or be a RegExp - none of which
+ * a glob rewrite can safely narrow. `createFilter` applies `exclude` AFTER `include`, so pairing
+ * this with the claims yields claims AND transformable, whatever shape the claims take.
+ */
+export const NON_TRANSFORMABLE_EXCLUDE = /^(?!.*\.[tj]sx?$).*$/;
+
+/**
+ * Narrow ownership claims for use as the compiler plugin's `include`.
+ *
+ * A bare subtree claim gains the transformable extension group, which keeps the common case
+ * readable. Claims that already name an extension (or group) and RegExp matchers are returned
+ * unchanged HERE - they are intersected by {@link NON_TRANSFORMABLE_EXCLUDE}, which the compiler
+ * pairs with these claims. Ownership `claims` themselves are NOT narrowed: they remain the
+ * type-checking surface used for cross-renderer conflict detection, and only the PLUGIN SCOPE is
+ * intersected.
+ */
+export const narrowToTransformableScope = (matchers: OwnershipMatcher[]): OwnershipMatcher[] =>
+  matchers.map((matcher) => {
+    if (typeof matcher !== 'string') return matcher;
+    if (/\.[A-Za-z0-9]+$/.test(matcher) || /\.\{[^}]*\}$/.test(matcher)) return matcher;
+    return `${matcher.replace(/\/\*+$/, '')}/**/*.${EXTENSION_GROUP}`;
+  });
+
 /** Resolve a contribution `project` pointer: relative resolves from `projectRoot`, absolute stays absolute. */
 export const resolveProjectPath = (project: string, projectRoot: string): string => toForwardSlash(path.resolve(projectRoot, project));
 

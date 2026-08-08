@@ -64,7 +64,57 @@ type ServerConfig = {
   hmrPort?: number; // Default: 5174
   mountPrefix?: string; // Default: '' (root)
   publicBasePath?: string; // Default: mountPrefix
+  hmrTransport?: 'fixed-port' | 'attached'; // Default: 'fixed-port'
 };
+
+### `server.hmrTransport`
+
+How the development HMR WebSocket is carried. Development only - it has no effect on a build.
+
+| Value | Behaviour |
+| --- | --- |
+| `'fixed-port'` (default) | HMR listens on its own dedicated port (`hmrPort`, default 5174). |
+| `'attached'` | HMR rides the application's own HTTP server, so it flows wherever that channel flows. |
+
+The default is unchanged behaviour. Choose `'attached'` when a second fixed port cannot be
+reached - a supervisor that virtualises worker binds, a firewall, or a proxy that forwards only
+one channel. The served client then derives its socket from the origin that served it, rather
+than from a hard-coded port.
+
+```ts
+export default defineConfig({
+  server: {
+    hmrTransport: 'attached',
+  },
+});
+```
+
+Two rules to know:
+
+- **It is never inferred.** τjs does not detect its host or read the environment to decide;
+  an attached transport is requested explicitly.
+- **It requires a τjs-created host.** If you pass your own Fastify instance to `createServer`,
+  `'attached'` is rejected at configuration time rather than τjs attaching to, or reordering
+  listeners on, a server it does not own. `hmrPort`, `HMR_PORT` and `--hmr-port` stay accepted
+  so an existing configuration can switch transport without being rewritten, but they do not
+  affect the attached channel.
+
+#### Running an attached channel behind a proxy
+
+τjs adds no proxy machinery. Carrying the channel through one is host configuration, and the
+host must:
+
+- expose a real TCP upstream for the application (on Platformatic Watt, `useHttp: true`);
+- **preserve the path prefix**, so the pathname reaching Vite matches the base it serves - set
+  the proxy to keep the prefix and give τjs matching `mountPrefix` and `publicBasePath`. A
+  proxy that strips the prefix cannot carry an attached channel;
+- **exclude client sources from its restart watcher**, or an edit will both hot-update and
+  restart the worker.
+
+> **Requires a trusted development network.** Proxies commonly drop `Origin` and rewrite
+> `Host`, and Vite's WebSocket admission depends on those headers - its host and token checks
+> do not survive that rewriting. The protections that apply to a direct connection do not
+> project through such a proxy. Use this on development networks you trust.
 
 type AppConfig = {
   appId: string;
@@ -355,7 +405,15 @@ type TaujsViteConfig = {
     rollupOptions?: {
       external?: Rollup.ExternalOption;
       output?: {
-        manualChunks?: Rollup.ManualChunksOption;
+        /** @deprecated Vite 8/Rolldown does not support the object form - FUNCTION form only. */
+        manualChunks?: Rollup.OutputOptions["manualChunks"];
+      };
+    };
+    // Canonical Vite 8 chunking, replacing the deprecated manualChunks above. Declaring both
+    // is rejected rather than silently resolved.
+    rolldownOptions?: {
+      output?: {
+        codeSplitting?: Rolldown.OutputOptions["codeSplitting"];
       };
     };
   };
@@ -478,7 +536,8 @@ The matrix is the supported set. `Dev` is the shared development server; `Client
 | `resolve.*` (not `alias`)                              | Yes       | Yes          | Yes       | Merge per key                          |
 | `build.sourcemap` / `minify` / `terserOptions`         | N/A       | Yes          | Yes       | Override                               |
 | `build.rollupOptions.external`                         | N/A       | Yes          | Yes       | Override                               |
-| `build.rollupOptions.output.manualChunks`              | N/A       | Yes          | Yes       | Merge into output                      |
+| `build.rollupOptions.output.manualChunks`              | N/A       | Yes          | Yes       | Deprecated, FUNCTION form only          |
+| `build.rolldownOptions.output.codeSplitting`           | N/A       | Yes          | Yes       | Canonical chunking (replaces the above) |
 | aliases                                                | Yes       | Yes          | Yes       | Via top-level `alias` only             |
 | `server.allowedHosts`                                  | Yes       | N/A          | N/A       | Dev-only; stripped from builds         |
 | `server.*` other than `allowedHosts`                   | Protected | N/A          | N/A       | Dev: warned and dropped. Builds: stripped silently with the whole dev-only `server` object |
@@ -496,7 +555,9 @@ declaration also reaches every app build - so a build strips them **silently**. 
 would report ordinary configuration as misuse once per app on every build.
 
 Under `server`, only `allowedHosts` is admitted. `ws` is withheld because `ws: false` disables
-the WebSocket connection HMR runs on, which the framework owns through `server.hmr`; `host`,
+the WebSocket connection HMR runs on, which the framework owns through `server.ws` (the
+deprecated `server.hmr` remains protected as legacy input, but is no longer the active
+facility); `host`,
 `port`, `strictPort`, `https` and `open` configure Vite's own HTTP listener, which does not
 exist in middleware mode because Fastify owns the listener; and `proxy` overlaps caller-route
 ownership. Supplying any of them **in development** warns and is not applied. In a build the

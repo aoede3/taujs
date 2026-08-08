@@ -262,7 +262,9 @@ sources, and the winner (the programmatic layer).
 Allowed customisations: `plugins` (appended after app plugins, then deduped by name),
 `define` (shallow-merged), `css.preprocessorOptions` (merged per preprocessor engine),
 `build.sourcemap` / `minify` / `terserOptions`, `build.rollupOptions.external`,
-`build.rollupOptions.output.manualChunks`, `resolve.*` except `alias`, `esbuild`, `logLevel`.
+`build.rollupOptions.output.manualChunks` (deprecated, FUNCTION form only),
+`build.rolldownOptions.output.codeSplitting` (the canonical replacement), `resolve.*` except
+`alias`, `esbuild`, `logLevel`.
 
 Protected fields (framework-controlled; supplying one logs a warning and the framework value
 is kept): `root`, `base`, `publicDir`, `appType`, `build.outDir`, `build.ssr` / `ssrManifest`,

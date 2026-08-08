@@ -104,7 +104,9 @@ const _ok: TaujsViteConfig = {
   build: {
     sourcemap: 'inline',
     minify: 'esbuild',
-    rollupOptions: { external: ['node:fs'], output: { manualChunks: { vendor: ['react'] } } },
+    rollupOptions: { external: ['node:fs'], output: { manualChunks: (id: string) => (id.includes('react') ? 'vendor' : null) } },
+    // RFC 0013: the canonical Vite 8 chunking path is admitted alongside the deprecated one.
+    rolldownOptions: { output: { codeSplitting: true } },
   },
 };
 void _ok;
