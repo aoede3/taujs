@@ -56,7 +56,7 @@ import { extractBuildConfigs } from '../core/config/Setup';
 import { processConfigs } from '../utils/AssetManager';
 import { testRenderer } from './support/renderer';
 
-import type { RollupOutput } from 'rollup';
+import type { Rollup } from 'vite';
 import { type ViteConfigOverride, type ViteBuildContext, resolveEntryFile, normalisePlugins } from '../Build';
 import { ENTRY_EXTENSIONS } from '../constants';
 
@@ -72,7 +72,7 @@ describe('Build.ts - Full Coverage', () => {
 
   beforeEach(async () => {
     buildMock.mockReset();
-    buildMock.mockResolvedValue({} as RollupOutput);
+    buildMock.mockResolvedValue({} as unknown as Rollup.RolldownOutput);
 
     vi.resetModules();
 
@@ -1138,9 +1138,7 @@ describe('Build.ts - Full Coverage', () => {
           build: {
             rollupOptions: {
               output: {
-                manualChunks: {
-                  vendor: ['react', 'react-dom'],
-                },
+                manualChunks: (id: string) => (id.includes('react') ? 'vendor' : null),
               },
             },
           },
@@ -1149,9 +1147,8 @@ describe('Build.ts - Full Coverage', () => {
 
       const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
       const output = (buildConfig.build?.rollupOptions as any)?.output;
-      expect(output?.manualChunks).toEqual({
-        vendor: ['react', 'react-dom'],
-      });
+      expect(typeof output?.manualChunks).toBe('function');
+      expect((output?.manualChunks as (id: string) => string | null)('/x/react/index.js')).toBe('vendor');
     });
 
     it('should handle manualChunks from array output (uses first element)', async () => {
@@ -1164,14 +1161,10 @@ describe('Build.ts - Full Coverage', () => {
             rollupOptions: {
               output: [
                 {
-                  manualChunks: {
-                    vendor: ['react'],
-                  },
+                  manualChunks: (id: string) => (id.includes('react') ? 'vendor' : null),
                 },
                 {
-                  manualChunks: {
-                    utils: ['lodash'],
-                  },
+                  manualChunks: (id: string) => (id.includes('lodash') ? 'utils' : null),
                 },
               ],
             },
@@ -1181,9 +1174,8 @@ describe('Build.ts - Full Coverage', () => {
 
       const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
       const output = (buildConfig.build?.rollupOptions as any)?.output;
-      expect(output?.manualChunks).toEqual({
-        vendor: ['react'],
-      });
+      expect(typeof output?.manualChunks).toBe('function');
+      expect((output?.manualChunks as (id: string) => string | null)('/x/react/index.js')).toBe('vendor');
     });
 
     it('should handle output without manualChunks', async () => {
@@ -2126,7 +2118,7 @@ describe('Build.ts - Full Coverage', () => {
           build: {
             rollupOptions: {
               output: {
-                manualChunks: { vendor: ['react'] },
+                manualChunks: (id: string) => (id.includes('react') ? 'vendor' : null),
               },
             },
           },
@@ -2145,7 +2137,7 @@ describe('Build.ts - Full Coverage', () => {
         vite: {
           build: {
             rollupOptions: {
-              output: [null as any, { manualChunks: { vendor: ['react'] } }],
+              output: [null as any, { manualChunks: (id: string) => (id.includes('react') ? 'vendor' : null) }],
             },
           },
         },
@@ -2296,7 +2288,7 @@ describe('Build.ts - Full Coverage', () => {
             rollupOptions: {
               external: ['react'],
               output: {
-                manualChunks: { vendor: ['lodash'] },
+                manualChunks: (id: string) => (id.includes('lodash') ? 'vendor' : null),
               },
             },
           },
@@ -2338,9 +2330,7 @@ describe('Build.ts - Full Coverage', () => {
 
       // Check rollup options
       expect((buildConfig.build?.rollupOptions as any)?.external).toEqual(['react']);
-      expect((buildConfig.build?.rollupOptions as any)?.output?.manualChunks).toEqual({
-        vendor: ['lodash'],
-      });
+      expect(typeof (buildConfig.build?.rollupOptions as any)?.output?.manualChunks).toBe('function');
 
       // Check resolve
       expect((buildConfig.resolve as any)?.extensions).toEqual(['.ts', '.tsx', '.js']);
@@ -2473,9 +2463,7 @@ describe('Build.ts - Full Coverage', () => {
           rollupOptions: {
             external: ['react'],
             output: {
-              manualChunks: {
-                vendor: ['react', 'react-dom'],
-              },
+              manualChunks: (id: string) => (id.includes('react') ? 'vendor' : null),
             },
           },
         },
@@ -2517,9 +2505,7 @@ describe('Build.ts - Full Coverage', () => {
 
       const rollup = (merged.build?.rollupOptions ?? {}) as any;
       expect(rollup.external).toEqual(['react']);
-      expect(rollup.output?.manualChunks).toEqual({
-        vendor: ['react', 'react-dom'],
-      });
+      expect(typeof rollup.output?.manualChunks).toBe('function');
 
       // css was created via css: { ...(framework.css ?? {}) } + deep merge branch
       expect(merged.css?.preprocessorOptions?.scss).toEqual({
@@ -2643,9 +2629,7 @@ describe('Build.ts - Full Coverage', () => {
         rollupOptions: {
           output: [
             {
-              manualChunks: {
-                existing: ['x'],
-              },
+              manualChunks: (id: string) => (id.includes('x') ? 'existing' : null),
             },
           ],
         },
@@ -2656,9 +2640,7 @@ describe('Build.ts - Full Coverage', () => {
       build: {
         rollupOptions: {
           output: {
-            manualChunks: {
-              vendor: ['react'],
-            },
+            manualChunks: (id: string) => (id.includes('react') ? 'vendor' : null),
           },
         },
       },
@@ -2669,9 +2651,7 @@ describe('Build.ts - Full Coverage', () => {
     const output = rollup.output;
 
     // We only carry over manualChunks from user; existing manualChunks are overwritten
-    expect(output.manualChunks).toEqual({
-      vendor: ['react'],
-    });
+    expect(typeof output.manualChunks).toBe('function');
   });
 
   it('mergeViteConfig handles array output with undefined first element (baseOut fallback)', () => {
@@ -2689,9 +2669,7 @@ describe('Build.ts - Full Coverage', () => {
         rollupOptions: {
           // standard object output with manualChunks
           output: {
-            manualChunks: {
-              vendor: ['react'],
-            },
+            manualChunks: (id: string) => (id.includes('react') ? 'vendor' : null),
           },
         },
       },
@@ -2703,9 +2681,7 @@ describe('Build.ts - Full Coverage', () => {
 
     // We only care that manualChunks survive; the important bit is that
     // baseOut came from the `?? {}` fallback on mro.output[0]
-    expect(output.manualChunks).toEqual({
-      vendor: ['react'],
-    });
+    expect(typeof output.manualChunks).toBe('function');
   });
 
   describe('resolveAppFilter', () => {
@@ -3165,7 +3141,7 @@ describe('normalisePlugins', () => {
 //       vite: {
 //         build: {
 //           rollupOptions: {
-//             output: [false as any, { manualChunks: { vendor: ['react'] } }],
+//             output: [false as any, { manualChunks: (id: string) => (id.includes('react') ? 'vendor' : null) }],
 //           },
 //         },
 //       },

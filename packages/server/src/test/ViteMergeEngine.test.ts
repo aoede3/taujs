@@ -311,3 +311,87 @@ describe('ViteMergeEngine - mergeOptimizeDeps (RFC §6)', () => {
     expect((merged!.esbuildOptions as any).target).toBe('es2019');
   });
 });
+
+// RFC 0013 prerequisite - the Vite 8 chunking migration. Vite 8 removed the Rollup OBJECT form
+// of `manualChunks` and Rolldown documents the option as deprecated in favour of
+// `output.codeSplitting`. τjs keeps the function form as a deprecated migration surface, adds
+// the canonical path, rejects the object form at the boundary, and refuses to pick a silent
+// winner when both paths are declared.
+describe('ViteMergeEngine - Vite 8 chunking migration (RFC 0013 prerequisite)', () => {
+  const chunkFn = (id: string) => (id.includes('node_modules') ? 'vendor' : null);
+
+  it('accepts the FUNCTION form of manualChunks and passes it through to Vite', () => {
+    const layers: ViteLayer[] = [{ source: 'config.vite', config: { build: { rollupOptions: { output: { manualChunks: chunkFn } } } } as any }];
+
+    const merged = composeViteConfig(buildFramework(), layers, BUILD_PROFILE, '[taujs:build:admin]');
+    const output = (merged.build as any).rollupOptions.output;
+
+    expect((Array.isArray(output) ? output[0] : output).manualChunks).toBe(chunkFn);
+  });
+
+  it('REJECTS the former object form at the configuration boundary, before Vite runs', () => {
+    // The object form only reaches here by a cast or from plain JS - the type surface already
+    // forbids it - so the runtime guard is what protects a JS consumer.
+    const layers: ViteLayer[] = [{ source: 'config.vite', config: { build: { rollupOptions: { output: { manualChunks: { vendor: ['react'] } } } } } as any }];
+
+    expect(() => composeViteConfig(buildFramework(), layers, BUILD_PROFILE, '[taujs:build:admin]')).toThrow(
+      /manualChunks: the object form is no longer supported/,
+    );
+    expect(() => composeViteConfig(buildFramework(), layers, BUILD_PROFILE, '[taujs:build:admin]')).toThrow(/codeSplitting/);
+  });
+
+  it('accepts the canonical codeSplitting path', () => {
+    const codeSplitting = { groups: [{ name: 'vendor', test: /node_modules/ }] };
+    const layers: ViteLayer[] = [{ source: 'config.vite', config: { build: { rolldownOptions: { output: { codeSplitting } } } } as any }];
+
+    const merged = composeViteConfig(buildFramework(), layers, BUILD_PROFILE, '[taujs:build:admin]');
+
+    // Declared canonically, composed into the single options slot Vite actually reads: Vite 8
+    // treats rollupOptions/rolldownOptions as ONE aliased slot, so writing a separate key would
+    // wipe the framework's `input` invariant (measured).
+    const out = (merged.build as any).rollupOptions.output;
+    expect((Array.isArray(out) ? out[0] : out).codeSplitting).toEqual(codeSplitting);
+    expect((merged.build as any).rollupOptions.input).toBeDefined();
+  });
+
+  it('FAILS when both paths survive composition, whichever is declared first', () => {
+    const manual = { source: 'config.vite', config: { build: { rollupOptions: { output: { manualChunks: chunkFn } } } } } as unknown as ViteLayer;
+    const canonical = { source: 'taujsBuild.vite', config: { build: { rolldownOptions: { output: { codeSplitting: true } } } } } as unknown as ViteLayer;
+
+    // ONE layer declaring BOTH paths - the promised same-layer case.
+    const both = {
+      source: 'config.vite',
+      config: { build: { rollupOptions: { output: { manualChunks: chunkFn } }, rolldownOptions: { output: { codeSplitting: true } } } },
+    } as unknown as ViteLayer;
+
+    // Same layer, and both cross-layer orders: the error is stable and names BOTH paths.
+    for (const layers of [[both], [manual, canonical], [canonical, manual]] as ViteLayer[][]) {
+      expect(() => composeViteConfig(buildFramework(), layers, BUILD_PROFILE, '[taujs:build:admin]')).toThrow(/chunking is configured twice/);
+      expect(() => composeViteConfig(buildFramework(), layers, BUILD_PROFILE, '[taujs:build:admin]')).toThrow(
+        /build\.rollupOptions\.output\.manualChunks[\s\S]*build\.rolldownOptions\.output\.codeSplitting/,
+      );
+    }
+  });
+
+  it('retains ordinary same-path precedence for each option INDEPENDENTLY', () => {
+    const first = (id: string) => (id.includes('a') ? 'a' : null);
+    const second = (id: string) => (id.includes('b') ? 'b' : null);
+    spyWarn();
+
+    const manualLayers: ViteLayer[] = [
+      { source: 'config.vite', config: { build: { rollupOptions: { output: { manualChunks: first } } } } as any },
+      { source: 'taujsBuild.vite', config: { build: { rollupOptions: { output: { manualChunks: second } } } } as any },
+    ];
+    const mergedManual = composeViteConfig(buildFramework(), manualLayers, BUILD_PROFILE, '[taujs:build:admin]');
+    const out = (mergedManual.build as any).rollupOptions.output;
+    expect((Array.isArray(out) ? out[0] : out).manualChunks).toBe(second);
+
+    const splitLayers: ViteLayer[] = [
+      { source: 'config.vite', config: { build: { rolldownOptions: { output: { codeSplitting: false } } } } as any },
+      { source: 'taujsBuild.vite', config: { build: { rolldownOptions: { output: { codeSplitting: true } } } } as any },
+    ];
+    const mergedSplit = composeViteConfig(buildFramework(), splitLayers, BUILD_PROFILE, '[taujs:build:admin]');
+    const splitOut = (mergedSplit.build as any).rollupOptions.output;
+    expect((Array.isArray(splitOut) ? splitOut[0] : splitOut).codeSplitting).toBe(true);
+  });
+});

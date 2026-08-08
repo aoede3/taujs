@@ -194,13 +194,20 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
     // was unreachable, with no supported way to allow it.
     //
     // The framework stays authoritative for exactly two fields, applied AFTER the spread so no
-    // declared value can displace them. `hmr` is replaced WHOLE rather than deep-merged: a
-    // half-user, half-framework `hmr` would pair a user port with a framework host and fail in a
-    // way that looks like a τjs bug. The merge engine already warns on both.
+    // declared value can displace them. The WebSocket block is replaced WHOLE rather than
+    // deep-merged: a half-user, half-framework socket configuration would pair a user port with a
+    // framework host and fail in a way that looks like a τjs bug. The merge engine already warns
+    // on both. Vite 8's canonical surface is `server.ws`; the deprecated `server.hmr` spelling is
+    // not used on either arm.
     server: {
       ...mergedServer,
       middlewareMode: true,
-      hmr: {
+      // RFC 0013: one selection, and nothing else. `attached` hands Vite the application's own
+      // server through the canonical Vite 8 `server.ws` surface and declares no port at all -
+      // Vite then serves `hmrPort = null`, so the client derives its socket from the origin that
+      // served it. `hmr` is OMITTED in that arm rather than set false, which would disable HMR
+      // instead of attaching it. The fixed-port arm is unchanged.
+      ws: {
         clientPort: hmrPort,
         host: host !== 'localhost' ? host : undefined,
         port: hmrPort,

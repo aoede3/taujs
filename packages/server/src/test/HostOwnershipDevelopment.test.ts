@@ -21,7 +21,7 @@ import path from 'node:path';
 import fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { CALLER_CSP, OWNER, PATHS, closeAll, developmentFixture, observe, taujsConfig } from './support/hostOwnership';
+import { CALLER_CSP, OWNER, PATHS, closeAll, developmentFixture, observe, productionFixture, taujsConfig } from './support/hostOwnership';
 
 import type { FastifyInstance } from 'fastify';
 

@@ -239,29 +239,35 @@ describe('VS4 - dev invariants are protected: warned, never applied', () => {
     expect(warned).toContain('resolve.alias');
     expect(warned).toContain('root');
 
-    // None applied: dev keeps its own middlewareMode + hmr, its own root, and no smuggled alias.
+    // None applied: dev keeps its own middlewareMode + canonical `ws` block, its own root, and
+    // no smuggled alias. (Vite 8 vocabulary: the socket block is `server.ws`, not `server.hmr`.)
     expect(devConfig.server.middlewareMode).toBe(true);
-    expect(devConfig.server.hmr).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
+    expect(devConfig.server.hmr).toBeUndefined();
+    expect(devConfig.server.ws).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
     expect(devConfig.root).toBe(clientBaseDir);
     expect(devConfig.resolve.alias).not.toHaveProperty('@evil');
 
     // Refused, not applied inertly: nothing that could disable HMR or describe a listener Vite does
     // not own survives into the dev config.
-    expect(devConfig.server.ws).toBeUndefined();
+    // `ws` is no longer merely refused: it is the framework's OWN socket block in Vite 8, so the
+    // smuggled `ws: false` must not survive while the framework's block does (asserted above).
+    expect(devConfig.server.ws).not.toBe(false);
     expect(devConfig.server.host).toBeUndefined();
     expect(devConfig.server.port).toBeUndefined();
   });
 
-  it('a declared server.allowedHosts survives composition, and the framework keeps middlewareMode and hmr', async () => {
+  it('a declared server.allowedHosts survives composition, and the framework keeps middlewareMode and its ws block', async () => {
     // The unit's reason to exist: Vite 6.1+ rejects a non-localhost `Host` unless it is allowed, so
     // development behind a proxy or supervisor commonly needs this field to reach Vite.
     const devConfig = await runDev({ server: { allowedHosts: ['web.plt.local'] } } as TaujsViteConfig);
 
     expect(devConfig.server.allowedHosts).toEqual(['web.plt.local']);
 
-    // The framework's two fields are applied AFTER the user spread, with hmr replaced WHOLE.
+    // The framework's two fields are applied AFTER the user spread, with the socket block
+    // replaced WHOLE.
     expect(devConfig.server.middlewareMode).toBe(true);
-    expect(devConfig.server.hmr).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
+    expect(devConfig.server.hmr).toBeUndefined();
+    expect(devConfig.server.ws).toEqual({ clientPort: 5174, host: undefined, port: 5174, protocol: 'ws' });
   });
 
   it('composition does not mutate the caller-supplied config object', async () => {

@@ -355,7 +355,15 @@ type TaujsViteConfig = {
     rollupOptions?: {
       external?: Rollup.ExternalOption;
       output?: {
-        manualChunks?: Rollup.ManualChunksOption;
+        /** @deprecated Vite 8/Rolldown does not support the object form - FUNCTION form only. */
+        manualChunks?: Rollup.OutputOptions["manualChunks"];
+      };
+    };
+    // Canonical Vite 8 chunking, replacing the deprecated manualChunks above. Declaring both
+    // is rejected rather than silently resolved.
+    rolldownOptions?: {
+      output?: {
+        codeSplitting?: Rolldown.OutputOptions["codeSplitting"];
       };
     };
   };
@@ -478,7 +486,8 @@ The matrix is the supported set. `Dev` is the shared development server; `Client
 | `resolve.*` (not `alias`)                              | Yes       | Yes          | Yes       | Merge per key                          |
 | `build.sourcemap` / `minify` / `terserOptions`         | N/A       | Yes          | Yes       | Override                               |
 | `build.rollupOptions.external`                         | N/A       | Yes          | Yes       | Override                               |
-| `build.rollupOptions.output.manualChunks`              | N/A       | Yes          | Yes       | Merge into output                      |
+| `build.rollupOptions.output.manualChunks`              | N/A       | Yes          | Yes       | Deprecated, FUNCTION form only          |
+| `build.rolldownOptions.output.codeSplitting`           | N/A       | Yes          | Yes       | Canonical chunking (replaces the above) |
 | aliases                                                | Yes       | Yes          | Yes       | Via top-level `alias` only             |
 | `server.allowedHosts`                                  | Yes       | N/A          | N/A       | Dev-only; stripped from builds         |
 | `server.*` other than `allowedHosts`                   | Protected | N/A          | N/A       | Dev: warned and dropped. Builds: stripped silently with the whole dev-only `server` object |
@@ -496,7 +505,9 @@ declaration also reaches every app build - so a build strips them **silently**. 
 would report ordinary configuration as misuse once per app on every build.
 
 Under `server`, only `allowedHosts` is admitted. `ws` is withheld because `ws: false` disables
-the WebSocket connection HMR runs on, which the framework owns through `server.hmr`; `host`,
+the WebSocket connection HMR runs on, which the framework owns through `server.ws` (the
+deprecated `server.hmr` remains protected as legacy input, but is no longer the active
+facility); `host`,
 `port`, `strictPort`, `https` and `open` configure Vite's own HTTP listener, which does not
 exist in middleware mode because Fastify owns the listener; and `proxy` overlaps caller-route
 ownership. Supplying any of them **in development** warns and is not applied. In a build the
