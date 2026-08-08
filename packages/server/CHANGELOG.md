@@ -1,5 +1,80 @@
 # @taujs/server
 
+## 0.25.0
+
+### Minor Changes
+
+- [#77](https://github.com/aoede3/taujs/pull/77) [`e807b32`](https://github.com/aoede3/taujs/commit/e807b320be15c402e7caee0cc56b244788864c9e) Thanks [@aoede3](https://github.com/aoede3)! - feat(server): optional attached HMR transport for development (RFC 0013)
+
+  Adds `server.hmrTransport?: 'fixed-port' | 'attached'`, defaulting to `'fixed-port'` so
+  standalone development is unchanged.
+
+  `'attached'` carries the development HMR WebSocket on the application's own HTTP server
+  instead of a dedicated port, so it flows wherever that channel flows. This is what makes
+  development work where a second fixed port cannot be reached: a supervisor that virtualises
+  worker binds, a firewall, or a proxy forwarding only one channel. The served client then
+  derives its socket from the origin that served it rather than a hard-coded port.
+
+  The transport is never inferred - τjs does no host detection and reads no environment to
+  decide - and `'attached'` requires a τjs-created Fastify host. Supplying your own instance
+  with `'attached'` is rejected at configuration time, before any listener is installed or
+  reordered, rather than being silently ignored. Unknown values are rejected rather than
+  falling back. `hmrPort`, `HMR_PORT` and `--hmr-port` remain accepted so an existing
+  configuration can switch transport without being rewritten, but they do not select or alter
+  the attached channel.
+
+  Running an attached channel behind a proxy is host configuration, not τjs machinery: the host
+  must expose a real upstream, preserve the path prefix so the pathname reaching Vite matches
+  its base, and exclude client sources from its restart watcher. It also requires a trusted
+  development network, because proxies commonly drop `Origin` and rewrite `Host`, and Vite's
+  WebSocket admission checks depend on those headers. See the configuration reference.
+
+- [#77](https://github.com/aoede3/taujs/pull/77) [`511b38a`](https://github.com/aoede3/taujs/commit/511b38a19ceff25e222d63a39569783ae0525061) Thanks [@aoede3](https://github.com/aoede3)! - feat: Vite 8 baseline - synchronised upgrade to Vite 8.2.1
+
+  **BREAKING CHANGES** (released as `minor` under the repository's pre-1.0 convention - these
+  packages are pre-1 and a `major` bump would declare τjs stable 1.0, which this work does not
+  decide).
+
+  **You must upgrade Vite to `^8.2.1` and Node to `^20.19.0 || >=22.12.0`.**
+
+  The four Vite-bearing packages move their `vite` dependency and peer baseline to `^8.2.1`,
+  and the workspace Node engine rises to `^20.19.0 || >=22.12.0` to match Vite's own
+  requirement. Renderer plugin peer FLOORS rise with it, because every previous floor admitted
+  a plugin release that cannot work with Vite 8: `@vitejs/plugin-react ^5.2.0`,
+  `@vitejs/plugin-vue ^6.0.3`, `vite-plugin-solid ^2.11.11`. The scaffolder emits the new pins.
+
+  BREAKING - the `manualChunks` OBJECT form is removed. Vite 8/Rolldown does not support it, so a
+  build declaring it would not chunk as written. taujs rejects it at the
+  configuration boundary with a migration error rather than letting that happen, and
+  deliberately does NOT translate it (exact Rollup object semantics involve module resolution
+  and dependency capture, so an approximation could produce different bundles).
+
+  ```ts
+  // before - no longer supported
+  export default defineConfig({
+    vite: { build: { rollupOptions: { output: { manualChunks: { vendor: ['react', 'react-dom'] } } } } },
+  });
+
+  // after - canonical Vite 8 chunking
+  export default defineConfig({
+    vite: { build: { rolldownOptions: { output: { codeSplitting: { groups: [{ name: 'vendor-react', test: /node_modules/ }] } } } } },
+  });
+
+  // also still accepted, deprecated: the FUNCTION form
+  export default defineConfig({
+    vite: { build: { rollupOptions: { output: { manualChunks: (id) => (id.includes('node_modules') ? 'vendor' : null) } } } },
+  });
+  ```
+
+  Declaring both the deprecated and canonical paths now fails with an error naming both, rather
+  than letting the bundler ignore one of them.
+
+  fix: the React compiler's plugin scope is intersected with transformable JS/TS extensions.
+  A tsconfig claim such as `src/client/**/*` legitimately covers `.css` and `.html` for
+  type-checking, and Vite 8's transform parses whatever the plugin claims as JavaScript - which
+  broke development SSR for any application importing CSS. Ownership claims are unchanged; only
+  the plugin scope is narrowed.
+
 ## 0.24.1
 
 ### Patch Changes
