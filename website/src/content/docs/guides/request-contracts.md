@@ -132,7 +132,7 @@ inside that shell. A wildcard-enabled caller `@fastify/static` mount also claims
 collide at boot, so configure that mount with `wildcard: false` or use non-overlapping patterns.
 
 See [Host Ownership](/guides/host-ownership) for the owner split and
-[App Shell Architecture](/reference/app-shell-pattern) for the full routing pattern.
+[App Shell Architecture](/guides/app-shell-pattern) for the full routing pattern.
 
 ## Client fetching remains part of the model
 

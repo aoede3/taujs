@@ -73,7 +73,7 @@ routes: [
 ```
 
 The wildcard is the server route. Child URLs can remain client-routed inside the shell. See
-[App Shell Architecture](/reference/app-shell-pattern) for the complete pattern.
+[App Shell Architecture](/guides/app-shell-pattern) for the complete pattern.
 
 The two shell forms have different asset behaviour. The implicit shell on a τjs-created host
 delegates asset-like misses such as `/logo.png` to a 404. An explicit `/*` owns and renders every

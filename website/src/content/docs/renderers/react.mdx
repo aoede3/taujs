@@ -19,28 +19,6 @@ A lightweight, React SSR library with streaming capabilities, built for modern T
 >
   τjs @taujs/react
 </LinkButton>
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Installation](#installation)
-- [Core Concepts](#core-concepts)
-- [Deferred route data](#deferred-route-data)
-- [API Reference](#api-reference)
-  - [Server-Side Rendering](#server-side-rendering)
-  - [Client-Side Hydration](#client-side-hydration)
-  - [Data Store](#data-store)
-  - [Vite Plugin](#vite-plugin)
-- [Usage in taujs Ecosystem](#usage-in-taujs-ecosystem)
-- [Standalone Usage](#standalone-usage)
-- [Advanced Patterns](#advanced-patterns)
-- [TypeScript Support](#typescript-support)
-- [Best Practices](#best-practices)
-
----
-
-## Overview
 
 `@taujs/react` provides:
 
@@ -51,6 +29,25 @@ A lightweight, React SSR library with streaming capabilities, built for modern T
 - **Robust error handling** for production environments
 - **Flexible logging** for debugging and monitoring
 - **Framework agnostic** - works with Fastify, Express, native `node:http` or any Node HTTP server (both server render paths require Node capabilities)
+
+---
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Core Concepts](#core-concepts)
+- [Deferred route data](#deferred-route-data)
+- [API Reference](#api-reference)
+  - [Server-Side Rendering](#server-side-rendering)
+  - [Client-Side Hydration](#client-side-hydration)
+  - [Data Store](#data-store)
+  - [Vite Plugin](#vite-plugin)
+- [Client navigation](#client-navigation)
+- [Usage in taujs Ecosystem](#usage-in-taujs-ecosystem)
+- [Standalone Usage](#standalone-usage)
+- [Advanced Patterns](#advanced-patterns)
+- [TypeScript Support](#typescript-support)
+- [Best Practices](#best-practices)
 
 ---
 
@@ -807,6 +804,14 @@ export default defineConfig({
   plugins: [pluginReact()],
 });
 ```
+
+---
+
+## Client navigation
+
+τjs governs the response for a URL. What a _subsequent_ navigation does is renderer-independent: a navigation between τjs apps is a full document load and a new governed response, while within one application the app's own client router (React Router, TanStack Router or a custom router) owns the transition and any data it needs. See [Navigation boundaries](/guides/micro-frontend/#navigation-boundaries) for the model, and [App Shell Architecture](/guides/app-shell-pattern/) when one shell composes several sections client-side.
+
+For data that changes after the first render, fetch it from your own `/api/*` endpoints with a client library such as TanStack Query or SWR. τjs keeps SSR request-first and adds no generic client data channel; the initial snapshot stays the authority for the response it was built for.
 
 ---
 
