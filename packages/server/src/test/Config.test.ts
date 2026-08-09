@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
 
-import { resolveHmrTransport } from '../core/config/Setup';
+import { resolveHmrTransport, resolveIntrospectionAllowedHosts } from '../core/config/Setup';
 
 vi.mock('./core/services/DataServices', () => {
   return {
@@ -128,5 +128,55 @@ describe('resolveHmrTransport (RFC 0013)', () => {
       expect(() => resolveHmrTransport(cfg('attatched'), false, mode)).toThrow(/is not a valid transport/);
       expect(() => resolveHmrTransport(cfg(true), true, mode)).toThrow(/is not a valid transport/);
     }
+  });
+});
+
+// Post-freeze ruling 2026-08-08 (docs/introspection/decisions.md): exact DNS hostnames only,
+// resolved once to a lowercase exact-match set. Validation is mode-independent by construction
+// (the resolver never consults the runtime mode); the boot-time before-host-mutation half of
+// that contract is proved in CreateServerEmission.test.ts against createServer itself.
+describe('resolveIntrospectionAllowedHosts (post-freeze ruling 2026-08-08)', () => {
+  const cfg = (allowedHosts?: unknown) => ({ introspection: allowedHosts === undefined ? {} : { allowedHosts } }) as any;
+
+  it('resolves to an empty set when undeclared, when introspection is absent, and for an explicit empty list', () => {
+    expect(resolveIntrospectionAllowedHosts({} as any).size).toBe(0);
+    expect(resolveIntrospectionAllowedHosts(cfg()).size).toBe(0);
+    expect(resolveIntrospectionAllowedHosts(cfg([])).size).toBe(0);
+  });
+
+  it('resolves entries to a lowercase exact-match set (case-insensitive comparison, DNS semantics)', () => {
+    const resolved = resolveIntrospectionAllowedHosts(cfg(['Web.PLT.Local', 'intranet']));
+
+    expect([...resolved].sort()).toEqual(['intranet', 'web.plt.local']);
+  });
+
+  it('REJECTS leading-dot and wildcard declarations - subdomain admission is never implied', () => {
+    expect(() => resolveIntrospectionAllowedHosts(cfg(['.plt.local']))).toThrow(/not an exact DNS hostname/);
+    expect(() => resolveIntrospectionAllowedHosts(cfg(['*.plt.local']))).toThrow(/not an exact DNS hostname/);
+  });
+
+  it('REJECTS scheme, path, port and whitespace-bearing declarations', () => {
+    for (const entry of ['http://web.plt.local', 'web.plt.local/admin', 'web.plt.local:3042', 'web.plt local', ' web.plt.local', '']) {
+      expect(() => resolveIntrospectionAllowedHosts(cfg([entry])), entry).toThrow(/not an exact DNS hostname/);
+    }
+  });
+
+  it('REJECTS every IP-literal form with the intrinsic remedy - dotted-quad, bare and bracketed IPv6, and WHATWG IPv4 spellings', () => {
+    // IP detection is decided against the URL host parser the guard compares with: shorthand,
+    // decimal, octal and hex IPv4 spellings all canonicalise to dotted-quads on the request
+    // side, so they are IP literals here too - remedy, never the grammar complaint.
+    for (const entry of ['192.168.1.5', '::1', '[::1]', '127.1', '2130706433', '0177.0.0.1', '0x7f000001']) {
+      expect(() => resolveIntrospectionAllowedHosts(cfg([entry])), entry).toThrow(/admitted intrinsically/);
+    }
+  });
+
+  it('REJECTS a grammar-passing value the URL host parser cannot read back (out-of-range numeric label)', () => {
+    expect(() => resolveIntrospectionAllowedHosts(cfg(['99999999999999999999']))).toThrow(/not a hostname the URL host parser accepts/);
+  });
+
+  it('REJECTS non-array declarations and non-string entries', () => {
+    expect(() => resolveIntrospectionAllowedHosts(cfg(true))).toThrow(/must be an array/);
+    expect(() => resolveIntrospectionAllowedHosts(cfg('web.plt.local'))).toThrow(/must be an array/);
+    expect(() => resolveIntrospectionAllowedHosts(cfg([42]))).toThrow(/entries must be strings/);
   });
 });
