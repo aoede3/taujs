@@ -149,12 +149,25 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   // RFC 0010: ownership is derived, never configured, so the boot summary has to say which side of
   // the thesis this process is on. Without it a caller cannot tell from the logs why their 404s,
   // CSP or correlation headers changed.
-  logger.info(
-    { component: 'ownership', callerOwnedHost },
-    callerOwnedHost
-      ? `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found, CSP and request identity remain yours`
-      : `${CONTENT.TAG} [ownership] Fastify created by τjs - whole-server shell, CSP and request identity`,
-  );
+  //
+  // RFC 0010 Q5: a caller-owned host gets no τjs not-found shell, so the line reports whether the
+  // opt-in - a declared terminal `/*` page - is in force. RFC 0012: a mounted created host's
+  // shell is confined to its subtree, so the created arm is mount-aware rather than claiming a
+  // whole-server shell unconditionally.
+  const terminalWildcard = routes.some((route) => route.path === '/*');
+  const mounted = mountPrefix !== '';
+
+  const ownershipMessage = callerOwnedHost
+    ? `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found, CSP and request identity remain yours. ${
+        terminalWildcard
+          ? "Terminal '/*' τjs page declared: it owns GET paths not claimed by a more-specific route within the τjs scope, including API-like and asset-like paths"
+          : "No terminal '/*' τjs page declared: your routes and not-found policy own all remaining GET paths"
+      }`
+    : `${CONTENT.TAG} [ownership] Fastify created by τjs - ${
+        mounted ? 'shell confined to the mounted subtree, an ordinary 404 outside it' : 'whole-server shell'
+      }, CSP and request identity`;
+
+  logger.info({ component: 'ownership', callerOwnedHost, mounted, terminalWildcard }, ownershipMessage);
 
   // RFC 0012: mounting is boot-visible for the same reason ownership is - without this line a
   // reader cannot tell from the logs why every τjs URL moved.

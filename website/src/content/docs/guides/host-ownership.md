@@ -16,7 +16,10 @@ const { app, net } = await createServer({ config });
 await createServer({ config, fastify: app });
 ```
 
-The boot summary reports which installation shape is active.
+The boot summary reports which installation shape is active. On a caller-owned host it also
+states whether a terminal wildcard page is declared and what consequently owns the remaining GET
+paths, so the choice described below is visible at boot rather than discovered when unmatched
+URLs behave unexpectedly.
 
 :::caution[Passing an instance is an ownership decision, whatever your reason for passing it]
 Supplying `fastify` means you own the host, including when you created the instance solely to set
