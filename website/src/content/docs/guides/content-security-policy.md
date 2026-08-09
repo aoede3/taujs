@@ -50,15 +50,16 @@ const nonce = crypto.randomBytes(16).toString('base64');
 // Sets header
 Content-Security-Policy: script-src 'self' 'nonce-abc123...'
 
-// Passes to renderer
-renderStream(res, callbacks, data, location, modules, meta, nonce);
+// Passes to the renderer, in the render options
+renderStream(writable, callbacks, data, location, modules, meta, signal, { cspNonce, ... });
 ```
 
 ### Automatic Application
 
 The nonce is automatically applied to:
 
-- React's `renderToPipeableStream` (via nonce option)
+- the renderer's own script output - React's `renderToPipeableStream` nonce option, Vue's
+  injected scripts, Solid's hydration script
 - `window.__INITIAL_DATA__` script
 - Client bootstrap script
 
