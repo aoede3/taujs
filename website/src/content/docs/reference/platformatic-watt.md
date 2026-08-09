@@ -23,7 +23,7 @@ This page describes the **τjs-supported and recommended integration shape**: τ
 
 - Route matching and request handling
 - Declaring page-level data dependencies
-- Choosing rendering strategy (CSR / SSR / streaming)
+- Choosing rendering strategy per declared route (SSR / streaming)
 - Cancelling work when the client disconnects
 - Coordinating initial render data deterministically
 

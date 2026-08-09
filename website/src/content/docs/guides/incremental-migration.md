@@ -94,10 +94,11 @@ export default defineConfig({
 
 At this stage, route components may continue calling their existing APIs after hydration. You do not need to introduce `serviceData()`, a service registry or streaming merely to adopt the host.
 
-URLs omitted from `taujs.config.ts` can remain client-routed, but an undeclared screen still needs an
-HTTP shell owner. A τjs-created host supplies its implicit shell fallback. A caller-owned Fastify host
-needs a declared terminal wildcard for the application, such as `/products/*`, when τjs should serve
-those unmatched client URLs. See [Host Ownership](/guides/host-ownership/#application-shell-and-unmatched-urls).
+URLs omitted from `taujs.config.ts` can remain client-routed, but an undeclared screen's document
+still needs an HTTP owner. A τjs-created host supplies its implicit SPA fallback document. A
+caller-owned Fastify host needs a declared terminal wildcard for the application, such as
+`/products/*`, when τjs should serve those unmatched client URLs. See
+[Host Ownership](/guides/host-ownership/#spa-fallback-and-unmatched-urls).
 
 The renderer contribution owns its framework compiler. Do not also add `pluginReact()`, `pluginVue()` or `pluginSolid()` to the app's `plugins` array. Ordinary, unrelated Vite plugins remain supported there.
 
@@ -125,8 +126,8 @@ visibility. Move only that initial read to `attr.data`:
 The renderer consumes the resolved initial state through its SSR store. Polling, mutations, user-triggered refreshes and other post-hydration work can continue through the existing client query library and explicit API endpoints.
 
 You are moving ownership of the **initial response**, not replacing the application's client data
-layer. Routes you leave undeclared remain outside the request-contract model and can continue as
-client-routed URLs behind the application shell.
+layer. Routes you leave undeclared remain outside the request-contract model and stay
+client-rendered by omission.
 
 ### 4. Mediate service access when it pays off
 

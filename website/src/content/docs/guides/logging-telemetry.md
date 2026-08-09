@@ -134,7 +134,7 @@ request-correlation identity makes no such claim.
 ### Response scope
 
 A τjs-created host installs the request-identity lifecycle at its root, including its implicit
-shell and not-found path. A caller-owned host installs it inside the encapsulated τjs scope. Host
+SPA fallback and not-found path. A caller-owned host installs it inside the encapsulated τjs scope. Host
 routes then retain their own logging and do not receive a τjs `x-request-id` response header.
 
 Every τjs-owned response echoes the canonical identity:

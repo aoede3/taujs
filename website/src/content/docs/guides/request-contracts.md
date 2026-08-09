@@ -111,14 +111,14 @@ source.
 ## Undeclared URLs and client routing
 
 Not every client-routed screen needs its own τjs route declaration. A document-like URL that has no
-matching page contract can still receive the application shell, load the client bundle and let the
-client router take over. The shell owner depends on who created Fastify:
+matching page contract can still receive the SPA fallback document, load the client bundle and let
+the client router take over. The fallback owner depends on who created Fastify:
 
-- **τjs-created Fastify:** the implicit application-shell fallback serves unmatched document-like
+- **τjs-created Fastify:** the implicit SPA fallback document serves unmatched document-like
   URLs with status 200. The child URL can remain client-routed without a separate τjs contract.
-- **Caller-owned Fastify:** unmatched URLs belong to the caller. To preserve the same shell
-  behaviour, declare an explicit terminal `/*` page route for the application. Without it, the
-  caller's not-found response wins.
+- **Caller-owned Fastify:** unmatched URLs belong to the caller. To keep them in the
+  application, declare an explicit terminal `/*` page route. Without it, the caller's
+  not-found response wins.
 
 ```ts
 routes: [
@@ -128,11 +128,12 @@ routes: [
 ```
 
 The wildcard is the server route; individual child URLs can still be owned by the client router
-inside that shell. A wildcard-enabled caller `@fastify/static` mount also claims `GET /*` and will
+inside the application. A wildcard-enabled caller `@fastify/static` mount also claims `GET /*` and will
 collide at boot, so configure that mount with `wildcard: false` or use non-overlapping patterns.
 
-See [Host Ownership](/guides/host-ownership) for the owner split and
-[App Shell Architecture](/guides/app-shell-pattern) for the full routing pattern.
+See [Host Ownership](/guides/host-ownership) for the owner split. For the separate
+single-application composition pattern using shared browser-side chrome, routing and state,
+see [App Shell Architecture](/guides/app-shell-pattern).
 
 ## Client fetching remains part of the model
 
@@ -158,7 +159,7 @@ deferred registry, ordering and hydration seed belong to that response and that 
 coordinate with a second application.
 
 Navigation across τjs micro-frontend boundaries remains a full document navigation. The destination
-application creates its own request contract and data scope. Within an application shell, the
+application creates its own request contract and data scope. Within one application, the
 client router can own subsequent navigation and UI-local fetching. See
 [Micro-Frontends](/guides/micro-frontend) for where to place those boundaries.
 
