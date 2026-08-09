@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@taujs/server-internal/ownership": ["../../packages/server/src/utils/OwnershipPrepass.ts"]
+    }
+  },
+  "include": ["test/**/*", "vitest.config.ts", "../../packages/server/src/fastify.d.ts"]
+}

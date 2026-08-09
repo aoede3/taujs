@@ -49,7 +49,10 @@ export const externalImportsOfBuiltServer = (): string[] => {
 
   for (const source of sources) {
     for (const [, specifier] of source.matchAll(/(?:from|require\(|import\()\s*["']([^"']+)["']/g)) {
-      if (!specifier.startsWith('.')) specifiers.add(specifier);
+      // The group always participates in a match, so this is never undefined at runtime - but the
+      // type says otherwise and a silent `undefined` here would drop a real external import from
+      // the assertion rather than fail it.
+      if (specifier !== undefined && !specifier.startsWith('.')) specifiers.add(specifier);
     }
   }
 
