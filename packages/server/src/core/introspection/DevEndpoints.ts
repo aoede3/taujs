@@ -19,25 +19,39 @@ const isLoopback = (address: string | undefined): boolean => !!address && (addre
 // Host validation neutralises DNS rebinding: an attack needs a DNS *name* resolving to the
 // dev machine, so names other than localhost are rejected while IP-literal hosts (the
 // phone-on-LAN case behind allowNonLoopback) pass — an IP literal cannot be rebound.
-const isAllowedHost = (hostHeader: string | undefined): boolean => {
-  if (!hostHeader) return false;
+//
+// Post-freeze ruling 2026-08-08: declared admissions (`introspection.allowedHosts`, resolved
+// and validated at createServer entry) EXTEND the intrinsic set for development behind a
+// Host-rewriting proxy. Exact matching preserves the direct-listener rebinding guard; behind
+// such a proxy τjs sees only the declared upstream name, so browser-facing host admission is
+// DELEGATED to the proxy — τjs reads no forwarding headers.
+const parseHostname = (hostHeader: string | undefined): string | undefined => {
+  if (!hostHeader) return undefined;
 
-  let hostname: string;
   try {
-    hostname = new URL(`http://${hostHeader}`).hostname;
+    // URL parsing case-folds the hostname and drops the port, so the declared lowercase set
+    // compares against a canonical form without any per-site handling here.
+    return new URL(`http://${hostHeader}`).hostname;
   } catch {
-    return false;
+    return undefined;
   }
+};
 
+const isAllowedHost = (hostname: string, allowedHosts: ReadonlySet<string>): boolean => {
   const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
 
-  return bare === 'localhost' || bare.endsWith('.localhost') || isIP(bare) !== 0;
+  return bare === 'localhost' || bare.endsWith('.localhost') || isIP(bare) !== 0 || allowedHosts.has(bare);
 };
 
 export type IntrospectionEndpointsOptions = {
   introspection: DevIntrospection;
   serviceRegistry?: ServiceRegistry;
   taujsConfig?: CoreTaujsConfig;
+  /**
+   * Resolved lowercase exact-match host admissions (post-freeze ruling 2026-08-08), validated
+   * at `createServer` entry and never re-derived here. Intrinsic admissions always apply.
+   */
+  allowedHosts?: ReadonlySet<string>;
   logger: Logs;
 };
 
@@ -48,10 +62,38 @@ export type IntrospectionEndpointsOptions = {
 export const registerIntrospectionEndpoints = (app: FastifyInstance, options: IntrospectionEndpointsOptions): void => {
   const { introspection, taujsConfig, serviceRegistry, logger } = options;
   const allowNonLoopback = taujsConfig?.introspection?.allowNonLoopback === true;
+  const allowedHosts = options.allowedHosts ?? new Set<string>();
+
+  // The measured failure mode (RFC 0012 leg D2) is a proxied development topology whose
+  // beacons die silently, so the FIRST undeclared-hostname refusal warns; repeats log at
+  // debug (one boolean latch per boot - flood-safe by construction). The hostname is
+  // attacker-influenced text, so it travels as structured metadata, never interpolated into
+  // the message. Malformed or missing Host values stay debug-only and never consume the latch.
+  let undeclaredHostWarned = false;
 
   const guard = async (req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | undefined> => {
     if (!allowNonLoopback && !isLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback_only' });
-    if (!isAllowedHost(req.headers.host)) return reply.code(403).send({ error: 'invalid_host' });
+
+    const hostname = parseHostname(req.headers.host);
+
+    if (hostname === undefined) {
+      logger.debug?.({ component: 'introspection' }, 'τjs introspection rejected a malformed or missing Host');
+      return reply.code(403).send({ error: 'invalid_host' });
+    }
+
+    if (!isAllowedHost(hostname, allowedHosts)) {
+      if (!undeclaredHostWarned) {
+        undeclaredHostWarned = true;
+        logger.warn(
+          { component: 'introspection', host: hostname },
+          'τjs introspection rejected an undeclared Host. If this is a trusted development proxy, declare it in introspection.allowedHosts.',
+        );
+      } else {
+        logger.debug?.({ component: 'introspection', host: hostname }, 'τjs introspection rejected an undeclared Host');
+      }
+      return reply.code(403).send({ error: 'invalid_host' });
+    }
+
     if (req.headers['x-taujs-token'] !== introspection.token) return reply.code(403).send({ error: 'invalid_token' });
     return undefined;
   };

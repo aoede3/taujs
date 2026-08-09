@@ -10,6 +10,17 @@ import type { TaujsConfig } from '../Config';
 const hoisted = vi.hoisted(() => ({
   emitGraphEvaluations: 0,
   registerBootGraphEmission: vi.fn(),
+  fastifyFactoryCalls: 0,
+}));
+
+// Counter proves the before-host-mutation criterion on the τjs-created arm directly: an
+// invalid configuration must fail before the Fastify factory is ever invoked, not merely
+// before registrations land on an already-created instance.
+vi.mock('fastify', () => ({
+  default: vi.fn(() => {
+    hoisted.fastifyFactoryCalls += 1;
+    return { register: vi.fn(async () => undefined), addHook: vi.fn(), log: undefined };
+  }),
 }));
 
 vi.mock('../core/introspection/EmitGraph', () => {
@@ -55,6 +66,7 @@ async function bootWith(nodeEnv: string) {
 beforeEach(() => {
   hoisted.emitGraphEvaluations = 0;
   hoisted.registerBootGraphEmission.mockClear();
+  hoisted.fastifyFactoryCalls = 0;
   console.log = vi.fn();
 });
 
@@ -102,6 +114,65 @@ describe('createServer — graph emission wiring (structural gate)', () => {
     });
 
     await expect(bootWith('development')).resolves.toBeTruthy();
+  });
+
+  // Post-freeze ruling 2026-08-08: the admission shout wording is FROZEN at review; these cells
+  // test the exact message, development-only emission, and absence when the list is empty.
+  it('introspection.allowedHosts shouts the exact frozen warning in dev, never in prod, never when empty', async () => {
+    const shoutText =
+      'τjs introspection overlay admits additional hostnames. Ensure any rewriting proxy validates the browser-facing Host; otherwise use a trusted development network only.';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const declared = { ...config, introspection: { allowedHosts: ['web.plt.local'] } };
+
+    try {
+      process.env.NODE_ENV = 'development';
+      vi.resetModules();
+      let { createServer } = await import('../CreateServer');
+      await createServer({ config: declared, fastify: mkApp() });
+      expect(warnSpy.mock.calls.some((c) => c.join(' ').includes(shoutText))).toBe(true);
+
+      warnSpy.mockClear();
+      await createServer({ config: { ...config, introspection: { allowedHosts: [] } }, fastify: mkApp() });
+      expect(warnSpy.mock.calls.some((c) => c.join(' ').includes(shoutText))).toBe(false);
+
+      warnSpy.mockClear();
+      process.env.NODE_ENV = 'production';
+      vi.resetModules();
+      ({ createServer } = await import('../CreateServer'));
+      await createServer({ config: declared, fastify: mkApp() });
+      expect(warnSpy.mock.calls.some((c) => c.join(' ').includes(shoutText))).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('an invalid introspection.allowedHosts fails in EVERY mode BEFORE any host mutation', async () => {
+    for (const mode of ['development', 'production']) {
+      process.env.NODE_ENV = mode;
+      vi.resetModules();
+      const { createServer } = await import('../CreateServer');
+      const app = mkApp();
+
+      await expect(createServer({ config: { ...config, introspection: { allowedHosts: ['web.plt.local:3042'] } }, fastify: app }), mode).rejects.toThrow(
+        /not an exact DNS hostname/,
+      );
+      // The caller-supplied host was never touched: validation precedes registration entirely.
+      expect(app.register, mode).not.toHaveBeenCalled();
+      expect(app.addHook, mode).not.toHaveBeenCalled();
+    }
+  });
+
+  it('an invalid introspection.allowedHosts on a τjs-CREATED host fails BEFORE Fastify creation, in every mode', async () => {
+    for (const mode of ['development', 'production']) {
+      process.env.NODE_ENV = mode;
+      vi.resetModules();
+      const { createServer } = await import('../CreateServer');
+
+      await expect(createServer({ config: { ...config, introspection: { allowedHosts: ['.plt.local'] } } }), mode).rejects.toThrow(/not an exact DNS hostname/);
+      // The factory counter is the stronger half of the before-host-mutation contract: no
+      // Fastify instance ever existed, so there was nothing to mutate.
+      expect(hoisted.fastifyFactoryCalls, mode).toBe(0);
+    }
   });
 
   it('allowNonLoopback shouts the exact boot-summary warning in dev, and never in prod', async () => {

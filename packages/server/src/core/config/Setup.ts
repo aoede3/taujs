@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 import { RENDERTYPE } from '../constants';
 import { now } from '../telemetry/Telemetry';
 
@@ -96,6 +98,81 @@ export const resolveHmrTransport = (config: Pick<CoreTaujsConfig, 'server'>, cal
   }
 
   return declared;
+};
+
+/**
+ * Post-freeze ruling 2026-08-08 (docs/introspection/decisions.md): the exact-DNS-hostname
+ * grammar for `introspection.allowedHosts`. Dot-separated labels of `[a-z0-9-]` with no
+ * leading/trailing hyphen - which structurally excludes schemes, ports, paths, leading dots,
+ * wildcards and whitespace. Deliberately ASCII-only: an internationalised name is declared in
+ * its punycode form, the same spelling the guard's `URL`-parsed request hostname carries.
+ */
+const INTROSPECTION_HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
+
+/**
+ * Post-freeze ruling 2026-08-08: validate and resolve the introspection host admissions.
+ * Exact DNS hostnames only; comparison is case-insensitive (DNS semantics, not value
+ * normalisation), so entries resolve ONCE to a lowercase exact-match set here and the guard
+ * never re-derives it. Called at `createServer` FUNCTION ENTRY in EVERY mode - the surface
+ * this admits is structurally dev-absent, but a shared configuration must not hide a typo in
+ * production. IP literals are rejected as not-DNS-hostnames: the guard admits them
+ * intrinsically, so a declared one is a misunderstanding worth surfacing, not extending.
+ */
+const ipLiteralEntryError = (entry: string): Error =>
+  new Error(`introspection.allowedHosts: '${entry}' is an IP literal, not a DNS hostname - IP literals are admitted intrinsically; remove the entry.`);
+
+export const resolveIntrospectionAllowedHosts = (config: Pick<CoreTaujsConfig, 'introspection'>): ReadonlySet<string> => {
+  const declared = config.introspection?.allowedHosts;
+  if (declared === undefined) return new Set();
+
+  if (!Array.isArray(declared)) throw new Error('introspection.allowedHosts must be an array of exact DNS hostnames');
+
+  const resolved = new Set<string>();
+
+  for (const entry of declared) {
+    if (typeof entry !== 'string') throw new Error('introspection.allowedHosts: entries must be strings (exact DNS hostnames)');
+
+    const hostname = entry.toLowerCase();
+
+    // IP detection FIRST, and decided against the SAME parser the guard compares with
+    // (final-review amendment 2026-08-08): `isIP` on the bracket-stripped form catches
+    // dotted-quads and bare/bracketed IPv6 before the grammar can misreport them with a
+    // spelling complaint, and the URL canonicalisation below catches the WHATWG IPv4
+    // spellings (`127.1`, decimal, octal, hex) the request side collapses to a dotted-quad.
+    // Every IP form receives the intrinsic remedy, never the grammar error.
+    const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+    if (isIP(bare) !== 0) throw ipLiteralEntryError(entry);
+
+    if (!INTROSPECTION_HOSTNAME.test(hostname)) {
+      throw new Error(
+        `introspection.allowedHosts: '${entry}' is not an exact DNS hostname. Expected dot-separated labels of [a-z0-9-] - ` +
+          `no scheme, port, path, leading dot, wildcard or whitespace. Values are rejected, never normalised.`,
+      );
+    }
+
+    // The guard compares URL-parsed request hostnames, so an entry this parser does not read
+    // back verbatim can never match a request: either an IPv4 spelling in disguise (remedy)
+    // or not a parseable host at all (out-of-range numeric labels, for example).
+    let canonical: string;
+    try {
+      canonical = new URL(`http://${hostname}`).hostname;
+    } catch {
+      throw new Error(`introspection.allowedHosts: '${entry}' is not a hostname the URL host parser accepts. Values are rejected, never normalised.`);
+    }
+
+    if (isIP(canonical) !== 0) throw ipLiteralEntryError(entry);
+
+    if (canonical !== hostname) {
+      throw new Error(
+        `introspection.allowedHosts: '${entry}' does not survive URL host parsing verbatim (it parses as '${canonical}') so it could never match a ` +
+          `request. Declare the parsed spelling instead. Values are rejected, never normalised.`,
+      );
+    }
+
+    resolved.add(hostname);
+  }
+
+  return resolved;
 };
 
 /**

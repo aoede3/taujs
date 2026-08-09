@@ -61,6 +61,12 @@ export type SSRServerOptions = {
    * full `TaujsConfig` (`CreateServer` forwards `opts.config`, a `TaujsConfig`).
    */
   taujsConfig?: CoreTaujsConfig & { vite?: TaujsViteOverride };
+  /**
+   * Post-freeze ruling 2026-08-08: resolved introspection host admissions (lowercase
+   * exact-match set), validated at `createServer` entry (`resolveIntrospectionAllowedHosts`)
+   * and threaded like the coordinates above so registration never re-derives it.
+   */
+  introspectionAllowedHosts?: ReadonlySet<string>;
 };
 
 export type GenericPlugin = FastifyPluginCallback<Record<string, unknown>> | FastifyPluginAsync<Record<string, unknown>>;

@@ -287,6 +287,17 @@ export type CoreAppConfig = {
 export type CoreIntrospectionConfig = {
   /** Relaxes ONLY the overlay remote-address check; shouts in the boot summary when enabled. */
   allowNonLoopback?: boolean;
+  /**
+   * Extends ONLY the overlay Host admission with exact DNS hostnames (post-freeze ruling
+   * 2026-08-08) - for development behind a reverse proxy that presents a non-localhost `Host`.
+   * Declare the hostname as seen AT the τjs hop: a rewriting proxy substitutes its own
+   * upstream name for the browser-facing one. Exact matches only - no wildcards, IP literals
+   * or boolean escape; localhost forms and IP literals stay admitted intrinsically. Behind a
+   * rewriting proxy, browser-facing host validation is the PROXY's job - τjs reads no
+   * forwarding headers. Independent of `allowNonLoopback` (a cross-machine proxy needs both);
+   * neither implies the other. Shouts in the boot summary when non-empty.
+   */
+  allowedHosts?: string[];
   redaction?: {
     /** Extends the default denylist (password, token, secret, ssn, auth, cookie, session, key). */
     denyKeys?: string[];

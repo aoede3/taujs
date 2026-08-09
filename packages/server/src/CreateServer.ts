@@ -5,7 +5,14 @@ import { performance } from 'node:perf_hooks';
 import Fastify from 'fastify';
 import pc from 'picocolors';
 
-import { extractBuildConfigs, extractPathCoordinates, extractRoutes, extractSecurity, resolveHmrTransport } from './core/config/Setup';
+import {
+  extractBuildConfigs,
+  extractPathCoordinates,
+  extractRoutes,
+  extractSecurity,
+  resolveHmrTransport,
+  resolveIntrospectionAllowedHosts,
+} from './core/config/Setup';
 import { REGEX } from './core/constants';
 import { normaliseError } from './core/errors/AppError';
 
@@ -87,6 +94,12 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   // deployment sharing one configuration must still boot.
   const hmrTransport = resolveHmrTransport(opts.config, callerOwnedHost, isDevelopment);
 
+  // Post-freeze ruling 2026-08-08 (introspection host admission): resolved at FUNCTION ENTRY in
+  // EVERY mode for the same reason the coordinates above are - an invalid declaration must fail
+  // before any host state exists, and production must reject the typo a shared configuration
+  // would otherwise hide, even though the surface it admits is structurally dev-absent.
+  const introspectionAllowedHosts = resolveIntrospectionAllowedHosts(opts.config);
+
   // SC-09 ruling 4: on a τjs-created host, request identity aligns at Fastify construction - the
   // one place τjs legitimately owns that policy. A single valid inbound `x-request-id` becomes
   // `req.id`; anything else gets a UUID (repeated headers arrive as an array and fail the string
@@ -158,6 +171,16 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     logger.warn({ component: 'introspection' }, 'τjs introspection overlay exposed to non-loopback clients. For trusted dev networks only.');
   }
 
+  // Post-freeze ruling 2026-08-08: admitting extra hostnames shouts for the same reason -
+  // wording FROZEN at review; the resolved hosts travel as structured metadata, never
+  // interpolated text. Development-only, like the surface the declaration admits.
+  if (isDevelopment && introspectionAllowedHosts.size > 0) {
+    logger.warn(
+      { component: 'introspection', allowedHosts: [...introspectionAllowedHosts] },
+      'τjs introspection overlay admits additional hostnames. Ensure any rewriting proxy validates the browser-facing Host; otherwise use a trusted development network only.',
+    );
+  }
+
   const report = verifyContracts(
     app,
     routes,
@@ -203,6 +226,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       security,
       devNet: { host: net.host, hmrPort: net.hmrPort },
       taujsConfig: opts.config,
+      introspectionAllowedHosts,
       // RFC 0010: the single caller-root exception, and the only value that reaches the plugin from
       // the caller's instance. Vite must observe development URLs Fastify did not route, which only
       // a root-level hook sees. Withheld unless the caller owns the host AND we are in development,

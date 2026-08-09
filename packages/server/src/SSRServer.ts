@@ -214,7 +214,13 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
 
       scope.decorate('taujsIntrospection', introspection);
       registerDevFiles(scope, introspection, logger);
-      registerIntrospectionEndpoints(scope, { introspection, taujsConfig: opts.taujsConfig, serviceRegistry, logger });
+      registerIntrospectionEndpoints(scope, {
+        introspection,
+        taujsConfig: opts.taujsConfig,
+        allowedHosts: opts.introspectionAllowedHosts,
+        serviceRegistry,
+        logger,
+      });
     } catch (err) {
       logger.warn({ component: 'introspection', error: (err as Error)?.message ?? String(err) }, 'Episode recording unavailable (non-fatal)');
     }

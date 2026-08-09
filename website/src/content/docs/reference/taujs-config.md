@@ -181,9 +181,9 @@ configuration stays proxy-owned; τjs reads no forwarding headers
 
 **Development.** The shared dev Vite `base` follows `publicBasePath`, so dev module URLs
 and the HMR socket pathname compose with the prefix, and dev delegation is confined to the
-mounted subtree. Two adjacent concerns remain separate limitations: HMR socket origin and
-port under process supervisors, and reverse-proxy host admission for the `/__taujs/*`
-introspection endpoints.
+mounted subtree. Two adjacent concerns have their own declared surfaces: `server.hmrTransport`
+carries the HMR socket where a second port cannot be reached, and `introspection.allowedHosts`
+admits a proxy's hostname for the `/__taujs/*` introspection endpoints.
 
 ### `server.hmrTransport`
 
@@ -233,6 +233,50 @@ host must:
 > `Host`, and Vite's WebSocket admission depends on those headers - its host and token checks
 > do not survive that rewriting. The protections that apply to a direct connection do not
 > project through such a proxy. Use this on development networks you trust.
+
+## Development Introspection
+
+The development introspection surface (the `/__taujs/*` overlay endpoints and the hydration
+beacon) is guarded independently of page serving: requests must arrive from a loopback
+address, present a local `Host` and carry the per-boot token. Each opt-in below relaxes
+exactly the guard it names, and neither implies the other.
+
+### `introspection.allowedHosts`
+
+Extends the introspection `Host` admission with exact DNS hostnames, for development behind
+a reverse proxy that presents a non-localhost `Host`. Development only; without a
+declaration the behaviour stays localhost-only.
+
+```typescript
+export default defineConfig({
+  introspection: {
+    allowedHosts: ['web.plt.local'],
+  },
+});
+```
+
+Rules:
+
+- **Exact hostnames only.** No wildcards, IP literals, schemes, ports or paths - invalid
+  entries are rejected at startup, in production too, so a shared configuration cannot hide
+  a typo. Matching is case-insensitive and ignores the request port; subdomains are never
+  implied. `localhost`, `*.localhost` and IP-literal hosts stay admitted without any
+  declaration.
+- **Declare the hostname as seen at the τjs hop.** A rewriting proxy substitutes its own
+  upstream name for the browser-facing one - behind a Platformatic gateway, for example,
+  the arriving `Host` is the internal service name (`web.plt.local`), not the public host.
+- **A rewriting proxy owns browser-facing host validation.** Exact matching preserves the
+  DNS-rebinding guard for direct connections, but τjs never sees the original hostname
+  behind a rewriting proxy and reads no forwarding headers (`Forwarded`,
+  `X-Forwarded-Host`). Ensure the proxy validates the browser-facing host, or use a trusted
+  development network only - the boot summary repeats this whenever the list is non-empty.
+- **Independent of `allowNonLoopback`.** `allowedHosts` relaxes only the `Host` check;
+  `introspection.allowNonLoopback: true` relaxes only the remote-address check. A same-host
+  gateway needs only `allowedHosts`; a proxy on another machine needs both. The per-boot
+  token is always required.
+
+Undeclared hostnames keep answering `403 invalid_host`; the first such refusal logs a
+warning naming this field, so a proxied topology fails visibly rather than silently.
 
 ## App Configuration
 

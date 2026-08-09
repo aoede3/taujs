@@ -23,11 +23,11 @@ const mkLogger = (): any => {
   return l;
 };
 
-const buildApp = async (opts?: { taujsConfig?: CoreTaujsConfig; introspection?: DevIntrospection }) => {
+const buildApp = async (opts?: { taujsConfig?: CoreTaujsConfig; introspection?: DevIntrospection; allowedHosts?: ReadonlySet<string> }) => {
   const introspection = opts?.introspection ?? createDevIntrospection();
   const app = fastify();
   const logger = mkLogger();
-  registerIntrospectionEndpoints(app, { introspection, taujsConfig: opts?.taujsConfig ?? config, logger });
+  registerIntrospectionEndpoints(app, { introspection, taujsConfig: opts?.taujsConfig ?? config, allowedHosts: opts?.allowedHosts, logger });
   return { app, introspection, logger };
 };
 
@@ -111,6 +111,97 @@ describe('overlay endpoint guard stack (spec 03 §6, guard order)', () => {
       });
       expect(res.statusCode, host).toBe(200);
     }
+  });
+});
+
+// Post-freeze ruling 2026-08-08 (docs/introspection/decisions.md): declared host admissions
+// for proxied development. The set arrives resolved (lowercase, validated at createServer
+// entry); these cells prove exact-match semantics, guard independence, and the warn-once
+// rejection logging at the point of measured failure.
+describe('declared host admissions (post-freeze ruling 2026-08-08)', () => {
+  const DECLARED = new Set(['web.plt.local']);
+
+  const injectHost = (app: any, introspection: DevIntrospection, host: string, extra: Record<string, unknown> = {}) =>
+    app.inject({
+      method: 'GET',
+      url: '/__taujs/observations',
+      remoteAddress: LOOPBACK,
+      headers: { host, 'x-taujs-token': introspection.token },
+      ...extra,
+    });
+
+  it('admits a declared hostname - case-insensitively and ignoring the request port', async () => {
+    const { app, introspection } = await buildApp({ allowedHosts: DECLARED });
+
+    for (const host of ['web.plt.local', 'Web.PLT.Local', 'web.plt.local:3042']) {
+      const res = await injectHost(app, introspection, host);
+      expect(res.statusCode, host).toBe(200);
+    }
+  });
+
+  it('never implies subdomains, and an undeclared host still answers 403 invalid_host', async () => {
+    const { app, introspection } = await buildApp({ allowedHosts: DECLARED });
+
+    for (const host of ['api.web.plt.local', 'plt.local', 'evil.example.com']) {
+      const res = await injectHost(app, introspection, host);
+      expect(res.statusCode, host).toBe(403);
+      expect(res.json(), host).toEqual({ error: 'invalid_host' });
+    }
+  });
+
+  it('host admission relaxes ONLY the Host guard: token and remote-address checks still apply', async () => {
+    const { app, introspection } = await buildApp({ allowedHosts: DECLARED });
+
+    const badToken = await app.inject({
+      method: 'GET',
+      url: '/__taujs/observations',
+      remoteAddress: LOOPBACK,
+      headers: { host: 'web.plt.local', 'x-taujs-token': 'wrong' },
+    });
+    expect(badToken.statusCode).toBe(403);
+    expect(badToken.json()).toEqual({ error: 'invalid_token' });
+
+    const nonLoopback = await app.inject({
+      method: 'GET',
+      url: '/__taujs/observations',
+      remoteAddress: '192.168.1.20',
+      headers: { host: 'web.plt.local', 'x-taujs-token': introspection.token },
+    });
+    expect(nonLoopback.statusCode).toBe(403);
+    expect(nonLoopback.json()).toEqual({ error: 'loopback_only' });
+  });
+
+  it('warns ONCE per boot on an undeclared hostname - exact message, hostname as metadata - then debug', async () => {
+    const { app, introspection, logger } = await buildApp({ allowedHosts: DECLARED });
+
+    await injectHost(app, introspection, 'other.plt.local:3042');
+    await injectHost(app, introspection, 'other.plt.local:3042');
+    await injectHost(app, introspection, 'another.example.com');
+
+    const rejectionWarns = logger.warn.mock.calls.filter((c: unknown[]) => String(c[1]).includes('rejected an undeclared Host'));
+    expect(rejectionWarns).toHaveLength(1);
+    expect(rejectionWarns[0][0]).toEqual({ component: 'introspection', host: 'other.plt.local' });
+    expect(rejectionWarns[0][1]).toBe(
+      'τjs introspection rejected an undeclared Host. If this is a trusted development proxy, declare it in introspection.allowedHosts.',
+    );
+
+    const rejectionDebugs = logger.debug.mock.calls.filter((c: unknown[]) => String(c[1]).includes('rejected an undeclared Host'));
+    expect(rejectionDebugs).toHaveLength(2);
+  });
+
+  it('a malformed Host stays debug-only and never consumes the warn latch', async () => {
+    const { app, introspection, logger } = await buildApp({ allowedHosts: DECLARED });
+
+    const malformed = await injectHost(app, introspection, 'not a host');
+    expect(malformed.statusCode).toBe(403);
+    expect(malformed.json()).toEqual({ error: 'invalid_host' });
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.debug.mock.calls.some((c: unknown[]) => String(c[1]).includes('malformed or missing Host'))).toBe(true);
+
+    await injectHost(app, introspection, 'undeclared.example.com');
+    const rejectionWarns = logger.warn.mock.calls.filter((c: unknown[]) => String(c[1]).includes('rejected an undeclared Host'));
+    expect(rejectionWarns).toHaveLength(1);
+    expect(rejectionWarns[0][0]).toEqual({ component: 'introspection', host: 'undeclared.example.com' });
   });
 });
 
