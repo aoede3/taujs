@@ -270,32 +270,33 @@ const holderOrThrow = (accessor: string, key: string): DeferredHolder => {
 };
 
 /**
- * THROWING read - a renderer-native SECONDARY API. Returns a promise an async `setup()` awaits;
- * a rejection reaches Vue's native error channel (`onErrorCaptured`, then
- * `app.config.errorHandler`).
+ * Returns the deferred value, or rejects through Vue's native error channel
+ * (`onErrorCaptured`, then `app.config.errorHandler`).
  *
- * SERVER CAVEAT, recorded and not worked around: Vue SSR renders each subtree exactly once, so a
- * boundary that catches the error has already emitted its markup and emits an EMPTY node - it
- * cannot substitute fallback UI into the response, and the same component re-renders its caught
- * fallback on the client, which is a hydration mismatch by construction. Prefer
- * {@link useDeferredDataResult} for any entry that can fail.
+ * Streamed SSR caveat: Vue renders each server subtree once, so a captured rejection cannot
+ * replace markup that has already been emitted. If this read reaches its deadline after the
+ * response begins, the response ends before `__INITIAL_DATA__`, the deferred envelope, the
+ * bootstrap script and the terminal event are written, so the page cannot hydrate.
  *
- * Must be called SYNCHRONOUSLY in `setup()` (before the first `await`): it injects.
+ * Use {@link useDeferredDataResult} for entries that may fail. It resolves to a complete,
+ * failed or aborted result and allows the response to finish normally.
+ *
+ * Call synchronously in `setup()` before the first `await`, because it uses injection.
  */
 export function useDeferredData<T extends Record<string, unknown> = Record<string, unknown>>(key: string): Promise<T> {
   return holderOrThrow('useDeferredData', key).resource(key) as Promise<T>;
 }
 
 /**
- * RESULT read - the PRIMARY Vue accessor and its server-completing consumed-rejection path
- * (decision 13).
+ * Returns the deferred outcome. This is the read to prefer in Vue: the promise never rejects for
+ * a declared key, so the application branches on `complete`, `failed` or `aborted` and renders
+ * the branch it chooses.
  *
- * The returned promise never rejects for a declared key: the application branches on
- * `complete` / `failed` / `aborted` and renders the branch it wants, so a handled failure fallback
- * COMPLETES THE RESPONSE and server and client render the identical branch from the identical
- * detail-free outcome. `failed` and `aborted` carry no value, message, stack or cause.
+ * Because a handled failure renders as ordinary markup, the response finishes normally and server
+ * and client render the identical branch from the identical outcome. `failed` and `aborted` carry
+ * no value, message, stack or cause.
  *
- * Must be called SYNCHRONOUSLY in `setup()` (before the first `await`): it injects.
+ * Call synchronously in `setup()` before the first `await`, because it uses injection.
  */
 export function useDeferredDataResult<T extends Record<string, unknown> = Record<string, unknown>>(key: string): Promise<DeferredResult<T>> {
   return holderOrThrow('useDeferredDataResult', key).result(key) as Promise<DeferredResult<T>>;

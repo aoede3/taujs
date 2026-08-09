@@ -219,7 +219,7 @@ const outcome = await deferred.result("reviews");
 `createDeferredAccessor<D>()` returns two reads, and both must be called synchronously in `setup()` before the first `await`:
 
 - `deferred.result(key)` returns `Promise<DeferredResult<T>>` - a promise that never rejects for a declared key, resolving to `{ status: 'complete', value }`, `{ status: 'failed' }` or `{ status: 'aborted' }`. This is the **primary Vue read**: a handled failure branch completes the response, and server and client render the identical branch from the identical detail-free outcome.
-- `deferred.data(key)` returns `Promise<T>` and rejects with a `DeferredDataError` (carrying `key` and `outcome`) when the value never arrived. The rejection follows Vue's native error channel (`onErrorCaptured`, `app.config.errorHandler`).
+- `deferred.data(key)` returns `Promise<T>` and rejects with a `DeferredDataError` (carrying `key` and `outcome`) when the value never arrived. The rejection follows Vue's native error channel (`onErrorCaptured`, `app.config.errorHandler`). **During streamed SSR this can leave the response incomplete.** Vue renders each server subtree exactly once, so a boundary that catches the rejection has already emitted its markup: it cannot substitute fallback UI into the response, and a rejection or deadline after the head has been emitted aborts the transfer. At a deferred deadline, `window.__INITIAL_DATA__`, the deferred envelope, the bootstrap script and the terminal event are all absent, so the page cannot hydrate. Use `deferred.result(key)` for any entry that can fail.
 
 The untyped forms `useDeferredData(key)` and `useDeferredDataResult(key)` are exported for cases where no route type is to hand; prefer the typed façade.
 
