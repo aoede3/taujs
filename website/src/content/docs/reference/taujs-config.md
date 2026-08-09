@@ -51,6 +51,7 @@ export default defineConfig({
 type TaujsConfig = {
   server?: ServerConfig;
   security?: SecurityConfig;
+  introspection?: IntrospectionConfig; // Development only
   apps: AppConfig[];
   alias?: Record<string, string>;
   vite?: TaujsViteOverride;
@@ -63,6 +64,17 @@ type ServerConfig = {
   mountPrefix?: string; // Default: '' (root)
   publicBasePath?: string; // Default: mountPrefix
   hmrTransport?: 'fixed-port' | 'attached'; // Default: 'fixed-port'
+};
+
+// Development only - the surface is structurally absent from a production build,
+// so there is no `enabled` flag to turn it off.
+type IntrospectionConfig = {
+  allowNonLoopback?: boolean; // Relaxes ONLY the remote-address check
+  allowedHosts?: string[]; // Extends ONLY the Host admission; exact DNS hostnames
+  redaction?: {
+    denyKeys?: string[]; // Extends the default denylist
+    replaceDefaultDenyKeys?: boolean;
+  };
 };
 
 type AppConfig = {
