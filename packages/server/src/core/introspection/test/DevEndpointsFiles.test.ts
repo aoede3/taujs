@@ -371,10 +371,19 @@ describe('dev files lifecycle (spec 03 §5)', () => {
         await stat(path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson'));
       });
       const ndjson = await readFile(path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson'), 'utf8');
-      expect(ndjson).toContain('"pathname":"/reset"');
-      expect(ndjson).toContain('"queryKeys":["ref"]');
-      expect(ndjson).not.toContain('abc');
-      expect(ndjson).not.toContain('token=');
+
+      // Assert the STRUCTURE the recorder guarantees, not the absence of a substring. The system
+      // performs no value sweep: `sanitiseUrl` stores a pathname, the surviving query key names
+      // and a flag, so the value never enters the buffer in the first place. A sweep across the
+      // whole serialised document was a weaker proxy that also read every random identifier in
+      // it - a UUID containing `abc` failed while redaction was working perfectly.
+      const record = JSON.parse(
+        ndjson
+          .split('\n')
+          .filter(Boolean)
+          .find((line) => line.includes('file-t1'))!,
+      );
+      expect(record.url).toEqual({ pathname: '/reset', queryKeys: ['ref'], queryValuesRedacted: true });
 
       await app.close();
       await expect(stat(devJsonPath)).rejects.toThrow();

@@ -290,6 +290,53 @@ Rules:
 Undeclared hostnames keep answering `403 invalid_host`; the first such refusal logs a
 warning naming this field, so a proxied topology fails visibly rather than silently.
 
+### `introspection.redaction`
+
+What τjs withholds from the development introspection record - the episodes, observations and
+log annex written under `node_modules/.taujs/` and served to the overlay. Redaction here is
+**structural**: τjs never scans values looking for things that resemble secrets.
+
+Two rules apply, and both are unconditional:
+
+- **Query values are never captured, for any key.** A URL is stored as its pathname, the
+  surviving query key names, and a flag - never as a raw string. For `/reset?token=abc&ref=x`
+  the record is `{ pathname: "/reset", queryKeys: ["ref"], queryValuesRedacted: true }`. The
+  value `abc` never enters the buffer, and `token` is absent from `queryKeys` because its key
+  name matched the denylist.
+- **Metadata fields are dropped by key name**, along with the whole subtree beneath them. A
+  matched key is not partially serialised; it is absent.
+
+```typescript
+introspection: {
+  redaction: {
+    denyKeys: ['internalRef'],        // extends the defaults
+    replaceDefaultDenyKeys: false,    // true discards the defaults entirely
+  },
+}
+```
+
+**The matching rule, stated exactly.** A key is dropped when its name, lowercased, **contains**
+any denylist entry as a substring. Default entries: `password`, `token`, `secret`, `ssn`,
+`auth`, `cookie`, `session`, `key`.
+
+**This deliberately over-redacts.** Because `key`, `auth` and `session` are short, innocent
+fields disappear too - `monkeyId` and `keyboardLayout` match `key`, `authorName` matches
+`auth`, `sessionCount` matches `session`. If a legitimate field is missing from the overlay,
+this rule is why.
+
+**It is a conservative heuristic on key names, not secret detection.** Substring matching
+intentionally favours over-redaction, but the default list is not exhaustive and values are
+never inspected. The denylist does not remove an unmatched metadata field, or secrets embedded
+directly in log or error messages. Avoid putting secrets in introspection-visible metadata or
+messages, and add project-specific deny keys where needed.
+
+**If the defaults do not suit you, take ownership of the list.** `denyKeys` adds entries;
+`replaceDefaultDenyKeys: true` discards τjs's defaults so only your entries apply - including
+the defaults that protect, so choose the replacement list deliberately.
+
+The whole surface is development-only. In production the introspection module is never loaded,
+nothing is written, and there is nothing to redact.
+
 ## App Configuration
 
 Define frontend applications with their entry points and routes.
