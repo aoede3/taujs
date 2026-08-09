@@ -119,9 +119,9 @@ describe('URL hygiene (spec 03 §2, acceptance #4)', () => {
     dev.recorder.sent({ requestId: T, status: 200, mode: 'fallthrough' });
 
     const [episode] = dev.getEpisodes();
+    // The record shape is the guarantee. A serialised substring sweep adds nothing here and
+    // reads every random identifier too: `bootId` is a UUID, and `abc` is all hex.
     expect(episode!.url).toEqual({ pathname: '/reset', queryKeys: ['ref'], queryValuesRedacted: true });
-    expect(JSON.stringify(episode)).not.toContain('abc');
-    expect(JSON.stringify(episode)).not.toContain('token');
   });
 });
 
@@ -206,6 +206,52 @@ describe('logs annex tee (spec 03 §3)', () => {
     expect(meta.nested.password).toBeUndefined();
     expect(meta.nested.keep).toHaveLength(200);
     expect(JSON.stringify(logs)).not.toContain('sensitive');
+  });
+
+  // Pin the documented default: case-insensitive substring matching intentionally favours
+  // over-redaction.
+  it('matches deny keys as case-insensitive substrings, over-redacting by design', () => {
+    const dev = createDevIntrospection();
+    const wrapped = dev.wrapRequestLogger(mkBase(), T);
+
+    wrapped.info(
+      {
+        // Genuinely sensitive - these spellings must drop, including all-lowercase
+        // concatenations.
+        authToken: 'a',
+        API_KEY: 'b',
+        Authorization: 'c',
+        usertoken: 'd',
+        // Innocent, and dropped anyway: the documented cost of the conservative rule.
+        monkeyId: 'e',
+        authorName: 'f',
+        // Unrelated to any deny key - the rule is not a blanket drop.
+        userId: 'g',
+        totalCount: 'h',
+      },
+      'meta',
+    );
+
+    const meta = dev.getLogs(T)[0]!.meta as Record<string, unknown>;
+
+    for (const dropped of ['authToken', 'API_KEY', 'Authorization', 'usertoken', 'monkeyId', 'authorName']) {
+      expect(meta[dropped], dropped).toBeUndefined();
+    }
+    expect(meta.userId).toBe('g');
+    expect(meta.totalCount).toBe('h');
+  });
+
+  it('replaceDefaultDenyKeys hands the whole policy to the caller', () => {
+    const dev = createDevIntrospection({ denyKeys: ['classified'], replaceDefaultDenyKeys: true });
+    const wrapped = dev.wrapRequestLogger(mkBase(), T);
+
+    wrapped.info({ classified: 'x', password: 'y', monkeyId: 'z' }, 'meta');
+
+    const meta = dev.getLogs(T)[0]!.meta as Record<string, unknown>;
+    expect(meta.classified).toBeUndefined();
+    // The defaults are gone entirely, including the ones that protect.
+    expect(meta.password).toBe('y');
+    expect(meta.monkeyId).toBe('z');
   });
 
   it('child loggers stay teed to the same requestId', () => {

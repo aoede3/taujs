@@ -88,7 +88,7 @@ There is deliberately no `enabled` flag: dev-on / prod-absent is structural.
 
 Do not enable `allowNonLoopback` for `@taujs/mcp`. The adapter is filesystem-only and never touches the HTTP overlay endpoints, so the flag grants it no capability. It exists solely for reaching the browser overlay (`/__taujs/*`) from another device on a trusted development network; Host validation and the per-boot token remain enforced either way.
 
-`redaction`, by contrast, is directly MCP-relevant: it controls what reaches the emitted episode and log files the adapter serves.
+`redaction`, by contrast, is directly MCP-relevant: it controls what reaches the emitted episode and log files the adapter serves. Key names are matched as case-insensitive substrings, which deliberately over-redacts - see [`introspection.redaction`](/reference/taujs-config/#introspectionredaction) for the exact rule and how to take ownership of the list.
 
 ## When to Use It
 
