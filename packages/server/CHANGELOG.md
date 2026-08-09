@@ -1,5 +1,19 @@
 # @taujs/server
 
+## 0.26.1
+
+### Patch Changes
+
+- [#86](https://github.com/aoede3/taujs/pull/86) [`1bd96fc`](https://github.com/aoede3/taujs/commit/1bd96fc2af8e851aef9a4cae7294489810ca71c6) Thanks [@aoede3](https://github.com/aoede3)! - feat(server): the ownership boot line states the terminal wildcard, and is mount-aware
+
+  Caller-owned hosts now report whether a terminal `/*` τjs page is declared and what owns the
+  remaining GET paths. A declared wildcard owns GET paths not claimed by a more-specific route
+  within the mount, including API-like and asset-like paths.
+
+  Mounted τjs-created hosts now report that their shell is confined to the mounted subtree.
+  Structured ownership metadata adds `mounted` and `terminalWildcard`. Routing behaviour is
+  unchanged.
+
 ## 0.26.0
 
 ### Minor Changes
