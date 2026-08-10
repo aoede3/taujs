@@ -51,7 +51,7 @@ const nonce = crypto.randomBytes(16).toString('base64');
 Content-Security-Policy: script-src 'self' 'nonce-abc123...'
 
 // Passes to the renderer, in the render options
-renderStream(writable, callbacks, data, location, modules, meta, signal, { cspNonce, ... });
+renderStream(writable, callbacks, data, location, modules, meta, signal, { cspNonce: nonce });
 ```
 
 ### Automatic Application
