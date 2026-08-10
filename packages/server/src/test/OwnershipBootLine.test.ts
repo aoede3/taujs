@@ -118,7 +118,7 @@ describe('ownership boot line - caller-owned host states the terminal wildcard (
 
 describe('ownership boot line - created host is mount-aware (RFC 0012)', () => {
   it('is unchanged when unmounted, whether or not a wildcard is declared', async () => {
-    const expected = `${CONTENT.TAG} [ownership] Fastify created by τjs - whole-server shell, CSP and request identity`;
+    const expected = `${CONTENT.TAG} [ownership] Fastify created by τjs - whole-server SPA fallback, CSP and request identity`;
 
     const [plainMeta, plainMessage] = await ownershipRecord(configWith([ROOT_ROUTE]), { callerOwned: false });
     expect(plainMessage).toBe(expected);
@@ -131,15 +131,15 @@ describe('ownership boot line - created host is mount-aware (RFC 0012)', () => {
     expect(wildcardMeta).toEqual({ component: 'ownership', callerOwnedHost: false, mounted: false, terminalWildcard: true });
   });
 
-  it('states the confinement when mounted, rather than claiming a whole-server shell', async () => {
+  it('states the confinement when mounted, rather than claiming a whole-server SPA fallback', async () => {
     // MountAddressing.test.ts proves the runtime behaviour this describes: inside the subtree the
     // shell serves, outside it the host answers an ordinary 404.
     const [meta, message] = await ownershipRecord(configWith([ROOT_ROUTE], { mountPrefix: '/app' }), { callerOwned: false });
 
     expect(message).toBe(
-      `${CONTENT.TAG} [ownership] Fastify created by τjs - shell confined to the mounted subtree, an ordinary 404 outside it, CSP and request identity`,
+      `${CONTENT.TAG} [ownership] Fastify created by τjs - SPA fallback confined to the mounted subtree, an ordinary 404 outside it, CSP and request identity`,
     );
-    expect(message).not.toContain('whole-server shell');
+    expect(message).not.toContain('whole-server SPA fallback');
     expect(meta).toEqual({ component: 'ownership', callerOwnedHost: false, mounted: true, terminalWildcard: false });
   });
 });

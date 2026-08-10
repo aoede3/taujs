@@ -252,7 +252,7 @@ describe('RFC 0012 - created-host confinement (cells 6, frozen ownership contrac
     await host.close();
   });
 
-  it('keeps the unmounted created host byte-compatible: whole-server shell at the root', async () => {
+  it('keeps the unmounted created host byte-compatible: whole-server SPA fallback at the root', async () => {
     const host = await createCreatedHost();
     const { app } = await host.activate(createServer as never, withAddressing({}, [ROOT_ROUTE]));
 

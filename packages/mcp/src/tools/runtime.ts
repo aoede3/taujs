@@ -159,7 +159,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
         warnings,
         fallthrough: {
           ...graph.fallthrough,
-          note: graph.fallthrough.reachable ? undefined : 'A wildcard route makes fallthrough unreachable (app-shell pattern).',
+          note: graph.fallthrough.reachable ? undefined : 'A wildcard route makes fallthrough unreachable.',
         },
         defaultedRenders: { source: 'declared', routeIds: defaultedRenders },
         failedEpisodes: {

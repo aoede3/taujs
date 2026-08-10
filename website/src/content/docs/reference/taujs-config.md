@@ -292,11 +292,15 @@ warning naming this field, so a proxied topology fails visibly rather than silen
 
 ### `introspection.redaction`
 
-What τjs withholds from the development introspection record - the episodes, observations and
-log annex written under `node_modules/.taujs/` and served to the overlay. Redaction here is
-**structural**: τjs never scans values looking for things that resemble secrets.
+What τjs withholds from the development introspection record written under
+`node_modules/.taujs/` and served to the overlay. Redaction here is **structural**: τjs never
+scans values looking for things that resemble secrets, and each rule acts on the one record
+type that carries the data it filters. Episodes get URL hygiene; the log annex gets
+metadata-key dropping; observations (service edges) are structural records - service and
+method names, counts, timestamps and capped sample request ids - that carry neither query
+values nor metadata, so these two redaction rules have no observation fields to act on.
 
-Two rules apply, and both are unconditional:
+Two rules apply, and both are unconditional for the records they act on:
 
 - **Query values are never captured, for any key.** A URL is stored as its pathname, the
   surviving query key names, and a flag - never as a raw string. For `/reset?token=abc&ref=x`

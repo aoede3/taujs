@@ -10,7 +10,13 @@ This package is part of the τjs [ taujs ] orchestration system, authored by Joh
 
 `pnpm add @taujs/server`
 
-## CSR; SSR; Streaming SSR; Hydration; Fastify + React 19
+## SSR; Streaming SSR; CSR; Hydration; Fastify
+
+Fastify plugin and render orchestration for React, Vue and Solid applications. The renderer ships separately - pair this package with one of:
+
+- `@taujs/react`
+- `@taujs/vue`
+- `@taujs/solid`
 
 Rendering:
 
@@ -25,71 +31,29 @@ Supported application structure and composition:
 
 Assemble independent frontends at build time in a flexible SPA-MPA hybrid: SSR or Streaming SSR per declared route, CSR by omission.
 
-Fastify Plugin for integration with τjs [ taujs ] template https://github.com/aoede3/taujs
-
-- Production: Fastify, React
-- Development: Fastify, React, tsx, Vite
-
+- Production: Fastify
+- Development: Fastify, tsx, Vite
 - TypeScript-first
-- ESM-only focus
+- ESM-only
 
 ## τjs - DX Developer Experience
 
 Integrated Vite HMR run alongside tsx (TS eXecute) providing fast responsive dev reload times for universal backend / frontend changes
 
 - Fastify https://fastify.dev/
-- React https://reactjs.org/
 - tsx https://tsx.is/
-- Vite https://vitejs.dev/guide/ssr#building-for-production
-
-- ESBuild https://esbuild.github.io/
-- Rollup https://rollupjs.org/
-- ESM https://nodejs.org/api/esm.html
-
-## Development / CI
-
-`npm install --legacy-peer-deps`
+- Vite https://vitejs.dev/
 
 ## Usage
 
-### Fastify
+Scaffold a complete project with `npm create @taujs/taujs`, or start from the documentation:
 
-https://github.com/aoede3/taujs/blob/main/src/server/index.ts
-
-Not utilising τjs [ taujs ] template? Add in your own ts `alias` object for your own particular directory setup e.g. `alias: { object }`
-
-### React 'entry-client.tsx'
-
-https://github.com/aoede3/taujs/blob/main/src/client/entry-client.tsx
-
-### React 'entry-server.tsx'
-
-Extended pipe object with callbacks to @taujs/server enabling additional manipulation of HEAD content from client code
-
-https://github.com/aoede3/taujs/blob/main/src/client/entry-server.tsx
-
-### index.html
-
-https://github.com/aoede3/taujs/blob/main/src/client/index.html
-
-### client.d.ts
-
-https://github.com/aoede3/taujs/blob/main/src/client/client.d.ts
+- Getting started: https://taujs.dev/guides/getting-started/
+- Application contract and configuration: https://taujs.dev/reference/taujs-config/
+- Host ownership (bring your own Fastify): https://taujs.dev/guides/host-ownership/
+- Renderers: https://taujs.dev/renderers/react/ | https://taujs.dev/renderers/vue/ | https://taujs.dev/renderers/solid/
 
 ### Routes
-
-τjs app paths are registered as native Fastify routes:
-
-1. Fastify serving index.html to client browser for client routing
-2. Internal service calls to API to provide data for streaming/hydration
-3. Fastify serving API calls via HTTP in the more traditional sense of client/server
-
-In ensuring a particular 'route' receives data for hydration there are two options:
-
-1. Internal service call returning data as per your architecture
-2. An HTTP call from your app passing resolved data to @taujs/server
-
-In supporting Option 1. there is a registry of services. More detail in 'Service Registry'.
 
 Each route path uses Fastify route syntax. Configure router behaviour on the Fastify instance passed to createServer; τjs does not maintain a parallel matcher or duplicate Fastify router options.
 
@@ -97,12 +61,6 @@ Known stale path-to-regexp forms fail at startup rather than registering with di
 Auth and route CSP apply only to the Fastify-selected τjs route. Dotted values are valid page-route
 parameters; asset-like URLs 404 only when no static or declared page route owns them.
 
-https://github.com/aoede3/taujs/blob/main/src/shared/routes/Routes.ts
-
 ### Service Registry
 
-In supporting internal calls via τjs a registry of available services and methods can provide linkage to your own architectural setup and developmental patterns
-
-https://github.com/aoede3/taujs/blob/main/src/server/services/ServiceRegistry.ts
-
-https://github.com/aoede3/taujs/blob/main/src/server/services/ServiceExample.ts
+Internal service calls resolve route data through a registry of services and methods, linking the render pipeline to your own architecture. See https://taujs.dev/guides/services/

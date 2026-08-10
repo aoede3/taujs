@@ -50,9 +50,10 @@ export const externalImportsOfBuiltServer = (): string[] => {
   for (const source of sources) {
     for (const [, specifier] of source.matchAll(/(?:from|require\(|import\()\s*["']([^"']+)["']/g)) {
       // The group always participates in a match, so this is never undefined at runtime - but the
-      // type says otherwise and a silent `undefined` here would drop a real external import from
-      // the assertion rather than fail it.
-      if (specifier !== undefined && !specifier.startsWith('.')) specifiers.add(specifier);
+      // type says otherwise, and silently skipping it would drop a real external import from the
+      // assertion rather than fail it. So the impossible case fails loudly instead.
+      if (specifier === undefined) throw new Error('matchAll capture group missing - the import-specifier regex no longer captures what it matches');
+      if (!specifier.startsWith('.')) specifiers.add(specifier);
     }
   }
 

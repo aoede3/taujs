@@ -172,4 +172,39 @@ describe('runtime tools (active boot)', () => {
     expect(result.failedEpisodes.items[0].error.message).toContain('999');
     expect(result.failedEpisodes.source).toContain('observed');
   });
+
+  it('taujs_doctor states the unreachable-fallthrough note without classifying the wildcard as a pattern', async () => {
+    // A terminal wildcard is a routing/ownership mechanism; the note must not brand it
+    // "app-shell pattern" (vocabulary ruling, decisions.md 2026-08-09).
+    const wildcardConfig: CoreTaujsConfig = {
+      apps: [{ appId: 'wildcard-app', entryPoint: '', routes: [{ path: '/*', attr: { render: 'ssr', meta: {} } }] }],
+    };
+    const root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-wildcard-'));
+    const dir = path.join(root, 'node_modules', '.taujs');
+    const dev = createDevIntrospection();
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(createRequestGraph(wildcardConfig, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z' })));
+    await writeTaujsArtifact(dir, 'episodes.ndjson', '\n');
+    await writeTaujsArtifact(dir, 'logs.ndjson', '\n');
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
+    const devJson: DevJson = {
+      bootId: dev.bootId,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T11:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+
+    const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
+    const result = tools.get('taujs_doctor')!({}) as any;
+
+    expect(result.fallthrough.reachable).toBe(false);
+    expect(result.fallthrough.note).toBe('A wildcard route makes fallthrough unreachable.');
+    expect(result.fallthrough.note).not.toContain('app-shell');
+  });
 });
