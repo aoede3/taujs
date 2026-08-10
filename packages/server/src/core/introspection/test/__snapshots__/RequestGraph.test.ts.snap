@@ -468,7 +468,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) with
 }
 `;
 
-exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (c) app-shell wildcard: fallthrough unreachable 1`] = `
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (c) terminal wildcard: fallthrough unreachable 1`] = `
 {
   "apps": [
     {
@@ -550,7 +550,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (c) app-
   "warnings": [
     {
       "code": "fallthrough.unreachable",
-      "message": "Route "/*" matches all page URLs (app-shell pattern); fallthrough is unreachable",
+      "message": "Route "/*" matches all page URLs; fallthrough is unreachable",
       "routeId": "shell:/*",
       "severity": "info",
       "source": "graph",
@@ -727,7 +727,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (d) ever
     },
     {
       "code": "fallthrough.unreachable",
-      "message": "Route "*" matches all page URLs (app-shell pattern); fallthrough is unreachable",
+      "message": "Route "*" matches all page URLs; fallthrough is unreachable",
       "routeId": "alpha:*",
       "severity": "info",
       "source": "graph",

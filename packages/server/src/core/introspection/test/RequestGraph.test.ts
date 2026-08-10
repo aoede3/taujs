@@ -84,7 +84,7 @@ const fixtureMultiApp: CoreTaujsConfig = {
   security: { csp: { defaultMode: 'merge', reporting: { endpoint: '/csp-report' } } },
 };
 
-// (c) app-shell wildcard: fallthrough unreachable.
+// (c) terminal wildcard: fallthrough unreachable.
 const fixtureAppShell: CoreTaujsConfig = {
   apps: [
     {
@@ -170,7 +170,7 @@ describe('createRequestGraph — fixture snapshots (spec 02 schema v1)', () => {
     expect(versionAgnostic(createRequestGraph(fixtureMultiApp, { ...OPTS, source: 'build' }))).toMatchSnapshot();
   });
 
-  it('(c) app-shell wildcard: fallthrough unreachable', () => {
+  it('(c) terminal wildcard: fallthrough unreachable', () => {
     expect(versionAgnostic(createRequestGraph(fixtureAppShell, OPTS))).toMatchSnapshot();
   });
 

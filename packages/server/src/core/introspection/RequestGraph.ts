@@ -261,7 +261,7 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
       severity: 'info',
       source: 'graph',
       routeId: wildcardRoute.id,
-      message: `Route "${wildcardRoute.path}" matches all page URLs (app-shell pattern); fallthrough is unreachable`,
+      message: `Route "${wildcardRoute.path}" matches all page URLs; fallthrough is unreachable`,
     });
   }
 

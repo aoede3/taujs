@@ -150,10 +150,10 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   // the thesis this process is on. Without it a caller cannot tell from the logs why their 404s,
   // CSP or correlation headers changed.
   //
-  // RFC 0010 Q5: a caller-owned host gets no τjs not-found shell, so the line reports whether the
+  // RFC 0010 Q5: a caller-owned host gets no τjs SPA fallback, so the line reports whether the
   // opt-in - a declared terminal `/*` page - is in force. RFC 0012: a mounted created host's
-  // shell is confined to its subtree, so the created arm is mount-aware rather than claiming a
-  // whole-server shell unconditionally.
+  // SPA fallback is confined to its subtree, so the created arm is mount-aware rather than
+  // claiming a whole-server fallback unconditionally.
   const terminalWildcard = routes.some((route) => route.path === '/*');
   const mounted = mountPrefix !== '';
 
@@ -164,7 +164,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
           : "No terminal '/*' τjs page declared: your routes and not-found policy own all remaining GET paths"
       }`
     : `${CONTENT.TAG} [ownership] Fastify created by τjs - ${
-        mounted ? 'shell confined to the mounted subtree, an ordinary 404 outside it' : 'whole-server shell'
+        mounted ? 'SPA fallback confined to the mounted subtree, an ordinary 404 outside it' : 'whole-server SPA fallback'
       }, CSP and request identity`;
 
   logger.info({ component: 'ownership', callerOwnedHost, mounted, terminalWildcard }, ownershipMessage);
@@ -220,7 +220,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     // RFC 0012: the mount is Fastify's own scope-prefix primitive on the one τjs registration.
     // `mounted` flips the plugin to its encapsulated form on a τjs-created host too - fastify-plugin
     // ignores `prefix` when it breaks encapsulation, and an encapsulated prefixed scope is also what
-    // CONFINES the created-host shell to the mounted subtree (prefix-keyed not-found).
+    // CONFINES the created-host SPA fallback to the mounted subtree (prefix-keyed not-found).
     await app.register(ssrServerPlugin({ callerOwnedHost, mounted: mountPrefix !== '' }), {
       prefix: mountPrefix || undefined,
       publicBasePath,
