@@ -168,22 +168,23 @@ not load several application bundles into one browser runtime, negotiate shared 
 runtime or preserve in-memory state across application boundaries.
 
 Navigation between applications is a full document navigation. Navigation within one application
-shell can remain client-side. This makes the URL boundary the composition seam and avoids a runtime
+can remain client-side. This makes the URL boundary the composition seam and avoids a runtime
 federation layer. See [Micro-Frontends](/guides/micro-frontend) for build, routing and transition
 patterns.
 
-## Application shells and undeclared screens
+## Undeclared screens and the SPA fallback
 
 A client-routed screen does not need its own τjs data contract. It needs a server route or fallback
-that delivers the application shell:
+that delivers the application document:
 
-- a τjs-created host provides an implicit shell for unmatched document-like URLs;
+- a τjs-created host provides an implicit SPA fallback document for unmatched document-like URLs;
 - a caller-owned host requires an explicit terminal `/*` page when the application should own
   those URLs.
 
-The shell loads the client bundle and the client router can take over. This is how τjs supports
-incremental adoption without pretending every client screen has declared request orchestration. See
-[App Shell Architecture](/guides/app-shell-pattern) for the complete pattern.
+That document loads the client bundle and the client router can take over. This is how τjs supports
+incremental adoption without pretending every client screen has declared request orchestration.
+For the separate single-application composition pattern using shared browser-side chrome, routing
+and state, see [App Shell Architecture](/guides/app-shell-pattern).
 
 ## Failure and cancellation boundaries
 

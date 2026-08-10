@@ -36,7 +36,7 @@ In production the default registration uses:
 ```
 
 `wildcard: false` matters. Static files receive concrete Fastify routes instead of a catch-all
-`GET /*`, so τjs can also register an explicit terminal application-shell route.
+`GET /*`, so τjs can also register an explicit terminal wildcard page route.
 
 On a τjs-created host the facility is installed at the created root. On a supplied Fastify instance
 it is encapsulated with the τjs applications. A caller's own static routes remain the caller's
@@ -142,13 +142,13 @@ A supplied host may register its own `@fastify/static` before τjs. That works w
 not collide.
 
 The caller plugin's own default is `wildcard: true`, which claims `GET /*`. If a τjs application also
-declares `/*` as its shell route, Fastify correctly fails with `FST_ERR_DUPLICATED_ROUTE`. Registration
+declares `/*` as its terminal wildcard page route, Fastify correctly fails with `FST_ERR_DUPLICATED_ROUTE`. Registration
 order cannot resolve two owners of the same method and path.
 
 Use one of these arrangements:
 
 ```ts
-// Concrete file routes can coexist with a τjs terminal shell route.
+// Concrete file routes can coexist with a τjs terminal wildcard route.
 await fastify.register(fastifyStatic, {
   root: path.resolve("dist/client"),
   prefix: "/",
@@ -164,7 +164,7 @@ await fastify.register(fastifyStatic, {
 });
 ```
 
-See [Host Ownership](/guides/host-ownership/#application-shell-and-unmatched-urls) for shell and
+See [Host Ownership](/guides/host-ownership/#spa-fallback-and-unmatched-urls) for fallback and
 not-found behaviour.
 
 ## Public directories
@@ -291,7 +291,7 @@ const clientRoot = path.resolve(process.cwd(), "dist/client");
 
 Or omit `clientRoot` when the process starts from the project root and use the environment defaults.
 
-### Asset returns the application shell
+### Asset returns the wildcard page
 
 Check whether a terminal wildcard page owns the asset URL. An explicit `/*` page renders every URL it
 matches, including asset-like misses. Use a narrower page prefix and a separate asset prefix when
@@ -305,7 +305,7 @@ separate the prefixes.
 
 ### Wrong MIME type
 
-First confirm the response came from the static route rather than a shell or not-found handler. If a
+First confirm the response came from the static route rather than a wildcard page, the SPA fallback document or a not-found handler. If a
 real file needs an override, set the header in that mount's `setHeaders` callback.
 
 ### Files are missing
@@ -322,6 +322,6 @@ other configured applications before deployment.
 
 Related guides:
 
-- [Host Ownership](/guides/host-ownership/) for Fastify scope and shell ownership
+- [Host Ownership](/guides/host-ownership/) for Fastify scope and fallback ownership
 - [Build & Deployment](/guides/build-deployment/) for output and selective builds
 - [Micro-Frontends](/guides/micro-frontend/) for per-application artefacts

@@ -150,17 +150,17 @@ output behaviour.
 ### Within one application
 
 Undeclared URLs stay with the client router. A URL omitted from `taujs.config.ts` is not a
-server-owned request contract; once the application's shell is served, its client router can own
+server-owned request contract; once the application's document is served, its client router can own
 that URL.
 
-The shell still needs an HTTP owner:
+That document still needs an HTTP owner:
 
-- a τjs-created host provides the implicit application-shell fallback
+- a τjs-created host provides the implicit SPA fallback document
 - a caller-owned Fastify host needs a declared terminal wildcard such as `/app/*` for τjs to own
   unmatched client URLs
 
 See [Request Contracts & Data](/guides/request-contracts/#undeclared-urls-and-client-routing) and
-[Host Ownership](/guides/host-ownership/#application-shell-and-unmatched-urls).
+[Host Ownership](/guides/host-ownership/#spa-fallback-and-unmatched-urls).
 
 ### Between applications
 

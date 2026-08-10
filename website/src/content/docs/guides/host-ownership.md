@@ -9,7 +9,7 @@ When `fastify` is omitted, τjs creates the instance and installs its whole-serv
 encapsulated scope. There is no separate ownership option or flag.
 
 ```ts
-// τjs creates Fastify: whole-server shell, CSP and request identity
+// τjs creates Fastify: whole-server SPA fallback, CSP and request identity
 const { app, net } = await createServer({ config });
 
 // You own Fastify: τjs installs into an encapsulated application scope
@@ -45,7 +45,7 @@ that matches the application:
 | Auth | τjs routes | τjs routes |
 | Page errors | τjs root handler | τjs scoped handler |
 | Host route errors | τjs | You |
-| Not-found and shell | Implicit τjs shell | You, unless you declare `/*` |
+| Not-found and SPA fallback | Implicit τjs fallback document | You, unless you declare `/*` |
 | Static facilities, decorators | τjs root | τjs scope |
 | Logging | Resolved τjs logger | Your `fastify.log` lineage |
 | Listening and shutdown | You | You |
@@ -60,13 +60,13 @@ unchanged. The hook is not registered in production.
 
 ## Using a caller-owned Fastify instance
 
-### Application shell and unmatched URLs
+### SPA fallback and unmatched URLs
 
 On a caller-owned host, URLs that match no Fastify route reach the host's not-found handler. τjs does
-not install an implicit application shell in the caller's root scope.
+not install its implicit SPA fallback document in the caller's root scope.
 
-To send client-routed URLs to a τjs application shell, declare a terminal wildcard page. It is an
-ordinary Fastify route compiled from the τjs application contract:
+To keep client-routed URLs inside a τjs application, declare a terminal wildcard page route. It
+is an ordinary Fastify route compiled from the τjs application contract:
 
 ```ts
 routes: [
@@ -75,10 +75,12 @@ routes: [
 ];
 ```
 
-The wildcard is the server route. Child URLs can remain client-routed inside the shell. See
-[App Shell Architecture](/guides/app-shell-pattern) for the complete pattern.
+The wildcard is the server route. Child URLs can remain client-routed inside the application.
+For the separate single-application composition pattern using shared browser-side chrome,
+routing and state, see [App Shell Architecture](/guides/app-shell-pattern).
 
-The two shell forms have different asset behaviour. The implicit shell on a τjs-created host
+The implicit fallback and the explicit wildcard have different asset behaviour. The implicit SPA
+fallback document on a τjs-created host
 delegates asset-like misses such as `/logo.png` to a 404. An explicit `/*` owns and renders every
 URL it matches. Use narrower page patterns or a separate asset prefix when missing asset-like URLs
 must remain 404 responses.

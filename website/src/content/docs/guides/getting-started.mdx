@@ -80,11 +80,11 @@ A route can also declare head metadata, critical data, deferred data, authentica
 
 ## Undeclared routes stay client-rendered
 
-Client-side rendering is not a third value of `attr.render`. A URL known to the client router but absent from `taujs.config.ts` stays client-rendered once the application shell has loaded.
+Client-side rendering is not a third value of `attr.render`. It happens by omission: a URL known to the client router but absent from `taujs.config.ts` stays client-rendered once the application has loaded in the browser.
 
-For a direct request to such a URL, something must still serve that shell:
+For a direct request to such a URL, something must still serve the application document:
 
-- a Fastify instance created by τjs supplies the application-shell fallback
+- a Fastify instance created by τjs supplies the SPA fallback document
 - a Fastify instance supplied by the caller requires an explicit terminal `/*` τjs route when τjs should own unmatched document URLs
 
 See [Request Contracts & Data](/guides/request-contracts/#undeclared-urls-and-client-routing) and [Host Ownership](/guides/host-ownership/) for the full boundary.
@@ -103,7 +103,7 @@ The [Architecture](/guides/architecture/) guide explains the ownership boundarie
 
 The scaffold lets τjs create Fastify, then calls `app.listen()` from the server entry. You can instead pass an existing Fastify instance to `createServer`. In that form, the caller owns the host and τjs installs its declared routes and facilities inside an encapsulated scope.
 
-That distinction affects the application shell, host-wide CSP, request identity and not-found handling. Read [Host Ownership](/guides/host-ownership/) before embedding τjs into an existing server.
+That distinction affects the SPA fallback document, host-wide CSP, request identity and not-found handling. Read [Host Ownership](/guides/host-ownership/) before embedding τjs into an existing server.
 
 ## Development and production
 

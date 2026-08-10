@@ -353,7 +353,7 @@ If you already have a SPA with an `App` component and client-side routing, the f
 
 At this point:
 
-- Runtime behaviour is basically unchanged (still one shell, still CSR/SSR depending on what you choose).
+- Runtime behaviour is basically unchanged (still one shell with client-side navigation; the shell itself now renders on the server).
 - You get τjs’s SSR/streaming/CSP/static-asset plumbing.
 - There is still **one deployment unit**.
 

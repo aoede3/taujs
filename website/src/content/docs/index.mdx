@@ -158,8 +158,8 @@ console - each a separate application with its own renderer root, module graph a
 and each free to choose its own renderer framework. Independently developed applications can share
 one server and one operational model without first standardising on a component framework.
 
-Each URL belongs to exactly one application. Left undeclared within the application shell, it
-remains client-rendered.
+Each URL belongs to exactly one application. Left undeclared, it remains client-rendered by
+omission.
 
 Applications compose through routes and assembled build output rather than runtime module
 federation. They can be built selectively, while the deployed server artefact receives the bundles

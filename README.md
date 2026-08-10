@@ -1,6 +1,6 @@
 # τjs &nbsp;[ taujs ]
 
-> τjs is an orchestration layer built on Fastify, Vite, and React / Vue / Solid. Developer-first with declarative configuration for building modern web apps with per-route control over CSR, SSR, and Streaming SSR.
+> τjs is an orchestration layer built on Fastify, Vite, and React / Vue / Solid. Developer-first with declarative configuration for building modern web apps: per-route control over SSR and Streaming SSR, with CSR by omission of a route.
 
 [![@taujs/create-taujs](https://img.shields.io/npm/v/@taujs/create-taujs?label=%40taujs%2Fcreate-taujs)](https://www.npmjs.com/package/@taujs/create-taujs)
 [![@taujs/server](https://img.shields.io/npm/v/@taujs/server?label=%40taujs%2Fserver)](https://www.npmjs.com/package/@taujs/server)
@@ -15,14 +15,14 @@
 
 ## Packages
 
-| Package                                        | Description                                                                                                                                       |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@taujs/create-taujs`](packages/create-taujs) | Scaffolder for a new τjs application.                                                                                                             |
-| [`@taujs/server`](packages/server)             | Fastify plugin & render orchestration - CSR / SSR / Streaming SSR for SPA, MPA, and build‑time micro‑frontends (MFE). Vite HMR + tsx in dev.      |
-| [`@taujs/react`](packages/react)               | React renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                         |
-| [`@taujs/vue`](packages/vue)                   | Vue renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                           |
-| [`@taujs/solid`](packages/solid)               | Solid renderer: CSR, SSR and Streaming SSR. Standalone and runtime‑agnostic.                                                                      |
-| [`@taujs/mcp`](packages/mcp)                   | MCP server for AI agents: reads the dev‑emitted request graph and live request episodes (filesystem‑only stdio adapter). Wired by the scaffolder. |
+| Package                                        | Description                                                                                                                                                                  |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@taujs/create-taujs`](packages/create-taujs) | Scaffolder for a new τjs application.                                                                                                                                        |
+| [`@taujs/server`](packages/server)             | Fastify plugin & render orchestration - SSR / Streaming SSR per declared route, CSR by omission - for SPA, MPA, and build‑time micro‑frontends (MFE). Vite HMR + tsx in dev. |
+| [`@taujs/react`](packages/react)               | React renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                                                    |
+| [`@taujs/vue`](packages/vue)                   | Vue renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                                                      |
+| [`@taujs/solid`](packages/solid)               | Solid renderer: CSR, SSR and Streaming SSR. Standalone and runtime‑agnostic.                                                                                                 |
+| [`@taujs/mcp`](packages/mcp)                   | MCP server for AI agents: reads the dev‑emitted request graph and live request episodes (filesystem‑only stdio adapter). Wired by the scaffolder.                            |
 
 Current versions are shown by the badges above.
 

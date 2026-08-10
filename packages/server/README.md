@@ -12,11 +12,10 @@ This package is part of the τjs [ taujs ] orchestration system, authored by Joh
 
 ## CSR; SSR; Streaming SSR; Hydration; Fastify + React 19
 
-Supports rendering modes:
+Rendering:
 
-- Client-side rendering (CSR)
-- Server-side rendering (SSR)
-- Streaming SSR
+- Server-side rendering (SSR) and Streaming SSR, chosen per declared route
+- Client-side rendering (CSR) by omission: when no declared τjs route matches a URL, it remains outside server orchestration; what answers it depends on host ownership
 
 Supported application structure and composition:
 
@@ -24,7 +23,7 @@ Supported application structure and composition:
 - Multi-page Application (MPA)
 - Build-time Micro-Frontends (MFE), with server orchestration and delivery
 
-Assemble independent frontends at build time incorporating flexible per-route SPA-MPA hybrid with CSR, SSR, and Streaming SSR, rendering options.
+Assemble independent frontends at build time in a flexible SPA-MPA hybrid: SSR or Streaming SSR per declared route, CSR by omission.
 
 Fastify Plugin for integration with τjs [ taujs ] template https://github.com/aoede3/taujs
 

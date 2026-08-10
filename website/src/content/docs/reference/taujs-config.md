@@ -410,7 +410,7 @@ Route paths therefore use Fastify route syntax, not regular expressions. An exac
 
 Who answers an unmatched URL depends on who owns the host, including in the example above, since supplying an instance is itself an ownership decision:
 
-- **τjs created the Fastify instance** - unmatched document URLs continue through the τjs application-shell fallback.
+- **τjs created the Fastify instance** - unmatched document URLs continue through the τjs SPA fallback document.
 - **You supplied the Fastify instance** - your own not-found policy owns unmatched URLs, unless you declare an explicit τjs terminal wildcard page (`path: '/*'`).
 
 See [Host Ownership](/guides/host-ownership/) for the full split and the embedded-host migration notes.
