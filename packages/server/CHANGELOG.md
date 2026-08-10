@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.26.2
+
+### Patch Changes
+
+- [#89](https://github.com/aoede3/taujs/pull/89) [`259ff4b`](https://github.com/aoede3/taujs/commit/259ff4bb42b66abcca084c9d3b1f3fa8075ca99d) Thanks [@aoede3](https://github.com/aoede3)! - Ownership boot line and request-graph wording: the created host's implicit document is now called the SPA fallback rather than a shell, and the wildcard warning no longer classifies a terminal wildcard route as the app-shell pattern. Log and introspection text only; no behaviour change.
+
 ## 0.26.1
 
 ### Patch Changes

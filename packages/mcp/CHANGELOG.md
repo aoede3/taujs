@@ -1,5 +1,11 @@
 # @taujs/mcp
 
+## 0.2.1
+
+### Patch Changes
+
+- [#89](https://github.com/aoede3/taujs/pull/89) [`259ff4b`](https://github.com/aoede3/taujs/commit/259ff4bb42b66abcca084c9d3b1f3fa8075ca99d) Thanks [@aoede3](https://github.com/aoede3)! - The taujs_doctor fallthrough note no longer classifies a wildcard route as the app-shell pattern; it states the mechanism only. Tool output text; no behaviour change.
+
 ## 0.2.0
 
 ### Minor Changes
