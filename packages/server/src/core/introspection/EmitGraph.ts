@@ -71,11 +71,29 @@ export const emitGraphArtifact = async (
 // reached via lazy dynamic import) — in production this module is never even loaded.
 // onListen so emission reflects a server that actually bound, never a boot that failed.
 export const registerBootGraphEmission = (app: FastifyInstance, config: CoreTaujsConfig, serviceRegistry: ServiceRegistry | undefined, logger: Logs): void => {
-  app.addHook('onListen', async function emitBootGraph() {
-    await emitGraphArtifact(path.resolve(process.cwd(), 'node_modules', '.taujs'), config, {
+  // Same close barrier as registerDevFiles: listen() resolves before the async onListen hook
+  // runner completes (Fastify sequences the hook promises, but the listen caller is not waiting
+  // on them), so close can run while this write is in flight — or before the hook has even
+  // started. onClose awaits the tracked work, and a boot that close has overtaken never starts
+  // the write at all; otherwise a slow graph.json write could recreate node_modules/.taujs
+  // during a caller's teardown removal.
+  let closed = false;
+  let work: Promise<unknown> = Promise.resolve();
+
+  app.addHook('onListen', function emitBootGraph() {
+    if (closed) return;
+
+    work = emitGraphArtifact(path.resolve(process.cwd(), 'node_modules', '.taujs'), config, {
       source: 'boot',
       logger,
       serviceRegistry,
     });
+
+    return work.then(() => undefined);
+  });
+
+  app.addHook('onClose', async () => {
+    closed = true;
+    await work.catch(() => undefined);
   });
 };

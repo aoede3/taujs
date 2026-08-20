@@ -94,7 +94,7 @@ describe('emitGraphArtifact', () => {
 });
 
 describe('registerBootGraphEmission', () => {
-  it('registers an onListen hook that writes node_modules/.taujs/graph.json (source: boot)', async () => {
+  it('registers an onListen writer and its onClose barrier; the write lands as node_modules/.taujs/graph.json (source: boot)', async () => {
     const { registerBootGraphEmission } = await importFresh();
     const addHook = vi.fn();
     const app = { addHook } as any;
@@ -104,9 +104,10 @@ describe('registerBootGraphEmission', () => {
     try {
       registerBootGraphEmission(app, config, undefined, logger);
 
-      expect(addHook).toHaveBeenCalledTimes(1);
-      const [hookName, hookFn] = addHook.mock.calls[0]!;
-      expect(hookName).toBe('onListen');
+      // Two hooks since the close barrier: the onListen writer and the onClose that awaits it
+      // (close must never resolve with the graph write still in flight).
+      expect(addHook.mock.calls.map((c) => c[0])).toEqual(['onListen', 'onClose']);
+      const hookFn = addHook.mock.calls[0]![1];
 
       await hookFn();
 
