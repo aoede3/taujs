@@ -1,10 +1,34 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import fastify from 'fastify';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// One-shot gate for the close-ordering regression cell: when armed, the NEXT dev-file write
+// blocks until released - a deterministically in-flight write, no timing games. All other
+// writes pass straight through to the real implementation.
+const writeGate = vi.hoisted(() => ({
+  armed: false,
+  held: Promise.resolve() as Promise<void>,
+  heldStarts: 0,
+}));
+
+vi.mock('../EmitGraph', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../EmitGraph')>();
+  return {
+    ...actual,
+    writeTaujsArtifact: async (...args: Parameters<typeof actual.writeTaujsArtifact>) => {
+      if (writeGate.armed) {
+        writeGate.armed = false;
+        writeGate.heldStarts += 1;
+        await writeGate.held;
+      }
+      return actual.writeTaujsArtifact(...args);
+    },
+  };
+});
 
 import { createDevIntrospection } from '../DevIntrospection';
 import { registerDevFiles } from '../DevFiles';
@@ -467,6 +491,96 @@ describe('dev files lifecycle (spec 03 §5)', () => {
       expect(await readFile(path.join(taujsDir, 'logs.ndjson'), 'utf8')).toBe('');
 
       await app.close();
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
+  it('close awaits the in-flight BOOT writes - Fastify never awaited onListen, so the timer must not start after close (CI ENOTEMPTY regression)', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-close-boot-'));
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+
+    try {
+      const taujsDir = path.join(dir, 'node_modules', '.taujs');
+      const introspection = createDevIntrospection();
+      const app = fastify();
+      registerDevFiles(app, introspection, mkLogger(), { pollMs: 1 });
+
+      // Arm BEFORE listen resolves its hook work: listen() returns while onListen still runs, so
+      // the FIRST boot write blocks on the gate - deterministically the fast boot-then-close shape
+      // the CI tests hit, where close ran mid-boot, cleared a timer that did not exist yet, and
+      // the poller then started AFTER close and wrote into a directory being removed.
+      let release!: () => void;
+      writeGate.held = new Promise<void>((resolve) => (release = resolve));
+      writeGate.armed = true;
+      await app.listen({ port: 0, host: '127.0.0.1' });
+      await vi.waitFor(() => {
+        expect(writeGate.heldStarts).toBeGreaterThan(0);
+      });
+
+      let closed = false;
+      const closing = app.close().then(() => {
+        closed = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(closed).toBe(false);
+
+      release();
+      await closing;
+
+      // With close resolved, removal succeeds first try and nothing recreates the directory -
+      // in particular the poller never started, so no 1ms tick can land afterwards.
+      await rm(taujsDir, { recursive: true });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await expect(stat(taujsDir)).rejects.toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
+  it('close awaits an in-flight POLLED write via the shared flush chain (CI ENOTEMPTY regression, tick variant)', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-close-tick-'));
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+
+    try {
+      const taujsDir = path.join(dir, 'node_modules', '.taujs');
+      const introspection = createDevIntrospection();
+      const app = fastify();
+      registerDevFiles(app, introspection, mkLogger(), { pollMs: 1 });
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      // Boot work completes first (dev.json on disk), so the held write below is a TICK's.
+      await vi.waitFor(async () => {
+        await stat(path.join(taujsDir, 'dev.json'));
+      });
+
+      // Traffic so the next tick has something to write, then arm: that write starts and BLOCKS -
+      // deterministically the state the real 500ms poller reaches by chance beside close.
+      introspection.recorder.requestStart({ requestId: 'race-1', url: '/race', method: 'GET' });
+      introspection.recorder.sent({ requestId: 'race-1', status: 200, mode: 'fallthrough' });
+      let release!: () => void;
+      writeGate.held = new Promise<void>((resolve) => (release = resolve));
+      const heldBefore = writeGate.heldStarts;
+      writeGate.armed = true;
+      await vi.waitFor(() => {
+        expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
+      });
+
+      // The defect was close RESOLVING while that write was still in flight - the straggler then
+      // landed during the caller's teardown and its mkdir(recursive) recreated .taujs mid-removal.
+      let closed = false;
+      const closing = app.close().then(() => {
+        closed = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(closed).toBe(false);
+
+      release();
+      await closing;
+
+      await rm(taujsDir, { recursive: true });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await expect(stat(taujsDir)).rejects.toThrow();
     } finally {
       cwdSpy.mockRestore();
     }

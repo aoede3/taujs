@@ -15,12 +15,19 @@ const POLL_MS = 500;
 // full atomic rewrite on change, debounced by a polling interval. Correctness over
 // cleverness: the rings are already size-capped in memory, so a rewrite is bounded work.
 // All writes are non-fatal (invariant 3) via writeTaujsArtifact.
-export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrospection, logger: Logs): void => {
+export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrospection, logger: Logs, options?: { pollMs?: number }): void => {
   const dir = path.resolve(process.cwd(), 'node_modules', '.taujs');
   const filePath = (name: string) => path.join(dir, name);
+  const pollMs = options?.pollMs ?? POLL_MS;
 
   let timer: NodeJS.Timeout | undefined;
   let last = { episodes: -1, episodesRevision: -1, logs: -1, observationsUpdatedAt: null as string | null };
+
+  // Every flush - polled or final - joins ONE chain, and close awaits it. A polled tick was
+  // previously fired unawaited: one still in flight when onClose ran could land its write
+  // AFTER close resolved, and writeTaujsArtifact's mkdir(recursive) would recreate
+  // node_modules/.taujs while a caller's teardown was removing it (the CI ENOTEMPTY flake).
+  let inFlight: Promise<void> = Promise.resolve();
 
   const flush = async (): Promise<void> => {
     const stats = introspection.stats();
@@ -42,48 +49,69 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
     last = stats;
   };
 
-  app.addHook('onListen', async function emitDevJson() {
+  const scheduleFlush = (): Promise<void> => (inFlight = inFlight.then(flush).catch(() => undefined));
+
+  // Fastify does NOT await onListen hooks (the lifecycle test pins this), so a fast
+  // boot-then-close can reach onClose while the boot writes below are still in flight - and,
+  // worse, before the poller exists, so clearInterval cleared nothing and the timer then
+  // STARTED after close and kept writing into a directory the caller was removing (the CI
+  // ENOTEMPTY flake). onClose therefore awaits the tracked boot work, and the timer only
+  // starts if close has not already run.
+  let closed = false;
+  let bootWork: Promise<void> = Promise.resolve();
+
+  app.addHook('onListen', function emitDevJson() {
     const address = this.server.address() as AddressInfo | null;
 
-    // SC-09 episode rename migration: a developer may still hold a legacy traces.ndjson written by
-    // an earlier boot. A current boot exposes only episodes.ndjson through dev.json, and the
-    // obsolete generated file is removed explicitly so a stale legacy artefact can never be
-    // mistaken for current-boot evidence. Non-fatal like every other dev-file write.
-    await rm(filePath('traces.ndjson'), { force: true }).catch(() => undefined);
+    bootWork = (async () => {
+      // SC-09 episode rename migration: a developer may still hold a legacy traces.ndjson written by
+      // an earlier boot. A current boot exposes only episodes.ndjson through dev.json, and the
+      // obsolete generated file is removed explicitly so a stale legacy artefact can never be
+      // mistaken for current-boot evidence. Non-fatal like every other dev-file write.
+      await rm(filePath('traces.ndjson'), { force: true }).catch(() => undefined);
 
-    // Same principle for the mutable ring mirrors (spec 03 §5 amendment, decisions.md
-    // 2026-08-20): the poller below only rewrites on change, so until the first current-boot
-    // event each file on disk is still the PREVIOUS boot's - an early reader could serve old
-    // edges as "seen this boot". Reset all three at listen: previous-boot content is
-    // legitimately read only while no boot runs (stale mode, freshness-cited), and ceases to
-    // be applicable exactly now (episode reads are bootId-filtered; runtime tools need this boot).
-    await writeTaujsArtifact(dir, 'episodes.ndjson', '', logger);
-    await writeTaujsArtifact(dir, 'logs.ndjson', '', logger);
-    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(introspection.getObservations(), null, 2), logger);
+      // Same principle for the mutable ring mirrors (spec 03 §5 amendment, decisions.md
+      // 2026-08-20): the poller below only rewrites on change, so until the first current-boot
+      // event each file on disk is still the PREVIOUS boot's - an early reader could serve old
+      // edges as "seen this boot". Reset all three at listen: previous-boot content is
+      // legitimately read only while no boot runs (stale mode, freshness-cited), and ceases to
+      // be applicable exactly now (episode reads are bootId-filtered; runtime tools need this boot).
+      await writeTaujsArtifact(dir, 'episodes.ndjson', '', logger);
+      await writeTaujsArtifact(dir, 'logs.ndjson', '', logger);
+      await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(introspection.getObservations(), null, 2), logger);
 
-    const devJson = {
-      bootId: introspection.bootId,
-      token: introspection.token,
-      pid: process.pid,
-      startedAt: new Date().toISOString(),
-      host: address?.address ?? null,
-      port: address?.port ?? null,
-      graph: filePath('graph.json'),
-      episodes: filePath('episodes.ndjson'),
-      logs: filePath('logs.ndjson'),
-      observations: filePath('observations.json'),
-    };
+      const devJson = {
+        bootId: introspection.bootId,
+        token: introspection.token,
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        host: address?.address ?? null,
+        port: address?.port ?? null,
+        graph: filePath('graph.json'),
+        episodes: filePath('episodes.ndjson'),
+        logs: filePath('logs.ndjson'),
+        observations: filePath('observations.json'),
+      };
 
-    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson, null, 2), logger);
+      await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson, null, 2), logger);
 
-    // Ring mirrors: poll-on-change; unref'd so the timer never holds the process open.
-    timer = setInterval(() => void flush(), POLL_MS);
-    timer.unref?.();
+      // Ring mirrors: poll-on-change; unref'd so the timer never holds the process open.
+      if (!closed) {
+        timer = setInterval(() => void scheduleFlush(), pollMs);
+        timer.unref?.();
+      }
+    })();
+
+    return bootWork;
   });
 
   app.addHook('onClose', async () => {
+    closed = true;
+    // Boot writes first (Fastify never awaited them), then any in-flight polled write via the
+    // shared chain, then the final flush - so no write can land once close has resolved.
+    await bootWork.catch(() => undefined);
     if (timer) clearInterval(timer);
-    await flush().catch(() => undefined);
+    await scheduleFlush();
     // Removing dev.json marks the boot dead; episode files stay (bootId detects staleness).
     await rm(filePath('dev.json'), { force: true }).catch(() => undefined);
   });
