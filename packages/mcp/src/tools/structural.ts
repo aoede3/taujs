@@ -154,6 +154,8 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           }));
         });
 
+        // readObservations masks a foreign-boot file while a boot is active, so "seen in dev
+        // traffic" can never describe a previous boot's edges.
         const obs = readObservations(ctx.discovery);
         const observed = obs.ok
           ? obs.observations.edges
@@ -166,42 +168,61 @@ export const structuralTools = (root: string): ToolDefinition[] => [
                   routeId: r.routeId,
                   appId: r.appId,
                   path: r.path,
-                  count: e.count,
+                  // The substrate counts per service.method, not per route: every row of this
+                  // method carries the same boot-wide total.
+                  methodCallCount: e.count,
                   lastObservedAt: e.lastObservedAt,
                 })),
               )
           : [];
 
+        // Resolution comes BEFORE the edge check: routes/observations and the registry are
+        // emitted independently, so a dangling edge can reference an identifier the registry
+        // does not have. `ok` answers "did the identifier resolve" — the dangling edges are
+        // still returned, labelled, because they are real config the asker is likely chasing.
+        if (ctx.graph.services) {
+          const dangling = [...declared, ...observed];
+          const danglingFields =
+            dangling.length > 0
+              ? {
+                  danglingEdges: dangling,
+                  danglingNote: 'These edges reference the unresolved identifier — route config (or observed traffic) and the registry disagree.',
+                }
+              : {};
+
+          const svc = ctx.graph.services.find((s) => s.name === service);
+          if (!svc) {
+            return {
+              ok: false,
+              reason: 'unknown_service',
+              message: `No service "${service}" in the registry.`,
+              knownServices: bounded(
+                ctx.graph.services.map((s) => s.name),
+                DEFAULT_LIST_LIMIT,
+              ),
+              ...danglingFields,
+            };
+          }
+          if (method && !svc.methods.some((m) => m.name === method)) {
+            return {
+              ok: false,
+              reason: 'unknown_method',
+              message: `Service "${service}" has no method "${method}".`,
+              knownMethods: bounded(
+                svc.methods.map((m) => m.name),
+                DEFAULT_LIST_LIMIT,
+              ),
+              ...danglingFields,
+            };
+          }
+        }
+
         if (declared.length === 0 && observed.length === 0) {
           const emptyNote = `No declared or observed edges for "${service}${method ? `.${method}` : ''}". Observed edges only exist for traffic seen this boot; the service may still be called from code outside the graph.`;
 
-          // Registry present: the identifier itself can be checked, so "asked wrong" and "the
-          // answer is none" are distinguishable — agents branch hard on `ok`.
+          // Registry present and the identifier resolved above: a successful empty result —
+          // agents branch hard on `ok`, and this is "the answer is none", not "I asked wrong".
           if (ctx.graph.services) {
-            const svc = ctx.graph.services.find((s) => s.name === service);
-            if (!svc) {
-              return {
-                ok: false,
-                reason: 'unknown_service',
-                message: `No service "${service}" in the registry.`,
-                knownServices: bounded(
-                  ctx.graph.services.map((s) => s.name),
-                  DEFAULT_LIST_LIMIT,
-                ),
-              };
-            }
-            if (method && !svc.methods.some((m) => m.name === method)) {
-              return {
-                ok: false,
-                reason: 'unknown_method',
-                message: `Service "${service}" has no method "${method}".`,
-                knownMethods: bounded(
-                  svc.methods.map((m) => m.name),
-                  DEFAULT_LIST_LIMIT,
-                ),
-              };
-            }
-
             return { ok: true, ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}), edges: [], note: emptyNote };
           }
 
@@ -223,7 +244,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         return {
           ok: true,
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
-          note: 'declared = from config (a serviceData edge or a deferred entry); observed = seen in dev traffic, never complete truth.',
+          note: 'declared = from config (a serviceData edge or a deferred entry); observed = seen in dev traffic, never complete truth. methodCallCount is the method-wide total for the boot, not per-route.',
           edges: [...declared, ...observed],
         };
       }),

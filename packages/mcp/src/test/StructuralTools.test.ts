@@ -32,6 +32,18 @@ const pricing = defineService({ getQuote: async (_p: {}) => ({ quote: 1 }) });
 const registry = defineServiceRegistry({ catalog, content, pricing });
 const serviceData = createServiceData<typeof registry>();
 
+// Routes and registry are emitted independently, so declared edges can DANGLE: a WIDER
+// registry types two extra edges (phantom.boo; content.gone) that the registry actually
+// handed to the graph does not have. `ok` must answer "did the identifier resolve".
+const contentWide = defineService({
+  home: async (_p: {}) => ({ heading: 'hi' }),
+  about: async (_p: {}) => ({ page: 'about' }),
+  gone: async (_p: {}) => ({ gone: true }),
+});
+const phantom = defineService({ boo: async (_p: {}) => ({ boo: 1 }) });
+const wideRegistry = defineServiceRegistry({ catalog, content: contentWide, pricing, phantom });
+const serviceDataWide = createServiceData<typeof wideRegistry>();
+
 const config: CoreTaujsConfig = {
   apps: [
     {
@@ -41,6 +53,8 @@ const config: CoreTaujsConfig = {
         { path: '/', attr: { render: 'ssr', data: serviceData('content', 'home') } },
         { path: '/product/:id', attr: { render: 'streaming', meta: {}, data: serviceData('catalog', 'getProduct', (p) => ({ id: String(p.id) })) } },
         { path: '/quote', attr: { render: 'streaming', meta: {}, deferred: { quote: serviceData('pricing', 'getQuote') } } },
+        { path: '/ghosted', attr: { render: 'ssr', data: serviceDataWide('phantom', 'boo') } },
+        { path: '/gone', attr: { render: 'ssr', data: serviceDataWide('content', 'gone') } },
         { path: '/legacy', attr: { render: 'ssr', data: async () => ({ legacy: true }) } },
         { path: '/admin', attr: { render: 'ssr', middleware: { auth: {} } } },
       ],
@@ -83,7 +97,7 @@ describe('structural tools (cold/stale mode)', () => {
     expect(result.ok).toBe(true);
     expect(result.mode).toBe('stale');
     expect(result.staleness).toContain('2026-07-10T10:00:00.000Z');
-    expect(result.routeCount).toBe(5);
+    expect(result.routeCount).toBe(7);
     expect(result.fallthrough.reachable).toBe(true);
     // The boundary, stated at the point of use: the graph covers what taujs owns, and absence
     // from it never means absence from the application.
@@ -108,7 +122,7 @@ describe('structural tools (cold/stale mode)', () => {
     const result = call('taujs_list_routes', { limit: 2 });
 
     expect(result.routes.items).toHaveLength(2);
-    expect(result.routes.total).toBe(5);
+    expect(result.routes.total).toBe(7);
     expect(result.routes.truncated).toBe(true);
 
     const none = call('taujs_list_routes', { appId: 'nope' });
@@ -138,7 +152,8 @@ describe('structural tools (cold/stale mode)', () => {
     const declared = result.edges.find((e: { source: string }) => e.source === 'declared');
     expect(declared.declaredVia).toBe('serviceData');
     const observed = result.edges.find((e: { source: string }) => e.source === 'observed');
-    expect(observed.count).toBe(1);
+    expect(observed.methodCallCount).toBe(1);
+    expect(observed.count).toBeUndefined();
     expect(result.note).toContain('seen in dev traffic');
   });
 
@@ -164,6 +179,7 @@ describe('structural tools (cold/stale mode)', () => {
     expect(ghost.ok).toBe(false);
     expect(ghost.reason).toBe('unknown_service');
     expect(ghost.knownServices.items).toEqual(['catalog', 'content', 'pricing']);
+    expect(ghost.danglingEdges).toBeUndefined();
 
     const badMethod = call('taujs_who_calls_service', { service: 'content', method: 'nope' });
     expect(badMethod.ok).toBe(false);
@@ -176,6 +192,36 @@ describe('structural tools (cold/stale mode)', () => {
     expect(edgeless.ok).toBe(true);
     expect(edgeless.edges).toEqual([]);
     expect(edgeless.note).toContain('Observed edges only exist for traffic seen this boot');
+  });
+
+  it('taujs_who_calls_service returns dangling edges on unresolved identifiers instead of hiding them', () => {
+    // Routes and registry are emitted independently: /ghosted declares phantom.boo but the
+    // registry has no phantom. `ok: false` (identifier does not resolve) AND the real config
+    // that references it — hiding either half would mislead.
+    const phantom = call('taujs_who_calls_service', { service: 'phantom' });
+    expect(phantom.ok).toBe(false);
+    expect(phantom.reason).toBe('unknown_service');
+    expect(phantom.knownServices.items).toEqual(['catalog', 'content', 'pricing']);
+    expect(phantom.danglingEdges).toEqual([
+      {
+        source: 'declared',
+        service: 'phantom',
+        method: 'boo',
+        declaredVia: 'serviceData',
+        routeId: 'playground-react:/ghosted',
+        appId: 'playground-react',
+        path: '/ghosted',
+      },
+    ]);
+    expect(phantom.danglingNote).toContain('disagree');
+
+    // Same for a method the registry's service does not have.
+    const gone = call('taujs_who_calls_service', { service: 'content', method: 'gone' });
+    expect(gone.ok).toBe(false);
+    expect(gone.reason).toBe('unknown_method');
+    expect(gone.knownMethods.items).toEqual(['about', 'home']);
+    expect(gone.danglingEdges).toHaveLength(1);
+    expect(gone.danglingEdges[0]).toMatchObject({ source: 'declared', routeId: 'playground-react:/gone', method: 'gone' });
   });
 
   it('taujs_doctor states a clean verdict as graph-scoped, never as application health', async () => {
@@ -236,7 +282,7 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     const result = await client.callTool({ name: 'taujs_overview', arguments: {} });
     const payload = JSON.parse((result.content as { text: string }[])[0]!.text);
     expect(payload.ok).toBe(true);
-    expect(payload.routeCount).toBe(5);
+    expect(payload.routeCount).toBe(7);
 
     const prompts = await client.listPrompts();
     expect(prompts.prompts.map((p) => p.name).sort()).toEqual([
