@@ -178,12 +178,15 @@ describe('structural tools (cold/stale mode)', () => {
     const ghost = call('taujs_who_calls_service', { service: 'ghost' });
     expect(ghost.ok).toBe(false);
     expect(ghost.reason).toBe('unknown_service');
+    // Error responses cite staleness too: against a stale graph, "unknown" describes the last boot.
+    expect(ghost.staleness).toContain('2026-07-10T10:00:00.000Z');
     expect(ghost.knownServices.items).toEqual(['catalog', 'content', 'pricing']);
     expect(ghost.danglingEdges).toBeUndefined();
 
     const badMethod = call('taujs_who_calls_service', { service: 'content', method: 'nope' });
     expect(badMethod.ok).toBe(false);
     expect(badMethod.reason).toBe('unknown_method');
+    expect(badMethod.staleness).toContain('2026-07-10T10:00:00.000Z');
     expect(badMethod.knownMethods.items).toEqual(['about', 'home']);
 
     // A known method with zero edges is a successful empty query, not an error — agents branch
@@ -201,6 +204,8 @@ describe('structural tools (cold/stale mode)', () => {
     const phantom = call('taujs_who_calls_service', { service: 'phantom' });
     expect(phantom.ok).toBe(false);
     expect(phantom.reason).toBe('unknown_service');
+    // The dangling edges are last-boot facts too; the citation covers them.
+    expect(phantom.staleness).toContain('2026-07-10T10:00:00.000Z');
     expect(phantom.knownServices.items).toEqual(['catalog', 'content', 'pricing']);
     expect(phantom.danglingEdges).toEqual([
       {

@@ -190,11 +190,14 @@ export const structuralTools = (root: string): ToolDefinition[] => [
                 }
               : {};
 
+          // Error responses cite staleness like every other non-active answer: against a stale
+          // graph, "unknown" (and any dangling edges) describes the LAST boot, not now.
           const svc = ctx.graph.services.find((s) => s.name === service);
           if (!svc) {
             return {
               ok: false,
               reason: 'unknown_service',
+              ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
               message: `No service "${service}" in the registry.`,
               knownServices: bounded(
                 ctx.graph.services.map((s) => s.name),
@@ -207,6 +210,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
             return {
               ok: false,
               reason: 'unknown_method',
+              ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
               message: `Service "${service}" has no method "${method}".`,
               knownMethods: bounded(
                 svc.methods.map((m) => m.name),
