@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`registerBootGraphEmission > registers an onListen hook that writes node_modules/.taujs/graph.json (source: boot) 1`] = `
+exports[`registerBootGraphEmission > registers an onListen writer and its onClose barrier; the write lands as node_modules/.taujs/graph.json (source: boot) 1`] = `
 {
   "apps": [
     {

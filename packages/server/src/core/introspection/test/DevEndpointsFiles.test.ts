@@ -6,32 +6,35 @@ import path from 'node:path';
 import fastify from 'fastify';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// One-shot gate for the close-ordering regression cell: when armed, the NEXT dev-file write
-// blocks until released - a deterministically in-flight write, no timing games. All other
-// writes pass straight through to the real implementation.
+// One-shot gate for the close-ordering regression cells: when armed for a file name, the NEXT
+// .taujs write of that file blocks until released - a deterministically in-flight write, no
+// timing games. Gated at fs level (not the writeTaujsArtifact export) so intra-module callers
+// like emitGraphArtifact are intercepted too. All other writes pass straight through.
 const writeGate = vi.hoisted(() => ({
-  armed: false,
+  armedFor: null as string | null,
   held: Promise.resolve() as Promise<void>,
   heldStarts: 0,
 }));
 
-vi.mock('../EmitGraph', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../EmitGraph')>();
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...actual,
-    writeTaujsArtifact: async (...args: Parameters<typeof actual.writeTaujsArtifact>) => {
-      if (writeGate.armed) {
-        writeGate.armed = false;
+    writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
+      const target = String(args[0]);
+      if (writeGate.armedFor && target.includes('.taujs') && target.includes(writeGate.armedFor)) {
+        writeGate.armedFor = null;
         writeGate.heldStarts += 1;
         await writeGate.held;
       }
-      return actual.writeTaujsArtifact(...args);
+      return actual.writeFile(...args);
     },
   };
 });
 
 import { createDevIntrospection } from '../DevIntrospection';
 import { registerDevFiles } from '../DevFiles';
+import { registerBootGraphEmission } from '../EmitGraph';
 import { registerIntrospectionEndpoints } from '../DevEndpoints';
 
 import type { CoreTaujsConfig } from '../../config/types';
@@ -496,7 +499,7 @@ describe('dev files lifecycle (spec 03 §5)', () => {
     }
   });
 
-  it('close awaits the in-flight BOOT writes - Fastify never awaited onListen, so the timer must not start after close (CI ENOTEMPTY regression)', async () => {
+  it('close awaits the in-flight BOOT writes - listen() resolves before the hook runner completes, so the timer must not start after close (CI ENOTEMPTY regression)', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-close-boot-'));
     const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
 
@@ -512,10 +515,11 @@ describe('dev files lifecycle (spec 03 §5)', () => {
       // the poller then started AFTER close and wrote into a directory being removed.
       let release!: () => void;
       writeGate.held = new Promise<void>((resolve) => (release = resolve));
-      writeGate.armed = true;
+      const heldBefore = writeGate.heldStarts;
+      writeGate.armedFor = 'episodes.ndjson';
       await app.listen({ port: 0, host: '127.0.0.1' });
       await vi.waitFor(() => {
-        expect(writeGate.heldStarts).toBeGreaterThan(0);
+        expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
       });
 
       let closed = false;
@@ -561,13 +565,98 @@ describe('dev files lifecycle (spec 03 §5)', () => {
       let release!: () => void;
       writeGate.held = new Promise<void>((resolve) => (release = resolve));
       const heldBefore = writeGate.heldStarts;
-      writeGate.armed = true;
+      writeGate.armedFor = 'episodes.ndjson';
       await vi.waitFor(() => {
         expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
       });
 
       // The defect was close RESOLVING while that write was still in flight - the straggler then
       // landed during the caller's teardown and its mkdir(recursive) recreated .taujs mid-removal.
+      let closed = false;
+      const closing = app.close().then(() => {
+        closed = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(closed).toBe(false);
+
+      release();
+      await closing;
+
+      await rm(taujsDir, { recursive: true });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await expect(stat(taujsDir)).rejects.toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
+  it('close awaits an in-flight GRAPH write - the second onListen writer sits inside the barrier too (CI ENOTEMPTY regression, composed wiring)', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-close-graph-'));
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+
+    try {
+      const taujsDir = path.join(dir, 'node_modules', '.taujs');
+      const introspection = createDevIntrospection();
+      const app = fastify();
+      // Production wiring order (SSRServer): dev files first, then boot-graph emission.
+      registerDevFiles(app, introspection, mkLogger(), { pollMs: 1 });
+      registerBootGraphEmission(app, config, undefined, mkLogger());
+
+      // Hold graph.json specifically: the dev-file boot writes pass, then the runner reaches the
+      // graph hook and its write BLOCKS - the untracked-writer gap, deterministically in flight.
+      let release!: () => void;
+      writeGate.held = new Promise<void>((resolve) => (release = resolve));
+      writeGate.armedFor = 'graph.json';
+      const heldBefore = writeGate.heldStarts;
+      await app.listen({ port: 0, host: '127.0.0.1' });
+      await vi.waitFor(() => {
+        expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
+      });
+
+      let closed = false;
+      const closing = app.close().then(() => {
+        closed = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(closed).toBe(false);
+
+      release();
+      await closing;
+
+      // The graph write completed BEFORE close resolved; teardown is immediately safe.
+      expect(JSON.parse(await readFile(path.join(taujsDir, 'graph.json'), 'utf8')).schemaVersion).toBe(1);
+      await rm(taujsDir, { recursive: true });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await expect(stat(taujsDir)).rejects.toThrow();
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
+  it('a close that overtakes the boot leaves teardown clean under the full composed wiring', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-close-overtake-'));
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+
+    try {
+      const taujsDir = path.join(dir, 'node_modules', '.taujs');
+      const introspection = createDevIntrospection();
+      const app = fastify();
+      registerDevFiles(app, introspection, mkLogger(), { pollMs: 1 });
+      registerBootGraphEmission(app, config, undefined, mkLogger());
+
+      // Hold the FIRST boot write, so close begins while the hook runner is still inside the
+      // dev-files hook and has not reached the graph hook at all. Whichever interleaving follows
+      // release (graph skipped by its closed guard, or written-then-awaited), the invariant is
+      // the same: nothing lands after close resolves.
+      let release!: () => void;
+      writeGate.held = new Promise<void>((resolve) => (release = resolve));
+      const heldBefore = writeGate.heldStarts;
+      writeGate.armedFor = 'episodes.ndjson';
+      await app.listen({ port: 0, host: '127.0.0.1' });
+      await vi.waitFor(() => {
+        expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
+      });
+
       let closed = false;
       const closing = app.close().then(() => {
         closed = true;

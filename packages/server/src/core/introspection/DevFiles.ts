@@ -51,12 +51,13 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
 
   const scheduleFlush = (): Promise<void> => (inFlight = inFlight.then(flush).catch(() => undefined));
 
-  // Fastify does NOT await onListen hooks (the lifecycle test pins this), so a fast
-  // boot-then-close can reach onClose while the boot writes below are still in flight - and,
-  // worse, before the poller exists, so clearInterval cleared nothing and the timer then
-  // STARTED after close and kept writing into a directory the caller was removing (the CI
-  // ENOTEMPTY flake). onClose therefore awaits the tracked boot work, and the timer only
-  // starts if close has not already run.
+  // listen() resolves before the async onListen hook runner completes (Fastify sequences the
+  // hook promises, but the listen caller is not waiting on them - the lifecycle test pins
+  // this), so a fast boot-then-close can reach onClose while the boot writes below are still
+  // in flight - and, worse, before the poller exists, so clearInterval cleared nothing and the
+  // timer then STARTED after close and kept writing into a directory the caller was removing
+  // (the CI ENOTEMPTY flake). onClose therefore awaits the tracked boot work, and the timer
+  // only starts if close has not already run.
   let closed = false;
   let bootWork: Promise<void> = Promise.resolve();
 
