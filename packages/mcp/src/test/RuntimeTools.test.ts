@@ -124,6 +124,26 @@ describe('cold-mode refusal contract (every runtime tool)', () => {
 });
 
 describe('runtime tools (active boot)', () => {
+  it('taujs_overview reports episode availability explicitly from the live boot', () => {
+    const result = live('taujs_overview');
+
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe('active');
+    expect(result.episodesAvailable).toBe(true);
+    expect(result.episodesNote).toBeUndefined();
+  });
+
+  it('taujs_who_calls_service without a registry says existence cannot be checked instead of guessing', () => {
+    // This graph was emitted with no serviceRegistry and no declared data edges: an unknown name
+    // is indistinguishable from an unreferenced one, and the response must say so.
+    const result = live('taujs_who_calls_service', { service: 'ghost' });
+
+    expect(result.ok).toBe(true);
+    expect(result.edges).toEqual([]);
+    expect(result.note).toContain('registry is not present');
+    expect(result.servicesSeenOnRouteEdges.items).toEqual([]);
+  });
+
   it('taujs_get_recent_episodes: newest first, bootId-filtered, small default, outcome filter', () => {
     const all = live('taujs_get_recent_episodes');
 

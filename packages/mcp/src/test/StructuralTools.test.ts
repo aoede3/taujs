@@ -25,8 +25,11 @@ const catalog = defineService({
     params: { parse: (u: unknown) => u as { id: string } },
   },
 });
-const content = defineService({ home: async (_p: {}) => ({ heading: 'hi' }) });
-const registry = defineServiceRegistry({ catalog, content });
+// content.about has NO edge anywhere (the known-but-edgeless case); pricing is reached ONLY
+// through a deferred entry (RFC 0007 R5 — must count as declared coverage).
+const content = defineService({ home: async (_p: {}) => ({ heading: 'hi' }), about: async (_p: {}) => ({ page: 'about' }) });
+const pricing = defineService({ getQuote: async (_p: {}) => ({ quote: 1 }) });
+const registry = defineServiceRegistry({ catalog, content, pricing });
 const serviceData = createServiceData<typeof registry>();
 
 const config: CoreTaujsConfig = {
@@ -37,6 +40,7 @@ const config: CoreTaujsConfig = {
       routes: [
         { path: '/', attr: { render: 'ssr', data: serviceData('content', 'home') } },
         { path: '/product/:id', attr: { render: 'streaming', meta: {}, data: serviceData('catalog', 'getProduct', (p) => ({ id: String(p.id) })) } },
+        { path: '/quote', attr: { render: 'streaming', meta: {}, deferred: { quote: serviceData('pricing', 'getQuote') } } },
         { path: '/legacy', attr: { render: 'ssr', data: async () => ({ legacy: true }) } },
         { path: '/admin', attr: { render: 'ssr', middleware: { auth: {} } } },
       ],
@@ -73,25 +77,38 @@ const call = (name: string, args: Record<string, unknown> = {}): any => {
 };
 
 describe('structural tools (cold/stale mode)', () => {
-  it('taujs_overview summarises the graph and cites staleness', () => {
+  it('taujs_overview summarises the graph, states its boundary and declared coverage, and cites staleness', () => {
     const result = call('taujs_overview');
 
     expect(result.ok).toBe(true);
     expect(result.mode).toBe('stale');
     expect(result.staleness).toContain('2026-07-10T10:00:00.000Z');
-    expect(result.routeCount).toBe(4);
+    expect(result.routeCount).toBe(5);
     expect(result.fallthrough.reachable).toBe(true);
+    // The boundary, stated at the point of use: the graph covers what taujs owns, and absence
+    // from it never means absence from the application.
+    expect(result.scope).toContain('Routes registered directly on the Fastify instance');
+    expect(result.scope).toContain('never means absence from the application');
+    // Coverage: pricing counts as covered through its deferred-only edge (usedBy parity).
     expect(result.services).toEqual([
-      { name: 'catalog', methods: ['getProduct'] },
-      { name: 'content', methods: ['home'] },
+      { name: 'catalog', methodCount: 1, withDeclaredEdges: 1, methods: ['getProduct'] },
+      { name: 'content', methodCount: 2, withDeclaredEdges: 1, methods: ['about', 'home'] },
+      { name: 'pricing', methodCount: 1, withDeclaredEdges: 1, methods: ['getQuote'] },
     ]);
+    // Episode-tool liveness is explicit, with the refusal remedy, instead of implied by mode.
+    expect(result.episodesAvailable).toBe(false);
+    expect(result.episodesNote).toContain('pnpm dev');
+    // Warning counts are graph-scoped by name; the unlabelled key is gone. The one warn is the
+    // fixture's unconfigured security.csp (csp.dev_directives).
+    expect(result.graphWarningCounts).toEqual({ warn: 1 });
+    expect(result.warningCounts).toBeUndefined();
   });
 
   it('taujs_list_routes bounds output and filters by app', () => {
     const result = call('taujs_list_routes', { limit: 2 });
 
     expect(result.routes.items).toHaveLength(2);
-    expect(result.routes.total).toBe(4);
+    expect(result.routes.total).toBe(5);
     expect(result.routes.truncated).toBe(true);
 
     const none = call('taujs_list_routes', { appId: 'nope' });
@@ -118,13 +135,70 @@ describe('structural tools (cold/stale mode)', () => {
     const sources = result.edges.map((e: { source: string }) => e.source);
     expect(sources).toContain('declared');
     expect(sources).toContain('observed');
+    const declared = result.edges.find((e: { source: string }) => e.source === 'declared');
+    expect(declared.declaredVia).toBe('serviceData');
     const observed = result.edges.find((e: { source: string }) => e.source === 'observed');
     expect(observed.count).toBe(1);
     expect(result.note).toContain('seen in dev traffic');
+  });
 
-    const miss = call('taujs_who_calls_service', { service: 'ghost' });
-    expect(miss.ok).toBe(false);
-    expect(miss.knownServices.items).toEqual(['catalog', 'content']);
+  it('taujs_who_calls_service reaches deferred-only edges, matching the graph usedBy derivation', () => {
+    const result = call('taujs_who_calls_service', { service: 'pricing', method: 'getQuote' });
+
+    expect(result.ok).toBe(true);
+    expect(result.edges).toEqual([
+      {
+        source: 'declared',
+        service: 'pricing',
+        method: 'getQuote',
+        declaredVia: 'deferred',
+        routeId: 'playground-react:/quote',
+        appId: 'playground-react',
+        path: '/quote',
+      },
+    ]);
+  });
+
+  it('taujs_who_calls_service distinguishes unknown identifiers from a known service with zero edges', () => {
+    const ghost = call('taujs_who_calls_service', { service: 'ghost' });
+    expect(ghost.ok).toBe(false);
+    expect(ghost.reason).toBe('unknown_service');
+    expect(ghost.knownServices.items).toEqual(['catalog', 'content', 'pricing']);
+
+    const badMethod = call('taujs_who_calls_service', { service: 'content', method: 'nope' });
+    expect(badMethod.ok).toBe(false);
+    expect(badMethod.reason).toBe('unknown_method');
+    expect(badMethod.knownMethods.items).toEqual(['about', 'home']);
+
+    // A known method with zero edges is a successful empty query, not an error — agents branch
+    // hard on `ok`, and this is "the answer is none", not "I asked wrong".
+    const edgeless = call('taujs_who_calls_service', { service: 'content', method: 'about' });
+    expect(edgeless.ok).toBe(true);
+    expect(edgeless.edges).toEqual([]);
+    expect(edgeless.note).toContain('Observed edges only exist for traffic seen this boot');
+  });
+
+  it('taujs_doctor states a clean verdict as graph-scoped, never as application health', async () => {
+    // A genuinely warning-free graph needs explicit security.csp (else csp.dev_directives warns).
+    const cleanConfig: CoreTaujsConfig = {
+      apps: [{ appId: 'clean-app', entryPoint: '', routes: [{ path: '/', attr: { render: 'ssr' } }] }],
+      security: { csp: { directives: { defaultSrc: ["'self'"] } } },
+    };
+    const cleanRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-clean-'));
+    const graph = createRequestGraph(cleanConfig, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z' });
+    expect(graph.warnings).toEqual([]);
+    await writeTaujsArtifact(path.join(cleanRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+
+    const result = new Map(allTools(cleanRoot).map((t) => [t.name, t.handler])).get('taujs_doctor')!({}) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.warnings.note).toContain('No taujs graph warnings');
+    expect(result.warnings.note).toContain('not application health');
+
+    // And the control: the main fixture's graph HAS a warning, so no clean note there.
+    const warned = call('taujs_doctor');
+    expect(warned.warnings.note).toBeUndefined();
+    expect(warned.warnings.warn).toHaveLength(1);
   });
 
   it('taujs_explain_route composes render, data edge with schema flags, and warnings', () => {
@@ -162,7 +236,7 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     const result = await client.callTool({ name: 'taujs_overview', arguments: {} });
     const payload = JSON.parse((result.content as { text: string }[])[0]!.text);
     expect(payload.ok).toBe(true);
-    expect(payload.routeCount).toBe(4);
+    expect(payload.routeCount).toBe(5);
 
     const prompts = await client.listPrompts();
     expect(prompts.prompts.map((p) => p.name).sort()).toEqual([
