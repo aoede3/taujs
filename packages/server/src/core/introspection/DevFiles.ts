@@ -51,6 +51,16 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
     // mistaken for current-boot evidence. Non-fatal like every other dev-file write.
     await rm(filePath('traces.ndjson'), { force: true }).catch(() => undefined);
 
+    // Same principle for the mutable ring mirrors (spec 03 §5 amendment, decisions.md
+    // 2026-08-20): the poller below only rewrites on change, so until the first current-boot
+    // event each file on disk is still the PREVIOUS boot's - an early reader could serve old
+    // edges as "seen this boot". Reset all three at listen: previous-boot content is
+    // legitimately read only while no boot runs (stale mode, freshness-cited), and ceases to
+    // be applicable exactly now (episode reads are bootId-filtered; runtime tools need this boot).
+    await writeTaujsArtifact(dir, 'episodes.ndjson', '', logger);
+    await writeTaujsArtifact(dir, 'logs.ndjson', '', logger);
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(introspection.getObservations(), null, 2), logger);
+
     const devJson = {
       bootId: introspection.bootId,
       token: introspection.token,

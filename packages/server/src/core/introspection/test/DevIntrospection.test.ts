@@ -166,6 +166,36 @@ describe('observations derivation (spec 03 §4)', () => {
       sampleRequestIds: [T],
     });
   });
+
+  it('attributes per-route counts alongside the method-wide total (spec 03 §4 additive field, 2026-08-20)', () => {
+    const dev = createDevIntrospection();
+    start(dev);
+    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr' });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 10, ok: true });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 12, ok: true });
+
+    // A second episode on a DIFFERENT route reaching the same method.
+    start(dev, '/all', 'episode-2');
+    dev.recorder.routeMatched({ requestId: 'episode-2', path: '/all', appId: 'storefront', render: 'ssr' });
+    dev.recorder.serviceCall({ requestId: 'episode-2', service: 'catalog', method: 'getProduct', ms: 5, ok: true });
+
+    // And a call with NO route attribution: the method-wide total moves, route counts do not.
+    start(dev, '/x', 'episode-3');
+    dev.recorder.serviceCall({ requestId: 'episode-3', service: 'catalog', method: 'getProduct', ms: 3, ok: true });
+
+    const edge = dev.getObservations().edges[0]!;
+    expect(edge.count).toBe(4);
+    expect(edge.routes).toEqual([
+      { routeId: 'storefront:/product/:id', appId: 'storefront', path: '/product/:id', count: 2 },
+      { routeId: 'storefront:/all', appId: 'storefront', path: '/all', count: 1 },
+    ]);
+
+    // The document is a copy: later traffic never mutates a held snapshot.
+    const held = dev.getObservations();
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 1, ok: true });
+    expect(held.edges[0]!.routes[0]!.count).toBe(2);
+    expect(dev.getObservations().edges[0]!.routes[0]!.count).toBe(3);
+  });
 });
 
 describe('logs annex tee (spec 03 §3)', () => {
