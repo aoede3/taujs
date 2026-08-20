@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
 import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitGraph';
 import { createRequestGraph } from '../../../server/src/core/introspection/RequestGraph';
+import { defineService, defineServiceRegistry } from '../../../server/src/core/services/DataServices';
 
 import { NO_ACTIVE_BOOT_REFUSAL } from '../SubstrateReader';
 import { allTools } from '../server';
@@ -124,6 +125,84 @@ describe('cold-mode refusal contract (every runtime tool)', () => {
 });
 
 describe('runtime tools (active boot)', () => {
+  it('taujs_overview reports episode availability explicitly from the live boot', () => {
+    const result = live('taujs_overview');
+
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe('active');
+    expect(result.episodesAvailable).toBe(true);
+    expect(result.episodesNote).toBeUndefined();
+  });
+
+  it('observations from a previous boot are masked while a boot is live, never reported as seen this boot', async () => {
+    // The emitter only rewrites observations.json on the first current-boot service call, so
+    // early in a boot the file on disk is still the previous boot's document.
+    const catalog = defineService({ getProduct: async (_p: {}) => ({ p: 1 }) });
+    const registry = defineServiceRegistry({ catalog });
+    const obsConfig: CoreTaujsConfig = { apps: [{ appId: 'obs-app', entryPoint: '', routes: [{ path: '/p', attr: { render: 'ssr' } }] }] };
+    const root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-foreignobs-'));
+    const dir = path.join(root, 'node_modules', '.taujs');
+    await writeTaujsArtifact(
+      dir,
+      'graph.json',
+      JSON.stringify(createRequestGraph(obsConfig, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z', serviceRegistry: registry })),
+    );
+    const foreign = {
+      schemaVersion: 1,
+      bootId: 'previous-boot',
+      updatedAt: '2026-07-10T10:59:00.000Z',
+      edges: [
+        {
+          service: 'catalog',
+          method: 'getProduct',
+          routes: [{ routeId: 'obs-app:/p', appId: 'obs-app', path: '/p' }],
+          count: 7,
+          lastObservedAt: '2026-07-10T10:59:00.000Z',
+          sampleRequestIds: ['old-1'],
+        },
+      ],
+      shapes: [],
+    };
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(foreign));
+    const devJson: DevJson = {
+      bootId: 'live-boot',
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T11:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+
+    const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
+    const masked = tools.get('taujs_who_calls_service')!({ service: 'catalog', method: 'getProduct' }) as any;
+    expect(masked.ok).toBe(true);
+    expect(masked.edges).toEqual([]);
+    expect(masked.note).toContain('No declared or observed edges');
+
+    // Control: the same document stamped with the live bootId IS served, with the method-wide count.
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify({ ...foreign, bootId: 'live-boot' }));
+    const seen = tools.get('taujs_who_calls_service')!({ service: 'catalog', method: 'getProduct' }) as any;
+    expect(seen.ok).toBe(true);
+    expect(seen.edges).toHaveLength(1);
+    expect(seen.edges[0]).toMatchObject({ source: 'observed', methodCallCount: 7 });
+  });
+
+  it('taujs_who_calls_service without a registry says existence cannot be checked instead of guessing', () => {
+    // This graph was emitted with no serviceRegistry and no declared data edges: an unknown name
+    // is indistinguishable from an unreferenced one, and the response must say so.
+    const result = live('taujs_who_calls_service', { service: 'ghost' });
+
+    expect(result.ok).toBe(true);
+    expect(result.edges).toEqual([]);
+    expect(result.note).toContain('registry is not present');
+    expect(result.servicesSeenOnRouteEdges.items).toEqual([]);
+  });
+
   it('taujs_get_recent_episodes: newest first, bootId-filtered, small default, outcome filter', () => {
     const all = live('taujs_get_recent_episodes');
 

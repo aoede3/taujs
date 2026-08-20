@@ -126,6 +126,9 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
 
       const warnings = {
         source: 'declared (graph warnings)',
+        // A clean verdict must say what it covers: a warning-free GRAPH is not application
+        // health — routes and code outside the taujs graph are never examined here.
+        ...(graph.warnings.length === 0 ? { note: 'No taujs graph warnings. This covers the declared taujs graph only, not application health.' } : {}),
         ...['error', 'warn', 'info'].reduce<Record<string, unknown>>((acc, sev) => {
           const of = graph.warnings.filter((w) => w.severity === sev);
           if (of.length) acc[sev] = of;

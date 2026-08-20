@@ -26,6 +26,8 @@ export type GraphRoute = {
   specificity: number;
   middleware: { auth: { declared: boolean }; csp: Record<string, unknown> };
   data: GraphRouteData;
+  /** RFC 0007 (R5): declared deferred entries, key-sorted; absent when the route declares none. */
+  deferred?: { key: string; data: GraphRouteData }[];
 };
 
 export type GraphServiceMethod = {

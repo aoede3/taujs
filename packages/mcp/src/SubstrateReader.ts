@@ -178,7 +178,7 @@ export const readLogs = (discovery: SubstrateDiscovery, options: { requestId: st
 };
 
 export type ObservationsReadResult =
-  { ok: true; observations: ObservationsDocument } | { ok: false; reason: 'not_found' | 'unreadable' | 'schema_skew'; message: string };
+  { ok: true; observations: ObservationsDocument } | { ok: false; reason: 'not_found' | 'unreadable' | 'schema_skew' | 'foreign_boot'; message: string };
 
 export const readObservations = (discovery: SubstrateDiscovery): ObservationsReadResult => {
   const obsPath = discovery.mode === 'none' ? undefined : discovery.paths.observations;
@@ -192,6 +192,18 @@ export const readObservations = (discovery: SubstrateDiscovery): ObservationsRea
       ok: false,
       reason: 'schema_skew',
       message: `Observations are schema v${String(raw.schemaVersion)}; this adapter understands v${ADAPTER_SCHEMA_VERSION} — upgrade @taujs/mcp.`,
+    };
+  }
+
+  // Same principle as readEpisodes' bootId filter: stale-boot records never masquerade as
+  // current. The emitter only rewrites observations.json on the first current-boot service
+  // call, so early in a boot the file on disk can still be the PREVIOUS boot's — serving it
+  // would claim old edges were "seen this boot".
+  if (discovery.mode === 'active' && raw.bootId !== discovery.devJson.bootId) {
+    return {
+      ok: false,
+      reason: 'foreign_boot',
+      message: 'Observations on disk are from a previous boot; none recorded this boot yet — not observed means "not exercised", never "no relationship".',
     };
   }
 
