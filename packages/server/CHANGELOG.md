@@ -1,5 +1,23 @@
 # @taujs/server
 
+## 0.27.0
+
+### Minor Changes
+
+- [#92](https://github.com/aoede3/taujs/pull/92) [`2c620ed`](https://github.com/aoede3/taujs/commit/2c620edd3f0e7ed1e2356828cc65bc24d45ececd) Thanks [@aoede3](https://github.com/aoede3)! - Reset the mutable introspection files at boot and attribute observed counts per route
+
+  The dev-file emitter now resets `episodes.ndjson`, `logs.ndjson` and `observations.json` when the server starts listening. Previously the poller only rewrote them on the first current-boot change, so until then the files on disk were the previous boot's - an early reader could be served old observed edges as if they were seen this boot. Previous-boot content stays legitimately readable while no boot is running (stale-mode answers cite their freshness); it is not legitimately consumed once a new boot is active (episode reads are bootId-filtered, and runtime tools refuse without an active boot), which is exactly when the reset happens - so nothing applicable is lost.
+
+  Observed edges also gain a per-route `count` (spec 03 §4 additive field, schema version unchanged): each entry in an edge's `routes` array now carries the calls attributed to that route, alongside the existing method-wide edge `count`. Route counts need not sum to the method total - a call recorded before route match increments the method total only.
+
+  The emitter's close path is also made write-safe: `listen()` resolves before the async `onListen` hook runner completes, so a fast boot-then-close could reach close while the boot writes were still in flight - and before the poller existed, so the poll timer then started after close and kept writing into a directory the caller was removing (an intermittent `ENOTEMPTY` in CI teardowns). Close now awaits the tracked boot work, the timer never starts once close has run, and every flush - polled or final - joins one awaited chain, so no write can land after `close()` resolves.
+
+### Patch Changes
+
+- [#94](https://github.com/aoede3/taujs/pull/94) [`662219e`](https://github.com/aoede3/taujs/commit/662219e4d77f0ef4dab26f3dc786eb720d07cd9c) Thanks [@aoede3](https://github.com/aoede3)! - No introspection dev-file write can land after `close()` resolves
+
+  `listen()` resolves before the async `onListen` hook runner completes (Fastify sequences the hook promises, but the listen caller is not waiting on them), so a fast boot-then-close could reach close while the dev-file boot writes were still in flight - and before the poll timer existed, so the timer then started after close and kept writing into a directory the caller was removing (an intermittent `ENOTEMPTY` in CI teardowns). Close now awaits the tracked boot work, the timer never starts once close has run, and every flush - polled or final - joins one awaited chain. The boot graph emission, a second `onListen` writer, gets the same barrier: its write is tracked and awaited at close, and a boot that close has overtaken never starts it. Deterministic gate-held regression cells cover the boot write, a polled write, the graph write, and the composed production wiring.
+
 ## 0.26.2
 
 ### Patch Changes
