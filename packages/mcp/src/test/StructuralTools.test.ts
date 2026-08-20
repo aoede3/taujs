@@ -153,6 +153,7 @@ describe('structural tools (cold/stale mode)', () => {
     expect(declared.declaredVia).toBe('serviceData');
     const observed = result.edges.find((e: { source: string }) => e.source === 'observed');
     expect(observed.methodCallCount).toBe(1);
+    expect(observed.routeCallCount).toBe(1);
     expect(observed.count).toBeUndefined();
     expect(result.note).toContain('seen in dev traffic');
   });

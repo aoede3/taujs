@@ -56,7 +56,12 @@ export type LogAnnexRecord = {
 export type ObservedEdge = {
   service: string;
   method: string;
-  routes: { routeId: string; appId: string; path: string }[];
+  /**
+   * `count` per route is the calls attributed to THAT route (spec 03 §4 additive field,
+   * decisions.md 2026-08-20). Route counts need not sum to the edge's method-wide `count`:
+   * a call recorded before route match increments the method total only.
+   */
+  routes: { routeId: string; appId: string; path: string; count: number }[];
   count: number;
   lastObservedAt: string;
   sampleRequestIds: string[];
@@ -142,7 +147,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
   const pending = new Map<string, PendingEpisode>();
   const episodes: EpisodeRecord[] = [];
   const logs: LogAnnexRecord[] = [];
-  const edges = new Map<string, ObservedEdge & { routeIds: Set<string> }>();
+  const edges = new Map<string, ObservedEdge>();
   let observationsChangedAt: string | null = null;
   let totalEpisodes = 0;
   let episodesRevision = 0;
@@ -224,7 +229,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       const key = `${e.service}\u0000${e.method}`;
       let edge = edges.get(key);
       if (!edge) {
-        edge = { service: e.service, method: e.method, routes: [], routeIds: new Set(), count: 0, lastObservedAt: '', sampleRequestIds: [] };
+        edge = { service: e.service, method: e.method, routes: [], count: 0, lastObservedAt: '', sampleRequestIds: [] };
         edges.set(key, edge);
       }
       edge.count += 1;
@@ -232,10 +237,12 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       if (edge.sampleRequestIds.length < SAMPLE_REQUEST_ID_CAP && !edge.sampleRequestIds.includes(e.requestId)) edge.sampleRequestIds.push(e.requestId);
       if (episode?.route && episode.appId) {
         const routeId = `${episode.appId}:${episode.route}`;
-        if (!edge.routeIds.has(routeId)) {
-          edge.routeIds.add(routeId);
-          edge.routes.push({ routeId, appId: episode.appId, path: episode.route });
+        let row = edge.routes.find((r) => r.routeId === routeId);
+        if (!row) {
+          row = { routeId, appId: episode.appId, path: episode.route, count: 0 };
+          edge.routes.push(row);
         }
+        row.count += 1;
       }
       observationsChangedAt = edge.lastObservedAt;
     },
@@ -339,7 +346,8 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       updatedAt: observationsChangedAt ?? new Date().toISOString(),
       edges: [...edges.values()]
         .sort((a, b) => a.service.localeCompare(b.service) || a.method.localeCompare(b.method))
-        .map(({ routeIds: _routeIds, ...edge }) => ({ ...edge, routes: [...edge.routes] })),
+        // Route rows are mutable (per-route count) — copy each so a held document never drifts.
+        .map((edge) => ({ ...edge, routes: edge.routes.map((r) => ({ ...r })) })),
       shapes: [],
     }),
     findEpisode: (requestId: string) => {

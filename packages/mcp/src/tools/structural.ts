@@ -169,8 +169,10 @@ export const structuralTools = (root: string): ToolDefinition[] => [
                   appId: r.appId,
                   path: r.path,
                   // The substrate counts per service.method, not per route: every row of this
-                  // method carries the same boot-wide total.
+                  // method carries the same boot-wide total. routeCallCount is that route's own
+                  // attribution, present since the spec 03 §4 additive field (2026-08-20).
                   methodCallCount: e.count,
+                  ...(typeof r.count === 'number' ? { routeCallCount: r.count } : {}),
                   lastObservedAt: e.lastObservedAt,
                 })),
               )
@@ -248,7 +250,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         return {
           ok: true,
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
-          note: 'declared = from config (a serviceData edge or a deferred entry); observed = seen in dev traffic, never complete truth. methodCallCount is the method-wide total for the boot, not per-route.',
+          note: 'declared = from config (a serviceData edge or a deferred entry); observed = seen in dev traffic, never complete truth. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution.',
           edges: [...declared, ...observed],
         };
       }),

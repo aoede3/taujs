@@ -367,8 +367,10 @@ describe('dev files lifecycle (spec 03 §5)', () => {
       expect(devJson.episodes.endsWith('episodes.ndjson')).toBe(true);
 
       // Ring mirror lands within a poll tick; query hygiene holds on disk (acceptance #4).
+      // Wait for CONTENT, not existence: the boot reset writes the file empty at listen, so
+      // existence alone no longer proves the poller has mirrored the ring.
       await vi.waitFor(async () => {
-        await stat(path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson'));
+        expect(await readFile(path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson'), 'utf8')).toContain('file-t1');
       });
       const ndjson = await readFile(path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson'), 'utf8');
 
@@ -420,6 +422,49 @@ describe('dev files lifecycle (spec 03 §5)', () => {
       // The obsolete generated file is removed explicitly, so a stale legacy artefact cannot be
       // mistaken for current-boot evidence.
       await expect(stat(legacyPath)).rejects.toThrow();
+
+      await app.close();
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
+  it('resets the mutable ring mirrors at boot so a previous boot never serves as current (spec 03 §5 amendment, 2026-08-20)', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-reset-'));
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+
+    try {
+      // Pre-seed all three mutable files as a dead previous boot would leave them: the poller
+      // only rewrites on change, so without the boot reset an early reader would be served these.
+      const taujsDir = path.join(dir, 'node_modules', '.taujs');
+      await mkdir(taujsDir, { recursive: true });
+      await writeFile(path.join(taujsDir, 'episodes.ndjson'), '{"requestId":"old-boot-episode"}\n');
+      await writeFile(path.join(taujsDir, 'logs.ndjson'), '{"requestId":"old-boot-log"}\n');
+      await writeFile(
+        path.join(taujsDir, 'observations.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          bootId: 'previous-boot',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          edges: [{ service: 'ghost', method: 'gone', routes: [], count: 9, lastObservedAt: '2026-01-01T00:00:00.000Z', sampleRequestIds: [] }],
+          shapes: [],
+        }),
+      );
+
+      const introspection = createDevIntrospection();
+      const app = fastify();
+      registerDevFiles(app, introspection, mkLogger());
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      await vi.waitFor(async () => {
+        const obs = JSON.parse(await readFile(path.join(taujsDir, 'observations.json'), 'utf8'));
+        expect(obs.bootId).toBe(introspection.bootId);
+      });
+      const obs = JSON.parse(await readFile(path.join(taujsDir, 'observations.json'), 'utf8'));
+      expect(obs.edges).toEqual([]);
+      expect(await readFile(path.join(taujsDir, 'episodes.ndjson'), 'utf8')).toBe('');
+      expect(await readFile(path.join(taujsDir, 'logs.ndjson'), 'utf8')).toBe('');
 
       await app.close();
     } finally {

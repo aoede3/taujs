@@ -87,7 +87,8 @@ export type ObservationsDocument = {
   edges: {
     service: string;
     method: string;
-    routes: { routeId: string; appId: string; path: string }[];
+    /** `count` per route (additive, spec 03 §4 2026-08-20): calls attributed to that route; absent from older emissions. */
+    routes: { routeId: string; appId: string; path: string; count?: number }[];
     count: number;
     lastObservedAt: string;
     sampleRequestIds: string[];
