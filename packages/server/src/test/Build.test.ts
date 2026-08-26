@@ -156,7 +156,9 @@ describe('Build.ts - Full Coverage', () => {
       const buildConfig = vi.mocked(build).mock.calls[0]![0] as InlineConfig;
       expect(buildConfig.build?.ssr).toBe('/project/src/client/admin/entry-server.tsx');
       expect(buildConfig.build?.manifest).toBe(false);
-      expect(buildConfig.build?.ssrManifest).toBe(true);
+      // RULED 2026-08-26: pinned off unconditionally - browser asset info now comes from the
+      // client manifest only, never the SSR bundle's own private (and never-served) chunk graph.
+      expect(buildConfig.build?.ssrManifest).toBe(false);
       expect((buildConfig.build as any)?.format).toBe('esm');
       expect((buildConfig.build as any)?.target).toBe('node20');
       expect((buildConfig.build as any)?.copyPublicDir).toBe(false);

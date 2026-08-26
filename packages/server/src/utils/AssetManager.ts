@@ -8,10 +8,10 @@ import { resolveLogs } from '../core/logging/resolve';
 import { isDevelopment } from '../System';
 import { resolveEntryFile } from './Entry';
 import { assertRenderContract, declaredContractOf, requireRendererContribution } from './RendererContract';
-import { getCssLinks, renderPreloadLinks } from './Templates';
+import { getCssLinks, getStaticModulePreloadLinks } from './Templates';
 
 import type { Logs } from '../core/logging/types';
-import type { Config, Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../types';
+import type { Config, Manifest, ProcessedConfig, RenderModule } from '../types';
 
 export const createMaps = () => ({
   bootstrapModules: new Map<string, string>(),
@@ -19,7 +19,6 @@ export const createMaps = () => ({
   manifests: new Map<string, Manifest>(),
   preloadLinks: new Map<string, string>(),
   renderModules: new Map<string, RenderModule>(),
-  ssrManifests: new Map<string, SSRManifest>(),
   templates: new Map<string, string>(),
 });
 
@@ -68,10 +67,13 @@ const logAssetError = (logger: Logs, stage: string, err: unknown) => {
   );
 };
 
+// Returns the manifest KEY as well as the entry: the key is the root of the static-import walk that
+// produces the module preloads, and it is not derivable from the entry alone.
 const findManifestEntry = (manifest: Manifest, stem: string) => {
   for (const ext of ENTRY_EXTENSIONS) {
-    const entry = manifest[`${stem}${ext}`];
-    if (entry?.file) return entry;
+    const key = `${stem}${ext}`;
+    const entry = manifest[key];
+    if (entry?.file) return { key, entry };
   }
   return null;
 };
@@ -84,7 +86,6 @@ export const loadAssets = async (
   manifests: Map<string, Manifest>,
   preloadLinks: Map<string, string>,
   renderModules: Map<string, RenderModule>,
-  ssrManifests: Map<string, SSRManifest>,
   templates: Map<string, string>,
   opts: { logger?: Logs; publicBasePath?: string } = {},
 ) => {
@@ -123,12 +124,9 @@ export const loadAssets = async (
       manifests.set(clientRoot, manifest);
 
       const ssrDistPath = path.join(ssrRoot, entryPoint);
-      const ssrManifestPath = path.join(ssrDistPath, '.vite/ssr-manifest.json');
-      const ssrManifest = JSON.parse(await readFile(ssrManifestPath, 'utf-8')) as SSRManifest;
-      ssrManifests.set(clientRoot, ssrManifest);
 
       const manifestEntry = findManifestEntry(manifest, entryClient);
-      if (!manifestEntry?.file) {
+      if (!manifestEntry) {
         throw AppError.internal(`Entry "${entryClient}" not found in manifest`, {
           details: {
             tried: ENTRY_EXTENSIONS.map((e) => `${entryClient}${e}`),
@@ -140,10 +138,13 @@ export const loadAssets = async (
         });
       }
 
-      const bootstrapModule = `${publicBasePath}${`/${adjustedRelativePath}/${manifestEntry.file}`.replace(/\/{2,}/g, '/')}`;
+      const bootstrapModule = `${publicBasePath}${`/${adjustedRelativePath}/${manifestEntry.entry.file}`.replace(/\/{2,}/g, '/')}`;
       bootstrapModules.set(clientRoot, bootstrapModule);
 
-      preloadLinks.set(clientRoot, renderPreloadLinks(ssrManifest, `${publicBasePath}${adjustedRelativePath}`));
+      // RULED 2026-08-26: browser asset information comes from the CLIENT manifest only. The
+      // ssr-manifest is no longer generated, read or retained - it described the SSR bundle's own
+      // private chunk graph, in a directory that is never served.
+      preloadLinks.set(clientRoot, getStaticModulePreloadLinks(manifest, manifestEntry.key, `${publicBasePath}${adjustedRelativePath}`));
       cssLinks.set(clientRoot, getCssLinks(manifest, `${publicBasePath}${adjustedRelativePath}`));
 
       // Renderer v1: every app MUST declare a valid renderer contribution (fail-closed at boot - the outer

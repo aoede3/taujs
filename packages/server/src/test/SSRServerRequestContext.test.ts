@@ -33,7 +33,6 @@ vi.mock('../utils/AssetManager', () => ({
     manifests: new Map(),
     preloadLinks: new Map(),
     renderModules: new Map(),
-    ssrManifests: new Map(),
     templates: new Map(),
   })),
   loadAssets: vi.fn(async () => {}),

@@ -105,13 +105,17 @@ export type RenderCallbacks<T = unknown> = {
   onRenderError?: (info: RenderErrorInfo) => void;
 };
 
-export type SSRManifest = { [key: string]: string[] };
-
 export type ManifestEntry = {
   file: string;
   src?: string;
   isDynamicEntry?: boolean;
   imports?: string[];
+  /**
+   * Vite emits this alongside `imports`. taujs declares it so the preload policy's exclusion of
+   * dynamic imports is VISIBLE in the type rather than implicit in the absence of a field: the
+   * static-import closure walks `imports` only, deliberately (see `getStaticModulePreloadLinks`).
+   */
+  dynamicImports?: string[];
   css?: string[];
   assets?: string[];
 };

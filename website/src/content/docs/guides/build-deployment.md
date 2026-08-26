@@ -104,19 +104,20 @@ BUILD_MODE=ssr npm run build
 1. Does **not** clean `dist/` (preserves client assets)
 2. Runs Vite in SSR mode for each app
 3. Outputs SSR bundles to `dist/ssr/{entryPoint}/`
-4. Generates `ssr-manifest.json` per app
 
 **Output structure:**
 
 ```
 dist/ssr/
 ├── app/
-│   ├── ssr-manifest.json
 │   └── server.js
 └── admin/
-    ├── ssr-manifest.json
     └── server.js
 ```
+
+No SSR-side manifest is written. Everything the browser needs - the entry script, its module
+preloads and its stylesheets - is derived from the CLIENT build's `.vite/manifest.json`, because
+only the client build's files are served.
 
 ### Server Build
 
@@ -400,10 +401,8 @@ dist/
 │
 ├── ssr/
 │   ├── app/
-│   │   ├── ssr-manifest.json
 │   │   └── server.js
 │   └── admin/
-│       ├── ssr-manifest.json
 │       └── server.js
 │
 └── server/
@@ -786,7 +785,8 @@ aws cloudfront create-invalidation \
 **Check:**
 
 1. SSR bundles in `dist/ssr/{app}/`?
-2. `ssr-manifest.json` present?
+2. `dist/client/{app}/.vite/manifest.json` present? (this is the one the server reads for the
+   entry script, module preloads and stylesheets - there is no SSR-side manifest)
 3. `clientRoot` points to `dist/client/`?
 
 ### Stale Frontend
