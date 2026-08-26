@@ -70,7 +70,7 @@ type TaujsViteServer = Pick<ServerOptions, 'allowedHosts'>;
  * RFC 0005 Amended contract §4 (support matrix) - the allowlisted Vite override object. Only the
  * matrix-admitted fields appear; the protected invariants (`root`, `base`, `publicDir`,
  * `configFile`, `appType`, `server.middlewareMode`, `server.hmr`,
- * `build.outDir`/`ssr`/`ssrManifest`/`format`/`target`/`manifest`,
+ * `build.outDir`/`emptyOutDir`/`ssr`/`ssrManifest`/`format`/`target`/`manifest`,
  * `build.rollupOptions.input`, `resolve.alias`) are ABSENT from the type, so the editor refuses them
  * up front rather than the merge dropping them later. Aliases have their own declarative home
  * (top-level `alias`), so `resolve` here is the alias-free `ResolveOptions`.

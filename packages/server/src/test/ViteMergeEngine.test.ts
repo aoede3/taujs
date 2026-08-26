@@ -137,6 +137,30 @@ describe('ViteMergeEngine - composeViteConfig (build profile)', () => {
     warn.mockRestore();
   });
 
+  it('rejects a supplied build.emptyOutDir and keeps the framework value - the filtered-build invariant', () => {
+    const warn = spyWarn();
+
+    const framework = buildFramework();
+    // What a FILTERED build hands the engine: taujs has already emptied the directory itself,
+    // preserving every declared descendant, so Vite must not empty it a second time.
+    (framework.build as { emptyOutDir?: boolean }).emptyOutDir = false;
+
+    const merged = composeViteConfig(
+      framework,
+      [{ source: 'taujsBuild.vite', config: { build: { emptyOutDir: true } } as any }],
+      BUILD_PROFILE,
+      '[taujs:build:admin]',
+    );
+
+    const msg = warn.mock.calls.map(([m]) => m as string).find((m) => m.includes('Ignored Vite config overrides'));
+    expect(msg).toContain('build.emptyOutDir');
+    // The framework value survives. An override here would either double-empty - deleting the
+    // descendant output taujs just preserved - or leave the parent's stale output in place.
+    expect((merged.build as { emptyOutDir?: boolean }).emptyOutDir).toBe(false);
+
+    warn.mockRestore();
+  });
+
   it('rejects every protected field a user layer supplies - including build.manifest (newly aligned) and configFile', () => {
     const warn = spyWarn();
 

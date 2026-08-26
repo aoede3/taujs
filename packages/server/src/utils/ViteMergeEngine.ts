@@ -102,7 +102,11 @@ export const BUILD_PROFILE: ViteMergeProfile = {
   mode: 'build',
   admitBuild: true,
   protectedTop: ['root', 'base', 'publicDir', 'configFile', 'appType'],
-  protectedBuild: ['outDir', 'ssr', 'ssrManifest', 'format', 'target', 'manifest'],
+  // `emptyOutDir` is a framework invariant, not a tuning knob: on a FILTERED build taujs empties
+  // the directory itself and hands Vite `false`, so an override would either double-empty (deleting
+  // a preserved descendant) or leave stale output behind. Protected, so a smuggled value warns
+  // exactly as `outDir` does rather than being silently dropped by the allowlist.
+  protectedBuild: ['outDir', 'ssr', 'ssrManifest', 'format', 'target', 'manifest', 'emptyOutDir'],
   // A build has no dev server. `server` is DROPPED SILENTLY rather than warned about, because
   // `config.vite` is shared: warning would make the documented dev-only recipe look like misuse on
   // every build. Same treatment as `optimizeDeps`.
