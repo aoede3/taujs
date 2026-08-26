@@ -63,6 +63,10 @@ export function createSettler(): Settler {
 }
 
 export function startShellTimer(ms: number, onTimeout: () => void): () => void {
+  // Arm only for finite positive values: `0`/`Infinity` are the documented "no bound" sentinels,
+  // and a raw `setTimeout` would clamp them to 1ms and fire almost immediately instead. Identical
+  // to @taujs/solid's `startTimer`; the factory rejects anything that is neither.
+  if (!(Number.isFinite(ms) && ms > 0)) return () => {};
   const t = setTimeout(onTimeout, ms);
 
   return () => clearTimeout(t);

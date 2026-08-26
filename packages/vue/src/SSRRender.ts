@@ -33,6 +33,11 @@ export type StreamOptions = {
    * cleared on the first streamed chunk. If no content is produced before it expires the
    * stream is aborted with a fatal error. Vue streaming is in-order and blocks at async
    * boundaries — there is no React-style shell phase, so this guards first-byte latency.
+   *
+   * `0` and `Infinity` are sentinels meaning NO BOUND. Any other value must be a positive number of
+   * milliseconds no greater than 2_147_483_647 (Node stores a delay as a 32-bit signed integer, and
+   * clamps anything larger to 1ms). Anything else is rejected by `createRenderer` with a
+   * `TypeError`, rather than silently becoming an immediate timeout.
    */
   shellTimeoutMs?: number;
   /**
@@ -205,6 +210,30 @@ export function createRenderer<
 }) {
   const { shellTimeoutMs = 10_000, deferredTimeoutMs = DEFERRED_TIMEOUT_DEFAULT_MS } = streamOptions;
 
+  // Conformance vector `packages/renderer-conformance/shellTimeout.ts`: validate at the FACTORY,
+  // because the timer site cannot distinguish "sentinel" from "nonsense" after the fact.
+  //
+  // Node stores a delay as a 32-bit signed integer: an out-of-range or NaN delay is clamped to 1ms
+  // (and, when it overflows, warned about), so neither `Infinity` nor anything above
+  // MAX_NATIVE_TIMEOUT means "no bound" - each means the watchdog fires almost immediately.
+  // Untyped values may also COERCE rather than clamp: `'10'` becomes a ten-millisecond delay, not
+  // 1ms. Both are rejected, because the option's contract is a number and only `0`/`Infinity` are
+  // sentinels for "no bound". Same rule, same message, as @taujs/react and @taujs/solid.
+  const MAX_NATIVE_TIMEOUT = 2_147_483_647;
+  // Strings are QUOTED so `'10'` and `10` are distinguishable in the message: they are the same
+  // three characters under `String()`, and it is the string that coerces to a real delay rather
+  // than clamping. The vector pins this text, so all three renderers render it identically.
+  const describeTimeout = (value: unknown): string => (typeof value === 'string' ? `'${value}'` : String(value));
+  const assertTimeout = (value: unknown, name: string, site = 'createRenderer'): void => {
+    const ok = value === 0 || value === Infinity || (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= MAX_NATIVE_TIMEOUT);
+    if (!ok) {
+      throw new TypeError(
+        `${site}: ${name} must be 0, Infinity, or a positive number of milliseconds no greater than ${MAX_NATIVE_TIMEOUT} (received ${describeTimeout(value)})`,
+      );
+    }
+  };
+  assertTimeout(shellTimeoutMs, 'streamOptions.shellTimeoutMs');
+
   // RFC 0007 (decision 18): POSITIVE FINITE only - there is no 0/Infinity disable sentinel, because
   // this deadline is what bounds the response.
   if (!(typeof deferredTimeoutMs === 'number' && Number.isFinite(deferredTimeoutMs) && deferredTimeoutMs > 0)) {
@@ -308,6 +337,13 @@ export function createRenderer<
 
     // The R narrowing seam (RFC 0004 H6).
     const routeContext = opts?.routeContext as R | undefined;
+    // A per-call override never passed through the factory, so it is validated HERE. Before the
+    // shell-timeout unit an invalid value fired the watchdog immediately; after the timer site
+    // learned to refuse non-finite delays it would instead SILENTLY DISABLE the watchdog, which is
+    // quieter and worse. Neither is acceptable, so it is rejected with the same message the factory
+    // uses, named for this site. Whether this surface should exist at all - solid has no
+    // equivalent - is an open shape ruling (docs/followups/renderer-surface-asymmetries.md).
+    if (opts?.shellTimeoutMs !== undefined) assertTimeout(opts.shellTimeoutMs, 'streamOptions.shellTimeoutMs', 'renderStream');
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
     // RFC 0007 (decision 18): the deadline's time ORIGIN. It is armed later (at shell commit) but
     // measured from here, so the bound is a property of the configuration rather than of how long

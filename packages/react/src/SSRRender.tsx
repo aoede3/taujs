@@ -64,7 +64,14 @@ export type RenderCallbacks<T> = {
 };
 
 export type StreamOptions = {
-  /** Timeout in ms for shell to be ready (default: 10000) */
+  /**
+   * Bound on shell readiness, in milliseconds (default 10_000).
+   *
+   * `0` and `Infinity` are sentinels meaning NO BOUND. Any other value must be a positive number of
+   * milliseconds no greater than 2_147_483_647 (Node stores a delay as a 32-bit signed integer, and
+   * clamps anything larger to 1ms). Anything else is rejected by `createRenderer` with a
+   * `TypeError`, rather than silently becoming an immediate timeout.
+   */
   shellTimeoutMs?: number;
   /**
    * R1-01: timeout in ms for route data to settle AFTER React has finished rendering, before the
@@ -104,6 +111,11 @@ export type SSROptions = {
    * SERVED (React's documented abort degrade - the client completes the boundaries; an advisory
    * warning is logged, since the `ssr` path has no `onRenderError` callback channel); if the shell
    * never completed, the render THROWS into the host's error path instead of serving a blank page.
+   *
+   * `0` and `Infinity` are sentinels meaning NO BOUND. Any other value must be a positive number of
+   * milliseconds no greater than 2_147_483_647 (Node stores a delay as a 32-bit signed integer, and
+   * clamps anything larger to 1ms). Anything else is rejected by `createRenderer` with a
+   * `TypeError`, rather than silently becoming an immediate timeout.
    */
   prerenderTimeoutMs?: number;
 };
@@ -197,6 +209,31 @@ export function createRenderer<
   identifierPrefix?: string;
 }) {
   const { shellTimeoutMs = 10_000, dataTimeoutMs = 30_000 } = streamOptions;
+
+  // Conformance vector `packages/renderer-conformance/shellTimeout.ts`: validate at the FACTORY,
+  // because the timer site cannot distinguish "sentinel" from "nonsense" after the fact.
+  //
+  // Node stores a delay as a 32-bit signed integer: an out-of-range or NaN delay is clamped to 1ms
+  // (and, when it overflows, warned about), so neither `Infinity` nor anything above
+  // MAX_NATIVE_TIMEOUT means "no bound" - each means the watchdog fires almost immediately.
+  // Untyped values may also COERCE rather than clamp: `'10'` becomes a ten-millisecond delay, not
+  // 1ms. Both are rejected, because the option's contract is a number and only `0`/`Infinity` are
+  // sentinels for "no bound". Same rule, same message, as @taujs/solid and @taujs/vue.
+  const MAX_NATIVE_TIMEOUT = 2_147_483_647;
+  // Strings are QUOTED so `'10'` and `10` are distinguishable in the message: they are the same
+  // three characters under `String()`, and it is the string that coerces to a real delay rather
+  // than clamping. The vector pins this text, so all three renderers render it identically.
+  const describeTimeout = (value: unknown): string => (typeof value === 'string' ? `'${value}'` : String(value));
+  const assertTimeout = (value: unknown, name: string, site = 'createRenderer'): void => {
+    const ok = value === 0 || value === Infinity || (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= MAX_NATIVE_TIMEOUT);
+    if (!ok) {
+      throw new TypeError(
+        `${site}: ${name} must be 0, Infinity, or a positive number of milliseconds no greater than ${MAX_NATIVE_TIMEOUT} (received ${describeTimeout(value)})`,
+      );
+    }
+  };
+  assertTimeout(shellTimeoutMs, 'streamOptions.shellTimeoutMs');
+
   // RFC 0007 (decision 18): DERIVED, not a literal - half the fatal route-data backstop's budget,
   // capped at 15s, so the graceful deferred terminal is structurally reachable for whatever
   // `dataTimeoutMs` an application configures rather than only for the stock one.
@@ -224,16 +261,9 @@ export function createRenderer<
 
   // Gate-review fix: validate ONCE at the factory. The timer site arms only for finite positive
   // values, so without this check every invalid input (-1, NaN, null, a string from untyped JS,
-  // -Infinity) silently became "wait forever" — only 0 and Infinity are documented sentinels.
-  const validTimeout =
-    prerenderTimeoutMs === 0 ||
-    prerenderTimeoutMs === Infinity ||
-    (typeof prerenderTimeoutMs === 'number' && Number.isFinite(prerenderTimeoutMs) && prerenderTimeoutMs > 0);
-  if (!validTimeout) {
-    throw new TypeError(
-      `createRenderer: ssrOptions.prerenderTimeoutMs must be a positive finite number of milliseconds, 0, or Infinity (received ${String(prerenderTimeoutMs)})`,
-    );
-  }
+  // -Infinity) silently became "wait forever" - only 0 and Infinity are documented sentinels.
+  // Same rule as the shell timeout above, so it uses the same helper and produces the same message.
+  assertTimeout(prerenderTimeoutMs, 'ssrOptions.prerenderTimeoutMs');
 
   // RFC 0004 (H2): the contract-facing parameter types are BROAD (`Record<string, unknown>`) so a
   // renderer instantiated with non-default generics stays assignable to the host's RenderSSR /
@@ -381,6 +411,13 @@ export function createRenderer<
     const routeContext = opts?.routeContext as R | undefined;
 
     // Merge renderer defaults with per-call overrides
+    // A per-call override never passed through the factory, so it is validated HERE. Before the
+    // shell-timeout unit an invalid value fired the watchdog immediately; after the timer site
+    // learned to refuse non-finite delays it would instead SILENTLY DISABLE the watchdog, which is
+    // quieter and worse. Neither is acceptable, so it is rejected with the same message the factory
+    // uses, named for this site. Whether this surface should exist at all - solid has no
+    // equivalent - is an open shape ruling (docs/followups/renderer-surface-asymmetries.md).
+    if (opts?.shellTimeoutMs !== undefined) assertTimeout(opts.shellTimeoutMs, 'streamOptions.shellTimeoutMs', 'renderStream');
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
     const effectiveDataTimeout = opts?.dataTimeoutMs ?? dataTimeoutMs;
     // RFC 0007 (decision 18): the deferred deadline is NOT per-call overridable (it is omitted from

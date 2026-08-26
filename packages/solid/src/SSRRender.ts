@@ -102,9 +102,23 @@ export type RenderStreamFn = (
 ) => RenderStreamHandle;
 
 export type StreamOptions = {
-  /** Bound on shell readiness (default 10_000). */
+  /**
+   * Bound on shell readiness, in milliseconds (default 10_000).
+   *
+   * `0` and `Infinity` are sentinels meaning NO BOUND. Any other value must be a positive number of
+   * milliseconds no greater than 2_147_483_647 (Node stores a delay as a 32-bit signed integer, and
+   * clamps anything larger to 1ms). Anything else is rejected by `createRenderer` with a
+   * `TypeError`, rather than silently becoming an immediate timeout.
+   */
   shellTimeoutMs?: number;
-  /** Bound on the WHOLE renderStream lifecycle (default 30_000). Every terminal clears it. */
+  /**
+   * Bound on the WHOLE renderStream lifecycle (default 30_000). Every terminal clears it.
+   *
+   * `0` and `Infinity` are sentinels meaning NO BOUND. Any other value must be a positive number of
+   * milliseconds no greater than 2_147_483_647 (Node stores a delay as a 32-bit signed integer, and
+   * clamps anything larger to 1ms). Anything else is rejected by `createRenderer` with a
+   * `TypeError`, rather than silently becoming an immediate timeout.
+   */
   completionTimeoutMs?: number;
   /**
    * RFC 0007 (decision 18): the ONE response-level deferred completion deadline.
@@ -132,7 +146,14 @@ export type StreamOptions = {
 };
 
 export type SSROptions = {
-  /** Bound on the `ssr` strategy's single render promise (default 10_000). */
+  /**
+   * Bound on the `ssr` strategy's single render promise (default 10_000).
+   *
+   * `0` and `Infinity` are sentinels meaning NO BOUND. Any other value must be a positive number of
+   * milliseconds no greater than 2_147_483_647 (Node stores a delay as a 32-bit signed integer, and
+   * clamps anything larger to 1ms). Anything else is rejected by `createRenderer` with a
+   * `TypeError`, rather than silently becoming an immediate timeout.
+   */
   prerenderTimeoutMs?: number;
 };
 
@@ -222,10 +243,26 @@ export function createRenderer<
   // this every invalid input (-1, NaN, null, a string from untyped JS) silently became "no bound"
   // - the watchdog quietly disabled, which is the opposite of what a timeout option means. Only
   // `0` and `Infinity` are documented sentinels for that.
-  const assertTimeout = (value: number, name: string): void => {
-    const ok = value === 0 || value === Infinity || (typeof value === 'number' && Number.isFinite(value) && value > 0);
+  // Conformance vector `packages/renderer-conformance/shellTimeout.ts`: validate at the FACTORY,
+  // because the timer site cannot distinguish "sentinel" from "nonsense" after the fact.
+  //
+  // Node stores a delay as a 32-bit signed integer: an out-of-range or NaN delay is clamped to 1ms
+  // (and, when it overflows, warned about), so neither `Infinity` nor anything above
+  // MAX_NATIVE_TIMEOUT means "no bound" - each means the watchdog fires almost immediately.
+  // Untyped values may also COERCE rather than clamp: `'10'` becomes a ten-millisecond delay, not
+  // 1ms. Both are rejected, because the option's contract is a number and only `0`/`Infinity` are
+  // sentinels for "no bound". Same rule, same message, as @taujs/react and @taujs/vue.
+  const MAX_NATIVE_TIMEOUT = 2_147_483_647;
+  // Strings are QUOTED so `'10'` and `10` are distinguishable in the message: they are the same
+  // three characters under `String()`, and it is the string that coerces to a real delay rather
+  // than clamping. The vector pins this text, so all three renderers render it identically.
+  const describeTimeout = (value: unknown): string => (typeof value === 'string' ? `'${value}'` : String(value));
+  const assertTimeout = (value: unknown, name: string, site = 'createRenderer'): void => {
+    const ok = value === 0 || value === Infinity || (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= MAX_NATIVE_TIMEOUT);
     if (!ok) {
-      throw new TypeError(`createRenderer: ${name} must be a positive finite number of milliseconds, 0, or Infinity (received ${String(value)})`);
+      throw new TypeError(
+        `${site}: ${name} must be 0, Infinity, or a positive number of milliseconds no greater than ${MAX_NATIVE_TIMEOUT} (received ${describeTimeout(value)})`,
+      );
     }
   };
   assertTimeout(shellTimeoutMs, 'streamOptions.shellTimeoutMs');
