@@ -18,6 +18,7 @@ import { extractBuildConfigs, extractPathCoordinates, viteBaseFor } from './core
 import { emitGraphArtifact } from './core/introspection/EmitGraph';
 import { processConfigs } from './utils/AssetManager';
 import { resolveEntryFile } from './utils/Entry';
+import { emptyOutDirPreserving, preservedOutDirEntries } from './utils/OutDir';
 import { layerAlias } from './utils/ViteAlias';
 import { findFormerlyDiscoveredViteConfig, formerlyDiscoveredViteConfigWarning } from './utils/ViteConfigDiscovery';
 import { BUILD_PROFILE, composeViteConfig, getFrameworkInvariants, normalisePlugins } from './utils/ViteMergeEngine';
@@ -72,6 +73,8 @@ export function resolveInputs(isSSRBuild: boolean, mainExists: boolean, paths: {
  * **Protected fields (warned when supplied, never applied):**
  * - `root`, `base`, `publicDir`, `appType`, `configFile`: Framework-controlled
  * - `build.outDir`: Framework manages `dist/client` vs `dist/ssr` separation
+ * - `build.emptyOutDir`: Framework-controlled - a filtered build empties the directory itself,
+ *   preserving declared descendants, so an override would either double-empty or strand stale output
  * - `build.ssr`, `ssrManifest`, `format`, `target`, `manifest`: Framework-controlled for SSR integrity
  * - `build.rollupOptions.input`: Framework manages entry points
  * - `resolve.alias`: Use the top-level `alias` in `taujs.config.ts` (or the `taujsBuild()` option) instead
@@ -242,7 +245,15 @@ export async function taujsBuild({
     process.exit(1);
   }
 
-  if (!isSSRBuild) await deleteDist();
+  // A FILTERED build must not destroy the apps it was not asked to build. `deleteDist` removes the
+  // WHOLE `dist` tree - `dist/client`, `dist/ssr` and `dist/.taujs` alike - so running it for a
+  // selective build deletes every unselected app's previously built output, and the result is a
+  // deploy artefact that is incomplete in a way nothing detects until serve time. The UNFILTERED
+  // build still clears everything first, which is what keeps a REMOVED app's stale output from
+  // surviving into the next deploy.
+  if (!isSSRBuild && !selectedIds) await deleteDist();
+  else if (!isSSRBuild)
+    console.log(`[taujs:build] Filter "${appFilterRaw}" active: keeping the existing dist tree; only the selected apps' output is replaced.\n`);
 
   // Parent output directories must build BEFORE their descendants. Each app builds with
   // emptyOutDir: true, and an ancestor outDir (the root app's `dist/client` / `dist/ssr`, or
@@ -263,6 +274,10 @@ export async function taujsBuild({
   // retained, and a collection containing no ancestry relationships is never reordered.
   const resolveOutDir = (entryPoint: string) => path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
   const isAncestorOf = (parent: string, child: string) => child.startsWith(parent + path.sep);
+
+  // Every DECLARED app's outDir, not just the ones being built - see `preservedOutDirEntries`.
+  const allDeclaredOutDirs = processedConfigs.map((c) => resolveOutDir(c.entryPoint));
+
   const buildOrder: (typeof configsToBuild)[number][] = [];
   for (const config of configsToBuild) {
     const outDir = resolveOutDir(config.entryPoint);
@@ -282,6 +297,19 @@ export async function taujsBuild({
 
     const outDir = path.resolve(projectRoot, isSSRBuild ? `dist/ssr/${entryPoint}` : `dist/client/${entryPoint}`);
     const root = entryPoint ? path.resolve(clientBaseDir, entryPoint) : clientBaseDir;
+
+    // Vite's `emptyOutDir: true` empties the directory blind: the skip list `prepareOutDir` builds
+    // comes from the outDirs of the SAME `build()` call, and taujs calls `build()` once per app -
+    // so a PARENT app built alone deletes a descendant app's output. An unfiltered build repairs
+    // that through the ancestry reorder above (every descendant rebuilds after its parent); a
+    // filtered build has no such pass. When a filter is active taujs therefore empties the
+    // directory itself, preserving every declared descendant, and tells Vite not to empty it again.
+    //
+    // Only the PLAN is computed here: the deletion itself is deferred to the build call below, so a
+    // failure between this point and it - entry resolution, a `config.vite` callback, plugin
+    // construction - cannot destroy the previous output of a build that never starts.
+    const preservedEntries = selectedIds ? preservedOutDirEntries(outDir, allDeclaredOutDirs) : [];
+    const selfEmptied = preservedEntries.length > 0;
 
     const defaultAlias: Record<string, string> = {
       '@client': root,
@@ -326,7 +354,7 @@ export async function taujsBuild({
       configFile: false,
       build: {
         outDir,
-        emptyOutDir: true,
+        emptyOutDir: !selfEmptied,
         manifest: !isSSRBuild,
         rollupOptions: {
           input: inputs,
@@ -420,6 +448,12 @@ export async function taujsBuild({
     try {
       const mode = isSSRBuild ? 'SSR' : 'Client';
       console.log(`[taujs:build:${entryPoint}] Building → ${mode}`);
+      // Deferred to here deliberately - see the plan above. Inside the try, so a cleanup failure
+      // fails this app's build rather than escaping as an unhandled rejection.
+      if (selfEmptied) {
+        console.log(`[taujs:build:${entryPoint}] Preserving declared descendant output: ${preservedEntries.join(', ')}`);
+        await emptyOutDirPreserving(outDir, preservedEntries);
+      }
       await build(finalConfig);
       console.log(`[taujs:build:${entryPoint}] ✓ Complete\n`);
     } catch (error) {
