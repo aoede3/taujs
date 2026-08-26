@@ -172,7 +172,6 @@ describe('handleRender', () => {
       manifests: new Map([['/test/client', {}]]),
       preloadLinks: new Map([['/test/client', '<link rel="preload">']]),
       renderModules: new Map(),
-      ssrManifests: new Map([['/test/client', {}]]),
       templates: new Map([['/test/client', '<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>']]),
     };
 
@@ -1122,12 +1121,11 @@ describe('handleRender', () => {
       expect(Templates.addNonceToInlineScripts).not.toHaveBeenCalled();
     });
 
-    it('ssr: does not append preloadLink when ssrManifest is missing', async () => {
-      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+    it('ssr: does not append preloadLink when the route does not hydrate', async () => {
+      // RULED 2026-08-26: preload emission is gated on shouldHydrate, not on manifest presence -
+      // a route that never runs client JS has nothing for a modulepreload to accelerate.
+      const mockRoute = createMockRouteMatch({ render: 'ssr', hydrate: false });
       mockSelectedRoute = mockRoute;
-
-      // remove ssrManifest (preload should not be appended)
-      mockMaps.ssrManifests.delete('/test/client');
 
       vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({

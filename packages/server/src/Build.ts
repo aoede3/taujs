@@ -76,6 +76,7 @@ export function resolveInputs(isSSRBuild: boolean, mainExists: boolean, paths: {
  * - `build.emptyOutDir`: Framework-controlled - a filtered build empties the directory itself,
  *   preserving declared descendants, so an override would either double-empty or strand stale output
  * - `build.ssr`, `ssrManifest`, `format`, `target`, `manifest`: Framework-controlled for SSR integrity
+ *   (`ssrManifest` is pinned OFF: browser asset information comes from the client `manifest`)
  * - `build.rollupOptions.input`: Framework manages entry points
  * - `resolve.alias`: Use the top-level `alias` in `taujs.config.ts` (or the `taujsBuild()` option) instead
  *
@@ -360,7 +361,12 @@ export async function taujsBuild({
           input: inputs,
         },
         ssr: isSSRBuild ? server : undefined,
-        ssrManifest: isSSRBuild,
+        // RULED 2026-08-26: never generated. It described the SSR bundle's own private chunk graph
+        // - a directory that is never served, with hashes unrelated to the client build's - and
+        // every value it produced became a browser modulepreload 404. Browser asset information now
+        // comes from the client `manifest` above. The field stays in `protectedBuild` so a user
+        // cannot reintroduce an unmanaged manifest.
+        ssrManifest: false,
         ...(isSSRBuild && {
           format: 'esm',
           target: `node${nodeVersion}`,

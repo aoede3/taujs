@@ -81,7 +81,6 @@ const maps = (renderModule: any): any => ({
   manifests: new Map(),
   preloadLinks: new Map(),
   renderModules: new Map([['/root', renderModule]]),
-  ssrManifests: new Map(),
   templates: new Map([['/root', '<html><head><!--ssr-head--></head><body><main><!--ssr-html--></main></body></html>']]),
 });
 

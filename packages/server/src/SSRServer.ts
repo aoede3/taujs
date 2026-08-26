@@ -67,18 +67,10 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
   let viteDevServer: ViteDevServer | undefined;
   let introspection: DevIntrospection | undefined;
 
-  await loadAssets(
-    processedConfigs,
-    clientRoot,
-    maps.bootstrapModules,
-    maps.cssLinks,
-    maps.manifests,
-    maps.preloadLinks,
-    maps.renderModules,
-    maps.ssrManifests,
-    maps.templates,
-    { logger, publicBasePath },
-  );
+  await loadAssets(processedConfigs, clientRoot, maps.bootstrapModules, maps.cssLinks, maps.manifests, maps.preloadLinks, maps.renderModules, maps.templates, {
+    logger,
+    publicBasePath,
+  });
 
   // Tri-state contract: `undefined` installs the default production registration, explicit
   // `false` installs no static plugin (CDN-owned assets), and a registration object/array is

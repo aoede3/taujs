@@ -12,7 +12,7 @@ const hoisted = vi.hoisted(() => ({
 
   // templates
   getCssLinksMock: vi.fn<(m: any, base: string) => string>(),
-  renderPreloadLinksMock: vi.fn<(m: any, base: string) => string>(),
+  getStaticModulePreloadLinksMock: vi.fn<(m: any, entryKey: string, base: string) => string>(),
 
   // logs
   resolveLogsMock: vi.fn<(l?: any) => any>(),
@@ -34,7 +34,7 @@ vi.mock('../Entry', () => ({
 
 vi.mock('../Templates', () => ({
   getCssLinks: hoisted.getCssLinksMock,
-  renderPreloadLinks: hoisted.renderPreloadLinksMock,
+  getStaticModulePreloadLinks: hoisted.getStaticModulePreloadLinksMock,
 }));
 
 vi.mock('../../core/logging/resolve', () => ({
@@ -92,7 +92,7 @@ async function importer(isDev: boolean) {
   return mod;
 }
 
-const { readFileMock, pathToFileURLMock, getCssLinksMock, renderPreloadLinksMock, resolveLogsMock, loggerErrorMock, noopLoggerErrorMock } = hoisted;
+const { readFileMock, pathToFileURLMock, getCssLinksMock, getStaticModulePreloadLinksMock, resolveLogsMock, loggerErrorMock, noopLoggerErrorMock } = hoisted;
 
 const makeLogger = () => {
   const stub: any = {
@@ -125,7 +125,6 @@ function makeMaps() {
     manifests: new Map<string, any>(),
     preloadLinks: new Map<string, string>(),
     renderModules: new Map<string, any>(),
-    ssrManifests: new Map<string, any>(),
     templates: new Map<string, string>(),
   };
 }
@@ -134,7 +133,7 @@ beforeEach(() => {
   readFileMock.mockReset();
   pathToFileURLMock.mockReset();
   getCssLinksMock.mockReset();
-  renderPreloadLinksMock.mockReset();
+  getStaticModulePreloadLinksMock.mockReset();
   resolveLogsMock.mockReset();
 
   loggerErrorMock.mockReset();
@@ -143,7 +142,7 @@ beforeEach(() => {
   // defaults
   resolveLogsMock.mockImplementation((l?: any) => l ?? makeNoopLogger());
   getCssLinksMock.mockReturnValue('[css-links]');
-  renderPreloadLinksMock.mockReturnValue('[preload-links]');
+  getStaticModulePreloadLinksMock.mockReturnValue('[preload-links]');
   pathToFileURLMock.mockImplementation(() => ({ href: '/virtual/render-ok.js' }));
 });
 
@@ -242,7 +241,6 @@ describe('loadAssets (development)', () => {
       maps.manifests,
       maps.preloadLinks,
       maps.renderModules,
-      maps.ssrManifests,
       maps.templates,
       { logger },
     );
@@ -254,7 +252,6 @@ describe('loadAssets (development)', () => {
 
     // dev skips these
     expect(maps.manifests.size).toBe(0);
-    expect(maps.ssrManifests.size).toBe(0);
     expect(maps.cssLinks.size).toBe(0);
     expect(maps.preloadLinks.size).toBe(0);
     expect(maps.renderModules.size).toBe(0);
@@ -287,7 +284,6 @@ describe('loadAssets (development)', () => {
       maps.manifests,
       maps.preloadLinks,
       maps.renderModules,
-      maps.ssrManifests,
       maps.templates,
       { logger },
     );
@@ -323,7 +319,6 @@ describe('loadAssets (development)', () => {
         maps.manifests,
         maps.preloadLinks,
         maps.renderModules,
-        maps.ssrManifests,
         maps.templates,
         { logger },
       ),
@@ -343,7 +338,7 @@ describe('loadAssets (development)', () => {
 });
 
 describe('loadAssets (production)', () => {
-  it('happy path: loads manifest + ssr-manifest, computes links, imports render module, stores everything', async () => {
+  it('happy path: loads manifest, computes links, imports render module, stores everything', async () => {
     const { loadAssets } = await importer(false);
     const maps = makeMaps();
     const logger = makeLogger();
@@ -356,7 +351,6 @@ describe('loadAssets (production)', () => {
     const manifest: any = {
       [manifestKey]: { file: 'assets/app.js' },
     };
-    const ssrManifest: any = { some: 'data' };
 
     readFileMock.mockImplementation(async (p: string) => {
       const s = String(p).replace(/\\/g, '/');
@@ -364,9 +358,8 @@ describe('loadAssets (production)', () => {
       // template comes from clientRoot (which in prod is dist/client/<entryPoint>)
       if (s.endsWith('/dist/client/appA/index.html')) return '<html>prod</html>';
 
-      // prod manifests
+      // prod manifest (client only - the ssr-manifest is no longer generated or read)
       if (s.endsWith('/dist/client/appA/.vite/manifest.json')) return JSON.stringify(manifest);
-      if (s.endsWith('/dist/ssr/appA/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
 
       throw Object.assign(new Error('unexpected readFile path'), { path: s });
     });
@@ -392,19 +385,17 @@ describe('loadAssets (production)', () => {
       maps.manifests,
       maps.preloadLinks,
       maps.renderModules,
-      maps.ssrManifests,
       maps.templates,
       { logger },
     );
 
     expect(maps.templates.get('/root/dist/client/appA')).toBe('<html>prod</html>');
     expect(maps.manifests.get('/root/dist/client/appA')).toEqual(manifest);
-    expect(maps.ssrManifests.get('/root/dist/client/appA')).toEqual(ssrManifest);
 
     // adjustedRelativePath "/appA"
     expect(maps.bootstrapModules.get('/root/dist/client/appA')).toBe('/appA/assets/app.js');
 
-    expect(renderPreloadLinksMock).toHaveBeenCalledWith(ssrManifest, '/appA');
+    expect(getStaticModulePreloadLinksMock).toHaveBeenCalledWith(manifest, manifestKey, '/appA');
     expect(getCssLinksMock).toHaveBeenCalledWith(manifest, '/appA');
 
     expect(maps.preloadLinks.get('/root/dist/client/appA')).toBe('[preload-links]');
@@ -421,13 +412,11 @@ describe('loadAssets (production)', () => {
     const badManifest: any = {
       'other.tsx': { file: 'assets/other.js' },
     };
-    const ssrManifest: any = {};
 
     readFileMock.mockImplementation(async (p: string) => {
       const s = String(p).replace(/\\/g, '/');
       if (s.endsWith('/dist/client/appA/index.html')) return '<html>prod</html>';
       if (s.endsWith('/dist/client/appA/.vite/manifest.json')) return JSON.stringify(badManifest);
-      if (s.endsWith('/dist/ssr/appA/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
       throw Object.assign(new Error('unexpected path'), { path: s });
     });
 
@@ -452,7 +441,6 @@ describe('loadAssets (production)', () => {
         maps.manifests,
         maps.preloadLinks,
         maps.renderModules,
-        maps.ssrManifests,
         maps.templates,
         { logger },
       ),
@@ -480,13 +468,11 @@ describe('loadAssets (production)', () => {
     const manifest: any = {
       [`entry-client${ext}`]: { file: 'assets/app.js' },
     };
-    const ssrManifest: any = {};
 
     readFileMock.mockImplementation(async (p: string) => {
       const s = String(p).replace(/\\/g, '/');
       if (s.endsWith('/dist/client/appA/index.html')) return '<html>prod</html>';
       if (s.endsWith('/dist/client/appA/.vite/manifest.json')) return JSON.stringify(manifest);
-      if (s.endsWith('/dist/ssr/appA/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
       return '';
     });
 
@@ -515,7 +501,6 @@ describe('loadAssets (production)', () => {
         maps.manifests,
         maps.preloadLinks,
         maps.renderModules,
-        maps.ssrManifests,
         maps.templates,
         { logger },
       ),
@@ -570,7 +555,6 @@ describe('loadAssets (production)', () => {
         maps.manifests,
         maps.preloadLinks,
         maps.renderModules,
-        maps.ssrManifests,
         maps.templates,
         { logger },
       ),
@@ -595,16 +579,15 @@ describe('loadAssets (production)', () => {
     const logger = makeLogger();
 
     const ext = ENTRY_EXTENSIONS[0] ?? '.ts';
+    const manifestKey = `entry-client${ext}`;
     const manifest: any = {
-      [`entry-client${ext}`]: { file: 'assets/app.js' },
+      [manifestKey]: { file: 'assets/app.js' },
     };
-    const ssrManifest: any = { ok: true };
 
     readFileMock.mockImplementation(async (p: string) => {
       const s = String(p).replace(/\\/g, '/');
       if (s.endsWith('/dist/client/index.html')) return '<html>prod root</html>';
       if (s.endsWith('/dist/client/.vite/manifest.json')) return JSON.stringify(manifest);
-      if (s.endsWith('/dist/ssr/.vite/ssr-manifest.json')) return JSON.stringify(ssrManifest);
       throw new Error(`unexpected path: ${s}`);
     });
 
@@ -629,13 +612,12 @@ describe('loadAssets (production)', () => {
       maps.manifests,
       maps.preloadLinks,
       maps.renderModules,
-      maps.ssrManifests,
       maps.templates,
       { logger },
     );
 
     expect(maps.bootstrapModules.get('/root/dist/client')).toBe('/assets/app.js');
-    expect(renderPreloadLinksMock).toHaveBeenCalledWith({ ok: true }, '');
+    expect(getStaticModulePreloadLinksMock).toHaveBeenCalledWith(manifest, manifestKey, '');
     expect(getCssLinksMock).toHaveBeenCalledWith(manifest, '');
   });
 });

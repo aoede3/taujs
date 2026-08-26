@@ -50,7 +50,6 @@ const {
     manifests: new Map<string, string>(),
     preloadLinks: new Map<string, string>(),
     renderModules: new Map<string, string>(),
-    ssrManifests: new Map<string, string>(),
     templates: new Map<string, string>(),
   };
 
@@ -208,7 +207,6 @@ describe('SSRServer', () => {
       maps.manifests,
       maps.preloadLinks,
       maps.renderModules,
-      maps.ssrManifests,
       maps.templates,
       expect.objectContaining({ logger: mockLogger }),
     );

@@ -169,13 +169,12 @@ const fixture = async (): Promise<{ root: string; clientRoot: string }> => {
   const ssrRoot = path.join(root, 'ssr', 'app');
 
   await mkdir(path.join(appRoot, '.vite'), { recursive: true });
+  await mkdir(ssrRoot, { recursive: true });
   await mkdir(path.join(appRoot, 'assets'), { recursive: true });
-  await mkdir(path.join(ssrRoot, '.vite'), { recursive: true });
   await writeFile(path.join(root, 'package.json'), '{"type":"module"}\n');
   await writeFile(path.join(appRoot, 'index.html'), '<!doctype html><html><head><!--ssr-head--></head><body><div id="app"><!--ssr-html--></div></body></html>');
   await writeFile(path.join(appRoot, '.vite', 'manifest.json'), JSON.stringify({ 'entry-client.ts': { file: 'assets/client.js' } }));
   await writeFile(path.join(appRoot, 'assets', 'client.js'), 'export const marker = "streaming";\n');
-  await writeFile(path.join(ssrRoot, '.vite', 'ssr-manifest.json'), '{}');
   await writeFile(path.join(ssrRoot, 'entry-server.js'), RENDER_MODULE);
 
   return { root, clientRoot };

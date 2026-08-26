@@ -275,7 +275,7 @@ describe('RFC 0012 - loadAssets emission regression (PR-1 review, finding 4)', (
     const ssrRoot = path.join(root, 'ssr', 'app');
 
     await mkdir(path.join(appRoot, '.vite'), { recursive: true });
-    await mkdir(path.join(ssrRoot, '.vite'), { recursive: true });
+    await mkdir(ssrRoot, { recursive: true });
     await writeFile(path.join(root, 'package.json'), '{"type":"module"}\n');
     await writeFile(
       path.join(appRoot, 'index.html'),
@@ -283,9 +283,13 @@ describe('RFC 0012 - loadAssets emission regression (PR-1 review, finding 4)', (
     );
     await writeFile(
       path.join(appRoot, '.vite', 'manifest.json'),
-      JSON.stringify({ 'entry-client.ts': { file: 'assets/rfc0012-client.js', css: ['assets/rfc0012.css'] } }),
+      // `imports` gives the entry a static-import closure, so getStaticModulePreloadLinks (which
+      // walks the CLIENT manifest - the ssr-manifest is no longer generated or read) has a file to emit.
+      JSON.stringify({
+        'entry-client.ts': { file: 'assets/rfc0012-client.js', css: ['assets/rfc0012.css'], imports: ['shared.ts'] },
+        'shared.ts': { file: 'assets/rfc0012-preload.js' },
+      }),
     );
-    await writeFile(path.join(ssrRoot, '.vite', 'ssr-manifest.json'), JSON.stringify({ 'some-module': ['assets/rfc0012-preload.js', 'assets/rfc0012.css'] }));
     await writeFile(
       path.join(ssrRoot, 'entry-server.js'),
       [
@@ -303,18 +307,9 @@ describe('RFC 0012 - loadAssets emission regression (PR-1 review, finding 4)', (
     const processed = processConfigs([{ appId: 'emission', entryPoint: 'app', renderer: testRenderer() }], clientRoot, TEMPLATE);
     const maps = createMaps();
 
-    await loadAssets(
-      processed,
-      clientRoot,
-      maps.bootstrapModules,
-      maps.cssLinks,
-      maps.manifests,
-      maps.preloadLinks,
-      maps.renderModules,
-      maps.ssrManifests,
-      maps.templates,
-      { publicBasePath },
-    );
+    await loadAssets(processed, clientRoot, maps.bootstrapModules, maps.cssLinks, maps.manifests, maps.preloadLinks, maps.renderModules, maps.templates, {
+      publicBasePath,
+    });
 
     const key = processed[0]!.clientRoot;
     return { bootstrap: maps.bootstrapModules.get(key), css: maps.cssLinks.get(key), preload: maps.preloadLinks.get(key) };
@@ -327,7 +322,6 @@ describe('RFC 0012 - loadAssets emission regression (PR-1 review, finding 4)', (
     expect(bootstrap).toBe('/pub/app/assets/rfc0012-client.js');
     expect(css).toContain('href="/pub/app/assets/rfc0012.css"');
     expect(preload).toContain('href="/pub/app/assets/rfc0012-preload.js"');
-    expect(preload).toContain('href="/pub/app/assets/rfc0012.css"');
   });
 
   it('keeps all three maps byte-compatible with today at the default coordinate', async () => {
@@ -337,7 +331,6 @@ describe('RFC 0012 - loadAssets emission regression (PR-1 review, finding 4)', (
     expect(bootstrap).toBe('/app/assets/rfc0012-client.js');
     expect(css).toContain('href="/app/assets/rfc0012.css"');
     expect(preload).toContain('href="/app/assets/rfc0012-preload.js"');
-    expect(preload).toContain('href="/app/assets/rfc0012.css"');
   });
 });
 

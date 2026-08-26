@@ -1,7 +1,7 @@
 import { SSRTAG } from '../constants';
 
 import type { ViteDevServer } from 'vite';
-import type { Manifest, SSRManifest } from '../types';
+import type { Manifest } from '../types';
 
 // https://github.com/vitejs/vite/issues/16515
 // https://github.com/hi-ogawa/vite-plugins/blob/main/packages/ssr-css/src/collect.ts
@@ -52,50 +52,77 @@ async function collectStyleUrls(server: ViteDevServer, entries: string[]): Promi
   return [...visited].filter((url) => url.match(CSS_LANGS_RE));
 }
 
-// https://github.com/vitejs/vite-plugin-vue/blob/main/playground/ssr-vue/src/entry-server.js
-export const renderPreloadLinks = (ssrManifest: SSRManifest, basePath = ''): string => {
-  const seen = new Set<string>();
-  let links = '';
+// Follows Vite's BACKEND-INTEGRATION manifest traversal (walk the client manifest from the entry),
+// NOT the ssr-vue playground's `ctx.modules` filtering - that needs render-used module reporting,
+// which no taujs renderer can do yet. See docs/followups/render-used-modules-contract.md.
+// https://vite.dev/guide/backend-integration.html
+/**
+ * RULED 2026-08-26 (preload policy): `<link rel="modulepreload">` for the RECURSIVE STATIC-IMPORT
+ * CLOSURE of the app's client entry, taken from the client build's own `.vite/manifest.json`.
+ *
+ * `dynamicImports` are deliberately NOT followed. A dynamically imported route or component may
+ * well have taken part in the server render - taujs simply cannot identify WHICH of them did, so
+ * preloading them all would be guessing at the browser's expense. Render-used lazy modules need
+ * every renderer to report the modules a render touched, which is a cross-renderer contract change
+ * deferred to its own RFC.
+ *
+ * The entry's own file is excluded: it ships as the bootstrap `<script type="module">`, so
+ * preloading it as well would request the same URL twice.
+ *
+ * Values in `manifest.json` are NOT base-prefixed (unlike an ssr-manifest, where Vite bakes `base`
+ * into every value), which is why `basePath` is prepended here exactly as `getCssLinks` and the
+ * bootstrap module do - including producing a ROOT-ABSOLUTE href at the default coordinate. That
+ * single convention is the point: the previous implementation applied this same prepend to a
+ * manifest that had already been prefixed.
+ */
+export const getStaticModulePreloadLinks = (manifest: Manifest, entryKey: string, basePath = ''): string => {
+  const entry = manifest[entryKey];
+  if (!entry) return '';
 
-  for (const moduleId in ssrManifest) {
-    const files = ssrManifest[moduleId];
+  const visited = new Set<string>();
+  const files = new Set<string>();
 
-    if (files) {
-      files.forEach((file) => {
-        if (!seen.has(file)) {
-          seen.add(file);
-          links += renderPreloadLink(basePath ? `${basePath}/${file}` : `${file}`);
-        }
-      });
+  const walk = (key: string): void => {
+    if (visited.has(key)) return;
+    visited.add(key);
+
+    const chunk = manifest[key];
+    if (!chunk) return;
+
+    for (const importedKey of chunk.imports ?? []) {
+      const imported = manifest[importedKey];
+      if (imported?.file) files.add(imported.file);
+      walk(importedKey);
     }
-  }
+  };
 
-  return links;
+  walk(entryKey);
+  files.delete(entry.file);
+
+  // ALWAYS `${basePath}/${file}`, never a bare `file`. With the default (empty) coordinate that
+  // yields `/assets/x.js` - ROOT-ABSOLUTE, like the bootstrap tag and the stylesheets. A relative
+  // href would resolve against the DOCUMENT: correct on `/`, and `/product/assets/x.js` on
+  // `/product/42` - recreating the very 404 class this policy exists to remove.
+  return [...files].map((file) => `<link rel="modulepreload" href="${escapeHtmlAttribute(`${basePath}/${file}`)}">`).join('\n');
 };
 
-export const renderPreloadLink = (file: string): string => {
-  const fileType = file.match(/\.(js|css|woff2?|gif|jpe?g|png|svg)$/)?.[1];
-
-  switch (fileType) {
-    case 'js':
-      return `<link rel="modulepreload" href="${file}">`;
-    case 'css':
-      return `<link rel="stylesheet" href="${file}">`;
-    case 'woff':
-    case 'woff2':
-      return `<link rel="preload" href="${file}" as="font" type="font/${fileType}" crossorigin>`;
-    case 'gif':
-    case 'jpeg':
-    case 'jpg':
-    case 'png':
-      return `<link rel="preload" href="${file}" as="image" type="image/${fileType}">`;
-    case 'svg':
-      return `<link rel="preload" href="${file}" as="image" type="image/svg+xml">`;
-    default:
-      return '';
-  }
-};
-
+/**
+ * Every stylesheet the client build emitted for this app.
+ *
+ * RULED 2026-08-26, and deliberately NOT narrowed to the entry's static closure in the same unit
+ * that narrowed the JavaScript. An SSR-rendered lazy component's CSS is not in that closure, so
+ * narrowing now would leave it unstyled until hydration fetched it - a visual regression introduced
+ * while fixing a preload defect. The honest statement of the current policy:
+ *
+ *   Until render-used module reporting exists across all renderers, taujs applies every stylesheet
+ *   emitted for the current app. This favours SSR styling correctness over route-level CSS
+ *   selectivity.
+ *
+ * The relation is a plain `stylesheet`. taujs has no separate CSS-preload policy here: HTML
+ * processes multiple `rel` keywords as SEPARATE link relationships (`as` belongs to the `preload`
+ * one), so combining `preload` and `stylesheet` does not create a special mode, and a stylesheet in
+ * the head already initiates its own fetch.
+ */
 export const getCssLinks = (manifest: Manifest, basePath = ''): string => {
   const seen = new Set<string>();
   const styles = [];
@@ -106,7 +133,7 @@ export const getCssLinks = (manifest: Manifest, basePath = ''): string => {
       for (const cssFile of entry.css) {
         if (!seen.has(cssFile)) {
           seen.add(cssFile);
-          styles.push(`<link rel="preload stylesheet" as="style" type="text/css" href="${basePath}/${cssFile}">`);
+          styles.push(`<link rel="stylesheet" href="${escapeHtmlAttribute(`${basePath}/${cssFile}`)}">`);
         }
       }
     }

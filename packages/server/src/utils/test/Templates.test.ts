@@ -3,8 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import {
   collectStyle,
-  renderPreloadLinks,
-  renderPreloadLink,
+  getStaticModulePreloadLinks,
   getCssLinks,
   overrideCSSHMRConsoleError,
   ensureNonNull,
@@ -143,45 +142,49 @@ describe('collectStyle / Vite module graph traversal', () => {
   });
 });
 
-describe('renderPreloadLink', () => {
-  it.each([
-    { file: '/x/app.js', exp: `<link rel="modulepreload" href="/x/app.js">` },
-    { file: '/x/app.css', exp: `<link rel="stylesheet" href="/x/app.css">` },
-    { file: '/x/font.woff', exp: `<link rel="preload" href="/x/font.woff" as="font" type="font/woff" crossorigin>` },
-    { file: '/x/font.woff2', exp: `<link rel="preload" href="/x/font.woff2" as="font" type="font/woff2" crossorigin>` },
-    { file: '/x/a.gif', exp: `<link rel="preload" href="/x/a.gif" as="image" type="image/gif">` },
-    { file: '/x/a.jpeg', exp: `<link rel="preload" href="/x/a.jpeg" as="image" type="image/jpeg">` },
-    { file: '/x/a.jpg', exp: `<link rel="preload" href="/x/a.jpg" as="image" type="image/jpg">` },
-    { file: '/x/a.png', exp: `<link rel="preload" href="/x/a.png" as="image" type="image/png">` },
-    { file: '/x/a.svg', exp: `<link rel="preload" href="/x/a.svg" as="image" type="image/svg+xml">` },
-    { file: '/x/unknown.bin', exp: `` },
-  ])('maps $file -> expected tag', ({ file, exp }) => {
-    expect(renderPreloadLink(file)).toBe(exp);
+describe('getStaticModulePreloadLinks', () => {
+  // The manifest shape mirrors Vite's .vite/manifest.json: keys are source module ids,
+  // `imports` holds the STATIC-import edges (module ids), `dynamicImports` holds dynamic ones.
+  const manifest = {
+    'entry.tsx': { file: 'assets/entry.js', imports: ['a.ts', 'shared.ts'], dynamicImports: ['lazy.ts'] },
+    'a.ts': { file: 'assets/a.js', imports: ['shared.ts'] },
+    'shared.ts': { file: 'assets/shared.js' },
+    'lazy.ts': { file: 'assets/lazy.js' },
+  } as any;
+
+  it('walks the recursive static-import closure, dedupes, and excludes the entry file itself', () => {
+    const out = getStaticModulePreloadLinks(manifest, 'entry.tsx');
+
+    expect(out).toContain(`<link rel="modulepreload" href="/assets/a.js">`);
+    expect(out).toContain(`<link rel="modulepreload" href="/assets/shared.js">`);
+    // shared.ts is reachable via both entry and a.ts - must appear once
+    expect(out.match(/assets\/shared\.js/g)?.length).toBe(1);
+    // the entry's own file ships as the bootstrap <script>, never as a preload
+    expect(out).not.toContain('entry.js');
   });
-});
 
-describe('renderPreloadLinks', () => {
-  it('dedupes files and adds basePath when provided', () => {
-    const ssrManifest = {
-      'mod:A': ['a.js', 'a.css', 'a.css'], // dup css
-      'mod:B': ['b.js', 'a.css'], // shared css
-    } as any;
+  it('does not follow dynamicImports', () => {
+    const out = getStaticModulePreloadLinks(manifest, 'entry.tsx');
+    expect(out).not.toContain('lazy.js');
+  });
 
-    const noBase = renderPreloadLinks(ssrManifest);
-    expect(noBase).toContain(`<link rel="modulepreload" href="a.js">`);
-    expect(noBase).toContain(`<link rel="stylesheet" href="a.css">`);
-    expect(noBase).toContain(`<link rel="modulepreload" href="b.js">`);
-    // a.css only once
-    expect(noBase.match(/a\.css/g)?.length).toBe(1);
+  it('prepends basePath to every href', () => {
+    const out = getStaticModulePreloadLinks(manifest, 'entry.tsx', '/app');
+    expect(out).toContain(`<link rel="modulepreload" href="/app/assets/a.js">`);
+    expect(out).toContain(`<link rel="modulepreload" href="/app/assets/shared.js">`);
+  });
 
-    const withBase = renderPreloadLinks(ssrManifest, '/app');
-    expect(withBase).toContain(`<link rel="modulepreload" href="/app/a.js">`);
-    expect(withBase).toContain(`<link rel="stylesheet" href="/app/a.css">`);
+  it('returns an empty string when entryKey is not in the manifest', () => {
+    expect(getStaticModulePreloadLinks(manifest, 'missing.tsx')).toBe('');
+  });
+
+  it('returns an empty string when the entry has no static imports', () => {
+    expect(getStaticModulePreloadLinks(manifest, 'shared.ts')).toBe('');
   });
 });
 
 describe('getCssLinks', () => {
-  it('returns deduped preload stylesheet links and honors basePath', () => {
+  it('returns deduped stylesheet links and honors basePath', () => {
     const manifest = {
       'entry.tsx': { css: ['x.css', 'y.css'] },
       'other.ts': { css: ['y.css', 'z.css'] },
@@ -189,9 +192,11 @@ describe('getCssLinks', () => {
     } as any;
 
     const tags = getCssLinks(manifest, '/base');
-    expect(tags).toContain(`<link rel="preload stylesheet" as="style" type="text/css" href="/base/x.css">`);
-    expect(tags).toContain(`<link rel="preload stylesheet" as="style" type="text/css" href="/base/y.css">`);
-    expect(tags).toContain(`<link rel="preload stylesheet" as="style" type="text/css" href="/base/z.css">`);
+    // RULED 2026-08-26: a plain `stylesheet` relation - see Templates.ts getCssLinks doc comment
+    // for why the old `rel="preload stylesheet" as="style"` form was redundant, not "preloaded".
+    expect(tags).toContain(`<link rel="stylesheet" href="/base/x.css">`);
+    expect(tags).toContain(`<link rel="stylesheet" href="/base/y.css">`);
+    expect(tags).toContain(`<link rel="stylesheet" href="/base/z.css">`);
     // dedup y.css
     expect(tags.match(/y\.css/g)?.length).toBe(1);
   });
@@ -374,18 +379,9 @@ describe('collectStyle - handles missing transform results for css modules', () 
   });
 });
 
-describe('renderPreloadLinks - empty / no-op paths', () => {
-  it('returns empty string for empty manifest', () => {
-    expect(renderPreloadLinks({} as any)).toBe('');
-  });
-
-  it('ignores manifest entries with falsy file arrays', () => {
-    const ssrManifest = {
-      'mod:A': undefined,
-      'mod:B': null,
-    } as any;
-
-    expect(renderPreloadLinks(ssrManifest)).toBe('');
+describe('getStaticModulePreloadLinks - empty / no-op paths', () => {
+  it('returns empty string for an empty manifest', () => {
+    expect(getStaticModulePreloadLinks({} as any, 'entry.tsx')).toBe('');
   });
 });
 

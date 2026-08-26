@@ -32,7 +32,7 @@ import type { DebugConfig, Logs } from '../core/logging/types';
 import type { SelectedPageRoute } from '../core/routes/FastifyRoutes';
 import type { ServiceRegistry } from '../core/services/DataServices';
 import type { DeferredDataController } from '../core/routes/DeferredData';
-import type { Manifest, ProcessedConfig, RenderModule, SSRManifest } from '../types';
+import type { Manifest, ProcessedConfig, RenderModule } from '../types';
 
 /**
  * RFC 0007 (R4, decision 15): the PRIVATE deferred-outcome envelope carrier. Undocumented and
@@ -118,7 +118,6 @@ export const handleRender = async (
     manifests: Map<string, Manifest>;
     preloadLinks: Map<string, string>;
     renderModules: Map<string, RenderModule>;
-    ssrManifests: Map<string, SSRManifest>;
     templates: Map<string, string>;
   },
   opts: {
@@ -213,7 +212,6 @@ export const handleRender = async (
     const cssLink = maps.cssLinks.get(clientRoot);
     const manifest = maps.manifests.get(clientRoot);
     const preloadLink = maps.preloadLinks.get(clientRoot);
-    const ssrManifest = maps.ssrManifests.get(clientRoot);
     let devHead = '';
 
     let renderModule: RenderModule;
@@ -535,7 +533,10 @@ export const handleRender = async (
 
       let aggregateHeadContent = headContent;
 
-      if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
+      // RULED 2026-08-26: module preloads accelerate the CLIENT execution graph, so a route that
+      // does not hydrate must not receive them - there is nothing to accelerate. CSS is emitted
+      // either way: the server-rendered HTML still needs styling.
+      if (shouldHydrate && preloadLink) aggregateHeadContent += preloadLink;
       if (manifest && cssLink) aggregateHeadContent += cssLink;
 
       const nonceAttr = cspNonce ? ` nonce="${cspNonce}"` : '';
@@ -874,7 +875,8 @@ export const handleRender = async (
               if (devHead) aggregateHeadContent += devHead;
               aggregateHeadContent += headContent;
 
-              if (ssrManifest && preloadLink) aggregateHeadContent += preloadLink;
+              // Same policy as the SSR arm: hydration-gated module preloads, CSS unconditional.
+              if (shouldHydrate && preloadLink) aggregateHeadContent += preloadLink;
               if (manifest && cssLink) aggregateHeadContent += cssLink;
 
               // devStamp lives in <head>, never inside #root: a leading <script> before the
