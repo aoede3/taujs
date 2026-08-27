@@ -1,5 +1,13 @@
 # @taujs/server
 
+## 0.29.2
+
+### Patch Changes
+
+- [#107](https://github.com/aoede3/taujs/pull/107) [`e72c257`](https://github.com/aoede3/taujs/commit/e72c25715680960d4aef99b09f7b97daba9d574d) Thanks [@aoede3](https://github.com/aoede3)! - In development, an author's own `<style type="text/css">` block in `index.html` was stripped from every server-rendered and fallthrough page (production kept it), because the dev template strip was origin-blind. The strip now removes only the `/@vite/client` script tag it exists to dedupe.
+
+  τjs's injected style block never accumulated - the template map is read-only after boot - so nothing else changes.
+
 ## 0.29.1
 
 ### Patch Changes
