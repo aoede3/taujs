@@ -191,7 +191,7 @@ describe('handleRender', () => {
 
     const actualTemplates = await vi.importActual<typeof import('../Templates')>('../Templates');
     vi.mocked(Templates.addNonceToInlineScripts).mockImplementation(actualTemplates.addNonceToInlineScripts);
-    vi.mocked(Templates.stripDevClientAndStyles).mockImplementation(actualTemplates.stripDevClientAndStyles);
+    vi.mocked(Templates.stripDevClient).mockImplementation(actualTemplates.stripDevClient);
     vi.mocked(Templates.applyViteTransform).mockImplementation(actualTemplates.applyViteTransform);
     // Use the REAL attribute-escape so the SSR bootstrap-tag sink is exercised end-to-end (R2-02 SEC2).
     vi.mocked(Templates.escapeHtmlAttribute).mockImplementation(actualTemplates.escapeHtmlAttribute);
@@ -2161,18 +2161,18 @@ describe('handleRender', () => {
       expect(mockViteDevServer.transformIndexHtml).toHaveBeenCalled();
     });
 
-    it('should strip existing style tags in dev mode', async () => {
+    it('keeps an author style tag through dev SSR (the strip must not remove it)', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
 
-      const templateWithStyles = '<html><head><style type="text/css">.old { color: blue; }</style></head><body></body></html>';
-      vi.mocked(Templates.ensureNonNull).mockReturnValue(templateWithStyles);
-      vi.mocked(Templates.processTemplate).mockReturnValue({
-        beforeHead: '<html><head>',
-        afterHead: '</head>',
-        beforeBody: '<body>',
-        afterBody: '</body></html>',
-      });
+      // Real template plumbing, so the assertion is on the response that is SENT, not on an
+      // intermediate string: a mocked rebuildTemplate would hide a strip that happened later.
+      const actualTemplates = await vi.importActual<typeof import('../Templates')>('../Templates');
+      vi.mocked(Templates.processTemplate).mockImplementation(actualTemplates.processTemplate);
+      vi.mocked(Templates.rebuildTemplate).mockImplementation(actualTemplates.rebuildTemplate);
+
+      const templateWithAuthorStyle = '<html><head><style type="text/css">.author{}</style><!--ssr-head--></head><body><!--ssr-html--></body></html>';
+      vi.mocked(Templates.ensureNonNull).mockReturnValue(templateWithAuthorStyle);
 
       const mockRenderModule = {
         renderSSR: vi.fn().mockResolvedValue({
@@ -2182,18 +2182,23 @@ describe('handleRender', () => {
       };
 
       mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
-      mockViteDevServer.transformIndexHtml.mockImplementation((_url: any, html: any) => {
-        expect(html).not.toContain('.old { color: blue; }');
+
+      let seenByTransform = '';
+      mockViteDevServer.transformIndexHtml.mockImplementation((_url: any, html: string) => {
+        seenByTransform = html;
         return Promise.resolve(html);
       });
 
-      vi.mocked(Templates.collectStyle).mockResolvedValue('.new { color: red; }');
+      vi.mocked(Templates.collectStyle).mockResolvedValue('.dev{}');
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
-      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>complete</html>');
 
       await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
 
-      expect(mockViteDevServer.transformIndexHtml).toHaveBeenCalled();
+      expect(seenByTransform).toContain('.author{}');
+      const sent = mockReply.send.mock.calls[0][0] as string;
+      expect(sent).toContain('.author{}');
+      expect(sent).toContain('.dev{}');
+      expect(sent).toContain('<div>Dev</div>');
     });
 
     it('should handle dev mode asset loading errors', async () => {
@@ -2368,6 +2373,36 @@ describe('handleRender', () => {
 
       expect(writtenHtml).toContain('<script nonce="nonce-dev-123" type="module" src="/@vite/client"></script>');
     });
+
+    it('does not accumulate style blocks across successive dev renders with the same maps', async () => {
+      const actualTemplates = await vi.importActual<typeof import('../Templates')>('../Templates');
+      vi.mocked(Templates.ensureNonNull).mockImplementation(actualTemplates.ensureNonNull);
+      vi.mocked(Templates.processTemplate).mockImplementation(actualTemplates.processTemplate);
+      vi.mocked(Templates.rebuildTemplate).mockImplementation(actualTemplates.rebuildTemplate);
+
+      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+      mockSelectedRoute = mockRoute;
+
+      const mockRenderModule = { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '<div>Dev</div>' }) };
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(brandedRenderModule('test', mockRenderModule));
+      mockViteDevServer.transformIndexHtml.mockImplementation(async (_url: any, html: string) => html);
+      vi.mocked(Templates.collectStyle).mockResolvedValue('.dev{}');
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      const countStyleBlocks = (html: string) => html.match(/<style type="text\/css"[^>]*>/g)?.length ?? 0;
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+      const firstHtml = mockReply.send.mock.calls[0][0] as string;
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer });
+      const secondHtml = mockReply.send.mock.calls[1][0] as string;
+
+      expect(countStyleBlocks(firstHtml)).toBe(1);
+      expect(countStyleBlocks(secondHtml)).toBe(1);
+      expect(firstHtml).toContain('.dev{}');
+      expect(secondHtml).toContain('.dev{}');
+      expect(secondHtml.match(/\.dev\{\}/g)?.length).toBe(1);
+    });
   });
 
   describe('Production mode', () => {
@@ -2417,6 +2452,34 @@ describe('handleRender', () => {
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
       await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+    });
+
+    it('prod: keeps an author style tag and never calls the dev template strip', async () => {
+      const mockRoute = createMockRouteMatch({ render: 'ssr' });
+      mockSelectedRoute = mockRoute;
+
+      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><style type="text/css">.author{}</style></head><body></body></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head><style type="text/css">.author{}</style>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      const mockRenderModule = { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '<div>Prod</div>' }) };
+      mockMaps.renderModules.set('/test/client', mockRenderModule);
+
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+      vi.mocked(Templates.rebuildTemplate).mockImplementation(
+        (parts: any, headContent: string, bodyContent: string) =>
+          `${parts.beforeHead}${headContent}${parts.afterHead}${parts.beforeBody}${bodyContent}${parts.afterBody}`,
+      );
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      const html = mockReply.send.mock.calls[0][0] as string;
+      expect(html).toContain('.author{}');
+      expect(Templates.stripDevClient).not.toHaveBeenCalled();
     });
   });
 

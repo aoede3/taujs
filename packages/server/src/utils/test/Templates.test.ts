@@ -15,6 +15,7 @@ import {
   injectBootstrapModule,
   escapeHtmlAttribute,
   extractHeadInner,
+  stripDevClient,
 } from '../Templates';
 import { SSRTAG } from '../../constants';
 
@@ -433,6 +434,18 @@ describe('addNonceToInlineScripts - attribute-order edge cases', () => {
     const html = `<script data-x="1" type="module">x</script>`;
     const out = addNonceToInlineScripts(html, 'abc123');
     expect(out).toBe(`<script nonce="abc123" data-x="1" type="module">x</script>`);
+  });
+});
+
+describe('stripDevClient', () => {
+  it('removes the /@vite/client script tag', () => {
+    const html = '<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>';
+    expect(stripDevClient(html)).toBe('<html><head></head><body></body></html>');
+  });
+
+  it('leaves an author style tag untouched', () => {
+    const html = '<html><head><style type="text/css">.author{}</style></head><body></body></html>';
+    expect(stripDevClient(html)).toBe(html);
   });
 });
 

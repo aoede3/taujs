@@ -315,19 +315,19 @@ describe('handleNotFound', () => {
     expect(html).toMatch(/<div id="root"><\/div>/);
   });
 
-  it('dev: strips vite client + inline style BEFORE transformIndexHtml, and uses pathname url', async () => {
+  it('dev: strips the vite client tag but keeps an author style tag BEFORE transformIndexHtml, and uses pathname url', async () => {
     vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
 
     // ensure url parsing hits the pathname branch
     req.url = '/some/path?x=1';
     req.headers = { host: 'example.test' };
 
-    const templateWithViteJunk = `
+    const templateWithAuthorStyle = `
       <html>
         <head>
           ${SSRTAG.ssrHead}
           <script type="module" src="/@vite/client"></script>
-          <style type="text/css">body{background:red}</style>
+          <style type="text/css">.author{}</style>
         </head>
         <body>
           <div id="root">${SSRTAG.ssrHtml}</div>
@@ -335,10 +335,12 @@ describe('handleNotFound', () => {
       </html>
     `;
 
+    let seenByTransform = '';
     const transformIndexHtml = vi.fn(async (url: string, html: string) => {
-      // these asserts prove the two .replace(...) lines ran before transformIndexHtml
+      seenByTransform = html;
+
+      // the vite client tag is still deduped ahead of transformIndexHtml's own injection
       expect(html).not.toContain('<script type="module" src="/@vite/client"></script>');
-      expect(html).not.toMatch(/<style type="text\/css">[\s\S]*?<\/style>/);
 
       // prove we passed pathname, not full url with query
       expect(url).toBe('/some/path');
@@ -364,13 +366,17 @@ describe('handleNotFound', () => {
       {
         cssLinks: new Map([['/app', '<link rel="stylesheet" href="/dev.css">']]),
         bootstrapModules: new Map(), // keep this empty so we isolate dev branch behaviour
-        templates: new Map([['/app', templateWithViteJunk]]),
+        templates: new Map([['/app', templateWithAuthorStyle]]),
       },
       { viteDevServer },
     );
 
     expect(transformIndexHtml).toHaveBeenCalledTimes(1);
     expect(reply.send).toHaveBeenCalledTimes(1);
+    expect(seenByTransform).toContain('.author{}');
+
+    const finalHtml = reply.send.mock.calls[0][0] as string;
+    expect(finalHtml).toContain('.author{}');
   });
 
   it('dev: injects nonce onto <script> tags lacking one after transformIndexHtml; does not double-inject; url "/" when req.url missing', async () => {

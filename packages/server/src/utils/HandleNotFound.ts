@@ -10,7 +10,7 @@ import {
   buildTaujsDevStamp,
   injectBootstrapModule,
   injectCssLink,
-  stripDevClientAndStyles,
+  stripDevClient,
 } from './Templates';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
@@ -87,7 +87,7 @@ export const handleNotFound = async (
     let processedTemplate = template.replace(SSRTAG.ssrHead, '').replace(SSRTAG.ssrHtml, '');
 
     if (isDevelopment && viteDevServer) {
-      processedTemplate = stripDevClientAndStyles(processedTemplate);
+      processedTemplate = stripDevClient(processedTemplate);
 
       const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
 

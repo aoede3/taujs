@@ -20,7 +20,7 @@ import {
   rebuildTemplate,
   addNonceToInlineScripts,
   extractHeadInner,
-  stripDevClientAndStyles,
+  stripDevClient,
   applyViteTransform,
 } from './Templates';
 import { inlineJsFromJson, serializeInlineData } from './InlineData';
@@ -218,7 +218,7 @@ export const handleRender = async (
 
     if (isDevelopment && viteDevServer) {
       try {
-        template = stripDevClientAndStyles(template);
+        template = stripDevClient(template);
 
         const entryServerFile = resolveEntryFile(clientRoot, entryServer);
         const entryServerPath = path.join(clientRoot, entryServerFile);
