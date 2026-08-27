@@ -26,8 +26,13 @@ const catalog = defineService({
   },
 });
 // content.about has NO edge anywhere (the known-but-edgeless case); pricing is reached ONLY
-// through a deferred entry (RFC 0007 R5 — must count as declared coverage).
-const content = defineService({ home: async (_p: {}) => ({ heading: 'hi' }), about: async (_p: {}) => ({ page: 'about' }) });
+// through a deferred entry (RFC 0007 R5 — must count as declared coverage). content.header is
+// reached ONLY through a head entry (head edge, mirrors data — decisions.md 2026-08-27).
+const content = defineService({
+  home: async (_p: {}) => ({ heading: 'hi' }),
+  about: async (_p: {}) => ({ page: 'about' }),
+  header: async (_p: {}) => ({ title: 'hi' }),
+});
 const pricing = defineService({ getQuote: async (_p: {}) => ({ quote: 1 }) });
 const registry = defineServiceRegistry({ catalog, content, pricing });
 const serviceData = createServiceData<typeof registry>();
@@ -51,8 +56,19 @@ const config: CoreTaujsConfig = {
       entryPoint: '',
       routes: [
         { path: '/', attr: { render: 'ssr', data: serviceData('content', 'home') } },
-        { path: '/product/:id', attr: { render: 'streaming', meta: {}, data: serviceData('catalog', 'getProduct', (p) => ({ id: String(p.id) })) } },
+        {
+          path: '/product/:id',
+          attr: {
+            render: 'streaming',
+            meta: {},
+            data: serviceData('catalog', 'getProduct', (p) => ({ id: String(p.id) })),
+            // Same method via data AND head, on one route: dedupe must yield one row (ruling 3).
+            head: { data: serviceData('catalog', 'getProduct', (p) => ({ id: String(p.id) })) },
+          },
+        },
         { path: '/quote', attr: { render: 'streaming', meta: {}, deferred: { quote: serviceData('pricing', 'getQuote') } } },
+        // ONLY declaration is attr.head.data — nothing else uses content.header.
+        { path: '/head-only', attr: { render: 'ssr', head: { data: serviceData('content', 'header') } } },
         { path: '/ghosted', attr: { render: 'ssr', data: serviceDataWide('phantom', 'boo') } },
         { path: '/gone', attr: { render: 'ssr', data: serviceDataWide('content', 'gone') } },
         { path: '/legacy', attr: { render: 'ssr', data: async () => ({ legacy: true }) } },
@@ -97,16 +113,17 @@ describe('structural tools (cold/stale mode)', () => {
     expect(result.ok).toBe(true);
     expect(result.mode).toBe('stale');
     expect(result.staleness).toContain('2026-07-10T10:00:00.000Z');
-    expect(result.routeCount).toBe(7);
+    expect(result.routeCount).toBe(8);
     expect(result.fallthrough.reachable).toBe(true);
     // The boundary, stated at the point of use: the graph covers what taujs owns, and absence
     // from it never means absence from the application.
     expect(result.scope).toContain('Routes registered directly on the Fastify instance');
     expect(result.scope).toContain('never means absence from the application');
-    // Coverage: pricing counts as covered through its deferred-only edge (usedBy parity).
+    // Coverage: pricing counts as covered through its deferred-only edge (usedBy parity); content
+    // gains header, covered ONLY through its head edge (decisions.md 2026-08-27).
     expect(result.services).toEqual([
       { name: 'catalog', methodCount: 1, withDeclaredEdges: 1, methods: ['getProduct'] },
-      { name: 'content', methodCount: 2, withDeclaredEdges: 1, methods: ['about', 'home'] },
+      { name: 'content', methodCount: 3, withDeclaredEdges: 2, methods: ['about', 'header', 'home'] },
       { name: 'pricing', methodCount: 1, withDeclaredEdges: 1, methods: ['getQuote'] },
     ]);
     // Episode-tool liveness is explicit, with the refusal remedy, instead of implied by mode.
@@ -122,7 +139,7 @@ describe('structural tools (cold/stale mode)', () => {
     const result = call('taujs_list_routes', { limit: 2 });
 
     expect(result.routes.items).toHaveLength(2);
-    expect(result.routes.total).toBe(7);
+    expect(result.routes.total).toBe(8);
     expect(result.routes.truncated).toBe(true);
 
     const none = call('taujs_list_routes', { appId: 'nope' });
@@ -149,6 +166,9 @@ describe('structural tools (cold/stale mode)', () => {
     const sources = result.edges.map((e: { source: string }) => e.source);
     expect(sources).toContain('declared');
     expect(sources).toContain('observed');
+    // /product/:id declares catalog.getProduct via BOTH data and head: dedupe still yields one
+    // declared row, labelled by the first source (data), per ruling 3.
+    expect(result.edges.filter((e: { source: string }) => e.source === 'declared')).toHaveLength(1);
     const declared = result.edges.find((e: { source: string }) => e.source === 'declared');
     expect(declared.declaredVia).toBe('serviceData');
     const observed = result.edges.find((e: { source: string }) => e.source === 'observed');
@@ -156,6 +176,42 @@ describe('structural tools (cold/stale mode)', () => {
     expect(observed.routeCallCount).toBe(1);
     expect(observed.count).toBeUndefined();
     expect(result.note).toContain('seen in dev traffic');
+  });
+
+  it('taujs_who_calls_service reaches head-only edges, labelled declaredVia "head"', () => {
+    const result = call('taujs_who_calls_service', { service: 'content', method: 'header' });
+
+    expect(result.ok).toBe(true);
+    expect(result.edges).toEqual([
+      {
+        source: 'declared',
+        service: 'content',
+        method: 'header',
+        declaredVia: 'head',
+        routeId: 'playground-react:/head-only',
+        appId: 'playground-react',
+        path: '/head-only',
+      },
+    ]);
+    // The note defines "declared"; it must not contradict a returned declaredVia: 'head'.
+    expect(result.note).toContain('a head edge');
+  });
+
+  it('taujs_who_calls_service without a registry lists a service seen ONLY through a head edge', async () => {
+    const headOnlyRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-head-noreg-'));
+    const headOnlyConfig: CoreTaujsConfig = {
+      apps: [{ appId: 'web', entryPoint: '', routes: [{ path: '/masthead', attr: { render: 'ssr', head: { data: serviceDataWide('phantom', 'boo') } } }] }],
+    };
+    // No serviceRegistry: services is null, so existence cannot be checked and the discovery
+    // list is what the caller gets instead.
+    const graph = createRequestGraph(headOnlyConfig, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z' });
+    await writeTaujsArtifact(path.join(headOnlyRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+    const tools = new Map(allTools(headOnlyRoot).map((t) => [t.name, t.handler]));
+
+    const result = tools.get('taujs_who_calls_service')!({ service: 'nothing' } as never) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.servicesSeenOnRouteEdges.items).toEqual(['phantom']);
   });
 
   it('taujs_who_calls_service reaches deferred-only edges, matching the graph usedBy derivation', () => {
@@ -188,7 +244,7 @@ describe('structural tools (cold/stale mode)', () => {
     expect(badMethod.ok).toBe(false);
     expect(badMethod.reason).toBe('unknown_method');
     expect(badMethod.staleness).toContain('2026-07-10T10:00:00.000Z');
-    expect(badMethod.knownMethods.items).toEqual(['about', 'home']);
+    expect(badMethod.knownMethods.items).toEqual(['about', 'header', 'home']);
 
     // A known method with zero edges is a successful empty query, not an error — agents branch
     // hard on `ok`, and this is "the answer is none", not "I asked wrong".
@@ -225,7 +281,7 @@ describe('structural tools (cold/stale mode)', () => {
     const gone = call('taujs_who_calls_service', { service: 'content', method: 'gone' });
     expect(gone.ok).toBe(false);
     expect(gone.reason).toBe('unknown_method');
-    expect(gone.knownMethods.items).toEqual(['about', 'home']);
+    expect(gone.knownMethods.items).toEqual(['about', 'header', 'home']);
     expect(gone.danglingEdges).toHaveLength(1);
     expect(gone.danglingEdges[0]).toMatchObject({ source: 'declared', routeId: 'playground-react:/gone', method: 'gone' });
   });
@@ -261,6 +317,8 @@ describe('structural tools (cold/stale mode)', () => {
     expect(explanation.render.strategy).toBe('streaming');
     expect(explanation.data.schema).toMatchObject({ name: 'getProduct', params: { declared: true, kind: 'parse' } });
     expect(explanation.middleware.auth.declared).toBe(false);
+    // head edge, mirrors data (decisions.md 2026-08-27): the route's declared head edge shows.
+    expect(explanation.head).toEqual({ data: { kind: 'service', service: 'catalog', method: 'getProduct' } });
   });
 });
 
@@ -288,7 +346,7 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     const result = await client.callTool({ name: 'taujs_overview', arguments: {} });
     const payload = JSON.parse((result.content as { text: string }[])[0]!.text);
     expect(payload.ok).toBe(true);
-    expect(payload.routeCount).toBe(7);
+    expect(payload.routeCount).toBe(8);
 
     const prompts = await client.listPrompts();
     expect(prompts.prompts.map((p) => p.name).sort()).toEqual([

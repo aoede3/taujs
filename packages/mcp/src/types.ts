@@ -28,6 +28,8 @@ export type GraphRoute = {
   data: GraphRouteData;
   /** RFC 0007 (R5): declared deferred entries, key-sorted; absent when the route declares none. */
   deferred?: { key: string; data: GraphRouteData }[];
+  /** head edge, mirrors data (decisions.md 2026-08-27): present only when `attr.head.data` is declared. */
+  head?: { data: GraphRouteData };
 };
 
 export type GraphServiceMethod = {

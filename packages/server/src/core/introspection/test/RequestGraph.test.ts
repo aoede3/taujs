@@ -67,9 +67,11 @@ const fixtureMultiApp: CoreTaujsConfig = {
             render: 'ssr',
             data: async () => ({ results: [] }),
             middleware: { csp: { directives: () => ({}) } },
+            // head edge, mirrors data (decisions.md 2026-08-27): listSpecials is reached ONLY here.
+            head: { data: serviceData('catalog', 'listSpecials') },
           },
         },
-        { path: '/terms', attr: { render: 'ssr', hydrate: false } },
+        { path: '/terms', attr: { render: 'ssr', hydrate: false, head: { data: async () => ({ title: 'Terms' }) } } },
       ],
     },
     {
@@ -223,6 +225,10 @@ describe('createRequestGraph — contract assertions', () => {
     expect(page.usedBy).toEqual([]);
     expect(page.params).toEqual({ declared: true, kind: 'function' });
     expect(page.result).toEqual({ declared: true, kind: 'parse' });
+
+    // listSpecials is reached ONLY through /search's head edge (decisions.md 2026-08-27).
+    const listSpecials = catalog.methods.find((m) => m.name === 'listSpecials')!;
+    expect(listSpecials.usedBy).toEqual([{ routeId: 'storefront:/search', appId: 'storefront', path: '/search' }]);
   });
 
   it('data kinds: service via metadata, dynamic for closures, none when absent', () => {
@@ -232,6 +238,15 @@ describe('createRequestGraph — contract assertions', () => {
     expect(byId.get('storefront:/product/:id')!.data).toEqual({ kind: 'service', service: 'catalog', method: 'getProduct' });
     expect(byId.get('storefront:/search')!.data).toEqual({ kind: 'dynamic' });
     expect(byId.get('storefront:/terms')!.data).toEqual({ kind: 'none' });
+  });
+
+  it('head kinds: service via metadata on /search, dynamic on /terms, absent on /product/:id', () => {
+    const graph = createRequestGraph(fixtureMultiApp, OPTS);
+    const byId = new Map(graph.routes.map((r) => [r.id, r]));
+
+    expect(byId.get('storefront:/search')!.head).toEqual({ data: { kind: 'service', service: 'catalog', method: 'listSpecials' } });
+    expect(byId.get('storefront:/terms')!.head).toEqual({ data: { kind: 'dynamic' } });
+    expect('head' in byId.get('storefront:/product/:id')!).toBe(false);
   });
 
   it('rejects an empty apps array (mirrors defineConfig)', () => {
