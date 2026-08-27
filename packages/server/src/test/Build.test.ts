@@ -112,6 +112,9 @@ describe('Build.ts - Full Coverage', () => {
       writable: true,
       configurable: true,
     });
+    // taujsBuild sets process.exitCode (never process.exit) on a failed build - reset it so a
+    // failure cell can never leak a non-zero exit code into the vitest runner or a later test.
+    process.exitCode = undefined;
   });
 
   describe('taujsBuild - Core Build Orchestration', () => {
@@ -574,8 +577,7 @@ describe('Build.ts - Full Coverage', () => {
       expect(contextOrder).toEqual(['a', 'a/b', 'baz']);
     });
 
-    it('should exit process on build failure', async () => {
-      const mockExit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    it('sets the exit code (never process.exit) on build failure', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const buildError = new Error('Build failed');
       vi.mocked(build).mockRejectedValue(buildError);
@@ -587,9 +589,8 @@ describe('Build.ts - Full Coverage', () => {
       });
 
       expect(consoleErrorSpy).toHaveBeenCalledWith('[taujs:build:admin] ✗ Failed\n', buildError);
-      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(process.exitCode).toBe(1);
 
-      mockExit.mockRestore();
       consoleErrorSpy.mockRestore();
     });
 
@@ -2910,11 +2911,10 @@ describe('Build.ts - Full Coverage', () => {
       expect(buildConfig.base).toBe('/marketing/');
     });
 
-    it('exits with error when no apps match the filter', async () => {
+    it('sets the exit code when no apps match the filter', async () => {
       process.argv = ['node', 'build', '--app', 'does-not-exist'];
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
       await taujsBuild({
         config: { apps: [] },
@@ -2932,10 +2932,9 @@ describe('Build.ts - Full Coverage', () => {
       expect(msg).toContain('marketing (entry: marketing)');
       expect(msg).toContain('reports (entry: reports-app)');
 
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(process.exitCode).toBe(1);
 
       consoleErrorSpy.mockRestore();
-      exitSpy.mockRestore();
     });
 
     it('prints known apps without entryPoint without entry suffix in error message', async () => {
@@ -2963,7 +2962,6 @@ describe('Build.ts - Full Coverage', () => {
       process.argv = ['node', 'build', '--app', 'does-not-exist'];
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
 
       await taujsBuild({
         config: { apps: [] },
@@ -2980,10 +2978,9 @@ describe('Build.ts - Full Coverage', () => {
       // and specifically *not* with an entry suffix
       expect(msg).not.toContain('root-app (entry:');
 
-      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(process.exitCode).toBe(1);
 
       consoleErrorSpy.mockRestore();
-      exitSpy.mockRestore();
     });
   });
 });

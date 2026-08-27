@@ -243,7 +243,9 @@ export async function taujsBuild({
       `[taujs:build] No apps match filter "${appFilterRaw}".` +
         ` Known apps: ${processedConfigs.map((c) => `${c.appId}${c.entryPoint ? ` (entry: ${c.entryPoint})` : ''}`).join(', ')}`,
     );
-    process.exit(1);
+    // exitCode, not exit: a piped stderr is asynchronous and exit() discards what has not flushed - measured, docs/followups
+    process.exitCode = 1;
+    return;
   }
 
   // A FILTERED build must not destroy the apps it was not asked to build. `deleteDist` removes the
@@ -464,11 +466,15 @@ export async function taujsBuild({
       console.log(`[taujs:build:${entryPoint}] ✓ Complete\n`);
     } catch (error) {
       console.error(`[taujs:build:${entryPoint}] ✗ Failed\n`, error);
-      process.exit(1);
+      const notAttempted = buildOrder.slice(buildOrder.indexOf(appConfig) + 1).map((c) => c.appId);
+      if (notAttempted.length > 0) console.error(`[taujs:build] Stopping: ${notAttempted.length} app(s) not attempted: ${notAttempted.join(', ')}`);
+      // exitCode, not exit: a piped stderr is asynchronous and exit() discards what has not flushed - measured, docs/followups
+      process.exitCode = 1;
+      return;
     }
   }
 
-  // After successful builds only (failures exit above). No registry at build time, so the
+  // After successful builds only (failures RETURN above). No registry at build time, so the
   // emitted graph carries services: null — "registry unavailable", never "no services".
   await emitGraphArtifact(path.resolve(projectRoot, 'dist', '.taujs'), config, {
     source: 'build',
