@@ -51,6 +51,7 @@ const {
     preloadLinks: new Map<string, string>(),
     renderModules: new Map<string, string>(),
     templates: new Map<string, string>(),
+    templateLoadFailures: new Map<string, unknown>(),
   };
 
   const processConfigsMock = vi.fn((configs: any[], baseClientRoot: string, TEMPLATE: unknown) =>
@@ -211,6 +212,10 @@ describe('SSRServer', () => {
       expect.objectContaining({ logger: mockLogger }),
     );
 
+    // The SAME templateLoadFailures map instance (not merely an equal one) reaches loadAssets' opts.
+    const loadAssetsOpts = (loadAssetsMock.mock.calls[0] as any[])[8] as { templateLoadFailures?: Map<string, unknown> };
+    expect(loadAssetsOpts.templateLoadFailures).toBe(maps.templateLoadFailures);
+
     // CSP plugin called with the global policy; route metadata now comes from Fastify
     const cspCall = cspPluginMock.mock.calls[0];
     expect(cspCall?.[1]).toEqual(
@@ -231,6 +236,10 @@ describe('SSRServer', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toBe('OK:handleRender');
 
+    // The SAME templateLoadFailures map instance reaches handleRender's maps argument.
+    const handleRenderMaps = (handleRenderMock.mock.calls[0] as any[])[5] as { templateLoadFailures?: Map<string, unknown> };
+    expect(handleRenderMaps.templateLoadFailures).toBe(maps.templateLoadFailures);
+
     // notFound is set - exercise by hitting an unmapped verb/path
     const res2 = await app.inject({ method: 'DELETE', url: '/nope' });
     expect(res2.statusCode).toBe(200);
@@ -245,9 +254,14 @@ describe('SSRServer', () => {
         cssLinks: maps.cssLinks,
         bootstrapModules: maps.bootstrapModules,
         templates: maps.templates,
+        templateLoadFailures: maps.templateLoadFailures,
       },
       expect.objectContaining({ logger: mockLogger, debug: false }),
     );
+
+    // The SAME templateLoadFailures map instance reaches handleNotFound's maps-literal argument.
+    const handleNotFoundMaps = (handleNotFoundMock.mock.calls[0] as any[])[3] as { templateLoadFailures?: Map<string, unknown> };
+    expect(handleNotFoundMaps.templateLoadFailures).toBe(maps.templateLoadFailures);
   });
 
   it('auto-registers @fastify/static in non-dev mode when staticAssets is not provided', async () => {

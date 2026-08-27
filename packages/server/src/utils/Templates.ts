@@ -1,4 +1,5 @@
 import { SSRTAG } from '../constants';
+import { AppError } from '../core/errors/AppError';
 
 import type { ViteDevServer } from 'vite';
 import type { Manifest } from '../types';
@@ -158,6 +159,18 @@ export const ensureNonNull = <T>(value: T | null | undefined, errorMessage: stri
   if (value === undefined || value === null) throw new Error(errorMessage);
 
   return value;
+};
+
+/**
+ * The single lookup both readers (HandleRender, HandleNotFound) use, so the "Template not found"
+ * message and its cause cannot diverge. The retained dev read failure (by clientRoot) becomes
+ * `cause`; when nothing was retained, `cause` is undefined and the message is unchanged.
+ */
+export const requireTemplate = (templates: Map<string, string>, failures: Map<string, unknown> | undefined, clientRoot: string): string => {
+  const template = templates.get(clientRoot);
+  if (template != null) return template;
+
+  throw AppError.internal(`Template not found for clientRoot: ${clientRoot}`, failures?.get(clientRoot), { clientRoot });
 };
 
 export const cleanTemplateWhitespace = (templateParts: { beforeHead: string; afterHead: string; beforeBody: string; afterBody: string }) => {

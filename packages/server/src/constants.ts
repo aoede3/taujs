@@ -17,6 +17,10 @@ export const TEMPLATE = {
 
 export const ENTRY_EXTENSIONS = ['.ts', '.tsx'] as const;
 
+// Vite emits `entry-server.mjs` when the target package.json has no `"type": "module"`; probe `.js`
+// (the common case) then `.mjs` so both build shapes resolve.
+export const RENDER_MODULE_EXTENSIONS = ['.js', '.mjs'] as const;
+
 export const DEV_CSP_DIRECTIVES: CSPDirectives = {
   'default-src': ["'self'"],
   'connect-src': ["'self'", 'ws:', 'http:'],

@@ -1,8 +1,9 @@
 import { readFile } from 'fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
-import { ENTRY_EXTENSIONS, TEMPLATE } from '../constants';
+import { ENTRY_EXTENSIONS, RENDER_MODULE_EXTENSIONS, TEMPLATE } from '../constants';
 import { AppError } from '../core/errors/AppError';
 import { resolveLogs } from '../core/logging/resolve';
 import { isDevelopment } from '../System';
@@ -20,6 +21,8 @@ export const createMaps = () => ({
   preloadLinks: new Map<string, string>(),
   renderModules: new Map<string, RenderModule>(),
   templates: new Map<string, string>(),
+  // The original failure behind a dev template read, by clientRoot; becomes the cause of a later "Template not found".
+  templateLoadFailures: new Map<string, unknown>(),
 });
 
 export const processConfigs = <P = unknown>(configs: readonly Config<P>[], baseClientRoot: string, templateDefaults: typeof TEMPLATE): ProcessedConfig<P>[] => {
@@ -78,6 +81,16 @@ const findManifestEntry = (manifest: Manifest, stem: string) => {
   return null;
 };
 
+/**
+ * Vite emits `.mjs` when the target package.json has no `"type": "module"`. Select by file
+ * existence in RENDER_MODULE_EXTENSIONS order, never by trying to import each in turn, so an
+ * existing module's evaluation failure is reported rather than masked.
+ */
+const resolveRenderModulePath = (ssrDistPath: string, entryServer: string): { path: string | undefined; tried: string[] } => {
+  const tried = RENDER_MODULE_EXTENSIONS.map((ext) => path.join(ssrDistPath, `${entryServer}${ext}`));
+  return { path: tried.find((candidate) => existsSync(candidate)), tried };
+};
+
 export const loadAssets = async (
   processedConfigs: readonly ProcessedConfig[],
   baseClientRoot: string,
@@ -87,7 +100,7 @@ export const loadAssets = async (
   preloadLinks: Map<string, string>,
   renderModules: Map<string, RenderModule>,
   templates: Map<string, string>,
-  opts: { logger?: Logs; publicBasePath?: string } = {},
+  opts: { logger?: Logs; publicBasePath?: string; templateLoadFailures?: Map<string, unknown> } = {},
 ) => {
   const logger = resolveLogs(opts.logger);
   // RFC 0012: every URL this function produces gains the installation's emission coordinate.
@@ -127,14 +140,12 @@ export const loadAssets = async (
 
       const manifestEntry = findManifestEntry(manifest, entryClient);
       if (!manifestEntry) {
-        throw AppError.internal(`Entry "${entryClient}" not found in manifest`, {
-          details: {
-            tried: ENTRY_EXTENSIONS.map((e) => `${entryClient}${e}`),
-            availableKeys: Object.keys(manifest),
-            clientRoot,
-            entryPoint,
-            manifestPath,
-          },
+        throw AppError.internal(`Entry "${entryClient}" not found in manifest`, undefined, {
+          tried: ENTRY_EXTENSIONS.map((e) => `${entryClient}${e}`),
+          availableKeys: Object.keys(manifest),
+          clientRoot,
+          entryPoint,
+          manifestPath,
         });
       }
 
@@ -152,17 +163,18 @@ export const loadAssets = async (
       // no compiler-only/incomplete-renderer mode.
       const contribution = requireRendererContribution(config.appId, config.renderer);
 
-      const renderModulePath = path.join(ssrDistPath, `${entryServer}.js`);
+      const { path: renderModulePath, tried } = resolveRenderModulePath(ssrDistPath, entryServer);
+      if (!renderModulePath) {
+        throw AppError.internal(`Render module "${entryServer}" not found in ${ssrDistPath}`, undefined, { tried, clientRoot, entryServer, ssrDistPath });
+      }
+
       const moduleUrl = pathToFileURL(renderModulePath).href;
 
       let importedModule: unknown;
       try {
         importedModule = await import(moduleUrl);
       } catch (err) {
-        throw AppError.internal(`Failed to load render module ${renderModulePath}`, {
-          cause: err,
-          details: { moduleUrl, clientRoot, entryServer, ssrDistPath },
-        });
+        throw AppError.internal(`Failed to load render module ${renderModulePath}`, err, { moduleUrl, clientRoot, entryServer, ssrDistPath });
       }
 
       // Validate the render-module identity against the app's renderer declaration BEFORE storing it
@@ -173,6 +185,11 @@ export const loadAssets = async (
       logAssetError(logger, isDevelopment ? 'loadAssets:development' : 'loadAssets:production', err);
 
       if (!isDevelopment) throw err;
+
+      // Retain the exact failure (not a message) so a later request's "Template not found" can
+      // carry it as a cause - but only when the template itself was never stored. A later failure
+      // in the same try (e.g. resolveEntryFile) must not overwrite a template that DID load.
+      if (!templates.has(clientRoot)) opts.templateLoadFailures?.set(clientRoot, err);
     }
   }
 };
