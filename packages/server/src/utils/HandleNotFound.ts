@@ -4,7 +4,7 @@ import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
 import { getRequestContext } from './Telemetry';
 import {
-  ensureNonNull,
+  requireTemplate,
   addNonceToInlineScripts,
   applyViteTransform,
   buildTaujsDevStamp,
@@ -36,6 +36,8 @@ export const handleNotFound = async (
     cssLinks: Map<string, string>;
     bootstrapModules: Map<string, string>;
     templates: Map<string, string>;
+    /** The original boot-time template read failure, retained by clientRoot (development only). */
+    templateLoadFailures?: Map<string, unknown>;
   },
   opts: {
     debug?: DebugConfig;
@@ -79,7 +81,7 @@ export const handleNotFound = async (
     const { clientRoot } = defaultConfig;
     const cspNonce: string | undefined = (req as any).cspNonce ?? undefined;
 
-    const template = ensureNonNull(maps.templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
+    const template = requireTemplate(maps.templates, maps.templateLoadFailures, clientRoot);
 
     const cssLink = maps.cssLinks.get(clientRoot);
     const bootstrapModule = maps.bootstrapModules.get(clientRoot);

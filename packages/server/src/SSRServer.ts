@@ -70,6 +70,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
   await loadAssets(processedConfigs, clientRoot, maps.bootstrapModules, maps.cssLinks, maps.manifests, maps.preloadLinks, maps.renderModules, maps.templates, {
     logger,
     publicBasePath,
+    templateLoadFailures: maps.templateLoadFailures,
   });
 
   // Tri-state contract: `undefined` installs the default production registration, explicit
@@ -289,6 +290,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
           cssLinks: maps.cssLinks,
           bootstrapModules: maps.bootstrapModules,
           templates: maps.templates,
+          templateLoadFailures: maps.templateLoadFailures,
         },
         {
           debug: opts.debug,

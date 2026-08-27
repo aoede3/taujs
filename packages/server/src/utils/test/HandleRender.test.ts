@@ -30,21 +30,29 @@ vi.mock('../../core/errors/AppError', async () => {
     httpStatus?: number;
     details?: unknown;
     safeMessage: string;
+    override cause?: unknown;
 
     constructor(message: string, kind: any = 'infra', opts?: any) {
       super(message);
       this.kind = kind;
       this.safeMessage = message;
       this.details = opts?.details;
+      // Real AppError.internal only ever sets `.cause` when the caller supplied one (a bare
+      // `undefined` never becomes an own property) - mirrored here so a cause-preservation test
+      // can tell "cause: undefined" apart from "cause never touched".
+      if (opts && 'cause' in opts) this.cause = opts.cause;
     }
   }
 
+  // Two calling conventions coexist in this codebase: an object-form bag (`{ cause, details }` as
+  // the sole 2nd argument) and the real class's positional form (`message, cause, details`). Both
+  // are normalised to the same `opts` shape here so this double keeps returning identical
+  // `.details` for existing callers while now ALSO retaining `.cause` (previously dropped
+  // silently - untested until Finding 1 needed it).
   const internalSpy = vi.fn((message: string, optsOrCause?: any, detailsMaybe?: any) => {
-    const err = new FakeAppError(
-      message,
-      'infra',
-      optsOrCause && typeof optsOrCause === 'object' && 'details' in optsOrCause ? optsOrCause : { details: detailsMaybe },
-    );
+    const isObjectForm = optsOrCause && typeof optsOrCause === 'object' && 'details' in optsOrCause;
+    const opts = isObjectForm ? optsOrCause : { cause: optsOrCause, details: detailsMaybe };
+    const err = new FakeAppError(message, 'infra', opts);
     return err as any;
   });
 
@@ -208,7 +216,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -237,7 +245,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -265,7 +273,7 @@ describe('handleRender', () => {
     it('R2-02 SEC2: an attribute-breakout bootstrapModule is escaped in the SSR bootstrap tag (no live onerror)', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' }); // hydrate defaults to true
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -294,7 +302,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -345,7 +353,7 @@ describe('handleRender', () => {
     it('should render SSR successfully with all assets', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -375,7 +383,7 @@ describe('handleRender', () => {
     it('should render SSR without hydration when hydrate is false', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr', hydrate: false });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -407,7 +415,7 @@ describe('handleRender', () => {
       const params = { id: '123' };
       const mockRoute = createMockRouteMatch(attr, 'test-app', params, '/test-path');
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -455,7 +463,7 @@ describe('handleRender', () => {
     it('should throw error when renderSSR is missing', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -477,7 +485,7 @@ describe('handleRender', () => {
     it('should escape JSON data in initial data script', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -523,7 +531,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -555,7 +563,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -588,7 +596,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -608,7 +616,7 @@ describe('handleRender', () => {
     it('R0-02: SSR render error with a disconnect-shaped message but signal NOT aborted → 500, not a silent hang', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -638,7 +646,7 @@ describe('handleRender', () => {
 
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -671,7 +679,7 @@ describe('handleRender', () => {
     it('warns and returns on benign SSR send failure', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -699,7 +707,7 @@ describe('handleRender', () => {
     it('logs error on non-benign SSR send failure', async () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -739,7 +747,7 @@ describe('handleRender', () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -775,7 +783,7 @@ describe('handleRender', () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -803,7 +811,7 @@ describe('handleRender', () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -830,7 +838,7 @@ describe('handleRender', () => {
       const mockRoute = { route: { attr: { render: 'ssr' }, appId: 'test-app' }, params: {}, keys: [] } as any;
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -860,7 +868,7 @@ describe('handleRender', () => {
       } as any;
 
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -896,7 +904,7 @@ describe('handleRender', () => {
       const params = { slug: 'abc' };
       const mockRoute = createMockRouteMatch(attr, 'test-app', params, '/articles/:slug');
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -952,7 +960,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' }); // hydrate defaults to true
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -979,7 +987,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1007,7 +1015,7 @@ describe('handleRender', () => {
     it('should unsubscribe aborted listener on reply finish in streaming mode', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1066,7 +1074,7 @@ describe('handleRender', () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1097,7 +1105,7 @@ describe('handleRender', () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1127,7 +1135,7 @@ describe('handleRender', () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr', hydrate: false });
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1159,7 +1167,7 @@ describe('handleRender', () => {
 
       mockMaps.manifests.delete('/test/client');
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1190,7 +1198,7 @@ describe('handleRender', () => {
     it('should render streaming successfully', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1248,7 +1256,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1289,7 +1297,7 @@ describe('handleRender', () => {
     it('should handle streaming without hydration', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', hydrate: false, meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1319,7 +1327,7 @@ describe('handleRender', () => {
     it('should abort stream when request is aborted', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1350,7 +1358,7 @@ describe('handleRender', () => {
     it('should handle reply close event', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1383,7 +1391,7 @@ describe('handleRender', () => {
     it('should handle benign socket errors in PassThrough', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1414,7 +1422,7 @@ describe('handleRender', () => {
     it('should log non-benign socket errors in PassThrough', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1449,7 +1457,7 @@ describe('handleRender', () => {
     const setupStreamingRoute = () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1641,7 +1649,7 @@ describe('handleRender', () => {
     it('R0-04: streaming route with non-serializable (circular) final data terminates deterministically — no data script, no crash', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1683,7 +1691,7 @@ describe('handleRender', () => {
     it('R0-04: SSR route with non-serializable (circular) data → 500 via the request try/catch', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1715,7 +1723,7 @@ describe('handleRender', () => {
     it('should handle finish event when already ended', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1746,7 +1754,7 @@ describe('handleRender', () => {
     it('should throw error when renderStream is missing', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1768,7 +1776,7 @@ describe('handleRender', () => {
     it('should escape JSON in streaming initial data', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1798,7 +1806,7 @@ describe('handleRender', () => {
     it('should dispatch taujs:data-ready event in streaming', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1828,7 +1836,7 @@ describe('handleRender', () => {
     it('benign teardown: a failing inner-stream disposal after an abort observation cannot prevent settlement', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1888,7 +1896,7 @@ describe('handleRender', () => {
     it('critical teardown: a throwing AbortController cannot prevent the coordinator finalising', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1933,7 +1941,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1961,7 +1969,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -1992,7 +2000,7 @@ describe('handleRender', () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '',
@@ -2035,7 +2043,7 @@ describe('handleRender', () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '',
@@ -2097,7 +2105,7 @@ describe('handleRender', () => {
     it('should load module from Vite in dev mode', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2131,7 +2139,7 @@ describe('handleRender', () => {
       mockSelectedRoute = mockRoute;
 
       const templateWithVite = '<html><head><script type="module" src="/@vite/client"></script></head><body></body></html>';
-      vi.mocked(Templates.ensureNonNull).mockReturnValue(templateWithVite);
+      vi.mocked(Templates.requireTemplate).mockReturnValue(templateWithVite);
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2172,7 +2180,7 @@ describe('handleRender', () => {
       vi.mocked(Templates.rebuildTemplate).mockImplementation(actualTemplates.rebuildTemplate);
 
       const templateWithAuthorStyle = '<html><head><style type="text/css">.author{}</style><!--ssr-head--></head><body><!--ssr-html--></body></html>';
-      vi.mocked(Templates.ensureNonNull).mockReturnValue(templateWithAuthorStyle);
+      vi.mocked(Templates.requireTemplate).mockReturnValue(templateWithAuthorStyle);
 
       const mockRenderModule = {
         renderSSR: vi.fn().mockResolvedValue({
@@ -2204,7 +2212,7 @@ describe('handleRender', () => {
     it('should handle dev mode asset loading errors', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2236,7 +2244,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2258,7 +2266,7 @@ describe('handleRender', () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
       // include <head> so our <style> injection can be verified
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2298,7 +2306,7 @@ describe('handleRender', () => {
       mockSelectedRoute = mockRoute;
 
       // make sure </head> exists so replacement happens
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head></head><body></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2337,7 +2345,7 @@ describe('handleRender', () => {
       mockSelectedRoute = mockRoute;
 
       // 4. Template + parts
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head><!--ssr-head--></head><body><!--ssr-html--></body></html>');
 
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
@@ -2376,7 +2384,7 @@ describe('handleRender', () => {
 
     it('does not accumulate style blocks across successive dev renders with the same maps', async () => {
       const actualTemplates = await vi.importActual<typeof import('../Templates')>('../Templates');
-      vi.mocked(Templates.ensureNonNull).mockImplementation(actualTemplates.ensureNonNull);
+      vi.mocked(Templates.requireTemplate).mockImplementation(actualTemplates.requireTemplate);
       vi.mocked(Templates.processTemplate).mockImplementation(actualTemplates.processTemplate);
       vi.mocked(Templates.rebuildTemplate).mockImplementation(actualTemplates.rebuildTemplate);
 
@@ -2409,7 +2417,7 @@ describe('handleRender', () => {
     it('should use preloaded render module in production', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2436,7 +2444,7 @@ describe('handleRender', () => {
     it('should throw error when render module not preloaded', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2458,7 +2466,7 @@ describe('handleRender', () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
 
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html><head><style type="text/css">.author{}</style></head><body></body></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head><style type="text/css">.author{}</style></head><body></body></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head><style type="text/css">.author{}</style>',
         afterHead: '</head>',
@@ -2515,7 +2523,7 @@ describe('handleRender', () => {
     it('ssr: the emitted assignment round-trips __proto__ as an own property', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2538,7 +2546,7 @@ describe('handleRender', () => {
     it('streaming: the emitted assignment round-trips __proto__ as an own property', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2567,7 +2575,7 @@ describe('handleRender', () => {
     it('should build initial data input successfully', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' }, 'test-app', { id: '123' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2613,7 +2621,7 @@ describe('handleRender', () => {
     it('should throw error when initial data input fails', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2650,7 +2658,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2677,7 +2685,7 @@ describe('handleRender', () => {
 
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2704,7 +2712,7 @@ describe('handleRender', () => {
     it('should wrap non-AppError errors', async () => {
       const mockRoute = createMockRouteMatch({ render: 'ssr' });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockImplementation(() => {
+      vi.mocked(Templates.requireTemplate).mockImplementation(() => {
         throw new Error('Template error');
       });
 
@@ -2727,7 +2735,7 @@ describe('handleRender', () => {
       mockSelectedRoute = mockRoute;
 
       const appError = new AppError('Original AppError', 'domain');
-      vi.mocked(Templates.ensureNonNull).mockImplementation(() => {
+      vi.mocked(Templates.requireTemplate).mockImplementation(() => {
         throw appError;
       });
 
@@ -2738,7 +2746,7 @@ describe('handleRender', () => {
       const setupStreamAndFire = async (errValue: any) => {
         const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
         mockSelectedRoute = mockRoute;
-        vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+        vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
         vi.mocked(Templates.processTemplate).mockReturnValue({
           beforeHead: '<html><head>',
           afterHead: '</head>',
@@ -2787,7 +2795,7 @@ describe('handleRender', () => {
 
       mockReq.routeOptions = { url: '/internal-route' };
 
-      vi.mocked(Templates.ensureNonNull).mockImplementation(() => {
+      vi.mocked(Templates.requireTemplate).mockImplementation(() => {
         throw new Error('boom in template');
       });
 
@@ -2801,6 +2809,48 @@ describe('handleRender', () => {
           route: '/internal-route',
         }),
       );
+    });
+  });
+
+  describe('retained template load failure', () => {
+    // These exercise the REAL Templates.requireTemplate (not the module-wide automock) so the
+    // wiring under test is genuine: handleRender must pass maps.templates, maps.templateLoadFailures
+    // and the resolved clientRoot through untouched, and its existing AppError-preserving catch
+    // (untouched by this unit) must let the result through as-is rather than re-wrapping it.
+    beforeEach(async () => {
+      const actualTemplates = await vi.importActual<typeof import('../Templates')>('../Templates');
+      vi.mocked(Templates.requireTemplate).mockImplementation(actualTemplates.requireTemplate);
+      mockMaps.templates.delete('/test/client');
+    });
+
+    it('carries the retained boot-time failure as the AppError cause', async () => {
+      const retained = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES', path: '/root/dist/client/appA/index.html' });
+      mockMaps.templateLoadFailures = new Map([['/test/client', retained]]);
+
+      let caught: any;
+      try {
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeDefined();
+      expect(caught.message).toBe('Template not found for clientRoot: /test/client');
+      expect(caught.cause).toBe(retained);
+    });
+
+    it('leaves the cause undefined when nothing was retained', async () => {
+      // No templateLoadFailures set at all - the optional map is simply absent.
+      let caught: any;
+      try {
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeDefined();
+      expect(caught.message).toBe('Template not found for clientRoot: /test/client');
+      expect(caught.cause).toBeUndefined();
     });
   });
 
@@ -2858,7 +2908,7 @@ describe('handleRender', () => {
     it('logs HTTP socket error only when not benign', async () => {
       const mockRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2937,7 +2987,7 @@ describe('handleRender', () => {
     it('should default to SSR when render type not specified', async () => {
       const mockRoute = createMockRouteMatch({});
       mockSelectedRoute = mockRoute;
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',
@@ -2970,7 +3020,7 @@ describe('handleRender', () => {
     };
 
     const stubTemplate = () => {
-      vi.mocked(Templates.ensureNonNull).mockReturnValue('<html></html>');
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
       vi.mocked(Templates.processTemplate).mockReturnValue({
         beforeHead: '<html><head>',
         afterHead: '</head>',

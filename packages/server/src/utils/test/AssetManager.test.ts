@@ -7,6 +7,9 @@ const hoisted = vi.hoisted(() => ({
   // fs
   readFileMock: vi.fn<(p: string, enc: string) => Promise<string>>(),
 
+  // node:fs - Finding 2 probes the render module by actual file existence
+  existsSyncMock: vi.fn<(p: string) => boolean>(),
+
   // url
   pathToFileURLMock: vi.fn<(p: string) => { href: string }>(),
 
@@ -22,6 +25,10 @@ const hoisted = vi.hoisted(() => ({
 
 vi.mock('fs/promises', () => ({
   readFile: hoisted.readFileMock,
+}));
+
+vi.mock('node:fs', () => ({
+  existsSync: hoisted.existsSyncMock,
 }));
 
 vi.mock('url', () => ({
@@ -42,18 +49,22 @@ vi.mock('../../core/logging/resolve', () => ({
 }));
 
 vi.mock('../../core/errors/AppError', () => {
+  // Mirrors the REAL static internal(message, cause?, details?, code?) shape (AppError.ts) so a
+  // production call that gets the argument order wrong fails a test here too, instead of being
+  // masked by a double that reshapes whatever it is handed.
   class AppError extends Error {
     code?: string;
-    extra?: any;
-    constructor(message: string) {
+    details?: unknown;
+    override cause?: unknown;
+    constructor(message: string, cause?: unknown, details?: unknown, code?: string) {
       super(message);
       this.name = 'AppError';
+      this.details = details;
+      this.code = code ?? 'INTERNAL';
+      if (cause !== undefined) this.cause = cause;
     }
-    static internal(message: string, extra?: any) {
-      const e = new AppError(message);
-      (e as any).code = 'INTERNAL';
-      (e as any).extra = extra;
-      return e;
+    static internal(message: string, cause?: unknown, details?: unknown, code?: string) {
+      return new AppError(message, cause, details, code);
     }
     static isAppError(v: unknown) {
       return v instanceof AppError;
@@ -92,7 +103,16 @@ async function importer(isDev: boolean) {
   return mod;
 }
 
-const { readFileMock, pathToFileURLMock, getCssLinksMock, getStaticModulePreloadLinksMock, resolveLogsMock, loggerErrorMock, noopLoggerErrorMock } = hoisted;
+const {
+  readFileMock,
+  existsSyncMock,
+  pathToFileURLMock,
+  getCssLinksMock,
+  getStaticModulePreloadLinksMock,
+  resolveLogsMock,
+  loggerErrorMock,
+  noopLoggerErrorMock,
+} = hoisted;
 
 const makeLogger = () => {
   const stub: any = {
@@ -126,11 +146,13 @@ function makeMaps() {
     preloadLinks: new Map<string, string>(),
     renderModules: new Map<string, any>(),
     templates: new Map<string, string>(),
+    templateLoadFailures: new Map<string, unknown>(),
   };
 }
 
 beforeEach(() => {
   readFileMock.mockReset();
+  existsSyncMock.mockReset();
   pathToFileURLMock.mockReset();
   getCssLinksMock.mockReset();
   getStaticModulePreloadLinksMock.mockReset();
@@ -144,6 +166,9 @@ beforeEach(() => {
   getCssLinksMock.mockReturnValue('[css-links]');
   getStaticModulePreloadLinksMock.mockReturnValue('[preload-links]');
   pathToFileURLMock.mockImplementation(() => ({ href: '/virtual/render-ok.js' }));
+  // Finding 2 default: the `.js` candidate exists, matching every pre-existing happy-path cell
+  // (they never mocked `node:fs` before this unit and always resolved via `.js`).
+  existsSyncMock.mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -335,9 +360,155 @@ describe('loadAssets (development)', () => {
     // template never stored
     expect(maps.templates.size).toBe(0);
   });
+
+  it('retains the original template read failure and still loads a second app in the same call', async () => {
+    const { loadAssets } = await importer(true);
+    const maps = makeMaps();
+    const logger = makeLogger();
+
+    const retained = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES', path: '/root/src/client/appA/index.html' });
+
+    readFileMock.mockImplementation(async (p: string) => {
+      const s = String(p).replace(/\\/g, '/');
+      if (s === '/root/src/client/appA/index.html') throw retained;
+      if (s === '/root/src/client/appB/index.html') return '<html>dev B</html>';
+      throw Object.assign(new Error('unexpected path'), { path: s });
+    });
+
+    const processed = [
+      {
+        clientRoot: '/root/src/client/appA',
+        entryPoint: 'appA',
+        entryClient: 'entry-client',
+        entryServer: 'entry-server',
+        htmlTemplate: 'index.html',
+        appId: 'a',
+        plugins: [],
+      },
+      {
+        clientRoot: '/root/src/client/appB',
+        entryPoint: 'appB',
+        entryClient: 'entry-client',
+        entryServer: 'entry-server',
+        htmlTemplate: 'index.html',
+        appId: 'b',
+        plugins: [],
+      },
+    ];
+
+    await expect(
+      loadAssets(
+        processed as any,
+        '/root/src/client',
+        maps.bootstrapModules,
+        maps.cssLinks,
+        maps.manifests,
+        maps.preloadLinks,
+        maps.renderModules,
+        maps.templates,
+        { logger, templateLoadFailures: maps.templateLoadFailures },
+      ),
+    ).resolves.toBeUndefined();
+
+    // the exact failing value, not a message or a copy
+    expect(maps.templateLoadFailures.get('/root/src/client/appA')).toBe(retained);
+    expect(maps.templates.has('/root/src/client/appA')).toBe(false);
+
+    // continuation preserved: the second app in the same call still loads
+    expect(maps.templates.get('/root/src/client/appB')).toBe('<html>dev B</html>');
+    expect(maps.bootstrapModules.get('/root/src/client/appB')).toBe('/appB/entry-client.tsx');
+  });
+
+  it('retains a later dev failure only when the template itself was not stored (control)', async () => {
+    const { loadAssets } = await importer(true);
+    const maps = makeMaps();
+    const logger = makeLogger();
+
+    readFileMock.mockResolvedValueOnce('<html>dev ok</html>');
+
+    // The template read succeeds; a LATER step in the same try (resolveEntryFile) throws. The
+    // failure must still be logged and swallowed in dev, but not retained - the template DID load.
+    const Entry = await import('../Entry');
+    vi.mocked(Entry.resolveEntryFile).mockImplementationOnce(() => {
+      throw new Error('entry file missing');
+    });
+
+    const processed = [
+      {
+        clientRoot: '/root/src/client/appA',
+        entryPoint: 'appA',
+        entryClient: 'entry-client',
+        entryServer: 'entry-server',
+        htmlTemplate: 'index.html',
+        appId: 'a',
+        plugins: [],
+      },
+    ];
+
+    await expect(
+      loadAssets(
+        processed as any,
+        '/root/src/client',
+        maps.bootstrapModules,
+        maps.cssLinks,
+        maps.manifests,
+        maps.preloadLinks,
+        maps.renderModules,
+        maps.templates,
+        { logger, templateLoadFailures: maps.templateLoadFailures },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(loggerErrorMock).toHaveBeenCalledWith(expect.objectContaining({ stage: 'loadAssets:development' }), 'Asset load failed');
+
+    expect(maps.templates.get('/root/src/client/appA')).toBe('<html>dev ok</html>');
+    expect(maps.templateLoadFailures.has('/root/src/client/appA')).toBe(false);
+  });
 });
 
 describe('loadAssets (production)', () => {
+  it('the same template read failure still throws and nothing is retained (control)', async () => {
+    const { loadAssets } = await importer(false);
+    const maps = makeMaps();
+    const logger = makeLogger();
+
+    const failure = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+
+    readFileMock.mockImplementation(async (p: string) => {
+      const s = String(p).replace(/\\/g, '/');
+      if (s.endsWith('/dist/client/appA/index.html')) throw failure;
+      throw Object.assign(new Error('unexpected path'), { path: s });
+    });
+
+    const processed = [
+      {
+        clientRoot: '/root/dist/client/appA',
+        entryPoint: 'appA',
+        entryClient: 'entry-client',
+        entryServer: 'entry-server',
+        htmlTemplate: 'index.html',
+        appId: 'a',
+        plugins: [],
+      },
+    ];
+
+    await expect(
+      loadAssets(
+        processed as any,
+        '/root/dist/client',
+        maps.bootstrapModules,
+        maps.cssLinks,
+        maps.manifests,
+        maps.preloadLinks,
+        maps.renderModules,
+        maps.templates,
+        { logger, templateLoadFailures: maps.templateLoadFailures },
+      ),
+    ).rejects.toBe(failure);
+
+    expect(maps.templateLoadFailures.size).toBe(0);
+  });
+
   it('happy path: loads manifest, computes links, imports render module, stores everything', async () => {
     const { loadAssets } = await importer(false);
     const maps = makeMaps();
@@ -432,8 +603,9 @@ describe('loadAssets (production)', () => {
       },
     ];
 
-    await expect(
-      loadAssets(
+    let caught: any;
+    try {
+      await loadAssets(
         processed as any,
         '/root/dist/client',
         maps.bootstrapModules,
@@ -443,8 +615,15 @@ describe('loadAssets (production)', () => {
         maps.renderModules,
         maps.templates,
         { logger },
-      ),
-    ).rejects.toBeTruthy();
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeDefined();
+    expect(caught.details?.tried).toEqual(ENTRY_EXTENSIONS.map((e) => `entry-client${e}`));
+    expect(caught.details?.availableKeys).toEqual(['other.tsx']);
+    expect(caught.cause).toBeUndefined();
 
     expect(loggerErrorMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -619,5 +798,167 @@ describe('loadAssets (production)', () => {
     expect(maps.bootstrapModules.get('/root/dist/client')).toBe('/assets/app.js');
     expect(getStaticModulePreloadLinksMock).toHaveBeenCalledWith(manifest, manifestKey, '');
     expect(getCssLinksMock).toHaveBeenCalledWith(manifest, '');
+  });
+
+  describe('.js/.mjs render module extension probe', () => {
+    const ext = ENTRY_EXTENSIONS[0] ?? '.ts';
+    const manifestForRenderModuleTests: any = { [`entry-client${ext}`]: { file: 'assets/app.js' } };
+    const jsPath = '/root/dist/ssr/appA/entry-server.js';
+    const mjsPath = '/root/dist/ssr/appA/entry-server.mjs';
+
+    const makeProcessed = () => [
+      {
+        clientRoot: '/root/dist/client/appA',
+        entryPoint: 'appA',
+        entryClient: 'entry-client',
+        entryServer: 'entry-server',
+        htmlTemplate: 'index.html',
+        appId: 'a',
+        plugins: [],
+        renderer: testRenderer(),
+      },
+    ];
+
+    const mockManifestReads = () => {
+      readFileMock.mockImplementation(async (p: string) => {
+        const s = String(p).replace(/\\/g, '/');
+        if (s.endsWith('/dist/client/appA/index.html')) return '<html>prod</html>';
+        if (s.endsWith('/dist/client/appA/.vite/manifest.json')) return JSON.stringify(manifestForRenderModuleTests);
+        throw Object.assign(new Error('unexpected readFile path'), { path: s });
+      });
+    };
+
+    it('resolves via .mjs when only .mjs exists on disk', async () => {
+      const { loadAssets } = await importer(false);
+      const maps = makeMaps();
+      const logger = makeLogger();
+
+      mockManifestReads();
+      existsSyncMock.mockImplementation((p: string) => String(p).replace(/\\/g, '/') === mjsPath);
+
+      await loadAssets(
+        makeProcessed() as any,
+        '/root/dist/client',
+        maps.bootstrapModules,
+        maps.cssLinks,
+        maps.manifests,
+        maps.preloadLinks,
+        maps.renderModules,
+        maps.templates,
+        { logger },
+      );
+
+      expect(pathToFileURLMock).toHaveBeenCalledTimes(1);
+      expect(String(pathToFileURLMock.mock.calls[0]![0]).replace(/\\/g, '/')).toBe(mjsPath);
+      expect(maps.renderModules.get('/root/dist/client/appA')).toEqual({ renderSSR: expect.any(Function), renderStream: expect.any(Function) });
+    });
+
+    it('prefers .js over .mjs when both exist (never hands .mjs to pathToFileURL)', async () => {
+      const { loadAssets } = await importer(false);
+      const maps = makeMaps();
+      const logger = makeLogger();
+
+      mockManifestReads();
+      existsSyncMock.mockReturnValue(true); // both candidates "exist"
+
+      await loadAssets(
+        makeProcessed() as any,
+        '/root/dist/client',
+        maps.bootstrapModules,
+        maps.cssLinks,
+        maps.manifests,
+        maps.preloadLinks,
+        maps.renderModules,
+        maps.templates,
+        { logger },
+      );
+
+      expect(pathToFileURLMock).toHaveBeenCalledTimes(1);
+      expect(String(pathToFileURLMock.mock.calls[0]![0]).replace(/\\/g, '/')).toBe(jsPath);
+    });
+
+    it('throws AppError naming both tried candidates when neither extension exists, without attempting an import', async () => {
+      const { loadAssets } = await importer(false);
+      const maps = makeMaps();
+      const logger = makeLogger();
+
+      mockManifestReads();
+      existsSyncMock.mockReturnValue(false);
+
+      let caught: any;
+      try {
+        await loadAssets(
+          makeProcessed() as any,
+          '/root/dist/client',
+          maps.bootstrapModules,
+          maps.cssLinks,
+          maps.manifests,
+          maps.preloadLinks,
+          maps.renderModules,
+          maps.templates,
+          { logger },
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeDefined();
+      expect(caught.details?.tried).toEqual([jsPath, mjsPath]);
+      expect(caught.details?.clientRoot).toBe('/root/dist/client/appA');
+      expect(caught.details?.entryServer).toBe('entry-server');
+      expect(caught.details?.ssrDistPath).toBe('/root/dist/ssr/appA');
+      expect(caught.cause).toBeUndefined();
+
+      expect(pathToFileURLMock).not.toHaveBeenCalled();
+    });
+
+    it("reports the existing .js module's own evaluation failure and never falls through to .mjs", async () => {
+      const { loadAssets } = await importer(false);
+      const maps = makeMaps();
+      const logger = makeLogger();
+
+      mockManifestReads();
+      existsSyncMock.mockImplementation((p: string) => String(p).replace(/\\/g, '/') === jsPath);
+      pathToFileURLMock.mockReturnValueOnce({ href: '/virtual/render-missing.js' });
+
+      let caught: any;
+      try {
+        await loadAssets(
+          makeProcessed() as any,
+          '/root/dist/client',
+          maps.bootstrapModules,
+          maps.cssLinks,
+          maps.manifests,
+          maps.preloadLinks,
+          maps.renderModules,
+          maps.templates,
+          { logger },
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeDefined();
+      expect(caught.cause).toBeInstanceOf(Error);
+      expect(caught.details?.moduleUrl).toBe('/virtual/render-missing.js');
+
+      // .find() short-circuits at the first existing candidate, so existsSync is never consulted
+      // for .mjs once .js is found to exist.
+      expect(existsSyncMock).toHaveBeenCalledTimes(1);
+      expect(pathToFileURLMock).toHaveBeenCalledTimes(1);
+      expect(String(pathToFileURLMock.mock.calls[0]![0]).replace(/\\/g, '/')).toBe(jsPath);
+
+      expect(loggerErrorMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'loadAssets:production',
+          error: expect.objectContaining({
+            name: 'AppError',
+            code: 'INTERNAL',
+            message: expect.stringContaining('Failed to load render module'),
+          }),
+        }),
+        'Asset load failed',
+      );
+    });
   });
 });

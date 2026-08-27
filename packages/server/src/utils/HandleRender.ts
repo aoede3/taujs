@@ -12,7 +12,7 @@ import { isDevelopment } from '../System';
 import { resolveEntryFile } from './Entry';
 import { createRequestContext, getRequestContext } from './Telemetry';
 import {
-  ensureNonNull,
+  requireTemplate,
   buildTaujsDevStamp,
   collectStyle,
   escapeHtmlAttribute,
@@ -119,6 +119,8 @@ export const handleRender = async (
     preloadLinks: Map<string, string>;
     renderModules: Map<string, RenderModule>;
     templates: Map<string, string>;
+    /** The original boot-time template read failure, retained by clientRoot (development only). */
+    templateLoadFailures?: Map<string, unknown>;
   },
   opts: {
     debug?: DebugConfig;
@@ -206,7 +208,7 @@ export const handleRender = async (
 
     const { clientRoot, entryServer } = config;
 
-    let template = ensureNonNull(maps.templates.get(clientRoot), `Template not found for clientRoot: ${clientRoot}`);
+    let template = requireTemplate(maps.templates, maps.templateLoadFailures, clientRoot);
 
     const bootstrapModule = maps.bootstrapModules.get(clientRoot);
     const cssLink = maps.cssLinks.get(clientRoot);

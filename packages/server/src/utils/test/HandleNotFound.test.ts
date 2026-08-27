@@ -210,10 +210,79 @@ describe('handleNotFound', () => {
         {
           cssLinks: new Map(),
           bootstrapModules: new Map(),
-          templates: new Map(), // no '/missing' key -> ensureNonNull throws
+          templates: new Map(), // no '/missing' key -> requireTemplate throws
         },
       ),
     ).rejects.toThrow(/handleNotFound failed/);
+  });
+
+  it('carries a retained template load failure as the nested AppError cause', async () => {
+    const retained = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+
+    let caught: any;
+    try {
+      await handleNotFound(
+        req,
+        reply,
+        [
+          {
+            clientRoot: '/missing',
+            appId: 'a',
+            entryPoint: 'x',
+            entryClient: 'e',
+            entryServer: 's',
+            htmlTemplate: 'index.html',
+          } as any,
+        ],
+        {
+          cssLinks: new Map(),
+          bootstrapModules: new Map(),
+          templates: new Map(),
+          templateLoadFailures: new Map([['/missing', retained]]),
+        },
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeDefined();
+    // handleNotFound wraps every error unconditionally (unlike handleRender's AppError-preserving
+    // catch), so the retained failure surfaces one layer down: the immediate cause is the
+    // "Template not found" AppError requireTemplate raised, and ITS cause is the retained value.
+    expect(caught.message).toBe('handleNotFound failed');
+    expect(caught.cause?.message).toBe('Template not found for clientRoot: /missing');
+    expect(caught.cause?.cause).toBe(retained);
+  });
+
+  it('leaves the cause undefined when nothing was retained for the missing template', async () => {
+    let caught: any;
+    try {
+      await handleNotFound(
+        req,
+        reply,
+        [
+          {
+            clientRoot: '/missing',
+            appId: 'a',
+            entryPoint: 'x',
+            entryClient: 'e',
+            entryServer: 's',
+            htmlTemplate: 'index.html',
+          } as any,
+        ],
+        {
+          cssLinks: new Map(),
+          bootstrapModules: new Map(),
+          templates: new Map(),
+        },
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeDefined();
+    expect(caught.cause?.message).toBe('Template not found for clientRoot: /missing');
+    expect(caught.cause?.cause).toBeUndefined();
   });
 
   it('handles req.raw.url undefined (does not mistake as asset) and renders', async () => {

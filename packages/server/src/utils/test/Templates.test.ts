@@ -7,6 +7,7 @@ import {
   getCssLinks,
   overrideCSSHMRConsoleError,
   ensureNonNull,
+  requireTemplate,
   cleanTemplateWhitespace,
   processTemplate,
   rebuildTemplate,
@@ -18,6 +19,7 @@ import {
   stripDevClient,
 } from '../Templates';
 import { SSRTAG } from '../../constants';
+import { AppError } from '../../core/errors/AppError';
 
 type Mod = { url: string; importedModules: Set<Mod> };
 type FakeServer = {
@@ -238,6 +240,60 @@ describe('ensureNonNull', () => {
   it('throws when value is nullish', () => {
     expect(() => ensureNonNull(null, 'nope')).toThrow('nope');
     expect(() => ensureNonNull(undefined, 'nope')).toThrow('nope');
+  });
+});
+
+describe('requireTemplate', () => {
+  it('returns the stored template when present', () => {
+    const templates = new Map([['/app', '<html>ok</html>']]);
+
+    expect(requireTemplate(templates, undefined, '/app')).toBe('<html>ok</html>');
+  });
+
+  it('throws an AppError with an undefined cause when nothing was retained', () => {
+    const templates = new Map<string, string>();
+
+    let caught: unknown;
+    try {
+      requireTemplate(templates, undefined, '/app');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(AppError.isAppError(caught)).toBe(true);
+    expect((caught as Error).message).toBe('Template not found for clientRoot: /app');
+    expect((caught as Error).cause).toBeUndefined();
+  });
+
+  it('throws an AppError with an undefined cause when a failures map is given but has no entry for this clientRoot', () => {
+    const templates = new Map<string, string>();
+    const failures = new Map<string, unknown>([['/other', new Error('unrelated')]]);
+
+    let caught: unknown;
+    try {
+      requireTemplate(templates, failures, '/app');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect((caught as Error).cause).toBeUndefined();
+  });
+
+  it('carries the exact retained failure as .cause, not a flattened message', () => {
+    const templates = new Map<string, string>();
+    const retained = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES', path: '/root/dist/client/appA/index.html' });
+    const failures = new Map<string, unknown>([['/app', retained]]);
+
+    let caught: unknown;
+    try {
+      requireTemplate(templates, failures, '/app');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(AppError.isAppError(caught)).toBe(true);
+    expect((caught as Error).message).toBe('Template not found for clientRoot: /app');
+    expect((caught as Error).cause).toBe(retained);
   });
 });
 
