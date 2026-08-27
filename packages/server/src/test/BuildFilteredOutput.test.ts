@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { testRenderer } from './support/renderer';
 
@@ -88,6 +88,12 @@ beforeEach(async () => {
   delete process.env.TAUJS_APP;
   delete process.env.TAUJS_APPS;
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  // taujsBuild sets process.exitCode (never process.exit) on a failed build - reset it so a
+  // failure cell can never leak a non-zero exit code into the vitest runner or a later test.
+  process.exitCode = undefined;
 });
 
 describe('taujsBuild - a filtered build preserves the apps it was not asked to build', () => {
@@ -207,7 +213,6 @@ describe('taujsBuild - a filtered build preserves the apps it was not asked to b
 
     const { build } = await import('vite');
     (build as unknown as { mockRejectedValueOnce: (e: unknown) => void }).mockRejectedValueOnce(new Error('config exploded'));
-    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await taujsBuild(buildArgs());
@@ -216,9 +221,8 @@ describe('taujsBuild - a filtered build preserves the apps it was not asked to b
     // before it. The descendant is still preserved, which is the invariant under test here.
     expect(existsSync(path.join(projectRoot, 'dist', 'client', 'root-output.js'))).toBe(false);
     expect(existsSync(path.join(projectRoot, 'dist', 'client', 'child', 'child-output.js'))).toBe(true);
-    expect(exit).toHaveBeenCalledWith(1);
+    expect(process.exitCode).toBe(1);
 
-    exit.mockRestore();
     err.mockRestore();
   });
 
