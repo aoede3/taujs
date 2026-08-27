@@ -1,5 +1,16 @@
 # @taujs/server
 
+## 0.28.1
+
+### Patch Changes
+
+- [#101](https://github.com/aoede3/taujs/pull/101) [`99f6bc6`](https://github.com/aoede3/taujs/commit/99f6bc60b1bc0ec45f35aed1b9ce83adc74d4c2c) Thanks [@aoede3](https://github.com/aoede3)! - The fallthrough (SPA shell) arm recorded `sent` when `reply.send()` returned, before the response
+  lifecycle had said anything, so an abandoned fallthrough page was recorded as delivered.
+
+  It now classifies at `finish` from the captured socket's state, as the SSR arm already does, and
+  records `aborted` on a client disconnect. Introspection consumers (`taujs_get_recent_episodes`,
+  `taujs_doctor`) no longer see an abandoned fallthrough as a 200.
+
 ## 0.28.0
 
 ### Minor Changes
