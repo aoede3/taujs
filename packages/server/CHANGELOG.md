@@ -1,5 +1,51 @@
 # @taujs/server
 
+## 0.28.0
+
+### Minor Changes
+
+- [#97](https://github.com/aoede3/taujs/pull/97) [`599516b`](https://github.com/aoede3/taujs/commit/599516b3aa2b708d0a4f2c97619b84b9a2aa3331) Thanks [@aoede3](https://github.com/aoede3)! - Browser asset hints come from the client manifest, and `ssr-manifest.json` is no longer generated
+
+  Production SSR pages emitted `<link rel="modulepreload">` tags built from `ssr-manifest.json`, which taujs generated on the SSR build. That manifest describes the SSR bundle's own private chunk graph: a directory that is never served, with content hashes unrelated to the client build's. Every tag it produced pointed at a URL that does not exist under `dist/client`, so any app with a dynamic `import()` in its client tree served a console 404 and a wasted request on every server-rendered page. A second defect sat in the same path: Vite bakes the configured `base` into every ssr-manifest value inside its own plugin, while the client `manifest.json` carries no prefix, and taujs applied one prepending convention to both - so the emitted URL gained the base segment twice.
+
+  Browser asset information now comes exclusively from the client build's `.vite/manifest.json`, the artefact taujs already reads for the entry script and stylesheets. `ssr-manifest.json` is no longer generated, read or retained.
+
+  The preload policy is now stated rather than implied:
+
+  - the client entry ships as the bootstrap `<script type="module">`, and is never additionally preloaded;
+  - its recursive **static**-import closure is emitted as `<link rel="modulepreload">`;
+  - `dynamicImports` are not followed. A dynamically imported route or component may well have taken part in the server render, but taujs cannot yet identify which ones did, so preloading them all would be guessing at the browser's expense. Render-used lazy modules need every renderer to report the modules a render touched, which is deferred to its own RFC;
+  - module preloads are emitted only when the route's effective `hydrate` is true. A route that does not hydrate has no client execution graph to accelerate;
+  - images and fonts are no longer preloaded, for the same evidential reason as dynamic imports.
+
+  Stylesheets are deliberately unchanged in scope: every stylesheet the client build emitted for the app is still applied. Narrowing CSS to the static closure in the same change would leave a server-rendered lazy component unstyled until hydration fetched its CSS, which is a visual regression, so the existing behaviour is kept and the trade-off recorded: until render-used module reporting exists across all renderers, taujs favours SSR styling correctness over route-level CSS selectivity.
+
+  The stylesheet tag itself changes from `rel="preload stylesheet" as="style"` to `rel="stylesheet"`. taujs has no separate CSS-preload policy here: HTML processes multiple `rel` keywords as separate link relationships (`as` belongs to the `preload` one), so combining `preload` and `stylesheet` does not create a special mode, and a stylesheet in the head already initiates its own fetch. Every emitted `href` is now HTML-attribute-escaped, matching the bootstrap script tag.
+
+  `build.ssrManifest` remains a protected field. Its framework-owned value is now `false`, and it stays protected so an override cannot reintroduce an unmanaged manifest.
+
+  If you have a post-build workaround that empties or deletes `dist/ssr/**/.vite/ssr-manifest.json`, it can be removed - but make it tolerate the file's absence before upgrading.
+
+### Patch Changes
+
+- [#95](https://github.com/aoede3/taujs/pull/95) [`4d860a1`](https://github.com/aoede3/taujs/commit/4d860a110329000fbad0a3b8a71a5c241f33dc2c) Thanks [@aoede3](https://github.com/aoede3)! - A filtered build no longer destroys the output of the apps it was not asked to build
+
+  Selecting apps with `--app`/`--apps`/`-a` or `TAUJS_APP`/`TAUJS_APPS` was destructive twice over, and both paths were invisible until serve time. First, the `dist` deletion that opens a client build ran unconditionally, so a selective build removed every unselected app's previously built client and SSR output along with `dist/.taujs`. Second, and independently of that deletion, each app builds with Vite's `emptyOutDir`, whose skip list is derived from the output directories of the same `build()` call - and taujs calls `build()` once per app. A parent app therefore emptied its descendants' directories: building the root app alone deleted a nested app's output even after the first path was fixed. An unfiltered build repairs that through the ancestry reorder, because every descendant is rebuilt after its parent; a filtered build has no such pass.
+
+  When a filter is active the `dist` tree is now kept, and an app that contains a declared descendant has its own output directory emptied by taujs - preserving every declared descendant by name, the way Vite's own `emptyDir` skip list works - with `emptyOutDir` then disabled for that build so Vite does not empty it again. The preservation set is computed from every DECLARED app rather than the selected ones, which is the point: the output being preserved belongs to apps this run was not asked to build. Both decisions are stated in the build log rather than happening silently. The cleanup runs immediately before `build()` rather than at the top of the per-app loop, so a failure in entry resolution, a `config.vite` callback or plugin construction cannot destroy the previous output of a build that never starts. Any cleanup failure other than a missing directory now fails the build instead of being swallowed, because Vite has already been told not to empty the directory itself.
+
+  `build.emptyOutDir` becomes a protected build field: the merge allowlist never copied it, so this changes no resolved configuration, but an override attempt now warns exactly as `build.outDir` does rather than disappearing silently, and it is a framework invariant on this path.
+
+  Unfiltered builds are unchanged: the full `dist` deletion still runs, so a removed app's stale output cannot survive into the next deploy, and Vite still empties each output directory itself. The graph artefact is still re-emitted from the complete configuration after a filtered build, so it continues to describe every declared app.
+
+  Covered at three levels, each verified to fail against the pre-fix tree: unit cells for the preservation set and the cleanup, including that a non-`ENOENT` failure propagates; behaviour cells over a real temporary project asserting an unselected app's output survives a filtered client build and a filtered SSR build in both the parent-selected and child-selected directions, that selecting parent and child together still rebuilds the child, that a failing build leaves the descendant intact, and that the exact `emptyOutDir` value handed to Vite is correct in each case; and an integration suite that runs REAL Vite builds, proving Vite honours `emptyOutDir: false` without going on to destroy the preserved descendant.
+
+- [#99](https://github.com/aoede3/taujs/pull/99) [`08152ea`](https://github.com/aoede3/taujs/commit/08152ea3eb39677619061bfe89bc0a7c9a222d8a) Thanks [@aoede3](https://github.com/aoede3)! - The dev boot advances `dev.json`'s mtime on its existing poll tick, so a reader can tell a running boot from a crashed one
+
+  `dev.json` is removed only on graceful close, so after a crash it survives with a pid that may since have been recycled - and a reader had no way to tell that boot was over. The dev-files poller now touches `dev.json` on each tick, inside the same serialised write chain and close barrier as every other dev-file write, and it is non-fatal in the same way.
+
+  No new field and no negotiation: liveness is the mtime, which any reader can check with one stat. Development-only, as with the rest of the introspection substrate. `@taujs/mcp` uses it to stop reporting a dead boot as active.
+
 ## 0.27.0
 
 ### Minor Changes
