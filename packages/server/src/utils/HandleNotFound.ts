@@ -18,6 +18,16 @@ import type { ViteDevServer } from 'vite';
 import type { DebugConfig, Logs } from '../core/logging/types';
 import type { ProcessedConfig } from '../types';
 
+// A thrown value is untrusted: its message getter or toString may itself throw, and a failure to
+// describe it must not cost the terminal.
+const describeError = (error: unknown): string => {
+  try {
+    return error instanceof Error ? String(error.message) : String(error);
+  } catch {
+    return 'unknown error';
+  }
+};
+
 export const handleNotFound = async (
   req: FastifyRequest,
   reply: FastifyReply,
@@ -104,13 +114,41 @@ export const handleNotFound = async (
 
     // Deliberate SPA fallback: unmatched page URLs get the default app's shell
     // with a 200 so client-side routes beyond taujs.config still work.
-    const result = reply.status(200).type('text/html').send(processedTemplate);
+    const recorder = requestContext?.recorder;
 
-    // Fallthrough terminal event (spec 03 §1): requestStart → sent, no routeMatched — this
-    // is what makes accidental CSR visible.
-    requestContext?.recorder?.sent({ requestId: requestContext.requestId, status: 200, mode: 'fallthrough' });
+    // Fallthrough terminal event (spec 03 §1): requestStart → sent, no routeMatched - this is what
+    // makes accidental CSR visible. `finish` is not delivery: the terminal classifies from the socket
+    // captured here, the same discriminator the SSR arm uses (`writableFinished` is deliberately not
+    // consulted). A throwing send latches `failed` first, so the host's own error response cannot
+    // later finish as a healthy `sent`.
+    let finalised = false;
+    const finalise = (outcome: 'sent' | 'aborted' | 'failed', error?: unknown) => {
+      if (finalised || !recorder) return;
+      finalised = true;
+      try {
+        if (outcome === 'sent') recorder.sent({ requestId: requestContext.requestId, status: reply.raw.statusCode ?? 200, mode: 'fallthrough' });
+        else if (outcome === 'failed') {
+          recorder.failed({ requestId: requestContext.requestId, error: { kind: 'internal', message: describeError(error) } });
+        } else {
+          recorder.aborted({ requestId: requestContext.requestId, phase: 'send' });
+          logger.warn?.({ url: req.url }, 'Client disconnected before the fallthrough response finished');
+        }
+      } catch {}
+    };
 
-    return result;
+    if (recorder) {
+      const sock = reply.raw.socket;
+      reply.raw.on('close', () => finalise('aborted'));
+      reply.raw.on('finish', () => finalise(sock && (sock.destroyed || sock.errored) ? 'aborted' : 'sent'));
+      if (reply.raw.destroyed) finalise('aborted');
+    }
+
+    try {
+      return reply.status(200).type('text/html').send(processedTemplate);
+    } catch (err) {
+      finalise('failed', err);
+      throw err;
+    }
   } catch (err) {
     logger.error?.({ error: err, url: req.url, clientRoot: processedConfigs[0]?.clientRoot }, 'handleNotFound failed');
     throw AppError.internal('handleNotFound failed', err, {
