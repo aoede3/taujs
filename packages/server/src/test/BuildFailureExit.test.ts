@@ -57,27 +57,6 @@ async function importBuild() {
   return await import('../Build');
 }
 
-/**
- * Spies `process.exit` so BASE code (which still calls it) throws a sentinel instead of actually
- * killing the vitest worker or continuing the `for` loop past a call vitest's own guard would
- * otherwise intercept anyway. Pre-fix, `taujsBuild` therefore rejects right where the real process
- * would have died - never reaching a later app's build, faithfully to production. Post-fix, exit
- * is never called, so the spy never fires and `taujsBuild` resolves normally; the `catch` is then
- * dead code. Callers use `runExpectingPossibleExit`, not this directly.
- */
-const spyOnExit = () =>
-  vi.spyOn(process, 'exit').mockImplementation(() => {
-    throw new Error('EXIT_SENTINEL');
-  });
-
-const runExpectingPossibleExit = async (promise: Promise<unknown>) => {
-  try {
-    await promise;
-  } catch (error) {
-    if (!(error instanceof Error) || error.message !== 'EXIT_SENTINEL') throw error;
-  }
-};
-
 const graphConfig = {
   apps: [
     { appId: 'root', entryPoint: '', routes: [{ path: '/' }] },
@@ -234,9 +213,8 @@ describe('taujsBuild - failed builds set exitCode and return, never truncate or 
     const { build } = await import('vite');
     vi.mocked(build).mockRejectedValueOnce(new Error('parent build exploded'));
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const exitSpy = spyOnExit();
 
-    await runExpectingPossibleExit(taujsBuild({ config: { apps: [] }, projectRoot, clientBaseDir }));
+    await taujsBuild({ config: { apps: [] }, projectRoot, clientBaseDir });
 
     const lines = consoleErrorSpy.mock.calls.map((call) => call.join(' '));
     const stopLine = lines.find((line) => line.includes('Stopping:'));
@@ -246,7 +224,6 @@ describe('taujsBuild - failed builds set exitCode and return, never truncate or 
     expect(process.exitCode).toBe(1);
 
     consoleErrorSpy.mockRestore();
-    exitSpy.mockRestore();
   });
 
   it('a failed SSR build leaves a pre-seeded graph byte-identical, with its mtime unchanged', async () => {
@@ -258,23 +235,18 @@ describe('taujsBuild - failed builds set exitCode and return, never truncate or 
     const { build } = await import('vite');
     vi.mocked(build).mockRejectedValueOnce(new Error('ssr build exploded'));
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const exitSpy = spyOnExit();
 
-    await runExpectingPossibleExit(taujsBuild({ config: graphConfig, projectRoot, clientBaseDir, isSSRBuild: true }));
+    await taujsBuild({ config: graphConfig, projectRoot, clientBaseDir, isSSRBuild: true });
 
     expect(await readFile(graphFile, 'utf8')).toBe(before);
     expect((await stat(graphFile)).mtimeMs).toBe(statBefore.mtimeMs);
     expect(process.exitCode).toBe(1);
 
     consoleErrorSpy.mockRestore();
-    exitSpy.mockRestore();
   });
 
-  // Pin, not a regression cell: this already holds on base (ruling 3, filtered branch - a single
-  // selected app, so the loop has nothing left to run after it fails regardless of exit vs
-  // return). Kept so a future change cannot reintroduce graph deletion/marking on a filtered
-  // failure. No exitCode assertion here deliberately - that half is the genuinely new behaviour,
-  // covered by the SSR and not-attempted cells above.
+  // Pin (ruling 3, filtered branch): a future change must not reintroduce graph deletion or
+  // marking on a filtered failure.
   it('a failed FILTERED client build leaves a pre-seeded graph untouched', async () => {
     const { taujsBuild } = await importBuild();
     const graphFile = await seedGraph();
@@ -284,21 +256,17 @@ describe('taujsBuild - failed builds set exitCode and return, never truncate or 
     const { build } = await import('vite');
     vi.mocked(build).mockRejectedValueOnce(new Error('child build exploded'));
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const exitSpy = spyOnExit();
 
-    await runExpectingPossibleExit(taujsBuild({ config: graphConfig, projectRoot, clientBaseDir }));
+    await taujsBuild({ config: graphConfig, projectRoot, clientBaseDir });
 
     expect(await readFile(graphFile, 'utf8')).toBe(before);
+    expect(process.exitCode).toBe(1);
 
     consoleErrorSpy.mockRestore();
-    exitSpy.mockRestore();
   });
 
-  // Pin, not a regression cell: base already does not recreate the graph here (emitGraphArtifact
-  // only runs after the loop completes, and the sentinel-exit halts the loop at the same point a
-  // real process death would). Kept so a future change cannot start emitting a graph for a
-  // partial, unfiltered build. No exitCode assertion here deliberately, for the same reason as the
-  // filtered-build pin above.
+  // Pin (ruling 3, unfiltered branch): emitGraphArtifact runs only after the loop completes, so a
+  // partial unfiltered build must never start emitting a graph.
   it('a failed UNFILTERED client build leaves the graph absent, and none is emitted', async () => {
     const { taujsBuild } = await importBuild();
     await seedGraph();
@@ -306,15 +274,14 @@ describe('taujsBuild - failed builds set exitCode and return, never truncate or 
     const { build } = await import('vite');
     vi.mocked(build).mockRejectedValueOnce(new Error('root build exploded'));
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const exitSpy = spyOnExit();
 
-    await runExpectingPossibleExit(taujsBuild({ config: graphConfig, projectRoot, clientBaseDir }));
+    await taujsBuild({ config: graphConfig, projectRoot, clientBaseDir });
 
     // The unfiltered pre-build `deleteDist` already removed the whole `dist` tree, including the
     // seeded graph, before the loop's first failure - and it is not recreated.
     expect(existsSync(path.join(projectRoot, 'dist', '.taujs', 'graph.json'))).toBe(false);
+    expect(process.exitCode).toBe(1);
 
     consoleErrorSpy.mockRestore();
-    exitSpy.mockRestore();
   });
 });

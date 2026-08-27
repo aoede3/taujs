@@ -265,19 +265,16 @@ describe('ESC-1 real taujsBuild - filtered build importing an absent-compiler fi
     // Filtered to the React app only: Solid is classified globally but NOT instantiated here.
     process.env.TAUJS_APP = 'web';
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
-      throw new Error(`process.exit(${code})`);
-    }) as never);
     try {
-      await expect(
-        taujsBuild({
-          config: config as never,
-          projectRoot,
-          clientBaseDir,
-          isSSRBuild: false,
-          vite: { build: { rollupOptions: { external: EXTERNAL } }, logLevel: 'silent' } as never,
-        }),
-      ).rejects.toThrow();
+      // A failure inside the build loop sets the exit code and returns; it does not throw.
+      await taujsBuild({
+        config: config as never,
+        projectRoot,
+        clientBaseDir,
+        isSSRBuild: false,
+        vite: { build: { rollupOptions: { external: EXTERNAL } }, logLevel: 'silent' } as never,
+      });
+      expect(process.exitCode).toBe(1);
       // the diagnostic hard-errored on the classified Solid package file (compiled by no compiler here)
       const logged = errSpy.mock.calls
         .flat()
@@ -286,7 +283,7 @@ describe('ESC-1 real taujsBuild - filtered build importing an absent-compiler fi
       expect(logged).toMatch(/compiled by NO compiler in this environment/);
     } finally {
       errSpy.mockRestore();
-      exitSpy.mockRestore();
+      process.exitCode = undefined;
     }
   });
 });
