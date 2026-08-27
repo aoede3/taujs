@@ -257,6 +257,15 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
       if (!(pathname === mountPrefix || pathname.startsWith(`${mountPrefix}/`))) return;
     }
 
+    // Connect's `next()` is the ownership signal. Vite's middleware chain invokes this final
+    // callback only when it ran out of middlewares without answering, so when Vite has served the
+    // request the callback never runs and this promise is left pending on purpose: the hook chain
+    // stops here and Fastify does not also route the request. Fastify's own `finish`/`error`
+    // listeners on the raw response still run `onResponse` and cleanup independently of this hook.
+    // The `reply.sent` guard is defensive only: if a middleware ended the response and still called
+    // `next()`, it avoids settling the hook on an already-ended reply. Fastify itself skips the
+    // remaining hooks and route dispatch once `reply.sent` is true. `reply.hijack()` cannot replace
+    // this: ownership is unknown until Vite either calls `next()` or writes the raw response.
     await new Promise<void>((resolve) => {
       viteDevServer.middlewares(request.raw, reply.raw, () => {
         if (!reply.sent) resolve();
