@@ -1,5 +1,12 @@
 # @taujs/mcp
 
+## 0.4.1
+
+### Patch Changes
+
+- [#103](https://github.com/aoede3/taujs/pull/103) [`f6c6c75`](https://github.com/aoede3/taujs/commit/f6c6c75c09c4fdc2a17e3943349695c864f52f80) Thanks [@aoede3](https://github.com/aoede3)! - `taujs_who_calls_service` labels head-data edges `declaredVia: 'head'`, `taujs_explain_route`
+  shows them, and overview coverage counts them.
+
 ## 0.4.0
 
 ### Minor Changes
