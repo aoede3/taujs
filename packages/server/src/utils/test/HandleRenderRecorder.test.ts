@@ -212,9 +212,161 @@ describe('handleRender recorder events (P0B-02 hook sites)', () => {
       { cssLinks: new Map(), bootstrapModules: new Map(), templates: maps(renderSSRModule).templates },
       { logger: mkLogger() },
     );
+    // The terminal now classifies at the response's own `finish`, not at `send()` returning - a
+    // mocked reply only produces `finish` when driven, same idiom as the SSR happy-path cell above.
+    await emitFinish(reply);
 
     const [episode] = dev.getEpisodes();
     expect(episode).toMatchObject({ route: null, mode: 'fallthrough', outcome: 'complete', status: 200 });
+  });
+});
+
+/** One fallthrough request with its request-context logger exposed, mirroring `ssrHarness`. */
+const fallthroughHarness = (recorder?: EpisodeRecorder) => {
+  const logger = mkLogger();
+  const req = mkReq('/spa/deep/link', recorder);
+  req.taujsRequestContext.logger = logger;
+  const reply = mkReply();
+
+  return {
+    req,
+    reply,
+    logger,
+    run: () =>
+      handleNotFound(
+        req,
+        reply,
+        configs,
+        { cssLinks: new Map(), bootstrapModules: new Map(), templates: maps(renderSSRModule).templates },
+        { logger: mkLogger() },
+      ),
+  };
+};
+
+// The fallthrough shell is a buffered template handed whole to `reply.send()`, exactly like the SSR
+// arm's buffered response - so it gets the same terminal shape: classify at `finish` from the
+// socket captured when the listeners installed, `writableFinished` deliberately absent.
+describe('fallthrough response terminal: the first observable terminal wins', () => {
+  it('1: reply.send() returning does NOT record a terminal', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/spa/deep/link', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = fallthroughHarness(dev.recorder);
+
+    await harness.run();
+
+    expect(harness.reply.sent).toHaveLength(1);
+    expect(terminals).toEqual([]);
+    expect(dev.getEpisodes()).toEqual([]);
+  });
+
+  it('2: finish on a healthy captured socket records exactly one sent(fallthrough, 200)', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/spa/deep/link', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = fallthroughHarness(dev.recorder);
+
+    await harness.run();
+    await emitFinish(harness.reply);
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['sent']);
+    expect(terminals[0]!.event).toMatchObject({ requestId: T, status: 200, mode: 'fallthrough' });
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'complete', status: 200, mode: 'fallthrough' });
+  });
+
+  it('3: finish on a destroyed captured socket records one aborted, no sent', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/spa/deep/link', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = fallthroughHarness(dev.recorder);
+
+    await harness.run();
+    // The peer left while the shell was still going out. `finish` fires anyway, which is why the
+    // captured socket, not the event, decides the arm.
+    harness.reply.raw.socket.destroyed = true;
+    await emitFinish(harness.reply);
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['aborted']);
+    expect(terminals[0]!.event).toMatchObject({ requestId: T, phase: 'send' });
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'aborted' });
+  });
+
+  it('4: a close while the latch is open records one aborted; a later finish is latched out', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/spa/deep/link', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = fallthroughHarness(dev.recorder);
+
+    await harness.run();
+    emitClose(harness.reply);
+    await emitFinish(harness.reply);
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['aborted']);
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'aborted' });
+  });
+
+  it('5: finish then close remains complete - no second terminal', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/spa/deep/link', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = fallthroughHarness(dev.recorder);
+
+    await harness.run();
+    await emitFinish(harness.reply);
+    emitClose(harness.reply);
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['sent']);
+    expect(dev.getEpisodes()[0]).toMatchObject({ outcome: 'complete' });
+  });
+
+  it('6: a throwing send() records exactly one failed, and the host error response finishing later is latched out', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/spa/deep/link', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = fallthroughHarness(dev.recorder);
+    harness.reply.send = vi.fn(() => {
+      throw new Error('send exploded');
+    });
+
+    await expect(harness.run()).rejects.toThrow();
+    // Fastify's own error response then finishes on the healthy socket: with the latch open it
+    // would classify as a delivered `sent` with the error status.
+    harness.reply.raw.statusCode = 500;
+    await emitFinish(harness.reply);
+
+    expect(terminals.map((call) => call.terminal)).toEqual(['failed']);
+    expect(terminals[0]!.event).toMatchObject({ requestId: T, error: { kind: 'internal', message: 'send exploded' } });
+  });
+
+  it('7: a send() throwing an UNDESCRIBABLE value still records exactly one failed, and the later finish is latched out', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: T, url: '/spa/deep/link', method: 'GET' });
+    const terminals = watchTerminals(dev.recorder);
+    const harness = fallthroughHarness(dev.recorder);
+    const hostile = Object.create(Error.prototype, {
+      message: {
+        get() {
+          throw new Error('message getter throws');
+        },
+      },
+      toString: {
+        value() {
+          throw new Error('toString throws');
+        },
+      },
+    });
+    harness.reply.send = vi.fn(() => {
+      throw hostile;
+    });
+
+    await expect(harness.run()).rejects.toThrow();
+    harness.reply.raw.statusCode = 500;
+    await emitFinish(harness.reply);
+
+    // Describing the value fails; the terminal must not. Otherwise the latch closes on nothing and
+    // the episode is never terminated at all.
+    expect(terminals.map((call) => call.terminal)).toEqual(['failed']);
+    expect(terminals[0]!.event).toMatchObject({ requestId: T, error: { kind: 'internal', message: 'unknown error' } });
   });
 });
 
