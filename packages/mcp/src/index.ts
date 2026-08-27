@@ -2,6 +2,7 @@ export {
   ADAPTER_SCHEMA_VERSION,
   NO_ACTIVE_BOOT_REFUSAL,
   NOTHING_EMITTED_MESSAGE,
+  STALE_REASON_MESSAGE,
   capStrings,
   discoverSubstrate,
   readGraph,
@@ -14,7 +15,7 @@ export {
 export { createTaujsMcpServer, allTools } from './server';
 export { skills } from './skills';
 
-export type { GraphReadResult, ObservationsReadResult, SubstrateDiscovery, SubstratePaths } from './SubstrateReader';
+export type { GraphReadResult, NdjsonReadResult, ObservationsReadResult, StaleReason, SubstrateDiscovery, SubstratePaths } from './SubstrateReader';
 export type {
   DevJson,
   GraphRoute,

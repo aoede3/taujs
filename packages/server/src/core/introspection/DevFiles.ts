@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises';
+import { rm, utimes } from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeTaujsArtifact } from './EmitGraph';
@@ -29,7 +29,22 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
   // node_modules/.taujs while a caller's teardown was removing it (the CI ENOTEMPTY flake).
   let inFlight: Promise<void> = Promise.resolve();
 
+  // A reader cannot tell a running boot from a crashed one by its pid: pids are recycled, and a
+  // crashed boot's dev.json survives because it is removed only on graceful close below. So the
+  // boot proves it is alive by ADVANCING dev.json's mtime on this tick. Touching mtime is the whole
+  // mechanism - no new field, no negotiation, and a reader with no dependency on this package can
+  // observe it with one stat. Non-fatal like every other dev-file write; an unwritable dev.json
+  // simply reads as expired, which is the honest answer.
+  const heartbeat = async (): Promise<void> => {
+    const now = new Date();
+    await utimes(filePath('dev.json'), now, now).catch(() => undefined);
+  };
+
   const flush = async (): Promise<void> => {
+    // Unconditional, and BEFORE the change checks: liveness is not a change to report, it is the
+    // fact that this process is still here. A boot serving no traffic is still a live boot.
+    await heartbeat();
+
     const stats = introspection.stats();
 
     // `episodesRevision` advances for a NEW finalised episode and for an in-place amendment of one

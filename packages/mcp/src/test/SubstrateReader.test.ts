@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -209,8 +209,12 @@ describe('readEpisodes', () => {
     const discovery = discoverSubstrate(root);
 
     expect(discovery.mode).toBe('active');
-    expect((discovery as { paths: { episodes?: string } }).paths.episodes?.endsWith('episodes.ndjson')).toBe(true);
-    expect(readEpisodes(discovery)).toHaveLength(0);
+    // No episodes.ndjson exists in this fixture, so containment hands back undefined rather than
+    // the conventional name unvalidated - the honest answer is that the artefact is absent, NOT an
+    // empty list, which would have claimed the boot recorded nothing. Either way the legacy file is
+    // never opened, which is what this cell is for.
+    expect((discovery as { paths: { episodes?: string } }).paths.episodes).toBeUndefined();
+    expect(readEpisodes(discovery)).toMatchObject({ ok: false, reason: 'not_found' });
   });
 
   it('reads records newest-last, filters by bootId, and honours limit from the end', async () => {
@@ -220,21 +224,54 @@ describe('readEpisodes', () => {
 
     const discovery = discoverSubstrate(root);
     const all = readEpisodes(discovery);
-    expect(all.map((t) => t.requestId)).toEqual(['t-0', 't-1', 't-2']);
+    expect(all.ok && all.records.map((t) => t.requestId)).toEqual(['t-0', 't-1', 't-2']);
 
-    expect(readEpisodes(discovery, { limit: 2 }).map((t) => t.requestId)).toEqual(['t-1', 't-2']);
-    expect(readEpisodes(discovery, { bootId: dev.bootId })).toHaveLength(3);
-    expect(readEpisodes(discovery, { bootId: 'other-boot' })).toHaveLength(0);
+    const limited = readEpisodes(discovery, { limit: 2 });
+    expect(limited.ok && limited.records.map((t) => t.requestId)).toEqual(['t-1', 't-2']);
+    expect(readEpisodes(discovery, { bootId: dev.bootId })).toMatchObject({ ok: true, records: expect.objectContaining({ length: 3 }) });
+    expect(readEpisodes(discovery, { bootId: 'other-boot' })).toMatchObject({ ok: true, records: [] });
   });
 
-  it('skips corrupt ndjson lines without failing the read', async () => {
+  it('skips corrupt ndjson lines without failing the read, and COUNTS them', async () => {
     const root = await mkRoot();
     const dev = await emitEpisodes(root, seedThree);
     const episodesPath = path.join(taujsDir(root), 'episodes.ndjson');
     const good = dev.getEpisodes().map((t) => JSON.stringify(t));
     await writeFile(episodesPath, `${good[0]}\n{torn line\n${good[1]}\n`, 'utf8');
 
-    expect(readEpisodes(discoverSubstrate(root))).toHaveLength(2);
+    const read = readEpisodes(discoverSubstrate(root));
+
+    // The count is the point. Dropping the line is right; dropping it SILENTLY is how "I could not
+    // read this" became "this is not here".
+    expect(read).toMatchObject({ ok: true, malformed: 1 });
+    expect(read.ok && read.records).toHaveLength(2);
+  });
+
+  it('counts a line that PARSES but is not an episode, rather than handing it to the tools', async () => {
+    const root = await mkRoot();
+    const dev = await emitEpisodes(root, seedThree);
+    const good = dev.getEpisodes().map((t) => JSON.stringify(t));
+    // Valid JSON, no `url` - the field every episode projection dereferences. This is the line that
+    // used to reach `t.url.pathname` and throw the whole tool out of its envelope.
+    await writeFile(path.join(taujsDir(root), 'episodes.ndjson'), `${good[0]}\n{"requestId":"x","bootId":"b"}\n`, 'utf8');
+
+    const read = readEpisodes(discoverSubstrate(root));
+
+    expect(read).toMatchObject({ ok: true, malformed: 1 });
+    expect(read.ok && read.records).toHaveLength(1);
+  });
+
+  it('a directory where episodes.ndjson belongs is refused as not_found, never opened', async () => {
+    const root = await mkRoot();
+    await emitEpisodes(root, seedThree);
+    await emitDevJson(root);
+    // A directory where a regular file is expected fails containment and is never opened.
+    await rm(path.join(taujsDir(root), 'episodes.ndjson'), { force: true });
+    await mkdir(path.join(taujsDir(root), 'episodes.ndjson'), { recursive: true });
+
+    const discovery = discoverSubstrate(root);
+    expect((discovery as { paths: { episodes?: string } }).paths.episodes).toBeUndefined();
+    expect(readEpisodes(discovery)).toMatchObject({ ok: false, reason: 'not_found' });
   });
 });
 
@@ -254,9 +291,10 @@ describe('readLogs', () => {
 
     const discovery = discoverSubstrate(root);
 
-    expect(readLogs(discovery, { requestId: 'episode-a' }).map((l) => l.level)).toEqual(['warn', 'error']);
-    expect(readLogs(discovery, { requestId: 'episode-a', minLevel: 'info' })).toHaveLength(3);
-    expect(readLogs(discovery, { requestId: 'other' })).toHaveLength(0);
+    const warnPlus = readLogs(discovery, { requestId: 'episode-a' });
+    expect(warnPlus.ok && warnPlus.records.map((l) => l.level)).toEqual(['warn', 'error']);
+    expect(readLogs(discovery, { requestId: 'episode-a', minLevel: 'info' })).toMatchObject({ ok: true, anyLevelCount: 3 });
+    expect(readLogs(discovery, { requestId: 'other' })).toMatchObject({ ok: true, records: [], anyLevelCount: 0 });
   });
 });
 

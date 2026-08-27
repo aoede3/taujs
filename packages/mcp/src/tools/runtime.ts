@@ -1,13 +1,17 @@
 import { z } from 'zod';
 
-import { NO_ACTIVE_BOOT_REFUSAL, discoverSubstrate, readGraph, readLogs, readEpisodes } from '../SubstrateReader';
+import { NO_ACTIVE_BOOT_REFUSAL, STALE_REASON_MESSAGE, discoverSubstrate, readGraph, readLogs, readEpisodes } from '../SubstrateReader';
 import { UNTRUSTED_NOTE, bounded } from '../toolkit';
 
 import type { SubstrateDiscovery } from '../SubstrateReader';
 import type { ToolDefinition, ToolResult } from '../toolkit';
 import type { EpisodeRecord } from '../types';
 
-const EPISODE_RING_CAP = 200; // spec 03 §2
+// No ring cap is declared here. It used to be duplicated from the server (DevIntrospection.ts)
+// with nothing keeping the two equal - and it drove an input-schema `max()` and a user-facing
+// message, so a server-side change would have silently refused valid requests and stated a wrong
+// number. The server already bounds what it returns, so accepting a larger requested limit costs
+// nothing, and the ring's size is now described rather than asserted.
 const RECENT_DEFAULT_LIMIT = 5;
 const DOCTOR_FAILED_LIMIT = 5;
 
@@ -15,7 +19,14 @@ const DOCTOR_FAILED_LIMIT = 5;
 // refusal contract verbatim (structural tools keep working — the refusal says so).
 const withActiveBoot = (root: string, fn: (discovery: Extract<SubstrateDiscovery, { mode: 'active' }>) => ToolResult): ToolResult => {
   const discovery = discoverSubstrate(root);
-  if (discovery.mode !== 'active') return { ...NO_ACTIVE_BOOT_REFUSAL };
+  // The refusal now says WHY there is no active boot. "No live boot" and "the boot stopped
+  // answering" call for different actions from whoever reads this, and a single message for both
+  // is the same conflation these tools exist to avoid.
+  if (discovery.mode !== 'active')
+    return {
+      ...NO_ACTIVE_BOOT_REFUSAL,
+      ...(discovery.mode === 'stale' ? { staleReason: discovery.reason, detail: STALE_REASON_MESSAGE[discovery.reason] } : {}),
+    };
 
   return fn(discovery);
 };
@@ -35,20 +46,50 @@ const episodeSummary = (t: EpisodeRecord) => ({
   ...(t.error ? { error: t.error } : {}),
 });
 
+// Shared by every runtime tool: a read that failed is reported as a read that failed, with the
+// artefact named. It is never flattened into an empty result, because "nothing was recorded" and
+// "I could not read what was recorded" lead an agent to opposite conclusions.
+const substrateUnreadable = (read: { reason: 'not_found' | 'unreadable'; message: string }, bootId: string): ToolResult => ({
+  ok: false,
+  reason: read.reason === 'not_found' ? 'substrate_missing' : 'substrate_unreadable',
+  membership: 'unknown',
+  bootId,
+  message: read.message,
+});
+
+// Emitted only when non-zero, and per artefact: a count that appears only in the doctor is a count
+// the agent will not see at the moment it matters.
+const malformedNote = (counts: { episodes?: number; logs?: number }): { malformedRecords?: Record<string, number> } => {
+  const entries = Object.entries(counts).filter(([, n]) => typeof n === 'number' && n > 0);
+
+  return entries.length ? { malformedRecords: Object.fromEntries(entries) } : {};
+};
+
+// The certain sentence ("at any level") is earned only when nothing is unaccounted for.
+const emptyLogsNote = (minLevel: string, membership: string, anyLevelCount: number, logsMalformed: number): string => {
+  if (logsMalformed > 0 || membership === 'unknown') return 'Some records could not be read, so this list may be incomplete.';
+  if (anyLevelCount > 0) return `No ${minLevel}+ annex lines, but this episode did log at a lower level - try minLevel: "info".`;
+
+  return 'No annex lines for this episode at any level. The annex captures only the framework request logger, so a separate user logger would not appear here.';
+};
+
 export const runtimeTools = (root: string): ToolDefinition[] => [
   {
     name: 'taujs_get_recent_episodes',
     title: 'Recent request episodes',
     description: `Most recent request episodes from the active dev boot (default ${RECENT_DEFAULT_LIMIT}). Filter by outcome or mode. Follow up with taujs_get_episode, then taujs_get_episode_logs - logs are never embedded here. ${UNTRUSTED_NOTE}`,
     inputSchema: {
-      limit: z.number().int().positive().max(EPISODE_RING_CAP).optional().describe(`Max episodes (default ${RECENT_DEFAULT_LIMIT})`),
+      limit: z.number().int().positive().optional().describe(`Max episodes (default ${RECENT_DEFAULT_LIMIT})`),
       outcome: z.enum(['complete', 'failed', 'aborted']).optional().describe('Filter by terminal outcome'),
       mode: z.enum(['ssr', 'streaming', 'fallthrough']).optional().describe('Filter by render mode'),
     },
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
         const limit = typeof args.limit === 'number' ? args.limit : RECENT_DEFAULT_LIMIT;
-        let records = readEpisodes(discovery, { bootId: discovery.devJson.bootId });
+        const read = readEpisodes(discovery, { bootId: discovery.devJson.bootId });
+        if (!read.ok) return substrateUnreadable(read, discovery.devJson.bootId);
+
+        let records = read.records;
         if (typeof args.outcome === 'string') records = records.filter((t) => t.outcome === args.outcome);
         if (typeof args.mode === 'string') records = records.filter((t) => t.mode === args.mode);
 
@@ -57,6 +98,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
           ok: true,
           bootId: discovery.devJson.bootId,
           episodes: { items: recent.map(episodeSummary), total: records.length, truncated: records.length > limit },
+          ...malformedNote({ episodes: read.malformed }),
         };
       }),
   },
@@ -70,18 +112,34 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
         const requestId = String(args.requestId ?? '');
-        const episode = readEpisodes(discovery, { bootId: discovery.devJson.bootId }).find((t) => t.requestId === requestId);
+        const read = readEpisodes(discovery, { bootId: discovery.devJson.bootId });
+        if (!read.ok) return substrateUnreadable(read, discovery.devJson.bootId);
+
+        const episode = read.records.find((t) => t.requestId === requestId);
 
         if (!episode) {
-          return {
-            ok: false,
-            reason: 'episode_not_found',
-            message: `No episode "${requestId}" in this boot's ring buffer (last ${EPISODE_RING_CAP} requests; older episodes are evicted).`,
-            bootId: discovery.devJson.bootId,
-          };
+          // Absence NAMES ITS SCOPE. A bounded ring cannot prove an episode never existed, only
+          // that it is not in the ring - and if any record was unreadable it cannot prove even
+          // that, so the answer becomes unknown rather than not-found.
+          return read.malformed > 0
+            ? {
+                ok: false,
+                reason: 'substrate_incomplete',
+                membership: 'unknown',
+                message: `Cannot say whether episode "${requestId}" is in this boot's episode ring: ${read.malformed} record(s) could not be read.`,
+                bootId: discovery.devJson.bootId,
+                ...malformedNote({ episodes: read.malformed }),
+              }
+            : {
+                ok: false,
+                reason: 'episode_not_found',
+                membership: 'not_in_episode_ring',
+                message: `No episode "${requestId}" in this boot's retained episode ring; older episodes may have been evicted.`,
+                bootId: discovery.devJson.bootId,
+              };
         }
 
-        return { ok: true, bootId: discovery.devJson.bootId, episode };
+        return { ok: true, bootId: discovery.devJson.bootId, membership: 'in_episode_ring', episode };
       }),
   },
   {
@@ -96,17 +154,61 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
       withActiveBoot(root, (discovery) => {
         const requestId = String(args.requestId ?? '');
         const minLevel = (typeof args.minLevel === 'string' ? args.minLevel : 'warn') as 'info' | 'warn' | 'error';
-        const logs = readLogs(discovery, { requestId, minLevel });
+        const bootId = discovery.devJson.bootId;
+
+        const logsRead = readLogs(discovery, { requestId, minLevel, bootId });
+        if (!logsRead.ok) return substrateUnreadable(logsRead, bootId);
+
+        // Membership is asked of the EPISODE ring, which is smaller than the logs ring - so an
+        // episode can be evicted while its lines survive. Answering `ok: true, logs: []` for a
+        // requestId that never existed told an agent to retry a query that can never succeed.
+        const episodesRead = readEpisodes(discovery, { bootId });
+        const membership = !episodesRead.ok
+          ? 'unknown'
+          : episodesRead.records.some((t) => t.requestId === requestId)
+            ? 'in_episode_ring'
+            : episodesRead.malformed > 0
+              ? 'unknown'
+              : 'not_in_episode_ring';
+
+        const malformed = malformedNote({ episodes: episodesRead.ok ? episodesRead.malformed : 0, logs: logsRead.malformed });
+
+        // Nothing to hand back AND nothing established: the same state taujs_get_episode reports as
+        // ok:false, so it answers ok:false here too. An agent that gates on `ok` before reading
+        // `membership` would otherwise see two opposite verdicts for one fact - and the whole point
+        // of `membership` is that "I cannot tell" is not a quieter kind of "no".
+        // Absence is claimed only when BOTH rings are provable: a malformed annex line could be
+        // this episode's only surviving evidence.
+        if (logsRead.anyLevelCount === 0 && membership !== 'in_episode_ring') {
+          return membership === 'unknown' || logsRead.malformed > 0
+            ? {
+                ok: false,
+                reason: 'substrate_incomplete',
+                membership,
+                bootId,
+                requestId,
+                message: `Cannot say whether episode "${requestId}" has evidence in this boot: some records could not be read.`,
+                ...malformed,
+              }
+            : {
+                ok: false,
+                reason: 'episode_not_found',
+                membership,
+                bootId,
+                requestId,
+                message: `No episode "${requestId}" in this boot's retained episode ring, and no annex lines for it at any level.`,
+              };
+        }
 
         return {
           ok: true,
-          bootId: discovery.devJson.bootId,
+          bootId,
           requestId,
           minLevel,
-          logs,
-          ...(logs.length === 0
-            ? { note: `No ${minLevel}+ annex lines for this episode. Try minLevel: "info"; the annex captures only the framework request logger.` }
-            : {}),
+          membership,
+          logs: logsRead.records,
+          ...malformed,
+          ...(logsRead.records.length === 0 ? { note: emptyLogsNote(minLevel, membership, logsRead.anyLevelCount ?? 0, logsRead.malformed) } : {}),
         };
       }),
   },
@@ -138,26 +240,43 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
 
       const defaultedRenders = graph.routes.filter((r) => r.render.defaulted).map((r) => r.id);
 
-      const failedEpisodes =
-        discovery.mode === 'active'
-          ? bounded(
-              readEpisodes(discovery, { bootId: discovery.devJson.bootId })
-                .filter((t) => t.outcome === 'failed')
-                .reverse()
-                .map((t) => ({
-                  requestId: t.requestId,
-                  route: t.route,
-                  pathname: t.url.pathname,
-                  error: t.error,
-                  serviceCalls: t.serviceCalls.filter((c) => !c.ok),
-                })),
-              DOCTOR_FAILED_LIMIT,
-            )
-          : { note: NO_ACTIVE_BOOT_REFUSAL.message, source: 'runtime (unavailable without an active boot)' };
+      // The doctor has its OWN episode projection - it reports failed service calls where
+      // get_recent_episodes reports a summary line - so it is a near-duplicate of episodeSummary,
+      // not a call to it. Worth stating: fixing the summary alone would have left this one reading
+      // unvalidated records. It no longer needs to defend itself, because the reader now refuses to
+      // hand back a record that is not the shape these fields assume.
+      const failedEpisodes = ((): Record<string, unknown> => {
+        if (discovery.mode !== 'active')
+          return {
+            source: 'runtime (unavailable without an active boot)',
+            unavailable: { note: NO_ACTIVE_BOOT_REFUSAL.message, staleReason: discovery.reason, detail: STALE_REASON_MESSAGE[discovery.reason] },
+          };
+
+        const read = readEpisodes(discovery, { bootId: discovery.devJson.bootId });
+        if (!read.ok)
+          return {
+            source: 'runtime (unreadable)',
+            unavailable: { note: read.message, reason: read.reason === 'not_found' ? 'substrate_missing' : 'substrate_unreadable' },
+          };
+
+        const failed = read.records
+          .filter((t) => t.outcome === 'failed')
+          .reverse()
+          .map((t) => ({
+            requestId: t.requestId,
+            route: t.route,
+            pathname: t.url.pathname,
+            error: t.error,
+            serviceCalls: t.serviceCalls.filter((c) => !c.ok),
+          }));
+
+        return { source: 'observed (seen in dev traffic)', ...bounded(failed, DOCTOR_FAILED_LIMIT), ...malformedNote({ episodes: read.malformed }) };
+      })();
 
       return {
         ok: true,
         mode: discovery.mode,
+        ...(discovery.mode === 'stale' ? { staleReason: discovery.reason } : {}),
         ...(stalenessLine ? { staleness: stalenessLine } : {}),
         warnings,
         fallthrough: {
@@ -165,10 +284,10 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
           note: graph.fallthrough.reachable ? undefined : 'A wildcard route makes fallthrough unreachable.',
         },
         defaultedRenders: { source: 'declared', routeIds: defaultedRenders },
-        failedEpisodes: {
-          source: 'observed (seen in dev traffic)',
-          ...(('items' in (failedEpisodes as object) ? failedEpisodes : { unavailable: failedEpisodes }) as object),
-        },
+        // Two explicit branches, built where the fact is known. It used to be assembled by probing
+        // the value's shape (`'items' in ...`) under a hard-coded `source: 'observed'`, which
+        // produced an object announcing itself as OBSERVED while carrying `unavailable` inside it.
+        failedEpisodes,
       };
     },
   },

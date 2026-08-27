@@ -65,6 +65,14 @@ export type EpisodeRecord = {
   url: { pathname: string; queryKeys: string[]; queryValuesRedacted: true };
   timeline: Partial<Record<'matched' | 'dataStart' | 'dataEnd' | 'head' | 'shellReady' | 'allReady', number>>;
   serviceCalls: { service: string; method: string; ms: number; ok: boolean }[];
+  /**
+   * RFC 0007 (R5): per-key deferred outcomes, in arrival order. Additive-optional and ABSENT for an
+   * episode with no deferred events, which is why a reader that never declared it still worked -
+   * the value flowed through `taujs_get_episode` untyped, and the suite had to reach it by hand
+   * cast. This file exists precisely so the on-disk contract is stated somewhere, so a field the
+   * emitter has written since RFC 0007 belongs in it.
+   */
+  deferredData?: { key: string; outcome: 'complete' | 'failed' | 'aborted'; ms: number }[];
   client: { hydrated: boolean; hydrationMs: number | null; error: string | null } | null;
   error: { kind: string; message: string } | null;
 };

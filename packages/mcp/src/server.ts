@@ -5,7 +5,7 @@ import { skills } from './skills';
 import { runtimeTools } from './tools/runtime';
 import { structuralTools } from './tools/structural';
 
-import type { ToolDefinition } from './toolkit';
+import type { ToolDefinition, ToolResult } from './toolkit';
 
 export const allTools = (root: string): ToolDefinition[] => [...structuralTools(root), ...runtimeTools(root)];
 
@@ -15,13 +15,45 @@ const toContent = (result: Record<string, unknown>) => ({
   ...(result.ok === false ? { isError: true as const } : {}),
 });
 
+const TOOL_FAILURE_MESSAGE_CAP = 500;
+
+const isPromise = (value: unknown): value is Promise<ToolResult> => typeof (value as { then?: unknown } | null)?.then === 'function';
+
+// Every tool answers in the ok/reason envelope - except when it threw, and then the agent got prose
+// with no `reason` to act on. The SDK does catch a throw into `isError` text (1.29.0), so nothing
+// leaked and no protocol error was raised; what was missing was the structure every other failure
+// has. The full error goes to STDERR (stdout is the protocol channel on a stdio server) and only a
+// bounded message returns.
+const failure = (name: string, err: unknown) => {
+  console.error(`[taujs-mcp] ${name} failed:`, err);
+  const message = err instanceof Error ? err.message : String(err);
+
+  return toContent({ ok: false, reason: 'tool_failure', message: message.slice(0, TOOL_FAILURE_MESSAGE_CAP) });
+};
+
+// Exported for its own cells: this is the one place every tool's throw is converted into the
+// envelope, and a guard nothing exercises is a guard nobody can trust. Not re-exported from
+// index.ts - it is not public surface.
+export const runTool = (tool: ToolDefinition, args: Record<string, unknown>) => {
+  try {
+    const result = tool.handler(args ?? {}) as ToolResult | Promise<ToolResult>;
+
+    // Handlers are synchronous today. A rejection is caught anyway, because a guard that covers
+    // only synchronous throws stops covering the handler the day one becomes async - silently, and
+    // exactly when nobody is looking for it.
+    return isPromise(result) ? result.then(toContent, (err: unknown) => failure(tool.name, err)) : toContent(result);
+  } catch (err) {
+    return failure(tool.name, err);
+  }
+};
+
 export const createTaujsMcpServer = (root: string = process.cwd()): McpServer => {
   const server = new McpServer({ name: 'taujs-mcp', version: pkg.version });
 
   for (const tool of allTools(root)) {
     server.registerTool(tool.name, { title: tool.title, description: tool.description, inputSchema: tool.inputSchema as never }, ((
       args: Record<string, unknown>,
-    ) => toContent(tool.handler(args ?? {}))) as never);
+    ) => runTool(tool, args)) as never);
   }
 
   // Skills ride the MCP prompts surface: versioned with the package, zero per-project files.
