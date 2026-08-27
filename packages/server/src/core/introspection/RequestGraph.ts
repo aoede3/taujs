@@ -44,6 +44,8 @@ export type GraphRoute = {
    * here: an entry exists only when declared.
    */
   deferred?: { key: string; data: GraphRouteData }[];
+  /** head edge, mirrors data (decisions.md 2026-08-27): present only when `attr.head.data` is declared. */
+  head?: { data: GraphRouteData };
 };
 
 export type GraphUsedBy = { routeId: string; appId: string; path: string };
@@ -156,6 +158,14 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
               })
           : [];
 
+      // head edge, mirrors data (decisions.md 2026-08-27): same non-function guard as fetchHeadData.
+      const headHandler = attr?.head?.data;
+      let head: GraphRouteData | undefined;
+      if (headHandler && typeof headHandler === 'function') {
+        const meta = getServiceDataMetadata(headHandler);
+        head = meta ? { kind: 'service', service: meta.serviceName, method: meta.serviceMethod } : { kind: 'dynamic' };
+      }
+
       routes.push({
         id,
         appId: app.appId,
@@ -166,6 +176,7 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
         middleware: { auth: { declared: Boolean(attr?.middleware?.auth) }, csp: cspBlock },
         data,
         ...(deferred.length > 0 ? { deferred } : {}),
+        ...(head ? { head: { data: head } } : {}),
       });
 
       if (renderDefaulted) {
@@ -227,7 +238,9 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
               usedBy: routes
                 .filter(
                   (r) =>
-                    isServiceEdge(r.data, serviceName, methodName) || (r.deferred ?? []).some((entry) => isServiceEdge(entry.data, serviceName, methodName)),
+                    isServiceEdge(r.data, serviceName, methodName) ||
+                    (r.deferred ?? []).some((entry) => isServiceEdge(entry.data, serviceName, methodName)) ||
+                    (r.head ? isServiceEdge(r.head.data, serviceName, methodName) : false),
                 )
                 .map((r) => ({ routeId: r.id, appId: r.appId, path: r.path })),
             };

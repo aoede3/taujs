@@ -121,7 +121,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
   {
     name: 'taujs_who_calls_service',
     title: 'Who calls a service',
-    description: `Route → service edges for a service (optionally one method). Each edge is labelled declared (from config: a serviceData edge or a deferred entry) or observed (seen in dev traffic — absence means "not exercised yet", never "no relationship"). A known service with zero edges is a successful empty result, not an error. ${UNTRUSTED_NOTE}`,
+    description: `Route → service edges for a service (optionally one method). Each edge is labelled declared (from config: a serviceData edge, a deferred entry or a head edge) or observed (seen in dev traffic — absence means "not exercised yet", never "no relationship"). A known service with zero edges is a successful empty result, not an error. ${UNTRUSTED_NOTE}`,
     inputSchema: {
       service: z.string().describe('Service name, e.g. "catalog"'),
       method: z.string().optional().describe('Method name, e.g. "getProduct"'),
@@ -137,11 +137,13 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         // Declared edges mirror the graph's own usedBy derivation (RFC 0007 R5): the route's data
         // edge AND its deferred entries. Per route, at most one row per method — data edge first.
         const declared = ctx.graph.routes.flatMap((r) => {
-          const rows = new Map<string, 'serviceData' | 'deferred'>();
+          const rows = new Map<string, 'serviceData' | 'deferred' | 'head'>();
           if (matches(r.data)) rows.set(r.data.method, 'serviceData');
           for (const entry of r.deferred ?? []) {
             if (matches(entry.data) && !rows.has(entry.data.method)) rows.set(entry.data.method, 'deferred');
           }
+          // head edge, mirrors data (decisions.md 2026-08-27): lowest precedence, same dedupe.
+          if (r.head && matches(r.head.data) && !rows.has(r.head.data.method)) rows.set(r.head.data.method, 'head');
 
           return [...rows.entries()].map(([edgeMethod, declaredVia]) => ({
             source: 'declared' as const,
@@ -235,7 +237,9 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           // Registry absent: existence cannot be checked — say so rather than guess either way.
           const seen = [
             ...new Set(
-              ctx.graph.routes.flatMap((r) => [r.data, ...(r.deferred ?? []).map((e) => e.data)]).flatMap((d) => (d.kind === 'service' ? [d.service] : [])),
+              ctx.graph.routes
+                .flatMap((r) => [r.data, ...(r.deferred ?? []).map((e) => e.data), ...(r.head ? [r.head.data] : [])])
+                .flatMap((d) => (d.kind === 'service' ? [d.service] : [])),
             ),
           ];
           return {
@@ -250,7 +254,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         return {
           ok: true,
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
-          note: 'declared = from config (a serviceData edge or a deferred entry); observed = seen in dev traffic, never complete truth. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution.',
+          note: 'declared = from config (a serviceData edge, a deferred entry or a head edge); observed = seen in dev traffic, never complete truth. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution.',
           edges: [...declared, ...observed],
         };
       }),
@@ -295,6 +299,8 @@ export const structuralTools = (root: string): ToolDefinition[] => [
               specificity: route.specificity,
               middleware: route.middleware,
               data: dataEdge,
+              // head edge, mirrors data (decisions.md 2026-08-27): projected field, absent unless declared.
+              ...(route.head ? { head: route.head } : {}),
               warnings: ctx.graph.warnings.filter((w) => w.routeId === route.id),
             };
           }),

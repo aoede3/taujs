@@ -182,6 +182,13 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) mult
       "data": {
         "kind": "dynamic",
       },
+      "head": {
+        "data": {
+          "kind": "service",
+          "method": "listSpecials",
+          "service": "catalog",
+        },
+      },
       "hydrate": {
         "defaulted": true,
         "enabled": true,
@@ -209,6 +216,11 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) mult
       "appId": "storefront",
       "data": {
         "kind": "none",
+      },
+      "head": {
+        "data": {
+          "kind": "dynamic",
+        },
       },
       "hydrate": {
         "defaulted": false,
@@ -264,7 +276,13 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) mult
           "result": {
             "declared": false,
           },
-          "usedBy": [],
+          "usedBy": [
+            {
+              "appId": "storefront",
+              "path": "/search",
+              "routeId": "storefront:/search",
+            },
+          ],
         },
       ],
       "name": "catalog",
@@ -405,6 +423,13 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) with
       "data": {
         "kind": "dynamic",
       },
+      "head": {
+        "data": {
+          "kind": "service",
+          "method": "listSpecials",
+          "service": "catalog",
+        },
+      },
       "hydrate": {
         "defaulted": true,
         "enabled": true,
@@ -432,6 +457,11 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) with
       "appId": "storefront",
       "data": {
         "kind": "none",
+      },
+      "head": {
+        "data": {
+          "kind": "dynamic",
+        },
       },
       "hydrate": {
         "defaulted": false,
