@@ -75,8 +75,17 @@ export type StreamOptions = {
   shellTimeoutMs?: number;
   /**
    * R1-01: timeout in ms for route data to settle AFTER React has finished rendering, before the
-   * response is failed (default: 30000). Bounds the end-gate so a never-settling loader cannot hold
-   * the response (and its listeners/streams) open indefinitely.
+   * response is failed (default: 30000). Bounds the end-gate so a never-settling loader does not
+   * hold the response (and its listeners/streams) open past this bound.
+   *
+   * `0` and `Infinity` are sentinels meaning NO BOUND. Any other value must be a positive number of
+   * milliseconds no greater than 2_147_483_647 (Node stores a delay as a 32-bit signed integer, and
+   * clamps anything larger to 1ms). Anything else is rejected by `createRenderer` with a
+   * `TypeError`, rather than silently becoming an immediate timeout.
+   *
+   * With no bound, a response whose shell has committed and whose route data never settles is held
+   * open indefinitely, because the deferred deadline governs deferred boundaries only and cannot
+   * end it.
    */
   dataTimeoutMs?: number;
   /**
@@ -233,6 +242,9 @@ export function createRenderer<
     }
   };
   assertTimeout(shellTimeoutMs, 'streamOptions.shellTimeoutMs');
+  // Same rule, react-only: vue and solid have no `dataTimeoutMs` equivalent
+  // (docs/followups/react-vue-stream-timeouts-unvalidated.md).
+  assertTimeout(dataTimeoutMs, 'streamOptions.dataTimeoutMs');
 
   // RFC 0007 (decision 18): DERIVED, not a literal - half the fatal route-data backstop's budget,
   // capped at 15s, so the graceful deferred terminal is structurally reachable for whatever
@@ -418,6 +430,7 @@ export function createRenderer<
     // uses, named for this site. Whether this surface should exist at all - solid has no
     // equivalent - is an open shape ruling (docs/followups/renderer-surface-asymmetries.md).
     if (opts?.shellTimeoutMs !== undefined) assertTimeout(opts.shellTimeoutMs, 'streamOptions.shellTimeoutMs', 'renderStream');
+    if (opts?.dataTimeoutMs !== undefined) assertTimeout(opts.dataTimeoutMs, 'streamOptions.dataTimeoutMs', 'renderStream');
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
     const effectiveDataTimeout = opts?.dataTimeoutMs ?? dataTimeoutMs;
     // RFC 0007 (decision 18): the deferred deadline is NOT per-call overridable (it is omitted from
@@ -586,6 +599,8 @@ export function createRenderer<
       const armDataDeadline = () => {
         if (dataDeadlineArmed) return;
         dataDeadlineArmed = true;
+        // 0/Infinity are the documented "no bound" sentinel: arm nothing, matching startShellTimer.
+        if (!(Number.isFinite(effectiveDataTimeout) && effectiveDataTimeout > 0)) return;
         if (store.status !== 'pending') return; // already settled — nothing to bound
 
         let timer: ReturnType<typeof setTimeout>;
