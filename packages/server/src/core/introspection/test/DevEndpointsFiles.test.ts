@@ -364,6 +364,46 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
 });
 
 describe('dev files lifecycle (spec 03 §5)', () => {
+  it('advances dev.json mtime on every poll tick, so a reader can tell a running boot from a crashed one', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'taujs-heartbeat-'));
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+
+    try {
+      const introspection = createDevIntrospection();
+      const app = fastify();
+      // A short tick so the cell measures the MECHANISM rather than the production interval.
+      registerDevFiles(app, introspection, mkLogger(), { pollMs: 20 });
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const devJsonPath = path.join(dir, 'node_modules', '.taujs', 'dev.json');
+      await vi.waitFor(async () => {
+        await stat(devJsonPath);
+      });
+
+      // No traffic at all: a boot serving nothing is still a live boot, and the heartbeat has to
+      // advance anyway. The ring mirrors deliberately do NOT rewrite when unchanged, so this is
+      // exactly the case a change-gated write would miss.
+      const first = (await stat(devJsonPath)).mtimeMs;
+      await vi.waitFor(
+        async () => {
+          expect((await stat(devJsonPath)).mtimeMs).toBeGreaterThan(first);
+        },
+        { timeout: 2_000 },
+      );
+
+      const beforeClose = (await stat(devJsonPath)).mtimeMs;
+      await app.close();
+
+      // The close barrier runs a final flush - which now touches dev.json - and THEN removes it.
+      // A heartbeat that outlived the removal would resurrect a dead boot's marker.
+      await expect(stat(devJsonPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(beforeClose).toBeGreaterThan(0);
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
   it('writes dev.json from the actual bound socket, mirrors rings, removes dev.json on close', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-'));
     const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);

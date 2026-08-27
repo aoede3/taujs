@@ -1,16 +1,16 @@
 // @vitest-environment node
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
 import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitGraph';
 import { createRequestGraph } from '../../../server/src/core/introspection/RequestGraph';
 import { defineService, defineServiceRegistry } from '../../../server/src/core/services/DataServices';
 
-import { NO_ACTIVE_BOOT_REFUSAL } from '../SubstrateReader';
+import { NO_ACTIVE_BOOT_REFUSAL, STALE_REASON_MESSAGE } from '../SubstrateReader';
 import { allTools } from '../server';
 
 import type { CoreTaujsConfig } from '../../../server/src/core/config/types';
@@ -104,14 +104,28 @@ beforeAll(async () => {
   coldTools = new Map(allTools(coldRoot).map((t) => [t.name, t.handler]));
 });
 
+// The live fixture's dev.json is written once, in beforeAll, but liveness is now a FRESHNESS
+// question - so a slow run could age it past the window mid-suite and turn every live cell stale.
+// The real server touches dev.json on its poll tick; this stands in for that tick.
+beforeEach(async () => {
+  const devJsonPath = path.join(liveRoot, 'node_modules', '.taujs', 'dev.json');
+  const now = new Date();
+  await utimes(devJsonPath, now, now);
+});
+
 const live = (name: string, args: Record<string, unknown> = {}): any => liveTools.get(name)!(args);
 const cold = (name: string, args: Record<string, unknown> = {}): any => coldTools.get(name)!(args);
 
 describe('cold-mode refusal contract (every runtime tool)', () => {
-  it.each(['taujs_get_recent_episodes', 'taujs_get_episode', 'taujs_get_episode_logs'])('%s refuses verbatim without an active boot', (name) => {
+  it.each(['taujs_get_recent_episodes', 'taujs_get_episode', 'taujs_get_episode_logs'])('%s refuses without an active boot, and says WHY', (name) => {
     const result = cold(name, { requestId: 'anything' });
 
-    expect(result).toEqual(NO_ACTIVE_BOOT_REFUSAL);
+    // The refusal contract itself is unchanged - it is now ACCOMPANIED by the reason. "No boot has
+    // ever run here" and "the boot stopped answering" call for different actions, and one message
+    // for both is the conflation these tools exist to avoid.
+    expect(result).toMatchObject(NO_ACTIVE_BOOT_REFUSAL);
+    expect(result.staleReason).toBe('no_dev_json');
+    expect(result.detail).toBe(STALE_REASON_MESSAGE.no_dev_json);
   });
 
   it('taujs_doctor still answers structurally in cold mode, marking runtime facts unavailable', () => {
@@ -226,7 +240,11 @@ describe('runtime tools (active boot)', () => {
 
     const miss = live('taujs_get_episode', { requestId: 'gone-1' });
     expect(miss.ok).toBe(false);
-    expect(miss.message).toContain('ring buffer');
+    // Absence names its SCOPE: not in the retained ring, which is not the same claim as "never
+    // existed". A bounded ring cannot make the second one.
+    expect(miss.membership).toBe('not_in_episode_ring');
+    expect(miss.message).toContain('retained episode ring');
+    expect(miss.message).not.toContain('200');
   });
 
   it('taujs_get_episode_logs defaults to warn+ and widens on request', () => {

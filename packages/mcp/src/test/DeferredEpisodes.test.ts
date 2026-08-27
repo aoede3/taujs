@@ -16,7 +16,7 @@ import { createRequestGraph } from '../../../server/src/core/introspection/Reque
 import { allTools } from '../server';
 
 import type { CoreTaujsConfig } from '../../../server/src/core/config/types';
-import type { DevJson } from '../types';
+import type { DevJson, EpisodeRecord } from '../types';
 import type { ToolResult } from '../toolkit';
 
 const config: CoreTaujsConfig = {
@@ -73,10 +73,12 @@ beforeAll(async () => {
 
 describe('MCP surfaces RFC 0007 deferred outcomes with no new tool', () => {
   it('taujs_get_episode: every declared key and its outcome is readable, detail-free', () => {
-    const result = tools.get('taujs_get_episode')!({ requestId: 'deferred-1' }) as any;
+    const result = tools.get('taujs_get_episode')!({ requestId: 'deferred-1' }) as { ok: boolean; episode: EpisodeRecord };
 
     expect(result.ok).toBe(true);
-    expect((result.episode as { deferredData?: unknown }).deferredData).toEqual([
+    // No hand cast: EpisodeRecord now declares deferredData, so this reads the field the emitter
+    // actually writes rather than asserting past the type.
+    expect(result.episode.deferredData).toEqual([
       { key: 'reviews', outcome: 'complete', ms: 41.2 },
       { key: 'blurb', outcome: 'failed', ms: 5 },
       { key: 'stock', outcome: 'aborted', ms: 120 },
