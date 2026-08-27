@@ -201,8 +201,12 @@ export const addNonceToInlineScripts = (html: string, nonce?: string) => {
   return html.replace(/<script(?![^>]*\bnonce=)([^>]*)>/g, `<script nonce="${nonce}"$1>`);
 };
 
-export const stripDevClientAndStyles = (template: string) => {
-  return template.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '').replace(/<style type="text\/css">[\s\S]*?<\/style>/g, '');
+/**
+ * Removes the hand-written `/@vite/client` script tag so it is not duplicated by Vite's own
+ * `transformIndexHtml` injection. Touches nothing else in the author's `index.html`.
+ */
+export const stripDevClient = (template: string) => {
+  return template.replace(/<script type="module" src="\/@vite\/client"><\/script>/g, '');
 };
 
 export const applyViteTransform = async (template: string, url: string, viteDevServer: ViteDevServer): Promise<string> => {
