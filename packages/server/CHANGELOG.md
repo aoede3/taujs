@@ -1,5 +1,14 @@
 # @taujs/server
 
+## 0.29.0
+
+### Minor Changes
+
+- [#103](https://github.com/aoede3/taujs/pull/103) [`f6c6c75`](https://github.com/aoede3/taujs/commit/f6c6c75c09c4fdc2a17e3943349695c864f52f80) Thanks [@aoede3](https://github.com/aoede3)! - The request graph now models a route's declared head-data edge (`route.head.data`) and counts it
+  in `services[].methods[].usedBy`. Before, a method reached only through `attr.head.data` was
+  emitted with `usedBy: []`, so the graph claimed no route used a method a route declared. Additive,
+  schema v1.
+
 ## 0.28.1
 
 ### Patch Changes
