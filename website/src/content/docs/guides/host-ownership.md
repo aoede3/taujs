@@ -83,7 +83,8 @@ The implicit fallback and the explicit wildcard have different asset behaviour. 
 fallback document on a τjs-created host
 delegates asset-like misses such as `/logo.png` to a 404. An explicit `/*` owns and renders every
 URL it matches. Use narrower page patterns or a separate asset prefix when missing asset-like URLs
-must remain 404 responses.
+must remain 404 responses. When more than one application is configured, the implicit fallback
+document is always the first configured application's shell.
 
 A caller's `@fastify/static` mount also needs a compatible route shape. Its default
 `wildcard: true` claims `GET /*`, so declaring a τjs `/*` page would be a genuine duplicate route

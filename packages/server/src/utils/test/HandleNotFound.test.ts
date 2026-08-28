@@ -60,6 +60,8 @@ describe('handleNotFound', () => {
     req.raw.url = '/search?q=file.txt';
     req.url = '/search?q=file.txt';
 
+    const debug = vi.fn();
+
     await handleNotFound(
       req,
       reply,
@@ -78,10 +80,12 @@ describe('handleNotFound', () => {
         bootstrapModules: new Map([['/app', '/assets/entry-client.js']]),
         templates: new Map([['/app', makeTemplate()]]),
       },
+      { logger: { debug, error: vi.fn(), warn: vi.fn() } as any },
     );
 
     expect(reply.callNotFound).not.toHaveBeenCalled();
     expect(reply.send).toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith('ssr', { status: 200, appId: 'a' }, 'Sending not-found fallback HTML');
   });
 
   it('throws wrapped AppError when no default config exists', async () => {
