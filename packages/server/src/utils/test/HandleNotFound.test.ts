@@ -85,8 +85,9 @@ describe('handleNotFound', () => {
   });
 
   it('throws wrapped AppError when no default config exists', async () => {
-    await expect(
-      handleNotFound(
+    let caught: any;
+    try {
+      await handleNotFound(
         req,
         reply,
         [], // no configs
@@ -95,8 +96,16 @@ describe('handleNotFound', () => {
           bootstrapModules: new Map(),
           templates: new Map(),
         },
-      ),
-    ).rejects.toThrowError(/handleNotFound failed/);
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeDefined();
+    expect(caught.message).toBe('handleNotFound failed');
+    expect(caught.cause?.message).toBe('No default configuration found');
+    expect(caught.cause?.details).toEqual({ configCount: 0, url: '/no-route' });
+    expect(caught.cause?.cause).toBeUndefined();
   });
 
   it('injects css in production and no scripts when no bootstrapModule', async () => {

@@ -22,8 +22,8 @@ class MockAppError extends Error {
   static notFound(msg: string) {
     return new MockAppError(msg, 'NOT_FOUND');
   }
-  static internal(msg: string, opts?: { cause?: unknown; details?: unknown }) {
-    return new MockAppError(msg, 'INTERNAL', opts?.details, opts?.cause);
+  static internal(msg: string, cause?: unknown, details?: unknown) {
+    return new MockAppError(msg, 'INTERNAL', details, cause);
   }
   static timeout(msg: string) {
     return new MockAppError(msg, 'TIMEOUT');

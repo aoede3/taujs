@@ -37,24 +37,11 @@ vi.mock('../../core/errors/AppError', async () => {
       this.kind = kind;
       this.safeMessage = message;
       this.details = opts?.details;
-      // Real AppError.internal only ever sets `.cause` when the caller supplied one (a bare
-      // `undefined` never becomes an own property) - mirrored here so a cause-preservation test
-      // can tell "cause: undefined" apart from "cause never touched".
-      if (opts && 'cause' in opts) this.cause = opts.cause;
+      if (opts && opts.cause !== undefined) this.cause = opts.cause;
     }
   }
 
-  // Two calling conventions coexist in this codebase: an object-form bag (`{ cause, details }` as
-  // the sole 2nd argument) and the real class's positional form (`message, cause, details`). Both
-  // are normalised to the same `opts` shape here so this double keeps returning identical
-  // `.details` for existing callers while now ALSO retaining `.cause` (previously dropped
-  // silently - untested until Finding 1 needed it).
-  const internalSpy = vi.fn((message: string, optsOrCause?: any, detailsMaybe?: any) => {
-    const isObjectForm = optsOrCause && typeof optsOrCause === 'object' && 'details' in optsOrCause;
-    const opts = isObjectForm ? optsOrCause : { cause: optsOrCause, details: detailsMaybe };
-    const err = new FakeAppError(message, 'infra', opts);
-    return err as any;
-  });
+  const internalSpy = vi.fn((message: string, cause?: unknown, details?: unknown) => new FakeAppError(message, 'infra', { cause, details }));
 
   (FakeAppError as any).internal = internalSpy;
   (FakeAppError as any).isAppError = (v: unknown) => v instanceof FakeAppError;
@@ -340,10 +327,9 @@ describe('handleRender', () => {
 
       expect(AppError.internal).toHaveBeenCalledWith(
         'No configuration found for the request',
+        undefined,
         expect.objectContaining({
-          details: expect.objectContaining({
-            appId: 'non-existent-app',
-          }),
+          appId: 'non-existent-app',
         }),
       );
     });
@@ -480,6 +466,11 @@ describe('handleRender', () => {
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
       await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+
+      expect(AppError.internal).toHaveBeenCalledWith('renderSSR function not found in module', undefined, {
+        clientRoot: '/test/client',
+        availableFunctions: [],
+      });
     });
 
     it('should escape JSON data in initial data script', async () => {
@@ -1771,6 +1762,11 @@ describe('handleRender', () => {
       vi.mocked(AppError.internal).mockReturnValue(mockError);
 
       await expect(handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps)).rejects.toThrow();
+
+      expect(AppError.internal).toHaveBeenCalledWith('renderStream function not found in module', undefined, {
+        clientRoot: '/test/client',
+        availableFunctions: [],
+      });
     });
 
     it('should escape JSON in streaming initial data', async () => {
@@ -2230,12 +2226,11 @@ describe('handleRender', () => {
         handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { viteDevServer: mockViteDevServer }),
       ).rejects.toThrow();
 
-      expect(AppError.internal).toHaveBeenCalledWith(
-        'Failed to load dev assets',
-        expect.objectContaining({
-          cause: loadError,
-        }),
-      );
+      expect(AppError.internal).toHaveBeenCalledWith('Failed to load dev assets', loadError, {
+        clientRoot: '/test/client',
+        entryServer: 'entry-server.tsx',
+        url: expect.any(String),
+      });
     });
 
     it('does not treat empty raw.url as an asset (covers url ?? "")', async () => {

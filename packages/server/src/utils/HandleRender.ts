@@ -197,12 +197,10 @@ export const handleRender = async (
 
     const config = processedConfigs.find((c) => c.appId === appId);
     if (!config) {
-      throw AppError.internal('No configuration found for the request', {
-        details: {
-          appId,
-          availableAppIds: processedConfigs.map((c) => c.appId),
-          url,
-        },
+      throw AppError.internal('No configuration found for the request', undefined, {
+        appId,
+        availableAppIds: processedConfigs.map((c) => c.appId),
+        url,
       });
     }
 
@@ -256,7 +254,7 @@ export const handleRender = async (
         // Preserve a render-contract validation AppError's migration guidance rather than masking it as a
         // generic dev-asset failure.
         if (AppError.isAppError(error)) throw error;
-        throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServer, url } });
+        throw AppError.internal('Failed to load dev assets', error, { clientRoot, entryServer, url });
       }
     } else {
       renderModule = maps.renderModules.get(clientRoot) as RenderModule;
@@ -348,13 +346,10 @@ export const handleRender = async (
     if (renderType === RENDERTYPE.ssr) {
       const { renderSSR } = renderModule;
       if (!renderSSR) {
-        throw AppError.internal(
-          'ssr',
-          {
-            details: { clientRoot, availableFunctions: Object.keys(renderModule) },
-          },
-          'renderSSR function not found in module',
-        );
+        throw AppError.internal('renderSSR function not found in module', undefined, {
+          clientRoot,
+          availableFunctions: Object.keys(renderModule),
+        });
       }
 
       logger.debug?.('ssr', {}, 'ssr requested');
@@ -582,8 +577,9 @@ export const handleRender = async (
     } else {
       const { renderStream } = renderModule;
       if (!renderStream) {
-        throw AppError.internal('renderStream function not found in module', {
-          details: { clientRoot, availableFunctions: Object.keys(renderModule) },
+        throw AppError.internal('renderStream function not found in module', undefined, {
+          clientRoot,
+          availableFunctions: Object.keys(renderModule),
         });
       }
 
