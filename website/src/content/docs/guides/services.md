@@ -43,6 +43,24 @@ A method receives:
 It must resolve to a plain JSON-compatible object. Do not return a primitive, array, class instance,
 `Date`, stream or response object as the root result.
 
+Params must also be a JSON object type: use a type alias or an inline object type. An `interface`
+without an index signature is not accepted (TypeScript does not give an `interface` an implicit
+index signature), and `defineService()` reports it on the offending method with a
+`__taujsServiceTypeError` message. `interface X extends JsonObject { ... }` compiles and keeps the
+method typed, but by inheriting the index signature it also admits unknown keys at call sites -
+prefer the alias:
+
+```ts
+type ProductParams = { id: string };
+
+export const CatalogueService = defineService({
+  product: async (params: ProductParams, ctx) => {
+    // ...
+    return { product };
+  },
+});
+```
+
 ## Create the registry
 
 The registry is the runtime dispatch table and the source of its TypeScript inference:
