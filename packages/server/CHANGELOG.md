@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.29.6
+
+### Patch Changes
+
+- [#116](https://github.com/aoede3/taujs/pull/116) [`2ce8a96`](https://github.com/aoede3/taujs/commit/2ce8a96c514ae9c00a45589d24c02ec2b090d4f9) Thanks [@aoede3](https://github.com/aoede3)! - `createServer({ port })` was declared but never read. It now sets the port between `config.server.port` and the environment, so a programmatic caller can pin or override the port without an env var or CLI flag. `port: 0` requests an ephemeral port.
+
 ## 0.29.5
 
 ### Patch Changes
