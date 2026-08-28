@@ -14,6 +14,7 @@ import { createServiceData } from '../../../server/src/core/services/ServiceData
 import { defineService, defineServiceRegistry } from '../../../server/src/core/services/DataServices';
 
 import { createTaujsMcpServer, allTools } from '../server';
+import { skills } from '../skills';
 // Spied (not stubbed): the real implementation still runs - this only lets a cell assert whether
 // it ran, which is the difference between "the SDK rejected before dispatch" and "our handler ran
 // and reported an error itself".
@@ -173,6 +174,39 @@ describe('structural tools (cold/stale mode)', () => {
     const miss = call('taujs_get_route', { path: '/nope' });
     expect(miss.ok).toBe(false);
     expect(miss.knownRouteIds.items).toContain('playground-react:/product/:id');
+  });
+
+  it('get_route and explain_route refuse disagreeing selectors and accept agreeing ones', () => {
+    for (const name of ['taujs_get_route', 'taujs_explain_route']) {
+      const agree = call(name, { routeId: 'playground-react:/', path: '/' });
+      expect(agree.ok).toBe(true);
+      const agreeIds = (agree.routes ?? agree.explanations).map((r: { id: string }) => r.id);
+      expect(agreeIds).toEqual(['playground-react:/']);
+
+      const conflict = call(name, { routeId: 'playground-react:/', path: '/admin' });
+      expect(conflict.ok).toBe(false);
+      expect(conflict.reason).toBe('conflicting_selectors');
+      expect(conflict.routeIdMatches.items).toEqual(['playground-react:/']);
+      expect(conflict.pathMatches.items).toEqual(['playground-react:/admin']);
+      expect(conflict.staleness).toBeDefined();
+
+      const partialConflict = call(name, { routeId: 'playground-react:/', path: '/nope' });
+      expect(partialConflict.ok).toBe(false);
+      expect(partialConflict.reason).toBe('conflicting_selectors');
+      expect(partialConflict.pathMatches.items).toEqual([]);
+
+      const bothMiss = call(name, { routeId: 'nope', path: '/nope' });
+      expect(bothMiss.ok).toBe(false);
+      expect(bothMiss.reason).toBe('route_not_found');
+
+      // An empty string is a supplied selector that resolves nothing, not an omitted one.
+      const emptyId = call(name, { routeId: '', path: '/admin' });
+      expect(emptyId.reason).toBe('conflicting_selectors');
+      expect(emptyId.routeIdMatches.items).toEqual([]);
+      const emptyPath = call(name, { routeId: 'playground-react:/', path: '' });
+      expect(emptyPath.reason).toBe('conflicting_selectors');
+      expect(emptyPath.pathMatches.items).toEqual([]);
+    }
   });
 
   it('taujs_who_calls_service labels declared and observed edges per source', () => {
@@ -516,5 +550,18 @@ describe('MCP server end-to-end (InMemory transport)', () => {
 
     await client.close();
     await server.close();
+  });
+});
+
+describe('skill drift', () => {
+  it('every taujs_ token a shipped skill mentions is a registered tool or skill', () => {
+    const known = new Set<string>([...allTools(root).map((t) => t.name), ...skills.map((s) => s.name)]);
+    for (const skill of skills) {
+      const tokens = [...skill.text.matchAll(/\btaujs_[a-z_]+\b/g)].map((m) => m[0]);
+      expect(
+        tokens.filter((t) => !known.has(t)),
+        `${skill.name} names unknown tools`,
+      ).toEqual([]);
+    }
   });
 });
