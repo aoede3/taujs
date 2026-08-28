@@ -123,9 +123,11 @@ Values are resolved in this order (highest precedence first):
    - `PORT` or `FASTIFY_PORT`
    - `HMR_PORT`
 
-3. **Config object**: `server.*` properties
+3. **`createServer({ port })`**: the programmatic option overrides `config.server.port`, and `0` requests an ephemeral port.
 
-4. **Defaults**: `{ host: 'localhost', port: 5173, hmrPort: 5174 }`
+4. **Config object**: `server.*` properties
+
+5. **Defaults**: `{ host: 'localhost', port: 5173, hmrPort: 5174 }`
 
 ### Host Values
 

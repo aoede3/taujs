@@ -59,8 +59,9 @@ vi.mock('../network/Network', () => ({
 }));
 
 const netResolved = { host: '127.0.0.1', hmrPort: 5173 } as const;
+const resolveNetSpy = vi.fn(() => netResolved);
 vi.mock('../network/CLI', () => ({
-  resolveNet: vi.fn(() => netResolved),
+  resolveNet: resolveNetSpy,
 }));
 
 const loggerError = vi.fn();
@@ -197,6 +198,53 @@ describe('createServer', () => {
 
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[bgGreen:[black: [τjs] ]]'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('configured in 675ms'));
+  });
+
+  it('hands resolveNet exactly config.server when no port option is given', async () => {
+    const { createServer } = await importer();
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+    });
+
+    expect(resolveNetSpy).toHaveBeenCalledWith(minimalConfig.server);
+  });
+
+  it('hands resolveNet { ...config.server, port } when a port option is given', async () => {
+    const { createServer } = await importer();
+    const config: TaujsConfig = { ...minimalConfig, server: { host: 'unused', port: 3000 } };
+
+    await createServer({
+      config,
+      serviceRegistry: dummyRegistry,
+      port: 4000,
+    });
+
+    expect(resolveNetSpy).toHaveBeenCalledWith({ ...config.server, port: 4000 });
+  });
+
+  it('keeps config.server.port when the port option is not finite', async () => {
+    const { createServer } = await importer();
+    const config: TaujsConfig = { ...minimalConfig, server: { host: 'unused', port: 3000 } };
+
+    for (const port of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      resolveNetSpy.mockClear();
+      await createServer({ config, serviceRegistry: dummyRegistry, port });
+      expect(resolveNetSpy).toHaveBeenCalledWith({ host: 'unused', port: 3000 });
+    }
+  });
+
+  it('hands resolveNet port: 0 rather than dropping it', async () => {
+    const { createServer } = await importer();
+
+    await createServer({
+      config: minimalConfig,
+      serviceRegistry: dummyRegistry,
+      port: 0,
+    });
+
+    expect(resolveNetSpy).toHaveBeenCalledWith({ ...minimalConfig.server, port: 0 });
   });
 
   it('uses explicit clientRoot when provided, regardless of NODE_ENV', async () => {
