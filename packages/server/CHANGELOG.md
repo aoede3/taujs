@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.29.4
+
+### Patch Changes
+
+- [#112](https://github.com/aoede3/taujs/pull/112) [`e8ef75d`](https://github.com/aoede3/taujs/commit/e8ef75da7daa1b736088740b902ea54d8f6cbb66) Thanks [@aoede3](https://github.com/aoede3)! - Previously a service method whose params were typed with an `interface` (no index signature) normalised to `never`, so the definition compiled clean and every call site reported an opaque error instead. `defineService()` now rejects such a method at the definition, on the offending property, with a message naming the cause. The JSDoc on `ServiceMethod` and `defineService` ships in the types.
+
 ## 0.29.3
 
 ### Patch Changes
