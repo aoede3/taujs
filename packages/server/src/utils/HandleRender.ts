@@ -175,7 +175,7 @@ export const handleRender = async (
   try {
     const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
 
-    const rawNonce = (req as any).cspNonce as string | undefined | null;
+    const rawNonce = req.cspNonce;
     const cspNonce = rawNonce && rawNonce.length > 0 ? rawNonce : undefined;
 
     const { route, params } = selectedRoute;
@@ -197,12 +197,10 @@ export const handleRender = async (
 
     const config = processedConfigs.find((c) => c.appId === appId);
     if (!config) {
-      throw AppError.internal('No configuration found for the request', {
-        details: {
-          appId,
-          availableAppIds: processedConfigs.map((c) => c.appId),
-          url,
-        },
+      throw AppError.internal('No configuration found for the request', undefined, {
+        appId,
+        availableAppIds: processedConfigs.map((c) => c.appId),
+        url,
       });
     }
 
@@ -256,7 +254,7 @@ export const handleRender = async (
         // Preserve a render-contract validation AppError's migration guidance rather than masking it as a
         // generic dev-asset failure.
         if (AppError.isAppError(error)) throw error;
-        throw AppError.internal('Failed to load dev assets', { cause: error, details: { clientRoot, entryServer, url } });
+        throw AppError.internal('Failed to load dev assets', error, { clientRoot, entryServer, url });
       }
     } else {
       renderModule = maps.renderModules.get(clientRoot) as RenderModule;
@@ -339,22 +337,17 @@ export const handleRender = async (
         throw err;
       } finally {
         clearTimeout(timer);
-        try {
-          requestSignal.removeEventListener('abort', onRequestAbort);
-        } catch {}
+        requestSignal.removeEventListener('abort', onRequestAbort);
       }
     };
 
     if (renderType === RENDERTYPE.ssr) {
       const { renderSSR } = renderModule;
       if (!renderSSR) {
-        throw AppError.internal(
-          'ssr',
-          {
-            details: { clientRoot, availableFunctions: Object.keys(renderModule) },
-          },
-          'renderSSR function not found in module',
-        );
+        throw AppError.internal('renderSSR function not found in module', undefined, {
+          clientRoot,
+          availableFunctions: Object.keys(renderModule),
+        });
       }
 
       logger.debug?.('ssr', {}, 'ssr requested');
@@ -515,7 +508,7 @@ export const handleRender = async (
           logger.warn(
             {
               url: req.url,
-              reason: String((err as any)?.message ?? err ?? ''),
+              reason: safeErrorMessage(err),
             },
             'SSR aborted mid-render (client disconnected)',
           );
@@ -565,7 +558,7 @@ export const handleRender = async (
         ssrStage = 'send';
         return sendResult;
       } catch (err) {
-        const msg = String((err as any)?.message ?? err ?? '');
+        const msg = safeErrorMessage(err);
         // R0-02: a send failure is socket/writable-origin — classify by socket taxonomy.
         const benign = isBenignSocketError(err);
 
@@ -582,8 +575,9 @@ export const handleRender = async (
     } else {
       const { renderStream } = renderModule;
       if (!renderStream) {
-        throw AppError.internal('renderStream function not found in module', {
-          details: { clientRoot, availableFunctions: Object.keys(renderModule) },
+        throw AppError.internal('renderStream function not found in module', undefined, {
+          clientRoot,
+          availableFunctions: Object.keys(renderModule),
         });
       }
 
@@ -1076,7 +1070,7 @@ export const handleRender = async (
 
       recorder?.failed({
         requestId,
-        error: { kind: AppError.isAppError(err) ? (err as any).kind : 'internal', message: String((err as any)?.message ?? err ?? '') },
+        error: { kind: AppError.isAppError(err) ? err.kind : 'internal', message: safeErrorMessage(err) },
       });
     }
 
@@ -1084,7 +1078,7 @@ export const handleRender = async (
 
     throw AppError.internal('handleRender failed', err, {
       url: req.url,
-      route: (req as any).routeOptions?.url,
+      route: req.routeOptions?.url,
     });
   }
 };

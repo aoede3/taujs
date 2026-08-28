@@ -73,9 +73,7 @@ export const handleNotFound = async (
     const defaultConfig = processedConfigs[0];
     if (!defaultConfig) {
       logger.error?.({ configCount: processedConfigs.length, url: req.raw.url }, 'No default configuration found');
-      throw AppError.internal('No default configuration found', {
-        details: { configCount: processedConfigs.length, url: req.raw.url },
-      });
+      throw AppError.internal('No default configuration found', undefined, { configCount: processedConfigs.length, url: req.raw.url });
     }
 
     const { clientRoot } = defaultConfig;
@@ -112,7 +110,7 @@ export const handleNotFound = async (
       );
     }
 
-    logger.debug?.('ssr', { status: 200 }, 'Sending not-found fallback HTML');
+    logger.debug?.('ssr', { status: 200, appId: defaultConfig.appId }, 'Sending not-found fallback HTML');
 
     // Deliberate SPA fallback: unmatched page URLs get the default app's shell
     // with a 200 so client-side routes beyond taujs.config still work.

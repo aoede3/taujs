@@ -244,11 +244,7 @@ export async function callServiceMethod(
     // Brand check, not instanceof: the thrown error may come from another copy
     // of AppError (e.g. the @taujs/server/config entry) and must keep its
     // domain status instead of being re-wrapped as a 500.
-    throw AppError.isAppError(err)
-      ? err
-      : err instanceof Error
-        ? AppError.internal(err.message, { cause: err })
-        : AppError.internal('Unknown error', { details: { err } });
+    throw AppError.isAppError(err) ? err : err instanceof Error ? AppError.internal(err.message, err) : AppError.internal('Unknown error', undefined, { err });
   }
 }
 
