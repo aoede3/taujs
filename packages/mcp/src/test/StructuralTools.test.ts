@@ -3,8 +3,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { describe, it, expect, beforeAll } from 'vitest';
 
 // Fixture via the real emitters (files are the contract) — mirrors the playground shape.
@@ -79,7 +78,7 @@ const config: CoreTaujsConfig = {
 };
 
 let root: string;
-let toolByName: Map<string, (args: Record<string, unknown>) => ToolResult>;
+let toolByName: Map<string, (args: any) => ToolResult>;
 
 beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-tools-'));
@@ -347,6 +346,7 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     const payload = JSON.parse((result.content as { text: string }[])[0]!.text);
     expect(payload.ok).toBe(true);
     expect(payload.routeCount).toBe(8);
+    expect(result.structuredContent).toEqual(payload);
 
     const prompts = await client.listPrompts();
     expect(prompts.prompts.map((p) => p.name).sort()).toEqual([

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 
 import { allTools, runTool } from '../server';
 
@@ -212,7 +213,7 @@ describe('tool_failure envelope (@taujs/mcp)', () => {
     name: 'taujs_broken',
     title: 'Broken',
     description: 'Throws on purpose.',
-    inputSchema: {},
+    inputSchema: z.object({}),
     handler: fail as unknown as ToolDefinition['handler'],
   });
 
@@ -255,7 +256,7 @@ describe('tool_failure envelope (@taujs/mcp)', () => {
   });
 
   it('leaves a successful result untouched', () => {
-    const ok: ToolDefinition = { name: 'taujs_fine', title: 'Fine', description: '', inputSchema: {}, handler: () => ({ ok: true, value: 1 }) };
+    const ok: ToolDefinition = { name: 'taujs_fine', title: 'Fine', description: '', inputSchema: z.object({}), handler: () => ({ ok: true, value: 1 }) };
 
     expect(runTool(ok, {})).not.toHaveProperty('isError');
     expect(parse(runTool(ok, {}) as { content: { text: string }[] })).toMatchObject({ ok: true, value: 1 });

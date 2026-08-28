@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { NO_ACTIVE_BOOT_REFUSAL, STALE_REASON_MESSAGE, discoverSubstrate, readGraph, readLogs, readEpisodes } from '../SubstrateReader';
-import { UNTRUSTED_NOTE, bounded } from '../toolkit';
+import { UNTRUSTED_NOTE, bounded, defineTool } from '../toolkit';
 
 import type { SubstrateDiscovery } from '../SubstrateReader';
 import type { ToolDefinition, ToolResult } from '../toolkit';
@@ -74,18 +74,18 @@ const emptyLogsNote = (minLevel: string, membership: string, anyLevelCount: numb
 };
 
 export const runtimeTools = (root: string): ToolDefinition[] => [
-  {
+  defineTool({
     name: 'taujs_get_recent_episodes',
     title: 'Recent request episodes',
     description: `Most recent request episodes from the active dev boot (default ${RECENT_DEFAULT_LIMIT}). Filter by outcome or mode. Follow up with taujs_get_episode, then taujs_get_episode_logs - logs are never embedded here. ${UNTRUSTED_NOTE}`,
-    inputSchema: {
+    inputSchema: z.object({
       limit: z.number().int().positive().optional().describe(`Max episodes (default ${RECENT_DEFAULT_LIMIT})`),
       outcome: z.enum(['complete', 'failed', 'aborted']).optional().describe('Filter by terminal outcome'),
       mode: z.enum(['ssr', 'streaming', 'fallthrough']).optional().describe('Filter by render mode'),
-    },
+    }),
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
-        const limit = typeof args.limit === 'number' ? args.limit : RECENT_DEFAULT_LIMIT;
+        const limit = args.limit ?? RECENT_DEFAULT_LIMIT;
         const read = readEpisodes(discovery, { bootId: discovery.devJson.bootId });
         if (!read.ok) return substrateUnreadable(read, discovery.devJson.bootId);
 
@@ -101,17 +101,17 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
           ...malformedNote({ episodes: read.malformed }),
         };
       }),
-  },
-  {
+  }),
+  defineTool({
     name: 'taujs_get_episode',
     title: 'Get one request episode',
     description: `The full episode record for one requestId - timeline, service calls, client hydration, error. Logs are fetched separately via taujs_get_episode_logs. ${UNTRUSTED_NOTE}`,
-    inputSchema: {
+    inputSchema: z.object({
       requestId: z.string().describe('From taujs_get_recent_episodes or an x-request-id response header'),
-    },
+    }),
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
-        const requestId = String(args.requestId ?? '');
+        const requestId = args.requestId;
         const read = readEpisodes(discovery, { bootId: discovery.devJson.bootId });
         if (!read.ok) return substrateUnreadable(read, discovery.devJson.bootId);
 
@@ -141,19 +141,19 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
 
         return { ok: true, bootId: discovery.devJson.bootId, membership: 'in_episode_ring', episode };
       }),
-  },
-  {
+  }),
+  defineTool({
     name: 'taujs_get_episode_logs',
     title: 'Logs for one episode',
     description: `Logs-annex lines for one requestId, level-filtered (default warn+). Only lines through the framework request logger are captured - a separate user logger is not; absence here does not mean nothing was logged. ${UNTRUSTED_NOTE}`,
-    inputSchema: {
+    inputSchema: z.object({
       requestId: z.string().describe('The episode to fetch logs for'),
       minLevel: z.enum(['info', 'warn', 'error']).optional().describe('Minimum level (default warn)'),
-    },
+    }),
     handler: (args) =>
       withActiveBoot(root, (discovery) => {
-        const requestId = String(args.requestId ?? '');
-        const minLevel = (typeof args.minLevel === 'string' ? args.minLevel : 'warn') as 'info' | 'warn' | 'error';
+        const requestId = args.requestId;
+        const minLevel = args.minLevel ?? 'warn';
         const bootId = discovery.devJson.bootId;
 
         const logsRead = readLogs(discovery, { requestId, minLevel, bootId });
@@ -211,12 +211,12 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
           ...(logsRead.records.length === 0 ? { note: emptyLogsNote(minLevel, membership, logsRead.anyLevelCount ?? 0, logsRead.malformed) } : {}),
         };
       }),
-  },
-  {
+  }),
+  defineTool({
     name: 'taujs_doctor',
     title: 'τjs diagnostics',
     description: `Bounded health report: graph warnings grouped by severity, fallthrough reachability, defaulted renders, and recent failed episodes with error kinds. Each fact is source-labelled; staleness cited when not live. ${UNTRUSTED_NOTE}`,
-    inputSchema: {},
+    inputSchema: z.object({}),
     handler: () => {
       const discovery = discoverSubstrate(root);
       if (discovery.mode === 'none')
@@ -290,5 +290,5 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
         failedEpisodes,
       };
     },
-  },
+  }),
 ];

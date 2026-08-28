@@ -34,6 +34,7 @@
   ],
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.4",
+    "@modelcontextprotocol/client": "^2.0.0",
     "@types/node": "^20.14.9",
     "prettier": "^3.3.3",
     "tsup": "^8.2.4",
@@ -49,7 +50,7 @@
     "check-exports": "attw --pack . --profile esm-only"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "zod": "^4.4.3"
   },
   "bin": {
