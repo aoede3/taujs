@@ -137,6 +137,22 @@ describe('resolveNet (full precedence & edge cases)', () => {
     expect(r.hmrPort).toBe(5174);
   });
 
+  it('port respects precedence (input < env < CLI), and accepts a finite 0 from input', () => {
+    let r = resolveNet({ port: 0 });
+    expect(r.port).toBe(0);
+
+    r = resolveNet({ port: 4000 });
+    expect(r.port).toBe(4000);
+
+    setEnv({ PORT: '5000' });
+    r = resolveNet({ port: 4000 });
+    expect(r.port).toBe(5000);
+
+    setArgv(['node', 'script.js', '--port', '6000']);
+    r = resolveNet({ port: 4000 });
+    expect(r.port).toBe(6000);
+  });
+
   it('env: FASTIFY_PORT present but invalid → falls back to previously resolved port via "|| port"', () => {
     // First set a valid PORT so "previously resolved port" is clear
     setEnv({ PORT: '6500', FASTIFY_PORT: 'NaN' as any }); // present but invalid

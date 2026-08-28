@@ -52,6 +52,11 @@ type CreateServerOptions = {
    * custom registration, or pass `false` to install no static plugin at all (CDN-owned assets).
    */
   staticAssets?: StaticAssetsRegistration;
+  /**
+   * Port reported as `net.port` for the caller's `app.listen()`. Overrides `config.server.port`;
+   * `PORT` / `FASTIFY_PORT` and `--port` still take precedence over it. `0` requests an ephemeral
+   * port - read the bound port from `app.server.address()` after listening.
+   */
   port?: number;
 };
 
@@ -127,7 +132,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     includeContext: true,
   });
 
-  const net = resolveNet(opts.config.server);
+  const net = resolveNet({ ...opts.config.server, ...(Number.isFinite(opts.port) ? { port: opts.port } : {}) });
 
   // RFC 0010: the banner is τjs-created-host presentation. A caller-owned host receives no banner
   // decoration and no `onReady` hook; its boot summaries still reach the resolved logger below.
