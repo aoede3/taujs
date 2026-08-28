@@ -73,6 +73,12 @@ const ageDevJson = async (devJsonPath: string, ms: number): Promise<void> => {
   await utimes(devJsonPath, when, when);
 };
 
+// One parent for every root this file creates, removed whole in afterAll (after the kills).
+let scratch: string;
+beforeAll(async () => {
+  scratch = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-liveness-'));
+});
+
 const spawned: ChildProcess[] = [];
 
 // A REAL second process, not a fabricated pid. This is what a recycled pid looks like from the
@@ -88,20 +94,21 @@ const spawnIdleProcess = async (): Promise<number> => {
   return child.pid!;
 };
 
-afterAll(() => {
+afterAll(async () => {
   for (const child of spawned) child.kill('SIGKILL');
+  await rm(scratch, { recursive: true, force: true });
 });
 
 describe('boot liveness (@taujs/mcp)', () => {
   it('is active while dev.json is fresh and its pid is alive', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-live-'));
+    const root = await mkdtemp(path.join(scratch, 'live-'));
     await seedDevJson(root);
 
     expect(discoverSubstrate(root)).toMatchObject({ mode: 'active' });
   });
 
   it('is stale with reason dead_pid once the recorded process is gone', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-dead-'));
+    const root = await mkdtemp(path.join(scratch, 'dead-'));
     const pid = await spawnIdleProcess();
     const devJsonPath = await seedDevJson(root, { pid });
 
@@ -114,7 +121,7 @@ describe('boot liveness (@taujs/mcp)', () => {
   });
 
   it('is stale with reason heartbeat_expired when a LIVE pid is not this boot - the recycled-pid case', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-recycled-'));
+    const root = await mkdtemp(path.join(scratch, 'recycled-'));
     // The whole defect in one arrangement: the pid in dev.json belongs to a real, running process
     // that is not the dev server. Pid liveness alone answers `active` here and serves a dead boot's
     // records as current; only the absent heartbeat can tell the difference.
@@ -126,7 +133,7 @@ describe('boot liveness (@taujs/mcp)', () => {
   });
 
   it('is stale with reason no_dev_json when nothing recorded a boot', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-nodev-'));
+    const root = await mkdtemp(path.join(scratch, 'nodev-'));
     const dir = devDirFor(root);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, 'graph.json'), '{}', 'utf8');
@@ -137,7 +144,7 @@ describe('boot liveness (@taujs/mcp)', () => {
 
 describe('dev.json validation (@taujs/mcp)', () => {
   it('an invalid dev.json ({ pid }) reads as stale, and never lets an old boot answer as current', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-invalid-devjson-'));
+    const root = await mkdtemp(path.join(scratch, 'invalid-devjson-'));
     const dir = devDirFor(root);
     await mkdir(dir, { recursive: true });
     // A live pid and nothing else: this passed liveness under a cast and, with bootId undefined,
@@ -158,7 +165,7 @@ describe('dev.json validation (@taujs/mcp)', () => {
   });
 
   it('a dev.json that is not JSON reads as stale, with no devJson carried on the result', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-notjson-'));
+    const root = await mkdtemp(path.join(scratch, 'notjson-'));
     const dir = devDirFor(root);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, 'dev.json'), 'not json', 'utf8');
@@ -171,7 +178,7 @@ describe('dev.json validation (@taujs/mcp)', () => {
   });
 
   it('tolerates an additive unknown field in an otherwise-valid dev.json', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-additive-devjson-'));
+    const root = await mkdtemp(path.join(scratch, 'additive-devjson-'));
     const devJsonPath = await seedDevJson(root);
     const devJson = JSON.parse(await readFile(devJsonPath, 'utf8')) as Record<string, unknown>;
     devJson.futureField = 'from a later @taujs/server';
@@ -181,7 +188,7 @@ describe('dev.json validation (@taujs/mcp)', () => {
   });
 
   it('an EMPTY bootId is invalid, and never bypasses the boot filter', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-empty-bootid-'));
+    const root = await mkdtemp(path.join(scratch, 'empty-bootid-'));
     const devJsonPath = await seedDevJson(root, { bootId: '' });
     await writeFile(path.join(devDirFor(root), 'episodes.ndjson'), `${JSON.stringify(fullEpisode({ requestId: 'old-req', bootId: 'old-boot' }))}\n`, 'utf8');
 
@@ -203,7 +210,7 @@ describe('dev.json validation (@taujs/mcp)', () => {
 
   it('an invalid dev.json ALONE - no other artefact - still reads stale with its reason, not none', async () => {
     for (const body of [JSON.stringify({ pid: process.pid }), 'not json']) {
-      const root = await mkdtemp(path.join(tmpdir(), 'taujs-invalid-alone-'));
+      const root = await mkdtemp(path.join(scratch, 'invalid-alone-'));
       const dir = devDirFor(root);
       await mkdir(dir, { recursive: true });
       await writeFile(path.join(dir, 'dev.json'), body, 'utf8');
@@ -218,7 +225,7 @@ describe('dev.json validation (@taujs/mcp)', () => {
 
 describe('dev.json path containment (@taujs/mcp)', () => {
   it('ignores a declared path outside the .taujs directory', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-escape-'));
+    const root = await mkdtemp(path.join(scratch, 'escape-'));
     const outside = path.join(root, 'elsewhere.ndjson');
     await writeFile(outside, `${JSON.stringify({ requestId: 'r1', bootId: 'boot-current', at: 'x', level: 'error', msg: 'FROM OUTSIDE' })}\n`, 'utf8');
     await seedDevJson(root, { logs: outside });
@@ -232,7 +239,7 @@ describe('dev.json path containment (@taujs/mcp)', () => {
   });
 
   it('ignores a SYMLINK inside .taujs that points outside it', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-symlink-'));
+    const root = await mkdtemp(path.join(scratch, 'symlink-'));
     const outside = path.join(root, 'elsewhere.ndjson');
     await writeFile(outside, `${JSON.stringify({ requestId: 'r1', bootId: 'boot-current', at: 'x', level: 'error', msg: 'FROM OUTSIDE' })}\n`, 'utf8');
 
@@ -251,7 +258,7 @@ describe('dev.json path containment (@taujs/mcp)', () => {
   });
 
   it('accepts the emitter’s own declared paths', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-ok-'));
+    const root = await mkdtemp(path.join(scratch, 'ok-'));
     await seedDevJson(root);
     const discovery = discoverSubstrate(root);
 
@@ -259,7 +266,7 @@ describe('dev.json path containment (@taujs/mcp)', () => {
   });
 
   it('refuses the conventional logs.ndjson when it is itself a symlink out', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-logs-conventional-symlink-'));
+    const root = await mkdtemp(path.join(scratch, 'logs-conventional-symlink-'));
     const outside = path.join(root, 'elsewhere.ndjson');
     await writeFile(outside, `${JSON.stringify({ requestId: 'r1', bootId: 'boot-current', at: 'x', level: 'error', msg: 'FROM OUTSIDE' })}\n`, 'utf8');
 
@@ -283,7 +290,7 @@ describe('dev.json path containment (@taujs/mcp)', () => {
   });
 
   it('refuses the conventional episodes.ndjson when it is itself a symlink out', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-episodes-conventional-symlink-'));
+    const root = await mkdtemp(path.join(scratch, 'episodes-conventional-symlink-'));
     const outside = path.join(root, 'elsewhere-episodes.ndjson');
     await writeFile(outside, `${JSON.stringify(fullEpisode({ requestId: 'from-outside', bootId: 'boot-current' }))}\n`, 'utf8');
 
@@ -304,7 +311,7 @@ describe('dev.json path containment (@taujs/mcp)', () => {
   });
 
   it('stale mode: a symlinked conventional graph.json is refused, not read through', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-graph-conventional-symlink-'));
+    const root = await mkdtemp(path.join(scratch, 'graph-conventional-symlink-'));
     const outside = path.join(root, 'elsewhere-graph.json');
     await writeFile(
       outside,
@@ -340,7 +347,7 @@ describe('dev.json path containment (@taujs/mcp)', () => {
 
 describe('readLogs bootId filter (@taujs/mcp)', () => {
   it('excludes a previous boot’s lines for the same requestId', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-logs-boot-'));
+    const root = await mkdtemp(path.join(scratch, 'logs-boot-'));
     await seedDevJson(root);
 
     const lines = [

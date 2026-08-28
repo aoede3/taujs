@@ -1,9 +1,9 @@
 // @vitest-environment node
-import { mkdtemp, utimes } from 'node:fs/promises';
+import { mkdtemp, rm, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
 import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitGraph';
@@ -90,9 +90,13 @@ let bootId: string;
 let liveTools: Map<string, (args: Record<string, unknown>) => ToolResult>;
 let coldTools: Map<string, (args: Record<string, unknown>) => ToolResult>;
 
+// One parent for every fixture root this file creates, removed whole in afterAll.
+let scratch: string;
+
 beforeAll(async () => {
-  liveRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-live-'));
-  coldRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-cold-'));
+  scratch = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-runtime-'));
+  liveRoot = await mkdtemp(path.join(scratch, 'live-'));
+  coldRoot = await mkdtemp(path.join(scratch, 'cold-'));
   bootId = await seed(liveRoot);
   // Cold root: graph only, no dev.json — runtime tools must refuse.
   await writeTaujsArtifact(
@@ -102,6 +106,10 @@ beforeAll(async () => {
   );
   liveTools = new Map(allTools(liveRoot).map((t) => [t.name, t.handler]));
   coldTools = new Map(allTools(coldRoot).map((t) => [t.name, t.handler]));
+});
+
+afterAll(async () => {
+  await rm(scratch, { recursive: true, force: true });
 });
 
 // The live fixture's dev.json is written once, in beforeAll, but liveness is now a FRESHNESS
@@ -154,7 +162,7 @@ describe('runtime tools (active boot)', () => {
     const catalog = defineService({ getProduct: async (_p: {}) => ({ p: 1 }) });
     const registry = defineServiceRegistry({ catalog });
     const obsConfig: CoreTaujsConfig = { apps: [{ appId: 'obs-app', entryPoint: '', routes: [{ path: '/p', attr: { render: 'ssr' } }] }] };
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-foreignobs-'));
+    const root = await mkdtemp(path.join(scratch, 'foreignobs-'));
     const dir = path.join(root, 'node_modules', '.taujs');
     await writeTaujsArtifact(
       dir,
@@ -276,7 +284,7 @@ describe('runtime tools (active boot)', () => {
     const wildcardConfig: CoreTaujsConfig = {
       apps: [{ appId: 'wildcard-app', entryPoint: '', routes: [{ path: '/*', attr: { render: 'ssr', meta: {} } }] }],
     };
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-wildcard-'));
+    const root = await mkdtemp(path.join(scratch, 'wildcard-'));
     const dir = path.join(root, 'node_modules', '.taujs');
     const dev = createDevIntrospection();
     await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(createRequestGraph(wildcardConfig, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z' })));

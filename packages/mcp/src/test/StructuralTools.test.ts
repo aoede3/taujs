@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
 // Fixture via the real emitters (files are the contract) — mirrors the playground shape.
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
@@ -86,12 +86,15 @@ const config: CoreTaujsConfig = {
   ],
 };
 
+// One parent for every fixture root this file creates, removed whole in afterAll.
+let scratch: string;
 let root: string;
 let toolByName: Map<string, (args: any) => ToolResult>;
 let observationsDoc: ObservationsDocument;
 
 beforeAll(async () => {
-  root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-tools-'));
+  scratch = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-structural-'));
+  root = await mkdtemp(path.join(scratch, 'tools-'));
   const dir = path.join(root, 'node_modules', '.taujs');
 
   const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
@@ -108,6 +111,10 @@ beforeAll(async () => {
 
   // No dev.json → stale mode: structural tools must work cold and cite staleness.
   toolByName = new Map(allTools(root).map((t) => [t.name, t.handler]));
+});
+
+afterAll(async () => {
+  await rm(scratch, { recursive: true, force: true });
 });
 
 const call = (name: string, args: Record<string, unknown> = {}): any => {
@@ -252,7 +259,7 @@ describe('structural tools (cold/stale mode)', () => {
   });
 
   it('taujs_who_calls_service without a registry lists a service seen ONLY through a head edge', async () => {
-    const headOnlyRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-head-noreg-'));
+    const headOnlyRoot = await mkdtemp(path.join(scratch, 'head-noreg-'));
     const headOnlyConfig: CoreTaujsConfig = {
       apps: [{ appId: 'web', entryPoint: '', routes: [{ path: '/masthead', attr: { render: 'ssr', head: { data: serviceDataWide('phantom', 'boo') } } }] }],
     };
@@ -347,7 +354,7 @@ describe('structural tools (cold/stale mode)', () => {
   });
 
   it('observed edges cite the observations document, not the graph', async () => {
-    const t1Root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-t1-'));
+    const t1Root = await mkdtemp(path.join(scratch, 't1-'));
     const dir = path.join(t1Root, 'node_modules', '.taujs');
     const graph = createRequestGraph(config, { source: 'build', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
     await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
@@ -381,7 +388,7 @@ describe('structural tools (cold/stale mode)', () => {
 
   it('observedStaleness is never fabricated', async () => {
     // Missing observations.json: readObservations fails, so there is no document to cite.
-    const noObsRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-noobs-'));
+    const noObsRoot = await mkdtemp(path.join(scratch, 'noobs-'));
     await writeTaujsArtifact(
       path.join(noObsRoot, 'node_modules', '.taujs'),
       'graph.json',
@@ -391,7 +398,7 @@ describe('structural tools (cold/stale mode)', () => {
     expect(noObsResult.observedStaleness).toBeUndefined();
 
     // Unreadable observations.json: readObservations fails, so there is still no document to cite.
-    const badObsRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-badobs-'));
+    const badObsRoot = await mkdtemp(path.join(scratch, 'badobs-'));
     const badObsDir = path.join(badObsRoot, 'node_modules', '.taujs');
     await writeTaujsArtifact(
       badObsDir,
@@ -404,7 +411,7 @@ describe('structural tools (cold/stale mode)', () => {
 
     // An active boot: observations are readable, but the graph itself is not stale, so neither
     // staleness citation applies.
-    const activeRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-active-'));
+    const activeRoot = await mkdtemp(path.join(scratch, 'active-'));
     const activeDir = path.join(activeRoot, 'node_modules', '.taujs');
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'obs-active-1', url: '/product/9', method: 'GET' });
@@ -443,7 +450,7 @@ describe('structural tools (cold/stale mode)', () => {
       apps: [{ appId: 'clean-app', entryPoint: '', routes: [{ path: '/', attr: { render: 'ssr' } }] }],
       security: { csp: { directives: { defaultSrc: ["'self'"] } } },
     };
-    const cleanRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-clean-'));
+    const cleanRoot = await mkdtemp(path.join(scratch, 'clean-'));
     const graph = createRequestGraph(cleanConfig, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z' });
     expect(graph.warnings).toEqual([]);
     await writeTaujsArtifact(path.join(cleanRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));

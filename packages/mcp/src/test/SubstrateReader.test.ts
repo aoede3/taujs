@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 // Fixtures are produced by the REAL Phase 0 emitters, not hand-rolled JSON — the files on
 // disk are the contract this adapter reads, so tests exercise that contract end-to-end.
@@ -35,7 +35,15 @@ const config: CoreTaujsConfig = {
 
 const OPTS = { source: 'boot', emittedAt: '2026-07-10T09:00:00.000Z' } as const;
 
-const mkRoot = async () => mkdtemp(path.join(tmpdir(), 'taujs-mcp-'));
+// One parent for every root this file creates, removed whole in afterAll.
+let scratch: string;
+beforeAll(async () => {
+  scratch = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-reader-'));
+});
+afterAll(async () => {
+  await rm(scratch, { recursive: true, force: true });
+});
+const mkRoot = async () => mkdtemp(path.join(scratch, 'root-'));
 const taujsDir = (root: string) => path.join(root, 'node_modules', '.taujs');
 
 const emitGraph = async (root: string, mutate?: (graph: Record<string, unknown>) => void) => {
