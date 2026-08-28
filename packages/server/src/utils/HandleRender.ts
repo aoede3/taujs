@@ -175,7 +175,7 @@ export const handleRender = async (
   try {
     const url = req.url ? new URL(req.url, `http://${req.headers.host}`).pathname : '/';
 
-    const rawNonce = (req as any).cspNonce as string | undefined | null;
+    const rawNonce = req.cspNonce;
     const cspNonce = rawNonce && rawNonce.length > 0 ? rawNonce : undefined;
 
     const { route, params } = selectedRoute;
@@ -510,7 +510,7 @@ export const handleRender = async (
           logger.warn(
             {
               url: req.url,
-              reason: String((err as any)?.message ?? err ?? ''),
+              reason: safeErrorMessage(err),
             },
             'SSR aborted mid-render (client disconnected)',
           );
@@ -560,7 +560,7 @@ export const handleRender = async (
         ssrStage = 'send';
         return sendResult;
       } catch (err) {
-        const msg = String((err as any)?.message ?? err ?? '');
+        const msg = safeErrorMessage(err);
         // R0-02: a send failure is socket/writable-origin — classify by socket taxonomy.
         const benign = isBenignSocketError(err);
 
@@ -1072,7 +1072,7 @@ export const handleRender = async (
 
       recorder?.failed({
         requestId,
-        error: { kind: AppError.isAppError(err) ? (err as any).kind : 'internal', message: String((err as any)?.message ?? err ?? '') },
+        error: { kind: AppError.isAppError(err) ? err.kind : 'internal', message: safeErrorMessage(err) },
       });
     }
 
@@ -1080,7 +1080,7 @@ export const handleRender = async (
 
     throw AppError.internal('handleRender failed', err, {
       url: req.url,
-      route: (req as any).routeOptions?.url,
+      route: req.routeOptions?.url,
     });
   }
 };
