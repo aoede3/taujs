@@ -34,6 +34,10 @@ type RuntimeServiceContext = BaseServiceContext & { call?: UntypedRegistryCaller
 // when you want a registry-aware ctx.call type.
 export interface ServiceContext extends BaseServiceContext {}
 
+/**
+ * Params and result are JSON object types. Type params with a type alias or an inline object
+ * type; an interface without an index signature is not accepted.
+ */
 export type ServiceMethod<P extends JsonObject = JsonObject, R extends JsonObject = JsonObject, Ctx extends BaseServiceContext = TypedServiceContext> = (
   params: P,
   ctx: Ctx,
@@ -100,7 +104,10 @@ type ServiceSpec = Record<string, ServiceSpecEntry>;
 type ExtractServiceMethod<T> = T extends { handler: infer H } ? H : T;
 type NormalizeServiceMethod<M> = M extends (params: infer P extends JsonObject, ctx: any) => Promise<infer R extends JsonObject>
   ? RuntimeServiceMethod<P, R>
-  : never;
+  : ServiceParamsTypeError;
+type ServiceParamsMessage =
+  'params must be a JSON object type; an interface without an index signature is not accepted, so use a type alias or an inline object type';
+type ServiceParamsTypeError = { readonly __taujsServiceTypeError: ServiceParamsMessage };
 type NormalizedServiceSpec<T extends ServiceSpec> = {
   [K in keyof T]: NormalizeServiceMethod<ExtractServiceMethod<T[K]>>;
 };
@@ -137,7 +144,16 @@ const stampServiceMethodMetadata = (fn: object, metadata: ServiceMethodMetadata)
   Object.defineProperty(fn, SERVICE_METHOD_METADATA, { value: metadata, enumerable: false });
 };
 
-export function defineService<T extends ServiceSpec>(spec: T) {
+type ServiceParamsOf<M> = M extends (...args: infer A) => any ? (A extends [] ? JsonObject : A[0]) : JsonObject;
+type ValidateServiceSpec<T extends ServiceSpec> = {
+  [K in keyof T]: ServiceParamsOf<ExtractServiceMethod<T[K]>> extends JsonObject ? T[K] : { readonly __taujsServiceTypeError: ServiceParamsMessage };
+};
+
+/**
+ * Params and result types must be JSON object types (a type alias or inline object type; an
+ * interface without an index signature is not accepted - see {@link ServiceMethod}).
+ */
+export function defineService<T extends ServiceSpec>(spec: T & ValidateServiceSpec<T>) {
   const out: Record<string, RuntimeServiceMethod<any, JsonObject>> = {};
 
   for (const [name, v] of Object.entries(spec)) {
