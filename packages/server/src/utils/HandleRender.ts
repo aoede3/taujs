@@ -337,9 +337,7 @@ export const handleRender = async (
         throw err;
       } finally {
         clearTimeout(timer);
-        try {
-          requestSignal.removeEventListener('abort', onRequestAbort);
-        } catch {}
+        requestSignal.removeEventListener('abort', onRequestAbort);
       }
     };
 
