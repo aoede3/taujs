@@ -159,6 +159,13 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         // readObservations masks a foreign-boot file while a boot is active, so "seen in dev
         // traffic" can never describe a previous boot's edges.
         const obs = readObservations(ctx.discovery);
+        // Observations are emitted by a different event than the graph, so their freshness is their own.
+        const observedStaleness =
+          ctx.discovery.mode !== 'active' && obs.ok
+            ? {
+                observedStaleness: `Observations document from dev boot ${obs.observations.bootId}, last updated at ${obs.observations.updatedAt} — no active dev server, so observations may be stale independently of the graph.`,
+              }
+            : {};
         const observed = obs.ok
           ? obs.observations.edges
               .filter((e) => e.service === service && (!method || e.method === method))
@@ -202,6 +209,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
               ok: false,
               reason: 'unknown_service',
               ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+              ...observedStaleness,
               message: `No service "${service}" in the registry.`,
               knownServices: bounded(
                 ctx.graph.services.map((s) => s.name),
@@ -215,6 +223,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
               ok: false,
               reason: 'unknown_method',
               ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+              ...observedStaleness,
               message: `Service "${service}" has no method "${method}".`,
               knownMethods: bounded(
                 svc.methods.map((m) => m.name),
@@ -231,7 +240,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           // Registry present and the identifier resolved above: a successful empty result —
           // agents branch hard on `ok`, and this is "the answer is none", not "I asked wrong".
           if (ctx.graph.services) {
-            return { ok: true, ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}), edges: [], note: emptyNote };
+            return { ok: true, ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}), ...observedStaleness, edges: [], note: emptyNote };
           }
 
           // Registry absent: existence cannot be checked — say so rather than guess either way.
@@ -245,6 +254,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           return {
             ok: true,
             ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+            ...observedStaleness,
             edges: [],
             note: `${emptyNote} The registry is not present in this graph, so whether "${service}" exists cannot be checked.`,
             servicesSeenOnRouteEdges: bounded(seen, DEFAULT_LIST_LIMIT),
@@ -254,6 +264,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         return {
           ok: true,
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+          ...observedStaleness,
           note: 'declared = from config (a serviceData edge, a deferred entry or a head edge); observed = seen in dev traffic, never complete truth. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution.',
           edges: [...declared, ...observed],
         };

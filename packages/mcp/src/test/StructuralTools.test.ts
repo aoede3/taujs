@@ -20,6 +20,8 @@ import { createTaujsMcpServer, allTools } from '../server';
 import { withGraph } from '../toolkit';
 
 import type { CoreTaujsConfig } from '../../../server/src/core/config/types';
+import type { ObservationsDocument } from '../../../server/src/core/introspection/DevIntrospection';
+import type { DevJson } from '../types';
 import type { ToolResult } from '../toolkit';
 
 vi.mock('../toolkit', { spy: true });
@@ -85,6 +87,7 @@ const config: CoreTaujsConfig = {
 
 let root: string;
 let toolByName: Map<string, (args: any) => ToolResult>;
+let observationsDoc: ObservationsDocument;
 
 beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-tools-'));
@@ -99,7 +102,8 @@ beforeAll(async () => {
   dev.recorder.routeMatched({ requestId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
   dev.recorder.serviceCall({ requestId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
   dev.recorder.sent({ requestId: 'obs-1', status: 200, mode: 'streaming' });
-  await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations(), null, 2));
+  observationsDoc = dev.getObservations();
+  await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(observationsDoc, null, 2));
 
   // No dev.json → stale mode: structural tools must work cold and cite staleness.
   toolByName = new Map(allTools(root).map((t) => [t.name, t.handler]));
@@ -107,6 +111,13 @@ beforeAll(async () => {
 
 const call = (name: string, args: Record<string, unknown> = {}): any => {
   const handler = toolByName.get(name);
+  if (!handler) throw new Error(`unknown tool ${name}`);
+  return handler(args);
+};
+
+// Same, against another root: cells that build their own fixture call the tool directly.
+const callAt = (root: string, name: string, args: Record<string, unknown> = {}): any => {
+  const handler = allTools(root).find((t) => t.name === name)?.handler as ((a: Record<string, unknown>) => ToolResult) | undefined;
   if (!handler) throw new Error(`unknown tool ${name}`);
   return handler(args);
 };
@@ -181,6 +192,10 @@ describe('structural tools (cold/stale mode)', () => {
     expect(observed.routeCallCount).toBe(1);
     expect(observed.count).toBeUndefined();
     expect(result.note).toContain('seen in dev traffic');
+    // Observations are emitted by a different event than the graph: their own freshness, not the
+    // graph's, describes when they were recorded.
+    expect(result.observedStaleness).toContain(observationsDoc.bootId);
+    expect(result.observedStaleness).toContain(observationsDoc.updatedAt);
   });
 
   it('taujs_who_calls_service reaches head-only edges, labelled declaredVia "head"', () => {
@@ -257,6 +272,10 @@ describe('structural tools (cold/stale mode)', () => {
     expect(edgeless.ok).toBe(true);
     expect(edgeless.edges).toEqual([]);
     expect(edgeless.note).toContain('Observed edges only exist for traffic seen this boot');
+    // Zero edges for THIS service doesn't mean no observations document exists - its freshness is
+    // still cited.
+    expect(edgeless.observedStaleness).toContain(observationsDoc.bootId);
+    expect(edgeless.observedStaleness).toContain(observationsDoc.updatedAt);
   });
 
   it('taujs_who_calls_service returns dangling edges on unresolved identifiers instead of hiding them', () => {
@@ -268,6 +287,7 @@ describe('structural tools (cold/stale mode)', () => {
     expect(phantom.reason).toBe('unknown_service');
     // The dangling edges are last-boot facts too; the citation covers them.
     expect(phantom.staleness).toContain('2026-07-10T10:00:00.000Z');
+    expect(phantom.observedStaleness).toContain(observationsDoc.bootId);
     expect(phantom.knownServices.items).toEqual(['catalog', 'content', 'pricing']);
     expect(phantom.danglingEdges).toEqual([
       {
@@ -286,9 +306,101 @@ describe('structural tools (cold/stale mode)', () => {
     const gone = call('taujs_who_calls_service', { service: 'content', method: 'gone' });
     expect(gone.ok).toBe(false);
     expect(gone.reason).toBe('unknown_method');
+    expect(gone.observedStaleness).toContain(observationsDoc.bootId);
     expect(gone.knownMethods.items).toEqual(['about', 'header', 'home']);
     expect(gone.danglingEdges).toHaveLength(1);
     expect(gone.danglingEdges[0]).toMatchObject({ source: 'declared', routeId: 'playground-react:/gone', method: 'gone' });
+  });
+
+  it('observed edges cite the observations document, not the graph', async () => {
+    const t1Root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-t1-'));
+    const dir = path.join(t1Root, 'node_modules', '.taujs');
+    const graph = createRequestGraph(config, { source: 'build', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+    await writeTaujsArtifact(
+      dir,
+      'observations.json',
+      JSON.stringify({
+        schemaVersion: 1,
+        bootId: 'boot-t1',
+        updatedAt: '2026-07-09T09:00:00.000Z',
+        edges: [
+          {
+            service: 'catalog',
+            method: 'getProduct',
+            routes: [{ routeId: 'playground-react:/product/:id', appId: 'playground-react', path: '/product/:id', count: 1 }],
+            count: 1,
+            lastObservedAt: '2026-07-09T09:00:00.000Z',
+            sampleRequestIds: ['obs-t1'],
+          },
+        ],
+        shapes: [],
+      }),
+    );
+    const result = callAt(t1Root, 'taujs_who_calls_service', { service: 'catalog' });
+
+    expect(result.staleness).toContain('build');
+    expect(result.staleness).toContain('2026-07-10T10:00:00.000Z');
+    expect(result.observedStaleness).toContain('boot-t1');
+    expect(result.observedStaleness).toContain('2026-07-09T09:00:00.000Z');
+  });
+
+  it('observedStaleness is never fabricated', async () => {
+    // Missing observations.json: readObservations fails, so there is no document to cite.
+    const noObsRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-noobs-'));
+    await writeTaujsArtifact(
+      path.join(noObsRoot, 'node_modules', '.taujs'),
+      'graph.json',
+      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry })),
+    );
+    const noObsResult = callAt(noObsRoot, 'taujs_who_calls_service', { service: 'catalog' });
+    expect(noObsResult.observedStaleness).toBeUndefined();
+
+    // Unreadable observations.json: readObservations fails, so there is still no document to cite.
+    const badObsRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-badobs-'));
+    const badObsDir = path.join(badObsRoot, 'node_modules', '.taujs');
+    await writeTaujsArtifact(
+      badObsDir,
+      'graph.json',
+      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry })),
+    );
+    await writeTaujsArtifact(badObsDir, 'observations.json', 'not json');
+    const badObsResult = callAt(badObsRoot, 'taujs_who_calls_service', { service: 'catalog' });
+    expect(badObsResult.observedStaleness).toBeUndefined();
+
+    // An active boot: observations are readable, but the graph itself is not stale, so neither
+    // staleness citation applies.
+    const activeRoot = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-active-'));
+    const activeDir = path.join(activeRoot, 'node_modules', '.taujs');
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: 'obs-active-1', url: '/product/9', method: 'GET' });
+    dev.recorder.routeMatched({ requestId: 'obs-active-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
+    dev.recorder.serviceCall({ requestId: 'obs-active-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
+    dev.recorder.sent({ requestId: 'obs-active-1', status: 200, mode: 'streaming' });
+    await writeTaujsArtifact(
+      activeDir,
+      'graph.json',
+      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry })),
+    );
+    // Same bootId as dev.json: readObservations must not mask it as a foreign boot.
+    await writeTaujsArtifact(activeDir, 'observations.json', JSON.stringify(dev.getObservations()));
+    const devJson: DevJson = {
+      bootId: dev.bootId,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T10:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(activeDir, 'graph.json'),
+      episodes: path.join(activeDir, 'episodes.ndjson'),
+      logs: path.join(activeDir, 'logs.ndjson'),
+      observations: path.join(activeDir, 'observations.json'),
+    };
+    await writeTaujsArtifact(activeDir, 'dev.json', JSON.stringify(devJson));
+    const activeResult = callAt(activeRoot, 'taujs_who_calls_service', { service: 'catalog' });
+
+    expect(activeResult.observedStaleness).toBeUndefined();
+    expect(activeResult.staleness).toBeUndefined();
   });
 
   it('taujs_doctor states a clean verdict as graph-scoped, never as application health', async () => {
