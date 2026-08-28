@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { afterAll, describe, expect, it } from 'vitest';
 
 /**
@@ -282,6 +284,49 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
         },
       },
       {
+        name: '6a run the generated .mcp.json command against the PACKED @taujs/mcp',
+        run: async () => {
+          const stageName = '6a run the generated .mcp.json command against the PACKED @taujs/mcp';
+
+          // The build (stage 6) already emitted dist/.taujs/graph.json, so taujs_overview answers
+          // cold - no dev/production server needs to be running for this stage.
+          const mcpJson = JSON.parse(readFileSync(path.join(projectDir, '.mcp.json'), 'utf8')) as {
+            mcpServers: { taujs: { command: string; args: string[] } };
+          };
+          const { command, args } = mcpJson.mcpServers.taujs;
+
+          const probe = async () => {
+            const transport = new StdioClientTransport({ command, args, cwd: projectDir, stderr: 'pipe' });
+            const client = new Client({ name: 'lifecycle', version: '0.0.0' });
+            try {
+              await client.connect(transport);
+
+              const tools = await client.listTools();
+              expect(tools.tools.map((t) => t.name).sort()).toEqual([
+                'taujs_doctor',
+                'taujs_explain_route',
+                'taujs_get_episode',
+                'taujs_get_episode_logs',
+                'taujs_get_recent_episodes',
+                'taujs_get_route',
+                'taujs_list_routes',
+                'taujs_overview',
+                'taujs_who_calls_service',
+              ]);
+
+              const result = await client.callTool({ name: 'taujs_overview', arguments: {} });
+              const structured = result.structuredContent as { ok: boolean; mode: string };
+              expect(structured.ok).toBe(true);
+              expect(structured.mode).toBe('stale');
+            } finally {
+              await client.close();
+            }
+          };
+
+          await Promise.race([probe(), new Promise((_, reject) => setTimeout(() => reject(new Error(`stage "${stageName}" timed out after 30s`)), 30_000))]);
+        },
+      },
+      {
         name: '7 production server boots and responds',
         run: async () => {
           expect(await isPortFree(port), `port ${port} still bound before the production boot`).toBe(true);
@@ -308,6 +353,6 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
       },
     ]);
 
-    expect(completed).toHaveLength(8);
+    expect(completed).toHaveLength(9);
   });
 });
