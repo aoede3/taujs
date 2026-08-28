@@ -40,8 +40,7 @@ await new Promise((r) => setTimeout(r, 1500));
 
 // --- connect an MCP client to the real adapter over the real files ---
 const { createTaujsMcpServer } = await import('@taujs/mcp');
-const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
-const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+const { Client, InMemoryTransport } = await import('@modelcontextprotocol/client');
 
 const server = createTaujsMcpServer(process.cwd());
 const client = new Client({ name: 'killer-demo-eval', version: '0.0.0' });

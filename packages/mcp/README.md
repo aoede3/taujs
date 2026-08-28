@@ -72,6 +72,8 @@ add-a-streamed-route).
   upgrade message, never a misread.
 - Field values in responses are your application's data - treated as untrusted, capped,
   and never instructions. Episode URLs never include query values.
+- **Results carry `structuredContent`** alongside the JSON text: the server speaks both
+  the 2025-era and 2026-07-28 protocol revisions - the client's opening selects the era.
 
 Introspection exists only in dev (structurally - production builds never load it), and
 this adapter needs no token: the files are its credential.

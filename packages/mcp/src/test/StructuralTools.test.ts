@@ -3,9 +3,8 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { describe, it, expect, beforeAll } from 'vitest';
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 
 // Fixture via the real emitters (files are the contract) — mirrors the playground shape.
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
@@ -15,9 +14,15 @@ import { createServiceData } from '../../../server/src/core/services/ServiceData
 import { defineService, defineServiceRegistry } from '../../../server/src/core/services/DataServices';
 
 import { createTaujsMcpServer, allTools } from '../server';
+// Spied (not stubbed): the real implementation still runs - this only lets a cell assert whether
+// it ran, which is the difference between "the SDK rejected before dispatch" and "our handler ran
+// and reported an error itself".
+import { withGraph } from '../toolkit';
 
 import type { CoreTaujsConfig } from '../../../server/src/core/config/types';
 import type { ToolResult } from '../toolkit';
+
+vi.mock('../toolkit', { spy: true });
 
 const catalog = defineService({
   getProduct: {
@@ -79,7 +84,7 @@ const config: CoreTaujsConfig = {
 };
 
 let root: string;
-let toolByName: Map<string, (args: Record<string, unknown>) => ToolResult>;
+let toolByName: Map<string, (args: any) => ToolResult>;
 
 beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-tools-'));
@@ -347,6 +352,7 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     const payload = JSON.parse((result.content as { text: string }[])[0]!.text);
     expect(payload.ok).toBe(true);
     expect(payload.routeCount).toBe(8);
+    expect(result.structuredContent).toEqual(payload);
 
     const prompts = await client.listPrompts();
     expect(prompts.prompts.map((p) => p.name).sort()).toEqual([
@@ -356,6 +362,45 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     ]);
     const skill = await client.getPrompt({ name: 'taujs_skill_diagnose_broken_route' });
     expect(JSON.stringify(skill.messages)).toContain('taujs_get_recent_episodes');
+
+    await client.close();
+    await server.close();
+  });
+
+  // The SDK validates arguments against the zod inputSchema before calling the handler. On a
+  // failure it resolves normally with `isError: true` and an "Input validation error" text block -
+  // it does not reject the call or raise a JSON-RPC error - so the tell that the handler never ran
+  // is the absent `structuredContent` (every taujs envelope sets it) plus `withGraph` never being
+  // called.
+  it('rejects malformed tool arguments before the handler runs (SDK-side schema validation)', async () => {
+    const server = createTaujsMcpServer(root);
+    const client = new Client({ name: 'malformed-args-client', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    vi.mocked(withGraph).mockClear();
+
+    // Malformed: `limit` must be a number.
+    const badLimit = await client.callTool({ name: 'taujs_list_routes', arguments: { limit: 'bad' } });
+    expect(badLimit.isError).toBe(true);
+    expect(badLimit.structuredContent).toBeUndefined();
+    expect((badLimit.content as { text: string }[])[0]!.text).toMatch(/^Input validation error: Invalid arguments for tool taujs_list_routes/);
+    expect(withGraph).not.toHaveBeenCalled();
+
+    // Control: a valid call reaches the handler.
+    vi.mocked(withGraph).mockClear();
+    const validLimit = await client.callTool({ name: 'taujs_list_routes', arguments: { limit: 1 } });
+    expect(validLimit.isError).toBeUndefined();
+    expect((validLimit.structuredContent as { ok: boolean }).ok).toBe(true);
+    expect(withGraph).toHaveBeenCalledTimes(1);
+
+    // Second malformed case: a required field missing entirely (taujs_get_episode's requestId).
+    vi.mocked(withGraph).mockClear();
+    const missingRequired = await client.callTool({ name: 'taujs_get_episode', arguments: {} });
+    expect(missingRequired.isError).toBe(true);
+    expect(missingRequired.structuredContent).toBeUndefined();
+    expect((missingRequired.content as { text: string }[])[0]!.text).toMatch(/^Input validation error: Invalid arguments for tool taujs_get_episode/);
+    expect(withGraph).not.toHaveBeenCalled();
 
     await client.close();
     await server.close();

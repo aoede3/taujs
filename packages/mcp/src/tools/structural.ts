@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { NO_ACTIVE_BOOT_REFUSAL, readObservations } from '../SubstrateReader';
-import { UNTRUSTED_NOTE, bounded, withGraph } from '../toolkit';
+import { UNTRUSTED_NOTE, bounded, defineTool, withGraph } from '../toolkit';
 
 import type { GraphContext, ToolDefinition, ToolResult } from '../toolkit';
 import type { GraphRoute, GraphRouteData } from '../types';
@@ -45,11 +45,11 @@ const routeMiss = (ctx: GraphContext): ToolResult => ({
 });
 
 export const structuralTools = (root: string): ToolDefinition[] => [
-  {
+  defineTool({
     name: 'taujs_overview',
     title: 'τjs app overview',
     description: `One-screen summary of the request graph: the graph's boundary, apps, route/service counts with declared-edge coverage, graph warnings, fallthrough posture, freshness. Start here. ${UNTRUSTED_NOTE}`,
-    inputSchema: {},
+    inputSchema: z.object({}),
     handler: () =>
       withGraph(root, ({ discovery, graph, stalenessLine }) => ({
         ok: true,
@@ -77,35 +77,35 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         graphWarningCounts: graph.warnings.reduce<Record<string, number>>((acc, w) => ({ ...acc, [w.severity]: (acc[w.severity] ?? 0) + 1 }), {}),
         fallthrough: graph.fallthrough,
       })),
-  },
-  {
+  }),
+  defineTool({
     name: 'taujs_list_routes',
     title: 'List declared routes',
     description: `Routes from the request graph with effective render/hydrate values, data kind, and auth posture. Filter by appId; bounded by limit. ${UNTRUSTED_NOTE}`,
-    inputSchema: {
+    inputSchema: z.object({
       appId: z.string().optional().describe('Filter to one app'),
       limit: z.number().int().positive().max(200).optional().describe(`Max rows (default ${DEFAULT_LIST_LIMIT})`),
-    },
+    }),
     handler: (args) =>
       withGraph(root, ({ graph, stalenessLine }) => {
-        const appId = typeof args.appId === 'string' ? args.appId : undefined;
-        const limit = typeof args.limit === 'number' ? args.limit : DEFAULT_LIST_LIMIT;
+        const appId = args.appId;
+        const limit = args.limit ?? DEFAULT_LIST_LIMIT;
         const routes = graph.routes.filter((r) => !appId || r.appId === appId).map(routeRow);
 
         return { ok: true, ...(stalenessLine ? { staleness: stalenessLine } : {}), routes: bounded(routes, limit) };
       }),
-  },
-  {
+  }),
+  defineTool({
     name: 'taujs_get_route',
     title: 'Get one route',
     description: `Full graph row for one route (by routeId or exact path) plus its warnings. ${UNTRUSTED_NOTE}`,
-    inputSchema: {
+    inputSchema: z.object({
       routeId: z.string().optional().describe('Stable id, e.g. "storefront:/product/:id"'),
       path: z.string().optional().describe('Exact declared path, e.g. "/product/:id"'),
-    },
+    }),
     handler: (args) =>
       withGraph(root, (ctx) => {
-        const matches = findRoutes(ctx, args as { routeId?: string; path?: string });
+        const matches = findRoutes(ctx, args);
         if (matches.length === 0) return routeMiss(ctx);
 
         return {
@@ -117,19 +117,19 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           })),
         };
       }),
-  },
-  {
+  }),
+  defineTool({
     name: 'taujs_who_calls_service',
     title: 'Who calls a service',
     description: `Route → service edges for a service (optionally one method). Each edge is labelled declared (from config: a serviceData edge, a deferred entry or a head edge) or observed (seen in dev traffic — absence means "not exercised yet", never "no relationship"). A known service with zero edges is a successful empty result, not an error. ${UNTRUSTED_NOTE}`,
-    inputSchema: {
+    inputSchema: z.object({
       service: z.string().describe('Service name, e.g. "catalog"'),
       method: z.string().optional().describe('Method name, e.g. "getProduct"'),
-    },
+    }),
     handler: (args) =>
       withGraph(root, (ctx) => {
-        const service = String(args.service ?? '');
-        const method = typeof args.method === 'string' ? args.method : undefined;
+        const service = args.service;
+        const method = args.method;
 
         const matches = (edge: GraphRouteData): edge is { kind: 'service'; service: string; method: string } =>
           edge.kind === 'service' && edge.service === service && (!method || edge.method === method);
@@ -258,18 +258,18 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           edges: [...declared, ...observed],
         };
       }),
-  },
-  {
+  }),
+  defineTool({
     name: 'taujs_explain_route',
     title: 'Explain a route',
     description: `Composed explanation of one route: effective render/hydrate, data edge with schema flags, middleware posture, the schema-v1 declaration score (not Fastify runtime precedence), and its warnings. ${UNTRUSTED_NOTE}`,
-    inputSchema: {
+    inputSchema: z.object({
       routeId: z.string().optional().describe('Stable id, e.g. "storefront:/product/:id"'),
       path: z.string().optional().describe('Exact declared path'),
-    },
+    }),
     handler: (args) =>
       withGraph(root, (ctx) => {
-        const matches = findRoutes(ctx, args as { routeId?: string; path?: string });
+        const matches = findRoutes(ctx, args);
         if (matches.length === 0) return routeMiss(ctx);
 
         return {
@@ -306,5 +306,5 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           }),
         };
       }),
-  },
+  }),
 ];
