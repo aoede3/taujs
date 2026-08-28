@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.29.5
+
+### Patch Changes
+
+- [#114](https://github.com/aoede3/taujs/pull/114) [`7baff7c`](https://github.com/aoede3/taujs/commit/7baff7cdf92e2f1e776773b0843505f2af13bd5d) Thanks [@aoede3](https://github.com/aoede3)! - `AppError.internal` call sites in the request-handling path now pass `cause` and `details` positionally instead of bundling them in an object, matching the method's real signature. These errors now carry their context on `details` and their cause on `cause`. The missing-renderSSR error's message was previously the string `'ssr'` (with the real message misrouted into the details slot) and is now `'renderSSR function not found in module'`.
+
 ## 0.29.4
 
 ### Patch Changes
