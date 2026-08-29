@@ -208,8 +208,10 @@ export type GraphReadResult =
 // a citation line consumers must surface.
 export const stalenessLineFor = (graph: Pick<RequestGraphV1, 'source' | 'emittedAt'>, mode: SubstrateDiscovery['mode']): string | null => {
   if (mode === 'active') return null;
-  const what = graph.source === 'build' ? 'build' : 'dev boot';
-  return `As of the last ${what} at ${graph.emittedAt} — no active dev server; data may be stale.`;
+  if (graph.source === 'build') {
+    return `As of the last build at ${graph.emittedAt}, which is when the topology graph was emitted, not when every referenced application bundle was rebuilt — no active dev server; data may be stale.`;
+  }
+  return `As of the last dev boot at ${graph.emittedAt} — no active dev server; data may be stale.`;
 };
 
 export const readGraph = (discovery: SubstrateDiscovery): GraphReadResult => {

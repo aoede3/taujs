@@ -143,6 +143,8 @@ describe('structural tools (cold/stale mode)', () => {
     // from it never means absence from the application.
     expect(result.scope).toContain('Routes registered directly on the Fastify instance');
     expect(result.scope).toContain('never means absence from the application');
+    // Declared topology, not a rebuild attestation (docs/followups/graph-artefact-after-partial-build.md).
+    expect(result.scope).toContain('The graph states declared configuration, not which application bundles are currently built.');
     // Coverage: pricing counts as covered through its deferred-only edge (usedBy parity); content
     // gains header, covered ONLY through its head edge (decisions.md 2026-08-27).
     expect(result.services).toEqual([
@@ -384,6 +386,18 @@ describe('structural tools (cold/stale mode)', () => {
     expect(result.staleness).toContain('2026-07-10T10:00:00.000Z');
     expect(result.observedStaleness).toContain('boot-t1');
     expect(result.observedStaleness).toContain('2026-07-09T09:00:00.000Z');
+  });
+
+  it('taujs_list_routes bypasses the overview but still carries the declared-topology qualification, via the shared staleness line', async () => {
+    const t2Root = await mkdtemp(path.join(scratch, 't2-'));
+    const dir = path.join(t2Root, 'node_modules', '.taujs');
+    const graph = createRequestGraph(config, { source: 'build', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+
+    const result = callAt(t2Root, 'taujs_list_routes', {});
+
+    expect(result.staleness).toContain('2026-07-10T10:00:00.000Z');
+    expect(result.staleness).toContain('not when every referenced application bundle was rebuilt');
   });
 
   it('observedStaleness is never fabricated', async () => {

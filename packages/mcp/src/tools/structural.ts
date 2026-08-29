@@ -12,9 +12,10 @@ const DEFAULT_LIST_LIMIT = 20;
 // WITHIN this boundary, and an agent that does not know the boundary reads the composite as
 // application-wide (consumer feedback, 2026-08-19 — an audit agent abandoned the toolset over it).
 const GRAPH_SCOPE =
-  'This graph covers what taujs owns: routes declared in taujs config and services in its registry. ' +
+  'This graph covers what taujs owns as declared in config: routes from taujs config and services in its registry. ' +
   'Routes registered directly on the Fastify instance, and service calls made outside taujs request handling, ' +
-  'are not represented — declared or observed. Absence from this graph never means absence from the application.';
+  'are not represented — declared or observed. Absence from this graph never means absence from the application. ' +
+  'The graph states declared configuration, not which application bundles are currently built.';
 
 // Names are search keys: rows lead with exact identifiers an agent can grep for.
 const routeRow = (route: GraphRoute) => ({
