@@ -1,5 +1,13 @@
 # @taujs/mcp
 
+## 0.5.1
+
+### Patch Changes
+
+- [#120](https://github.com/aoede3/taujs/pull/120) [`a4b83bb`](https://github.com/aoede3/taujs/commit/a4b83bb72ef0d3d50ebef398cca0af48d8a24ae8) Thanks [@aoede3](https://github.com/aoede3)! - `taujs_get_route` and `taujs_explain_route` now refuse with `reason: 'conflicting_selectors'` (plus `routeIdMatches` and `pathMatches`) when a `routeId` and `path` given together identify different routes, instead of silently preferring one. Shipped skill prompts are also checked against the registered tool and skill list, so a `taujs_`-prefixed token drifting out of sync is caught.
+
+- [#120](https://github.com/aoede3/taujs/pull/120) [`1742a08`](https://github.com/aoede3/taujs/commit/1742a088d5ad2e71ea530e5c2ca1d50e3b25b1a0) Thanks [@aoede3](https://github.com/aoede3)! - `taujs_who_calls_service` now cites `observedStaleness` (the observing boot's id and `updatedAt`) alongside the graph's own `staleness` line when observations were read outside an active boot. Observations and the graph are emitted by different events, so a T1 observation was previously being attributed to a T2 build's freshness.
+
 ## 0.5.0
 
 ### Minor Changes
