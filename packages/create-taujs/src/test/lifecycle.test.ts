@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
+import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,12 +46,30 @@ const PACKABLE: Record<string, string> = {
 const spawned = new Set<ChildProcess>();
 const scratchDirs = new Set<string>();
 
-const isPortFree = async (port: number): Promise<boolean> =>
+/** Whether HOST specifically can bind PORT right now - the exact address the child is told to use. */
+const canBind = async (host: string, port: number): Promise<boolean> =>
   new Promise((resolve) => {
     const probe = createServer();
     probe.once('error', () => resolve(false));
-    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)));
+    probe.listen(port, host, () => probe.close(() => resolve(true)));
   });
+
+/** Two distinct ephemeral 127.0.0.1 ports, bound SIMULTANEOUSLY so the OS cannot hand back the same one twice. */
+const allocatePortPair = async (): Promise<[number, number]> => {
+  const bind = () =>
+    new Promise<ReturnType<typeof createServer>>((resolve, reject) => {
+      const server = createServer();
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => resolve(server));
+    });
+
+  const [a, b] = await Promise.all([bind(), bind()]);
+  const [portA, portB] = [(a.address() as AddressInfo).port, (b.address() as AddressInfo).port];
+
+  await Promise.all([a, b].map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
+
+  return [portA, portB];
+};
 
 const killTree = (child: ChildProcess) => {
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -65,8 +83,8 @@ const killTree = (child: ChildProcess) => {
   }
 };
 
-/** Await actual exit, then poll until the port is genuinely released. Bounded; no fixed sleeps. */
-const stopServer = async (child: ChildProcess, port: number, timeoutMs = 15_000) => {
+/** Await actual exit, then poll until every given port is genuinely released. Bounded; no fixed sleeps. */
+const stopServer = async (child: ChildProcess, ports: readonly number[], timeoutMs = 15_000) => {
   const exited = new Promise<void>((resolve) => {
     if (child.exitCode !== null || child.signalCode !== null) return resolve();
     child.once('exit', () => resolve());
@@ -77,11 +95,12 @@ const stopServer = async (child: ChildProcess, port: number, timeoutMs = 15_000)
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await isPortFree(port)) return;
+    const free = await Promise.all(ports.map((port) => canBind('127.0.0.1', port)));
+    if (free.every(Boolean)) return;
     await new Promise((r) => setTimeout(r, 50));
   }
 
-  throw new Error(`port ${port} was still bound ${timeoutMs}ms after the server was killed`);
+  throw new Error(`port(s) ${ports.join(', ')} still bound ${timeoutMs}ms after the server was killed`);
 };
 
 afterAll(() => {
@@ -91,10 +110,18 @@ afterAll(() => {
   scratchDirs.clear();
 });
 
-/** The port the GENERATED config declares - read, never rewritten. */
+/** The port the GENERATED config declares - read, never rewritten, never used for binding. */
 const generatedPort = (dir: string): number => {
   const match = /port:\s*(\d+)/.exec(readFileSync(path.join(dir, 'taujs.config.ts'), 'utf8'));
   if (!match) throw new Error('could not read the generated server port from taujs.config.ts');
+
+  return Number(match[1]);
+};
+
+/** The HMR port the GENERATED config declares - read, never rewritten, never used for binding. */
+const generatedHmrPort = (dir: string): number => {
+  const match = /hmrPort:\s*(\d+)/.exec(readFileSync(path.join(dir, 'taujs.config.ts'), 'utf8'));
+  if (!match) throw new Error('could not read the generated HMR port from taujs.config.ts');
 
   return Number(match[1]);
 };
@@ -116,8 +143,14 @@ const waitForResponse = async (url: string, child: ChildProcess, output: () => s
   throw new Error(`server did not respond at ${url} within ${timeoutMs}ms: ${String(lastError)}\n${output()}`);
 };
 
-const startServer = (cwd: string, script: string) => {
-  const child = spawn('npm', ['run', script], { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+/**
+ * Spawns with an EXPLICIT env: the three keys are always overwritten so ambient PORT/HOST/HMR_PORT
+ * in the caller's shell can never leak in. These are supported inputs, not additions the test makes
+ * up (packages/server/src/network/CLI.ts:43-47, utils/DevServer.ts:99-100).
+ */
+const startServer = (cwd: string, script: string, net: { appPort: number; hmrPort: number }) => {
+  const env = { ...process.env, HOST: '127.0.0.1', PORT: String(net.appPort), HMR_PORT: String(net.hmrPort) };
+  const child = spawn('npm', ['run', script], { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true, env });
   spawned.add(child);
 
   let output = '';
@@ -178,7 +211,8 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
     const workDir = mkdtempSync(path.join(tmpdir(), `taujs-lifecycle-${framework}-`));
     scratchDirs.add(workDir);
     const projectDir = path.join(workDir, 'demo-app');
-    let port = 0;
+    let appPort = 0;
+    let hmrPort = 0;
 
     const completed = await runTransaction([
       {
@@ -202,6 +236,11 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
           const pkg = JSON.parse(read('package.json')) as { devDependencies: Record<string, string>; scripts: Record<string, string> };
           expect(pkg.devDependencies.esbuild).toBeTruthy();
           expect(pkg.scripts.build).toContain('NODE_ENV=production');
+
+          // The GENERATED config's declared public defaults - never the ports this run actually
+          // binds, which are allocated fresh in stage 5.
+          expect(generatedPort(projectDir)).toBe(5173);
+          expect(generatedHmrPort(projectDir)).toBe(5174);
 
           if (framework === 'solid') {
             expect(read('taujs.config.ts')).toContain("renderer: solidRenderer({ project: './tsconfig.solid.json' }),");
@@ -256,19 +295,24 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
       {
         name: '5 dev server boots and responds',
         run: async () => {
-          port = generatedPort(projectDir);
-          expect(await isPortFree(port), `generated port ${port} is already in use`).toBe(true);
+          [appPort, hmrPort] = await allocatePortPair();
+          expect(await canBind('127.0.0.1', appPort), `allocated port ${appPort} is already in use`).toBe(true);
+          expect(await canBind('127.0.0.1', hmrPort), `allocated HMR port ${hmrPort} is already in use`).toBe(true);
 
-          const { child, output } = startServer(projectDir, 'dev');
+          const { child, output } = startServer(projectDir, 'dev', { appPort, hmrPort });
           try {
-            const response = await waitForResponse(`http://127.0.0.1:${port}/`, child, output);
+            const response = await waitForResponse(`http://127.0.0.1:${appPort}/`, child, output);
 
             expect(response.status, `dev responded ${response.status}\n${output()}`).toBe(200);
             const html = await response.text();
             expect(html).toContain('window.__INITIAL_DATA__');
             if (framework === 'solid') expect(html).toContain('τjs + Solid');
+
+            // Proves HMR_PORT was honoured: the allocated HMR port is now bound. A silently
+            // ignored env var would leave it free and the hardcode would survive undetected.
+            expect(await canBind('127.0.0.1', hmrPort), `HMR_PORT ${hmrPort} was not bound - env var ignored`).toBe(false);
           } finally {
-            await stopServer(child, port);
+            await stopServer(child, [appPort, hmrPort]);
           }
         },
       },
@@ -329,16 +373,16 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
       {
         name: '7 production server boots and responds',
         run: async () => {
-          expect(await isPortFree(port), `port ${port} still bound before the production boot`).toBe(true);
+          expect(await canBind('127.0.0.1', appPort), `port ${appPort} still bound before the production boot`).toBe(true);
 
-          const { child, output } = startServer(projectDir, 'start');
+          const { child, output } = startServer(projectDir, 'start', { appPort, hmrPort });
           try {
-            const response = await waitForResponse(`http://127.0.0.1:${port}/`, child, output);
+            const response = await waitForResponse(`http://127.0.0.1:${appPort}/`, child, output);
 
             expect(response.status, `production responded ${response.status}\n${output()}`).toBe(200);
             expect(await response.text()).toContain('window.__INITIAL_DATA__');
           } finally {
-            await stopServer(child, port);
+            await stopServer(child, [appPort]);
           }
         },
       },
@@ -348,7 +392,8 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
           for (const child of spawned) {
             expect(child.exitCode !== null || child.signalCode !== null, 'a spawned server is still running').toBe(true);
           }
-          expect(await isPortFree(port), `port ${port} is still bound`).toBe(true);
+          expect(await canBind('127.0.0.1', appPort), `port ${appPort} is still bound`).toBe(true);
+          expect(await canBind('127.0.0.1', hmrPort), `HMR port ${hmrPort} is still bound`).toBe(true);
         },
       },
     ]);
