@@ -63,7 +63,7 @@ type ServerConfig = {
   hmrPort?: number; // Default: 5174
   mountPrefix?: string; // Default: '' (root)
   publicBasePath?: string; // Default: mountPrefix
-  hmrTransport?: 'fixed-port' | 'attached'; // Default: 'fixed-port'
+  hmrTransport?: 'fixed-port' | 'attached' | 'mediated'; // Default: 'fixed-port'
 };
 
 // Development only - the surface is structurally absent from a production build,
@@ -207,6 +207,7 @@ How the development HMR WebSocket is carried. Development only - it has no effec
 | --- | --- |
 | `'fixed-port'` (default) | HMR listens on its own dedicated port (`hmrPort`, default 5174). |
 | `'attached'` | HMR rides the application's own HTTP server, so it flows wherever that channel flows. |
+| `'mediated'` | Your own listener offers τjs first refusal on each upgrade, so HMR rides whatever channel that listener is on. |
 
 The default is unchanged behaviour. Choose `'attached'` when a second fixed port cannot be
 reached - a supervisor that virtualises worker binds, a firewall, or a proxy that forwards only
@@ -247,6 +248,74 @@ host must:
 > `Host`, and Vite's WebSocket admission depends on those headers - its host and token checks
 > do not survive that rewriting. The protections that apply to a direct connection do not
 > project through such a proxy. Use this on development networks you trust.
+
+#### Mediated: caller-offered upgrades
+
+`'mediated'` is for a Fastify instance you supply to `createServer` (mode B). Rather than τjs
+attaching to a host it does not own, your own `upgrade` listener offers τjs first refusal on
+each upgrade through a returned capability, `dev.hmr.tryHandleUpgrade`. The whole developer
+experience is this:
+
+```ts
+import type { IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
+
+const tau = await createServer({ fastify: app, config }); // config.server.hmrTransport = 'mediated'
+
+const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
+  if (tau.dev.hmr.tryHandleUpgrade(req, socket, head)) return;
+  socket.destroy(); // the application decides what happens to upgrades that are not τjs's
+};
+app.server.on('upgrade', onUpgrade);
+app.addHook('onClose', async () => { app.server.off('upgrade', onUpgrade); });
+```
+
+One explicit transport choice, one typed capability, one caller-owned listener, one matching
+removal. `tryHandleUpgrade` returns `true` when the socket is τjs's HMR channel - handed to
+Vite, do nothing more with it - and `false` when it is not, so your fallback branch stays
+authoritative. It never throws.
+
+**Ownership is the opposite of `'attached'`.**
+
+| `hmrTransport` | Requires | Rejected on |
+| --- | --- | --- |
+| `'attached'` | a τjs-created host | a host you supplied |
+| `'mediated'` | a host you supplied | a τjs-created host - it needs no mediation, use `'attached'` |
+
+Both rejections happen at configuration time, before Vite installs anything or τjs touches your
+root. An unknown value is rejected in every mode. Like the other transports, `'mediated'` is
+accepted and **inert in production** - `dev.hmr` is always present so a shared configuration
+file boots cleanly there, and `tryHandleUpgrade` simply returns `false`.
+
+**If nothing ever offers τjs an upgrade**, the page still serves and HMR silently does nothing -
+indistinguishable from a real failure unless τjs says so. The boot log names the transport and
+the obligation, and if the served client has loaded but no upgrade has reached τjs within a few
+seconds, a one-shot development warning names the exact fix:
+
+```
+hmr: mediated transport selected but no HMR upgrade has reached τjs - offer upgrades to
+dev.hmr.tryHandleUpgrade from the server's 'upgrade' listener
+```
+
+It fires once, only in development, and is cancelled by a successful claim - an unrelated
+upgrade passing through does not silence it.
+
+**The WebSocket path itself must be prefix-preserved, exactly as for `'attached'`.** RFC 0013's
+proxy note carries forward unchanged: a proxy that STRIPS the public prefix delivers the upgrade
+at a pathname Vite's own guard does not accept, so no HMR upgrade can ever be claimed behind it -
+the served page and ordinary requests are unaffected (τjs's `/@vite/client` observation
+recognises both the emitted and the as-received spelling), but the WebSocket dial itself needs
+the prefix to survive. If your topology strips the prefix, the never-wired warning above will
+fire, correctly: no upgrade reached τjs because none could match.
+
+**Security is unchanged from `'attached'`.** τjs performs no admission checks of its own; Vite's
+own host and token checks run exactly as they do for the attached transport, after the hand-off.
+The same trusted-development-network requirement applies - see the note above.
+
+See also: [combining HMR with another upgrade consumer](/guides/hmr-cohabitation/) if your
+application already has a WebSocket consumer of its own, and the
+[`@fastify/websocket` interoperability note](/guides/fastify-websocket-hmr/) if that consumer is
+`@fastify/websocket` 11.3.0.
 
 ## Development Introspection
 
