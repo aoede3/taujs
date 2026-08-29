@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.29.7
+
+### Patch Changes
+
+- [#123](https://github.com/aoede3/taujs/pull/123) [`9fb7a65`](https://github.com/aoede3/taujs/commit/9fb7a656c61a701080d2203f28ced36f6d590e51) Thanks [@aoede3](https://github.com/aoede3)! - `resolveEntryFile` now requires the entry candidate to be a regular file. A directory named like an entry (for example `entry-client.ts/`) is skipped instead of being reported as the entry and failing later at bundling or on the first dev request.
+
 ## 0.29.6
 
 ### Patch Changes
