@@ -45,7 +45,7 @@ export { TEMPLATE };
  * form and the ownership behaviour from drifting apart.
  */
 const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions, callerOwnedHost: boolean): Promise<void> => {
-  const { alias, configs, routes, serviceRegistry = {}, clientRoot, security, publicBasePath = '', hmrTransport = 'fixed-port' } = opts;
+  const { alias, configs, routes, serviceRegistry = {}, clientRoot, security, publicBasePath = '', hmrTransport = 'fixed-port', mediatedHmr } = opts;
 
   const logger = opts.runtimeLogger
     ? createRuntimeLogger(opts.runtimeLogger, {
@@ -182,6 +182,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       mountPrefix: scope.prefix || '',
       publicBasePath,
       hmrTransport,
+      mediatedHmr,
     });
 
     // RFC 0010: τjs creates the Vite server, so τjs closes it. Guarded because `onClose` can be
@@ -191,6 +192,9 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     scope.addHook('onClose', async () => {
       if (viteClosed) return;
       viteClosed = true;
+      // RFC 0014 §5.4: flip closing FIRST, in the same release order as the Vite teardown this
+      // hook already performs. A no-op on every controller other than an active mediated one.
+      mediatedHmr?.beginClosing();
       await ownedViteDevServer.close();
     });
 

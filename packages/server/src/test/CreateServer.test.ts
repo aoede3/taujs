@@ -166,7 +166,9 @@ describe('createServer', () => {
       serviceRegistry: dummyRegistry,
     });
 
-    expect(result).toEqual({ app: fakeFastifyInstance, net: netResolved });
+    // RFC 0014: `dev.hmr` is now ALWAYS present, in every mode and both ownerships - updated
+    // deliberately as an exact shape, not weakened into partial matching.
+    expect(result).toEqual({ app: fakeFastifyInstance, net: netResolved, dev: { hmr: { tryHandleUpgrade: expect.any(Function) } } });
 
     expect(registerMock).toHaveBeenNthCalledWith(
       1,
@@ -427,12 +429,45 @@ describe('createServer', () => {
       fastify: externalFastify,
     });
 
-    expect(result).toEqual({ net: netResolved });
+    // RFC 0014: `dev.hmr` is now ALWAYS present, updated deliberately as an exact shape.
+    expect(result).toEqual({ net: netResolved, dev: { hmr: { tryHandleUpgrade: expect.any(Function) } } });
 
     expect(registerMock).toHaveBeenCalledTimes(1);
     expect(registerMock).toHaveBeenNthCalledWith(1, SSRServerPlugin, expect.any(Object));
     expect(registerMock).not.toHaveBeenCalledWith(bannerPluginMock, expect.anything());
     expect(ssrServerPluginCalls.at(-1)).toEqual({ callerOwnedHost: true, mounted: false });
+  });
+
+  // RFC 0014 (M6): 'mediated' is inert in production - the option must not stop a Mode-B
+  // deployment sharing one configuration file from booting, and the returned capability answers
+  // `false` rather than throwing.
+  it('RFC 0014: caller-owned + production + mediated boots, and tryHandleUpgrade is inert (false)', async () => {
+    process.env.NODE_ENV = 'production';
+    const { createServer } = await importer();
+
+    const externalFastify = { register: vi.fn(registerMock) } as any;
+    const config: TaujsConfig = { ...minimalConfig, server: { ...minimalConfig.server, hmrTransport: 'mediated' } };
+
+    const result = await createServer({
+      config,
+      serviceRegistry: dummyRegistry,
+      fastify: externalFastify,
+    });
+
+    expect(result.dev.hmr.tryHandleUpgrade({ url: '/@vite/client' } as any, { destroyed: false } as any, Buffer.alloc(0))).toBe(false);
+  });
+
+  // RFC 0014 (M6): a τjs-created host needs no mediation, so 'mediated' is rejected symmetrically
+  // with 'attached' on a caller-owned host - and at FUNCTION ENTRY, before Fastify itself, the
+  // SSR plugin registration or any upgrade listener exists.
+  it('RFC 0014: τjs-created + development + mediated throws before any listener is installed', async () => {
+    process.env.NODE_ENV = 'development';
+    const { createServer } = await importer();
+
+    const config: TaujsConfig = { ...minimalConfig, server: { ...minimalConfig.server, hmrTransport: 'mediated' } };
+
+    await expect(createServer({ config, serviceRegistry: dummyRegistry })).rejects.toThrow(/requires a caller-supplied Fastify host/);
+    expect(registerMock).not.toHaveBeenCalled();
   });
 
   it('sets logger minLevel to "info" in production NODE_ENV', async () => {

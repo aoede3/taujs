@@ -64,25 +64,30 @@ const assertCanonicalCoordinate = (field: 'mountPrefix' | 'publicBasePath', valu
 };
 
 /**
- * RFC 0013: validate and resolve the development HMR transport.
+ * RFC 0013/0014: validate and resolve the development HMR transport.
  *
- * In DEVELOPMENT, `'attached'` requires τjs to own the Fastify host: on a caller-supplied host it
- * is REJECTED here, at configuration time, before Vite installs an upgrade listener or τjs
- * touches the caller's root - silently ignoring an explicit transport request would be less
- * honest than refusing an unsupported combination.
+ * In DEVELOPMENT, `'attached'` requires τjs to own the Fastify host and `'mediated'` requires
+ * the opposite - a caller-supplied host: each is REJECTED here, at configuration time, before
+ * Vite installs an upgrade listener or τjs touches the caller's root, on the ownership it does
+ * not fit - silently ignoring an explicit transport request would be less honest than refusing
+ * an unsupported combination.
  *
- * In PRODUCTION the combination is accepted and inert, because no HMR facility is installed
- * there; a Mode-B production deployment sharing one configuration file must still boot.
+ * In PRODUCTION every value is accepted and inert, because no HMR facility is installed there;
+ * a Mode-B production deployment sharing one configuration file must still boot.
  *
  * Unknown values are rejected in EVERY mode rather than falling back, so a typo cannot silently
  * keep the fixed-port transport.
  */
-export const resolveHmrTransport = (config: Pick<CoreTaujsConfig, 'server'>, callerOwnedHost: boolean, development: boolean): 'fixed-port' | 'attached' => {
+export const resolveHmrTransport = (
+  config: Pick<CoreTaujsConfig, 'server'>,
+  callerOwnedHost: boolean,
+  development: boolean,
+): 'fixed-port' | 'attached' | 'mediated' => {
   const declared = config.server?.hmrTransport;
   if (declared === undefined) return 'fixed-port';
 
-  if (declared !== 'fixed-port' && declared !== 'attached') {
-    throw new Error(`server.hmrTransport: '${String(declared)}' is not a valid transport. Expected 'fixed-port' (default) or 'attached'.`);
+  if (declared !== 'fixed-port' && declared !== 'attached' && declared !== 'mediated') {
+    throw new Error(`server.hmrTransport: '${String(declared)}' is not a valid transport. Expected 'fixed-port' (default), 'attached' or 'mediated'.`);
   }
 
   // Development-only. The transport configures a development facility that production never
@@ -93,7 +98,16 @@ export const resolveHmrTransport = (config: Pick<CoreTaujsConfig, 'server'>, cal
     throw new Error(
       `server.hmrTransport: 'attached' requires a τjs-created Fastify host, but one was supplied to createServer. ` +
         `The attached transport rides the application's own server, and τjs does not attach to or reorder listeners on a host it does not own. ` +
-        `Omit the 'fastify' option to let τjs create the host, or use the default 'fixed-port' transport.`,
+        `Omit the 'fastify' option to let τjs create the host, or use 'mediated' to offer upgrades to τjs from your own listener.`,
+    );
+  }
+
+  // RFC 0014: the symmetric rejection. A τjs-created host needs no mediation - τjs already owns
+  // it and can attach directly - so 'mediated' there is a misconfiguration, not a valid request.
+  if (declared === 'mediated' && !callerOwnedHost && development) {
+    throw new Error(
+      `server.hmrTransport: 'mediated' requires a caller-supplied Fastify host, but τjs created this one. ` +
+        `The host τjs owns needs no mediation - use 'attached' to carry HMR on it, or the default 'fixed-port' transport.`,
     );
   }
 

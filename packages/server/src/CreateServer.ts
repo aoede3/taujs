@@ -24,7 +24,10 @@ import { verifyContracts, isAuthRequired, hasAuthenticate } from './security/Ver
 import { printConfigSummary, printContractReport, printSecuritySummary } from './Setup';
 import { ssrServerPlugin } from './SSRServer';
 import { isDevelopment, runtimeMode } from './System';
+import { createMediatedHmr } from './utils/MediatedHmr';
 
+import type { IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import type { ServiceRegistry } from './core/services/DataServices';
 import type { BaseLogger, DebugConfig } from './core/logging/types';
@@ -63,6 +66,15 @@ type CreateServerOptions = {
 type CreateServerResult = {
   app?: FastifyInstance;
   net: NetResolved;
+  dev: {
+    hmr: {
+      /**
+       * `true`: this upgrade is τjs's HMR channel and has been handed to it - do nothing more
+       * with the socket. `false`: not τjs's - the application decides. Never throws.
+       */
+      tryHandleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
+    };
+  };
 };
 
 const resolveClientRoot = (userClientRoot?: string): string => {
@@ -132,6 +144,16 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     includeContext: true,
   });
 
+  // RFC 0014: the mediated-HMR controller, built ONCE from the already-resolved ownership,
+  // environment, transport and base, then threaded through the SSR plugin registration below and
+  // returned to the caller as `dev.hmr`. Inert (no `http.Server`, no timer) unless the transport
+  // is `'mediated'` on a caller-owned development host.
+  const mediatedHmr = createMediatedHmr({
+    active: callerOwnedHost && isDevelopment && hmrTransport === 'mediated',
+    hmrBase: `${publicBasePath}/`,
+    logger,
+  });
+
   const net = resolveNet({ ...opts.config.server, ...(Number.isFinite(opts.port) ? { port: opts.port } : {}) });
 
   // RFC 0010: the banner is τjs-created-host presentation. A caller-owned host receives no banner
@@ -183,6 +205,14 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     );
   }
 
+  // RFC 0014 §6: 'mediated' carries the caller obligation in the boot summary - a channel nobody
+  // forwards to is otherwise indistinguishable from a dead one. This is deliberately scoped to
+  // 'mediated' only: 'fixed-port' and 'attached' are unchanged, unruled boot behaviour and gain
+  // no new visible line here.
+  if (isDevelopment && hmrTransport === 'mediated') {
+    logger.info({ component: 'hmr', hmrTransport }, `${CONTENT.TAG} [hmr] mediated - the host must offer upgrades to dev.hmr.tryHandleUpgrade`);
+  }
+
   // RFC security model §2: relaxing the loopback guard must shout in the boot summary —
   // exact text, not a debug line.
   if (isDevelopment && opts.config.introspection?.allowNonLoopback) {
@@ -230,6 +260,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       prefix: mountPrefix || undefined,
       publicBasePath,
       hmrTransport,
+      mediatedHmr,
       clientRoot,
       configs,
       routes,
@@ -279,6 +310,11 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   // unmediated presentation, not silence.
   if (!callerOwnedHost) console.log(`\n${pc.bgGreen(pc.black(` ${CONTENT.TAG} `))} configured in ${(t1 - t0).toFixed(0)}ms\n`);
 
-  if (opts.fastify) return { net } as const;
-  return { app, net } as const;
+  // RFC 0014: `dev` is ALWAYS present, in every mode and both ownerships, so the entry file that
+  // runs in production needs no guard and cannot throw on the first upgrade. Where the transport
+  // is not `'mediated'` (or in production) the capability is inert and returns `false`.
+  const dev: CreateServerResult['dev'] = { hmr: { tryHandleUpgrade: mediatedHmr.capability.tryHandleUpgrade } };
+
+  if (opts.fastify) return { net, dev } as const;
+  return { app, net, dev } as const;
 };
