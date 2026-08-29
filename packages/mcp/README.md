@@ -69,7 +69,9 @@ add-a-streamed-route).
   traffic" - absence means _not exercised yet_, never "no relationship"). Observations
   from a previous boot are masked while a boot is live.
 - **Extent is stated**: the graph describes what τjs owns; a clean `taujs_doctor` report
-  means "no τjs graph warnings", never an application health verdict.
+  means "no τjs graph warnings", never an application health verdict. It is declared
+  topology: a build graph's `emittedAt` is when that topology was emitted, not a per-app
+  rebuild time.
 - **Version-skew safe**: a graph from a newer `@taujs/server` degrades with an explicit
   upgrade message, never a misread.
 - Field values in responses are your application's data - treated as untrusted, capped,

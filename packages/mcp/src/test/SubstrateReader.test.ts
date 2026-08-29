@@ -168,8 +168,24 @@ describe('readGraph', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
+      // source: 'boot' — the dev-boot arm is unchanged: assert the exact existing text.
+      expect(result.stalenessLine).toBe('As of the last dev boot at 2026-07-10T09:00:00.000Z — no active dev server; data may be stale.');
+    }
+  });
+
+  it("stale mode, source: build — the staleness line cites emittedAt as the topology graph's emission, not a rebuild attestation", async () => {
+    const root = await mkRoot();
+    const distDir = path.join(root, 'dist', '.taujs');
+    await mkdir(distDir, { recursive: true });
+    const graph = createRequestGraph(config, { ...OPTS, source: 'build' });
+    await writeTaujsArtifact(distDir, 'graph.json', JSON.stringify(graph));
+
+    const result = readGraph(discoverSubstrate(root));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
       expect(result.stalenessLine).toContain('2026-07-10T09:00:00.000Z');
-      expect(result.stalenessLine).toContain('dev boot');
+      expect(result.stalenessLine).toContain('not when every referenced application bundle was rebuilt');
     }
   });
 
