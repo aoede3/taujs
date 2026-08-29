@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.30.0
+
+### Minor Changes
+
+- [#126](https://github.com/aoede3/taujs/pull/126) [`407c27e`](https://github.com/aoede3/taujs/commit/407c27ef07202d292268c59daf040bebd07d7f8f) Thanks [@aoede3](https://github.com/aoede3)! - Adds `server.hmrTransport: 'mediated'` for a caller-supplied Fastify host (mode B): the application offers τjs first refusal on each upgrade through a new `dev.hmr.tryHandleUpgrade(req, socket, head)` capability, returned from `createServer` in every mode and ownership. HMR then rides whatever channel the caller's own `upgrade` listener is on, without τjs attaching to or reordering listeners on a host it does not own. `'attached'` and `'fixed-port'` are unchanged.
+
 ## 0.29.7
 
 ### Patch Changes
