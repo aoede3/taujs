@@ -29,6 +29,8 @@ vi.mock('node:fs', async (importOriginal) => {
     ...actual,
     default: actual,
     existsSync: vi.fn(() => true),
+    // every path exists AS A REGULAR FILE: resolveEntryFile's default probe now stats
+    statSync: vi.fn(() => ({ isFile: () => true }) as unknown as ReturnType<typeof actual.statSync>),
   };
 });
 
