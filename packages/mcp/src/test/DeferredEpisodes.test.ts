@@ -3,11 +3,11 @@
 // existing episode tool. No new MCP tool: the additive-optional `deferredData` field rides the
 // existing episode record through the real assembler, the real artefact writer, the real substrate
 // reader and the real `taujs_get_episode` handler.
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
 import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitGraph';
@@ -31,8 +31,16 @@ const config: CoreTaujsConfig = {
 
 let tools: Map<string, (args: Record<string, unknown>) => ToolResult>;
 
+afterAll(async () => {
+  await rm(scratch, { recursive: true, force: true });
+});
+
+// One parent for the fixture root this file creates, removed whole in afterAll.
+let scratch: string;
+
 beforeAll(async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-deferred-'));
+  scratch = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-deferred-'));
+  const root = await mkdtemp(path.join(scratch, 'root-'));
   const dir = path.join(root, 'node_modules', '.taujs');
   const dev = createDevIntrospection();
 

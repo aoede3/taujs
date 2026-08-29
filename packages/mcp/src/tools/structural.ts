@@ -28,10 +28,32 @@ const routeRow = (route: GraphRoute) => ({
   authDeclared: route.middleware.auth.declared,
 });
 
-const findRoutes = (ctx: GraphContext, args: { routeId?: string; path?: string }): GraphRoute[] => {
-  if (args.routeId) return ctx.graph.routes.filter((r) => r.id === args.routeId);
-  if (args.path) return ctx.graph.routes.filter((r) => r.path === args.path);
-  return [];
+type RouteSelection = { routes: GraphRoute[] } | { refusal: ToolResult };
+
+const selectRoutes = (ctx: GraphContext, args: { routeId?: string; path?: string }): RouteSelection => {
+  const byId = args.routeId !== undefined ? ctx.graph.routes.filter((r) => r.id === args.routeId) : undefined;
+  const byPath = args.path !== undefined ? ctx.graph.routes.filter((r) => r.path === args.path) : undefined;
+  if (!byId || !byPath) return { routes: byId ?? byPath ?? [] };
+  // Both selectors given: they agree when the routeId's route carries the supplied path (the same
+  // path existing under another app is not a disagreement). Both missing is an ordinary miss.
+  if (byId.length > 0 && byId.every((r) => r.path === args.path)) return { routes: byId };
+  if (byId.length === 0 && byPath.length === 0) return { routes: [] };
+  return {
+    refusal: {
+      ok: false,
+      reason: 'conflicting_selectors',
+      ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+      message: 'routeId and path do not identify the same route. Pass one selector, or both for the same route.',
+      routeIdMatches: bounded(
+        byId.map((r) => r.id),
+        DEFAULT_LIST_LIMIT,
+      ),
+      pathMatches: bounded(
+        byPath.map((r) => r.id),
+        DEFAULT_LIST_LIMIT,
+      ),
+    },
+  };
 };
 
 const routeMiss = (ctx: GraphContext): ToolResult => ({
@@ -105,7 +127,9 @@ export const structuralTools = (root: string): ToolDefinition[] => [
     }),
     handler: (args) =>
       withGraph(root, (ctx) => {
-        const matches = findRoutes(ctx, args);
+        const selection = selectRoutes(ctx, args);
+        if ('refusal' in selection) return selection.refusal;
+        const matches = selection.routes;
         if (matches.length === 0) return routeMiss(ctx);
 
         return {
@@ -159,6 +183,13 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         // readObservations masks a foreign-boot file while a boot is active, so "seen in dev
         // traffic" can never describe a previous boot's edges.
         const obs = readObservations(ctx.discovery);
+        // Observations are emitted by a different event than the graph, so their freshness is their own.
+        const observedStaleness =
+          ctx.discovery.mode !== 'active' && obs.ok
+            ? {
+                observedStaleness: `Observations document from dev boot ${obs.observations.bootId}, last updated at ${obs.observations.updatedAt} — no active dev server, so observations may be stale independently of the graph.`,
+              }
+            : {};
         const observed = obs.ok
           ? obs.observations.edges
               .filter((e) => e.service === service && (!method || e.method === method))
@@ -202,6 +233,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
               ok: false,
               reason: 'unknown_service',
               ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+              ...observedStaleness,
               message: `No service "${service}" in the registry.`,
               knownServices: bounded(
                 ctx.graph.services.map((s) => s.name),
@@ -215,6 +247,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
               ok: false,
               reason: 'unknown_method',
               ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+              ...observedStaleness,
               message: `Service "${service}" has no method "${method}".`,
               knownMethods: bounded(
                 svc.methods.map((m) => m.name),
@@ -231,7 +264,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           // Registry present and the identifier resolved above: a successful empty result —
           // agents branch hard on `ok`, and this is "the answer is none", not "I asked wrong".
           if (ctx.graph.services) {
-            return { ok: true, ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}), edges: [], note: emptyNote };
+            return { ok: true, ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}), ...observedStaleness, edges: [], note: emptyNote };
           }
 
           // Registry absent: existence cannot be checked — say so rather than guess either way.
@@ -245,6 +278,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           return {
             ok: true,
             ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+            ...observedStaleness,
             edges: [],
             note: `${emptyNote} The registry is not present in this graph, so whether "${service}" exists cannot be checked.`,
             servicesSeenOnRouteEdges: bounded(seen, DEFAULT_LIST_LIMIT),
@@ -254,6 +288,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         return {
           ok: true,
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+          ...observedStaleness,
           note: 'declared = from config (a serviceData edge, a deferred entry or a head edge); observed = seen in dev traffic, never complete truth. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution.',
           edges: [...declared, ...observed],
         };
@@ -269,26 +304,28 @@ export const structuralTools = (root: string): ToolDefinition[] => [
     }),
     handler: (args) =>
       withGraph(root, (ctx) => {
-        const matches = findRoutes(ctx, args);
+        const selection = selectRoutes(ctx, args);
+        if ('refusal' in selection) return selection.refusal;
+        const matches = selection.routes;
         if (matches.length === 0) return routeMiss(ctx);
 
         return {
           ok: true,
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
           explanations: matches.map((route) => {
+            const data = route.data;
             const dataEdge =
-              route.data.kind === 'service'
+              data.kind === 'service'
                 ? {
                     kind: 'service' as const,
-                    service: route.data.service,
-                    method: route.data.method,
+                    service: data.service,
+                    method: data.method,
                     source: 'declared' as const,
                     schema:
-                      ctx.graph.services
-                        ?.find((s) => s.name === (route.data as { service: string }).service)
-                        ?.methods.find((m) => m.name === (route.data as { method: string }).method) ?? 'registry not present in this graph',
+                      ctx.graph.services?.find((s) => s.name === data.service)?.methods.find((m) => m.name === data.method) ??
+                      'registry not present in this graph',
                   }
-                : route.data;
+                : data;
 
             return {
               id: route.id,

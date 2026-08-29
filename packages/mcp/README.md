@@ -61,7 +61,9 @@ add-a-streamed-route).
 ## Semantics you can rely on
 
 - **Staleness is stated**: answers from files without a live boot cite
-  `source` + `emittedAt` ("as of the last dev boot at …").
+  `source` + `emittedAt` ("as of the last dev boot at …"). Observed edges additionally cite
+  their own document (`observedStaleness`, the observing boot's id and `updatedAt`) because
+  observations and the graph are emitted by different events.
 - **Runtime tools refuse without a live boot** - structural tools keep working.
 - **Sources are labelled**: `declared` (from config) vs `observed` ("seen in dev
   traffic" - absence means _not exercised yet_, never "no relationship"). Observations

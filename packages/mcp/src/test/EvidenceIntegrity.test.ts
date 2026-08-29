@@ -1,15 +1,24 @@
 // @vitest-environment node
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { z } from 'zod';
 
 import { allTools, runTool } from '../server';
 
 import type { ToolDefinition, ToolResult } from '../toolkit';
 import type { DevJson } from '../types';
+
+// One parent for every root this file creates, removed whole in afterAll.
+let scratch: string;
+beforeAll(async () => {
+  scratch = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-evidence-'));
+});
+afterAll(async () => {
+  await rm(scratch, { recursive: true, force: true });
+});
 
 // These cells are about the difference between "nothing happened" and "I could not tell". The tools
 // are an agent's evidence, so an answer that cannot distinguish the two is worse than no answer:
@@ -32,7 +41,7 @@ const EPISODE = {
 };
 
 const seed = async (files: Record<string, string>): Promise<string> => {
-  const root = await mkdtemp(path.join(tmpdir(), 'taujs-evidence-'));
+  const root = await mkdtemp(path.join(scratch, 'evidence-'));
   const dir = path.join(root, 'node_modules', '.taujs');
   await mkdir(dir, { recursive: true });
 
@@ -171,7 +180,7 @@ describe('malformed record accounting (@taujs/mcp)', () => {
 
 describe('doctor shape (@taujs/mcp)', () => {
   it('does not label an UNAVAILABLE section as observed', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'taujs-doctor-cold-'));
+    const root = await mkdtemp(path.join(scratch, 'doctor-cold-'));
     const dir = path.join(root, 'node_modules', '.taujs');
     await mkdir(dir, { recursive: true });
     await writeFile(
