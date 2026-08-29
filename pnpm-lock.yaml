@@ -373,6 +373,9 @@ importers:
       '@types/node':
         specifier: ^20.14.9
         version: 20.19.43
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       '@vitest/coverage-v8':
         specifier: ^4.1.9
         version: 4.1.10(vitest@4.1.10)
@@ -403,6 +406,9 @@ importers:
       vitest:
         specifier: ^4.1.9
         version: 4.1.10(@types/node@20.19.43)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.11.0)(jsdom@25.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.1)(tsx@4.23.0))
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
 
   packages/solid:
     dependencies:

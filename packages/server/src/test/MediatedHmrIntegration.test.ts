@@ -10,6 +10,7 @@
 import http from 'node:http';
 
 import fastify from 'fastify';
+import WebSocket from 'ws';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { developmentFixture, disposeFixtures, taujsConfig } from './support/hostOwnership';
@@ -144,22 +145,26 @@ const getStatus = (port: number, requestPath: string): Promise<number> =>
       .on('error', reject);
   });
 
-/** A real `vite-hmr` dial via Node's global `WebSocket`, at the app's own bound port - no second port. */
+/**
+ * A real `vite-hmr` dial at the app's own bound port - no second port. Uses the `ws` client
+ * rather than the global `WebSocket`: the global exists on Node 22 but not on Node 20, which the
+ * CI matrix runs, and this cell must prove the channel on both.
+ */
 const dialHmr = (port: number): Promise<unknown> =>
   new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/`, 'vite-hmr');
     const timer = setTimeout(() => {
-      ws.close();
+      ws.terminate();
       reject(new Error('HMR dial timed out waiting for a message'));
     }, 5000);
 
-    ws.addEventListener('message', (event) => {
+    ws.once('message', (data) => {
       clearTimeout(timer);
-      const message: unknown = JSON.parse(String((event as MessageEvent).data));
+      const message: unknown = JSON.parse(data.toString());
       ws.close();
       resolve(message);
     });
-    ws.addEventListener('error', () => {
+    ws.once('error', () => {
       clearTimeout(timer);
       reject(new Error('HMR dial errored'));
     });
