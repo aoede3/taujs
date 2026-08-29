@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import type { InlineConfig, ViteDevServer } from 'vite';
 import type { DebugConfig, Logs } from '../core/logging/types';
+import type { MediatedHmrController } from './MediatedHmr';
 
 /**
  * RFC 0005 VS4 - `setupDevServer` options.
@@ -73,13 +74,21 @@ export type SetupDevServerOptions = {
    */
   publicBasePath?: string;
   /**
-   * RFC 0013: the resolved development HMR transport. `'fixed-port'` (default) keeps the
+   * RFC 0013/0014: the resolved development HMR transport. `'fixed-port'` (default) keeps the
    * dedicated `hmrPort` listener; `'attached'` carries the socket on the application's own
    * HTTP server via Vite's canonical `server.ws.server`, so it flows wherever that channel
-   * flows. Resolved and validated in `createServer` - by the time it arrives here the
-   * ownership check has already passed.
+   * flows; `'mediated'` hands Vite the internal source `mediatedHmr` owns instead. Resolved
+   * and validated in `createServer` - by the time it arrives here the ownership check has
+   * already passed.
    */
-  hmrTransport?: 'fixed-port' | 'attached';
+  hmrTransport?: 'fixed-port' | 'attached' | 'mediated';
+  /**
+   * RFC 0014: the mediated-HMR controller built once by `createServer`. Present (and active)
+   * only when `hmrTransport` is `'mediated'`; its never-listened `source` becomes Vite's
+   * `server.ws.server` and its `noteClientServed` is called on successful delivery of Vite's
+   * client module, purely as an observation - it changes no request-ownership behaviour here.
+   */
+  mediatedHmr?: MediatedHmrController;
 };
 
 export const setupDevServer = async (options: SetupDevServerOptions): Promise<ViteDevServer> => {
@@ -87,6 +96,20 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
   const mountPrefix = options.mountPrefix ?? '';
   const hmrTransport = options.hmrTransport ?? 'fixed-port';
   const publicBasePath = options.publicBasePath ?? '';
+  const mediatedHmr = options.mediatedHmr;
+
+  // RFC 0014: internal invariant, not a caller-facing configuration error - `createServer`
+  // (CreateServer.ts) only resolves `hmrTransport: 'mediated'` together with an ACTIVE
+  // controller, so `mediatedHmr?.source` being absent here means that wiring broke, not that the
+  // caller did anything wrong. Fail fast rather than handing Vite `{ server: undefined }`: in
+  // middlewareMode Vite would silently fall back to binding its OWN WebSocket listener on 24678,
+  // exactly the dedicated-port bind 'mediated' exists to avoid.
+  if (hmrTransport === 'mediated' && !mediatedHmr?.source) {
+    throw new Error(
+      "τjs internal invariant violated: hmrTransport 'mediated' reached setupDevServer without an active MediatedHmr controller (missing `source`). " +
+        'This is a τjs defect, not a configuration error - please report it.',
+    );
+  }
 
   const logger =
     options.logger ??
@@ -211,20 +234,24 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
     server: {
       ...mergedServer,
       middlewareMode: true,
-      // RFC 0013: one selection, and nothing else. `attached` hands Vite the application's own
-      // server through the canonical Vite 8 `server.ws` surface and declares no port at all -
+      // RFC 0013/0014: one selection, and nothing else. `attached` hands Vite the application's
+      // own server through the canonical Vite 8 `server.ws` surface and declares no port at all -
       // Vite then serves `hmrPort = null`, so the client derives its socket from the origin that
-      // served it. `hmr` is OMITTED in that arm rather than set false, which would disable HMR
-      // instead of attaching it. The fixed-port arm is unchanged.
+      // served it. `mediated` hands Vite the internal, never-listened source `mediatedHmr` owns,
+      // for exactly the same reason - no port declared, same derived dial. `hmr` is OMITTED in
+      // both arms rather than set false, which would disable HMR instead of attaching it. The
+      // fixed-port arm is unchanged.
       ws:
-        hmrTransport === 'attached'
-          ? { server: app.server }
-          : {
-              clientPort: hmrPort,
-              host: host !== 'localhost' ? host : undefined,
-              port: hmrPort,
-              protocol: 'ws',
-            },
+        hmrTransport === 'mediated'
+          ? { server: mediatedHmr?.source }
+          : hmrTransport === 'attached'
+            ? { server: app.server }
+            : {
+                clientPort: hmrPort,
+                host: host !== 'localhost' ? host : undefined,
+                port: hmrPort,
+                protocol: 'ws',
+              },
     },
   });
 
@@ -255,6 +282,30 @@ export const setupDevServer = async (options: SetupDevServerOptions): Promise<Vi
       const queryIndex = rawUrl.indexOf('?');
       const pathname = queryIndex === -1 ? rawUrl : rawUrl.slice(0, queryIndex);
       if (!(pathname === mountPrefix || pathname.startsWith(`${mountPrefix}/`))) return;
+    }
+
+    // RFC 0014 §6: never-wired visibility. Purely observational - it reads nothing the delegator
+    // does not already read, decides nothing about ownership, and is a no-op on every transport
+    // other than an ACTIVE `mediated` one (`mediatedHmr?.source` is undefined otherwise). A
+    // successful (2xx) delivery of Vite's client module starts the one-shot warning window.
+    //
+    // Two spellings are recognised, because a stripping proxy changes which one Fastify actually
+    // receives (RFC 0012's two topologies): `${publicBasePath}/@vite/client` is the URL AS
+    // EMITTED (preserve topology, where the proxy forwards the public prefix unchanged), while
+    // `${mountPrefix}/@vite/client` is the URL AS RECEIVED at Fastify's own mount point (strip
+    // topology, mountPrefix '' + publicBasePath non-empty: the proxy strips the public prefix
+    // before forwarding, so Fastify sees the unprefixed path). The two are identical whenever
+    // mountPrefix === publicBasePath, so this never double-fires in the common case.
+    if (mediatedHmr?.source) {
+      const rawUrl = request.raw.url ?? '';
+      const queryIndex = rawUrl.indexOf('?');
+      const pathname = queryIndex === -1 ? rawUrl : rawUrl.slice(0, queryIndex);
+
+      if (pathname === `${publicBasePath}/@vite/client` || pathname === `${mountPrefix}/@vite/client`) {
+        reply.raw.once('finish', () => {
+          if (reply.raw.statusCode >= 200 && reply.raw.statusCode < 300) mediatedHmr.noteClientServed();
+        });
+      }
     }
 
     // Connect's `next()` is the ownership signal. Vite's middleware chain invokes this final

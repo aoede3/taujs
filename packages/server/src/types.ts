@@ -6,6 +6,7 @@ import type { CoreTaujsConfig, Route, RouteParams } from './core/config/types';
 import type { DeferredDataRegistry } from './core/routes/DeferredData';
 import type { DebugConfig, Logs } from './core/logging/types';
 import type { ServiceRegistry } from './core/services/DataServices';
+import type { MediatedHmrController } from './utils/MediatedHmr';
 
 import type { RuntimeLoggerSelection } from './logging/RuntimeLogger';
 import type { AppConfig, SecurityConfig } from './Config';
@@ -47,8 +48,10 @@ export type SSRServerOptions = {
    * emission byte-for-byte. RECEPTION is the register-time `prefix`, not this value.
    */
   publicBasePath?: string;
-  /** RFC 0013: resolved development HMR transport (`'fixed-port'` default). */
-  hmrTransport?: 'fixed-port' | 'attached';
+  /** RFC 0013/0014: resolved development HMR transport (`'fixed-port'` default). */
+  hmrTransport?: 'fixed-port' | 'attached' | 'mediated';
+  /** RFC 0014: the mediated-HMR controller, built once in `createServer` and threaded through unchanged. */
+  mediatedHmr?: MediatedHmrController;
   debug?: DebugConfig;
   /** Internal runtime logger selection threaded from createServer; not a public createServer option. */
   runtimeLogger?: RuntimeLoggerSelection;

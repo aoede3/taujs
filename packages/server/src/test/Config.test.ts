@@ -113,7 +113,8 @@ describe('resolveHmrTransport (RFC 0013)', () => {
 
   it('REJECTS attached on a caller-supplied host IN DEVELOPMENT, naming the remedy', () => {
     expect(() => resolveHmrTransport(cfg('attached'), true, DEV)).toThrow(/requires a τjs-created Fastify host/);
-    expect(() => resolveHmrTransport(cfg('attached'), true, DEV)).toThrow(/fixed-port/);
+    // RFC 0014: the remedy the message points at is now 'mediated', not 'fixed-port'.
+    expect(() => resolveHmrTransport(cfg('attached'), true, DEV)).toThrow(/mediated/);
   });
 
   it('ACCEPTS attached on a caller-supplied host IN PRODUCTION - the option is inert there', () => {
@@ -127,6 +128,40 @@ describe('resolveHmrTransport (RFC 0013)', () => {
     for (const mode of [DEV, PROD]) {
       expect(() => resolveHmrTransport(cfg('attatched'), false, mode)).toThrow(/is not a valid transport/);
       expect(() => resolveHmrTransport(cfg(true), true, mode)).toThrow(/is not a valid transport/);
+    }
+  });
+});
+
+// RFC 0014: the third transport cell, symmetric with RFC 0013's ownership rejection. M6 requires
+// every rejection/inert combination for 'mediated' AND 'attached', across ownership x
+// development/production, plus unknown-everywhere - exercised here on the resolver directly.
+describe('resolveHmrTransport (RFC 0014) - mediated', () => {
+  const cfg = (hmrTransport?: unknown) => ({ server: hmrTransport === undefined ? {} : { hmrTransport } }) as any;
+  const DEV = true;
+  const PROD = false;
+
+  it('ACCEPTS mediated on a caller-supplied host IN DEVELOPMENT - the only fit', () => {
+    expect(resolveHmrTransport(cfg('mediated'), true, DEV)).toBe('mediated');
+  });
+
+  it('REJECTS mediated on a τjs-created host IN DEVELOPMENT, naming the remedy', () => {
+    expect(() => resolveHmrTransport(cfg('mediated'), false, DEV)).toThrow(/requires a caller-supplied Fastify host/);
+    expect(() => resolveHmrTransport(cfg('mediated'), false, DEV)).toThrow(/attached/);
+  });
+
+  it('ACCEPTS mediated on a caller-supplied host IN PRODUCTION - the option is inert there', () => {
+    expect(() => resolveHmrTransport(cfg('mediated'), true, PROD)).not.toThrow();
+    expect(resolveHmrTransport(cfg('mediated'), true, PROD)).toBe('mediated');
+  });
+
+  it('ACCEPTS mediated on a τjs-created host IN PRODUCTION - inert everywhere in production', () => {
+    expect(() => resolveHmrTransport(cfg('mediated'), false, PROD)).not.toThrow();
+    expect(resolveHmrTransport(cfg('mediated'), false, PROD)).toBe('mediated');
+  });
+
+  it('REJECTS an unknown value in EVERY mode rather than falling back (mediated-adjacent typo)', () => {
+    for (const mode of [DEV, PROD]) {
+      expect(() => resolveHmrTransport(cfg('mediatd'), true, mode)).toThrow(/is not a valid transport/);
     }
   });
 });

@@ -85,6 +85,18 @@ const clientBaseDir = path.join(projectRoot, 'src', 'client');
 
 // Drive the exact SSRServer dev wiring: resolve `config.vite` ONCE (serve arm), then hand the merged
 // fragment to `setupDevServer`. Returns the inline config vite's `createServer` was called with.
+// RFC 0014: a minimal stand-in for MediatedHmrController - only `source` is read by the ws-arm
+// selection under test here. Real semantics (claim, containment, timer) are exercised in
+// MediatedHmr.test.ts and the integration cells, never re-derived in this file.
+function fakeMediatedHmr(active: boolean) {
+  return {
+    capability: { tryHandleUpgrade: () => false },
+    source: active ? ({ __id: 'mediated-source' } as any) : undefined,
+    noteClientServed: () => {},
+    beginClosing: () => {},
+  };
+}
+
 async function runDev(viteOverride?: TaujsViteOverride) {
   const { setupDevServer } = await import('../utils/DevServer');
 
@@ -299,7 +311,7 @@ describe('VS4 - scss modern-compiler default survives a user css merge', () => {
 // RFC 0013: the attached HMR transport, asserted on the INLINE CONFIG Vite is actually handed.
 // These are load-bearing: deleting the `server.ws.server` selection in DevServer fails them.
 describe('RFC 0013 - hmrTransport wiring (what setupDevServer hands Vite)', () => {
-  async function runDevWithTransport(hmrTransport: 'fixed-port' | 'attached', devNet?: { host: string; hmrPort: number }) {
+  async function runDevWithTransport(hmrTransport: 'fixed-port' | 'attached' | 'mediated', devNet?: { host: string; hmrPort: number }) {
     const { setupDevServer } = await import('../utils/DevServer');
     const viteConfig = resolveDevViteConfig({ clientRoot: clientBaseDir, appPlugins: [] });
     const app = makeApp();
@@ -346,5 +358,61 @@ describe('RFC 0013 - hmrTransport wiring (what setupDevServer hands Vite)', () =
 
     expect(inline.server.ws.server).toBeUndefined();
     expect(inline.server.ws.port).toBeDefined();
+  });
+});
+
+// RFC 0014: the mediated HMR transport, asserted on the same INLINE CONFIG seam. Load-bearing:
+// deleting the third `server.ws` arm in DevServer fails these, and the fixed-port/attached cells
+// above (unchanged) pin that neither of those two arms moved a single byte.
+describe('RFC 0014 - mediated hmrTransport wiring (what setupDevServer hands Vite)', () => {
+  it('MEDIATED hands Vite the controller source through the canonical server.ws.server', async () => {
+    const { setupDevServer } = await import('../utils/DevServer');
+    const viteConfig = resolveDevViteConfig({ clientRoot: clientBaseDir, appPlugins: [] });
+    const mediatedHmr = fakeMediatedHmr(true);
+
+    await setupDevServer({ app: makeApp(), clientRoot: clientBaseDir, debug: false, viteConfig, hmrTransport: 'mediated', mediatedHmr });
+
+    const inline = createServerMock.mock.calls[0]![0] as any;
+    expect(inline.server.ws.server).toBe(mediatedHmr.source);
+  });
+
+  it('MEDIATED declares no port fields and no deprecated server.hmr', async () => {
+    const { setupDevServer } = await import('../utils/DevServer');
+    const viteConfig = resolveDevViteConfig({ clientRoot: clientBaseDir, appPlugins: [] });
+    const mediatedHmr = fakeMediatedHmr(true);
+
+    await setupDevServer({
+      app: makeApp(),
+      clientRoot: clientBaseDir,
+      debug: false,
+      viteConfig,
+      hmrTransport: 'mediated',
+      devNet: { host: 'localhost', hmrPort: 9999 },
+      mediatedHmr,
+    });
+
+    const inline = createServerMock.mock.calls[0]![0] as any;
+    expect(inline.server.hmr).toBeUndefined();
+    expect(inline.server.ws.port).toBeUndefined();
+    expect(inline.server.ws.clientPort).toBeUndefined();
+    expect(inline.server.ws.protocol).toBeUndefined();
+    expect(JSON.stringify(inline.server.ws)).not.toContain('9999');
+  });
+
+  it('MEDIATED with no active controller (missing source) fails fast with an internal-invariant error, and Vite is never created', async () => {
+    const { setupDevServer } = await import('../utils/DevServer');
+    const viteConfig = resolveDevViteConfig({ clientRoot: clientBaseDir, appPlugins: [] });
+
+    // `mediatedHmr` omitted entirely, and the inert-shaped stand-in (`source: undefined`) both
+    // exercise the same guard - `createServer(vite)` must never be handed `{ server: undefined }`,
+    // which would let Vite silently fall back to binding its own listener on 24678.
+    await expect(setupDevServer({ app: makeApp(), clientRoot: clientBaseDir, debug: false, viteConfig, hmrTransport: 'mediated' })).rejects.toThrow(
+      /internal invariant violated/,
+    );
+    await expect(
+      setupDevServer({ app: makeApp(), clientRoot: clientBaseDir, debug: false, viteConfig, hmrTransport: 'mediated', mediatedHmr: fakeMediatedHmr(false) }),
+    ).rejects.toThrow(/internal invariant violated/);
+
+    expect(createServerMock).not.toHaveBeenCalled();
   });
 });
