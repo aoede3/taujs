@@ -234,26 +234,9 @@ Two rules to know:
 
 #### Running an attached channel behind a proxy
 
-τjs adds no proxy machinery. Carrying the channel through one is host configuration, and the
-host must:
-
-- expose a real TCP upstream for the application. On Platformatic Watt set the application's
-  `websocket: true`, the option Platformatic defines for the WebSocket hand-off; `useHttp: true`
-  is the broader alternative and the fallback (it exposes the whole application over TCP; the
-  two are separate options with different intended semantics, even where a given capability
-  behaves the same under both);
-- **preserve the path prefix**, so the pathname reaching Vite matches the base it serves - set
-  the proxy to keep the prefix and give τjs matching `mountPrefix` and `publicBasePath`. A
-  proxy that strips the prefix cannot carry an attached channel;
-- **scope the host's restart watcher deliberately.** Two measured problems, two settings. A
-  host that rebuilds the application before each start rewrites the build output inside the
-  watched directory, and a broad watcher then restart-loops the worker: on Watt the measured
-  fix is a NARROWED `watch.allow` (for example `src/**`, the entry file and the τjs config)
-  combined with `watch.ignore` for the build output (`dist`, `dist/**`) - ignoring the output
-  alone did not stop the loop in earlier measurements. Separately, client sources must be
-  excluded (`watch.ignore` including `src/client/**`), or an edit both hot-updates and restarts
-  the worker. The trade-off: an allow-list narrow enough to be quiet also stops configuration
-  and package changes from restarting the worker, so choose the scope knowingly.
+τjs adds no proxy machinery; carrying the channel through one - a real TCP path, prefix
+preservation and restart-watcher scope - is host configuration, held in one place at
+[Running τjs Under a Supervisor or Behind a Gateway](/guides/supervisors-and-gateways/).
 
 > **Requires a trusted development network.** Proxies commonly drop `Origin` and rewrite
 > `Host`, and Vite's WebSocket admission depends on those headers - its host and token checks
@@ -311,22 +294,17 @@ dev.hmr.tryHandleUpgrade from the server's 'upgrade' listener
 It fires once, only in development, and is cancelled by a successful claim - an unrelated
 upgrade passing through does not silence it.
 
-**The WebSocket path itself must be prefix-preserved, exactly as for `'attached'`.** RFC 0013's
-proxy note carries forward unchanged: a proxy that STRIPS the public prefix delivers the upgrade
-at a pathname Vite's own guard does not accept, so no HMR upgrade can ever be claimed behind it -
-the served page and ordinary requests are unaffected (τjs's `/@vite/client` observation
-recognises both the emitted and the as-received spelling), but the WebSocket dial itself needs
-the prefix to survive. If your topology strips the prefix, the never-wired warning above will
-fire, correctly: no upgrade reached τjs because none could match.
+**The WebSocket path itself must be prefix-preserved, exactly as for `'attached'`** - see
+[Running τjs Under a Supervisor or Behind a Gateway](/guides/supervisors-and-gateways/) for the
+contract. If your topology strips the prefix, the never-wired warning above will fire,
+correctly: no upgrade reached τjs because none could match.
 
 **Security is unchanged from `'attached'`.** τjs performs no admission checks of its own; Vite's
 own host and token checks run exactly as they do for the attached transport, after the hand-off.
 The same trusted-development-network requirement applies - see the note above.
 
 See also: [combining HMR with another upgrade consumer](/guides/hmr-cohabitation/) if your
-application already has a WebSocket consumer of its own, and the
-[`@fastify/websocket` interoperability note](/guides/fastify-websocket-hmr/) if that consumer is
-`@fastify/websocket` 11.3.0.
+application already has a WebSocket consumer of its own.
 
 ## Development Introspection
 

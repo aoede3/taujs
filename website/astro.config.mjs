@@ -80,12 +80,12 @@ export default defineConfig({
             { label: "Static Assets", slug: "guides/static-assets" },
             { label: "Logging & Telemetry", slug: "guides/logging-telemetry" },
             {
-              label: "Combining HMR with Another Consumer",
-              slug: "guides/hmr-cohabitation",
+              label: "Supervisors & Gateways",
+              slug: "guides/supervisors-and-gateways",
             },
             {
-              label: "@fastify/websocket Interoperability",
-              slug: "guides/fastify-websocket-hmr",
+              label: "Combining HMR with Another Consumer",
+              slug: "guides/hmr-cohabitation",
             },
           ],
         },
