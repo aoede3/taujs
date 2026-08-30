@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.30.1
+
+### Patch Changes
+
+- [#129](https://github.com/aoede3/taujs/pull/129) [`30fe016`](https://github.com/aoede3/taujs/commit/30fe016cf59f22f215c64cfe9b9cb7c4b7166a02) Thanks [@aoede3](https://github.com/aoede3)! - The caller-owned ownership boot line no longer says CSP "remains yours" outright. It now states that CSP is the caller's on the caller's responses and τjs's on the pages τjs renders, which is what the server does: when τjs CSP is active for a rendered page (a global policy, or a route declaring its own), it replaces a caller-set `content-security-policy` with its nonce-bearing policy; a route with `middleware.csp: false`, or production with no global or route policy, sets no τjs header. Caller routes and the caller's not-found responses keep the caller's header unchanged.
+
 ## 0.30.0
 
 ### Minor Changes
