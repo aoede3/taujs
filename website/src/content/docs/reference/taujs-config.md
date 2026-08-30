@@ -81,12 +81,7 @@ type AppConfig = {
   appId: string;
   entryPoint: string;
   plugins?: PluginOption[];
-  routes?: AppRoute[];
-};
-
-type AppRoute = {
-  path: string;
-  attr?: RouteAttributes;
+  routes?: readonly { path: string; attr?: RouteAttributes }[];
 };
 ```
 
@@ -433,7 +428,7 @@ apps: [
 | ------------ | ---------------- | -------- | ------------------------------ |
 | `appId`      | `string`         | Yes      | Unique identifier for this app |
 | `entryPoint` | `string`         | Yes      | `''` for the canonical root layout, or a directory under the client root |
-| `routes`     | `AppRoute[]`     | No       | Route definitions              |
+| `routes`     | readonly route definitions | No       | See [Route Configuration](#route-configuration) |
 | `plugins`    | `PluginOption[]` | No       | Vite plugins for this app      |
 
 Any standard Vite plugin is accepted in `plugins` - the τjs renderer plugins are the
@@ -1327,31 +1322,7 @@ export default {
 };
 ```
 
-### 2. Group Routes by Feature
-
-```typescript
-const authRoutes: AppRoute[] = [
-  { path: "/login", attr: { render: "ssr" } },
-  { path: "/register", attr: { render: "ssr" } },
-];
-
-const dashboardRoutes: AppRoute[] = [
-  { path: "/dashboard", attr: { render: "streaming", meta: {} } },
-  { path: "/settings", attr: { render: "ssr" } },
-];
-
-export default defineConfig({
-  apps: [
-    {
-      appId: "web",
-      entryPoint: "client",
-      routes: [...authRoutes, ...dashboardRoutes],
-    },
-  ],
-});
-```
-
-### 3. Use Service Descriptors
+### 2. Use Service Descriptors
 
 ```typescript
 // testable, reusable
@@ -1368,7 +1339,7 @@ data: async (params) => {
 };
 ```
 
-### 4. Provide Complete Meta for Streaming
+### 3. Provide Complete Meta for Streaming
 
 ```typescript
 // reliable SEO
@@ -1385,7 +1356,7 @@ data: async (params) => {
 }
 ```
 
-### 5. Use Structured Logging
+### 4. Use Structured Logging
 
 ```typescript
 data: async (params, ctx) => {
