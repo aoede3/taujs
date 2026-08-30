@@ -104,7 +104,11 @@ route.
 plumbing, work the same in either installation shape.
 
 If CSP should cover host routes as well, register the host-wide policy on the supplied Fastify
-instance. τjs continues to manage policy for the pages it renders.
+instance. τjs continues to manage policy for the pages it renders: when τjs CSP is active for a
+page (a global policy, or a route declaring its own), a caller-set `content-security-policy`
+reaching that page is replaced by τjs's own, because the nonce it carries must match the page's
+inline scripts. Where τjs sets no policy - `middleware.csp: false`, or production with no global
+or route policy - the caller's header stands. Other caller headers pass through unchanged.
 
 ### Request identity and episode scope
 
