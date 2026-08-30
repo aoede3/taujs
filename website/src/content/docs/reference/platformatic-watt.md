@@ -52,12 +52,11 @@ The primary setting is `websocket: true` on the application in `watt.json`:
 }
 ```
 
-`useHttp: true` is the broader fallback used elsewhere in Platformatic when an application needs
-its full HTTP surface exposed rather than only a WebSocket hand-off. Measured: on
-`@platformatic/node`, the two behave the same for this purpose - both keep Gateway HTTP traffic
-on the in-memory mesh and hand WebSocket upgrades to the application's own TCP listener, so every
-HMR combination (attached and mediated, direct and through the Gateway) connects identically
-under either flag. The choice between them is by intent and documentation, not by behaviour.
+`useHttp: true` is the broader alternative, for an application that needs its full HTTP surface
+exposed rather than only a WebSocket hand-off. For HMR the two are equivalent on
+`@platformatic/node`: both hand WebSocket upgrades to the application's own TCP listener, so every
+combination of transport and path connects the same under either flag. `websocket: true` is
+preferred because it declares exactly what is needed.
 
 ### 2. Prefix preservation and admission
 
@@ -94,11 +93,9 @@ The measured scope, per application's `watt.json`:
 
 `@platformatic/node` rebuilds the application before every worker start, in development as well
 as production, so the pre-start build rewriting `dist/` is itself a watched-directory write.
-Measured controls isolate which half of the scope carries the weight: with `allow` narrowed to
-sources but `dist`/`dist/**` removed from `ignore`, no loop appears over 60 seconds (0 Stopping /
-0 Stopped) - the allow-list alone is already load-bearing. With no `allow` list at all and `dist`
-not ignored, the loop reproduces: 21 Starting / 18 Started / 39 Stopping / 36 Stopped, 19 builds
-in 60 seconds. `ignore` for `dist`/`dist/**` is belt-and-braces under the narrowed allow-list;
+The `allow` list is what keeps that write from restart-looping the worker: without it, and with
+`dist` unignored, each start's build triggers the next restart. `ignore` for `dist`/`dist/**` is
+belt-and-braces under the narrowed allow-list;
 `src/client/**` in `ignore` is what keeps a client edit delivering an HMR update instead of
 restarting the process.
 
@@ -257,12 +254,15 @@ Mode B additionally takes `@platformatic/globals` as a runtime dependency, for `
 ## Two measured behaviours worth knowing
 
 **Caller routes must be registered under the public prefix.** Under a preserve-prefix Gateway
-(`proxy.prefix`/`rewritePrefix` equal to `mountPrefix`/`publicBasePath`), a Mode B caller route
-registered at the application's own root is not reachable through the Gateway - only a route
-registered under the same public prefix is. The caller's not-found handler also observes the
-request `url` with the mount prefix already stripped, not the path that arrived at the Gateway.
-Register caller routes under the public prefix regardless; which layer strips the prefix from
-the `url` the not-found handler sees is still being pinned down.
+(`proxy.prefix`/`rewritePrefix` equal to `mountPrefix`/`publicBasePath`), the public prefix is
+part of the path the application receives, so a Mode B caller route registered at the
+application's own root is not reachable through the Gateway - only a route registered under the
+same public prefix is. One observation to be aware of: the caller's not-found handler sees a
+request `url` with that prefix already removed, while the worker's request log shows the full
+path. τjs never rewrites `url`, and plain Fastify 5.12.1 in the same prefixed, encapsulated shape
+hands a root not-found handler the full path; how the hosted arrangement arrives at the shorter
+`url` was not pursued. Treat the `url` a not-found handler observes under Watt as the
+application-relative path, not the public one.
 
 **On τjs pages, the CSP header is τjs's own.** A caller-set `content-security-policy` survives on
 every caller-owned route and on the caller's 404, unchanged. On a τjs-rendered page, τjs replaces
