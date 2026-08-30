@@ -87,10 +87,6 @@ export default defineConfig({
               label: "Combining HMR with Another Consumer",
               slug: "guides/hmr-cohabitation",
             },
-            {
-              label: "@fastify/websocket Interoperability",
-              slug: "guides/fastify-websocket-hmr",
-            },
           ],
         },
 

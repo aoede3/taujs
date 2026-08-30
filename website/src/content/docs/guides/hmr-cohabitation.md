@@ -37,7 +37,3 @@ returns `true` (the socket is τjs's HMR channel; do nothing more with it) or `f
 elsewhere). Whether the other consumer accepts a caller-supplied server to listen on, rather than
 insisting on the Fastify instance itself, is a property of that consumer - not something τjs
 can arrange on its behalf.
-
-If your other consumer is `@fastify/websocket` 11.3.0, see the
-[dedicated interoperability note](/guides/fastify-websocket-hmr/) for the exact shape and a
-measured cleanup workaround.

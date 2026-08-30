@@ -304,9 +304,7 @@ own host and token checks run exactly as they do for the attached transport, aft
 The same trusted-development-network requirement applies - see the note above.
 
 See also: [combining HMR with another upgrade consumer](/guides/hmr-cohabitation/) if your
-application already has a WebSocket consumer of its own, and the
-[`@fastify/websocket` interoperability note](/guides/fastify-websocket-hmr/) if that consumer is
-`@fastify/websocket` 11.3.0.
+application already has a WebSocket consumer of its own.
 
 ## Development Introspection
 
