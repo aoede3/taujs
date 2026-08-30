@@ -80,6 +80,10 @@ export default defineConfig({
             { label: "Static Assets", slug: "guides/static-assets" },
             { label: "Logging & Telemetry", slug: "guides/logging-telemetry" },
             {
+              label: "Supervisors & Gateways",
+              slug: "guides/supervisors-and-gateways",
+            },
+            {
               label: "Combining HMR with Another Consumer",
               slug: "guides/hmr-cohabitation",
             },
