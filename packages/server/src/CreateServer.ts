@@ -185,7 +185,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   const mounted = mountPrefix !== '';
 
   const ownershipMessage = callerOwnedHost
-    ? `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found, CSP and request identity remain yours. ${
+    ? `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found and request identity remain yours; CSP is yours on your responses and τjs's on the pages it renders. ${
         terminalWildcard
           ? "Terminal '/*' τjs page declared: it owns GET paths not claimed by a more-specific route within the τjs scope, including API-like and asset-like paths"
           : "No terminal '/*' τjs page declared: your routes and not-found policy own all remaining GET paths"

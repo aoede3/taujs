@@ -75,7 +75,7 @@ describe('ownership boot line - caller-owned host states the terminal wildcard (
     const [meta, message] = await ownershipRecord(configWith([ROOT_ROUTE]), { callerOwned: true });
 
     expect(message).toBe(
-      `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found, CSP and request identity remain yours. No terminal '/*' τjs page declared: your routes and not-found policy own all remaining GET paths`,
+      `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found and request identity remain yours; CSP is yours on your responses and τjs's on the pages it renders. No terminal '/*' τjs page declared: your routes and not-found policy own all remaining GET paths`,
     );
     expect(meta).toEqual({ component: 'ownership', callerOwnedHost: true, mounted: false, terminalWildcard: false });
   });
@@ -88,7 +88,7 @@ describe('ownership boot line - caller-owned host states the terminal wildcard (
     // imply otherwise; and the implicit created-host shell 404s asset-like misses while a
     // declared wildcard renders them, so the two must not read as equivalent.
     expect(message).toBe(
-      `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found, CSP and request identity remain yours. Terminal '/*' τjs page declared: it owns GET paths not claimed by a more-specific route within the τjs scope, including API-like and asset-like paths`,
+      `${CONTENT.TAG} [ownership] Fastify supplied by caller - τjs owns its declared routes in an encapsulated scope; host errors, not-found and request identity remain yours; CSP is yours on your responses and τjs's on the pages it renders. Terminal '/*' τjs page declared: it owns GET paths not claimed by a more-specific route within the τjs scope, including API-like and asset-like paths`,
     );
     expect(meta).toEqual({ component: 'ownership', callerOwnedHost: true, mounted: false, terminalWildcard: true });
   });
