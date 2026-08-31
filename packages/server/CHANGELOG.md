@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.31.0
+
+### Minor Changes
+
+- [#132](https://github.com/aoede3/taujs/pull/132) [`00e0109`](https://github.com/aoede3/taujs/commit/00e0109518cb3d21d2c43c9bafb050c9fa9cb201) Thanks [@aoede3](https://github.com/aoede3)! - Adds `defineRoutes` and `defineApp` to `@taujs/server/config` - const-preserving identity helpers for authoring route and app fragments outside `taujs.config.ts` while keeping the derived `RouteContext`/`RouteData` types exact.
+
 ## 0.30.1
 
 ### Patch Changes
