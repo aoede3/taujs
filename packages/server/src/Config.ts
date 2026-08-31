@@ -101,3 +101,20 @@ export function defineConfig<const C extends TaujsConfig>(config: C): C {
   if (!config.apps || config.apps.length === 0) throw new Error('At least one app must be configured');
   return config;
 }
+
+/**
+ * Const-preserving capture point for a route array authored outside `taujs.config.ts`. Identity
+ * at runtime; preserves the literal types that `RouteContext`/`RouteData` derive from. Fragments
+ * compose by spreading: `routes: [...authRoutes, ...catalogRoutes]`.
+ */
+export function defineRoutes<const R extends NonNullable<AppConfig['routes']>>(routes: R): R {
+  return routes;
+}
+
+/**
+ * Const-preserving capture point for a whole app configuration authored outside `taujs.config.ts`.
+ * Identity at runtime; preserves the literal types that `RouteContext`/`RouteData` derive from.
+ */
+export function defineApp<const A extends AppConfig>(app: A): A {
+  return app;
+}
