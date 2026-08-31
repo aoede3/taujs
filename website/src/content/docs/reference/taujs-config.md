@@ -13,13 +13,14 @@ Complete reference for configuring τjs applications.
 - Security policies (CSP, authentication)
 - Data loading patterns
 
-All configuration is validated at startup with helpful error messages.
+τjs validates key configuration invariants at startup and reports helpful errors for common mistakes.
 
 ## Basic Configuration
 
 ```typescript
 // taujs.config.ts
 import { defineConfig } from "@taujs/server/config";
+import { reactRenderer } from "@taujs/react/renderer";
 
 export default defineConfig({
   server: {
@@ -31,6 +32,7 @@ export default defineConfig({
     {
       appId: "web",
       entryPoint: "",
+      renderer: reactRenderer({ project: "./tsconfig.json" }),
       routes: [
         {
           path: "/",
@@ -80,6 +82,7 @@ type IntrospectionConfig = {
 type AppConfig = {
   appId: string;
   entryPoint: string;
+  renderer: TaujsRendererContribution;
   plugins?: PluginOption[];
   routes?: readonly { path: string; attr?: { render: "ssr" | "streaming"; /* ...see Route Attributes below */ } }[];
 };
@@ -405,6 +408,7 @@ apps: [
   {
     appId: "web",
     entryPoint: "", // canonical root layout: the app lives at the client root
+    renderer: reactRenderer({ project: "./tsconfig.json" }),
     routes: [
       /* ... */
     ],
@@ -415,6 +419,7 @@ apps: [
   {
     appId: "admin",
     entryPoint: "admin", // subordinate application directory and build namespace
+    renderer: reactRenderer({ project: "./tsconfig.json" }),
     routes: [
       /* ... */
     ],
@@ -428,6 +433,7 @@ apps: [
 | ------------ | ---------------- | -------- | ------------------------------ |
 | `appId`      | `string`         | Yes      | Unique identifier for this app |
 | `entryPoint` | `string`         | Yes      | `''` for the canonical root layout, or a directory under the client root |
+| `renderer`   | `TaujsRendererContribution` | Yes | The app's renderer - `reactRenderer()`, `vueRenderer()` or `solidRenderer()` |
 | `routes`     | readonly route definitions | No       | See [Route Configuration](#route-configuration) |
 | `plugins`    | `PluginOption[]` | No       | Vite plugins for this app      |
 
@@ -606,12 +612,14 @@ type TaujsViteContext =
 
 ```typescript
 // taujs.config.ts
+import { vueRenderer } from "@taujs/vue/renderer";
+
 export default defineConfig({
   vite: {
     define: { __APP_VERSION__: JSON.stringify(version) },
     plugins: [visualizer()],
   },
-  apps: [{ appId: "main", entryPoint: "", plugins: [pluginVue()] }],
+  apps: [{ appId: "main", entryPoint: "", renderer: vueRenderer() }],
 });
 ```
 
@@ -831,8 +839,8 @@ Routes define URL patterns, rendering strategies, and data requirements.
 | `render`     | `'ssr' \| 'streaming'`    | Required    | Rendering strategy  |
 | `hydrate`    | `boolean`                 | `true`      | Hydrate the client renderer |
 | `meta`       | `Record<string, unknown>` | `{}`        | Static metadata passed to `headContent` |
-| `middleware` | `Middleware`              | `undefined` | Auth and CSP        |
-| `data`       | `DataHandler`             | `undefined` | Data loader         |
+| `middleware` | auth and CSP config       | `undefined` | See [Authentication](#authentication) and [Security Configuration](#security-configuration) |
+| `data`       | data loader function      | `undefined` | See [Data Loading](#data-loading) |
 | `deferred`   | `DeferredDataAttributes`  | `undefined` | **`streaming` only.** A flat record of named route-owned loaders whose values may arrive after rendering begins. See [Deferred Route Data](#deferred-route-data) |
 | `head`       | `HeadAttributes`          | `undefined` | Dynamic head data loader: `{ data, timeoutMs?, optional? }`, resolved before the render starts on both strategies and passed to `headContent` as `headData`. `timeoutMs` must be positive finite (default 3000 ms); `optional: true` degrades loader failures to `headData: undefined` instead of failing the request |
 
@@ -990,8 +998,8 @@ subsequent byte ordering follows the renderer's native streaming semantics.
 }
 ```
 
-Entries are the ordinary `DataHandler` shape, `serviceData()` sugar included - there is no new
-helper and no wrapper. τjs starts each named loader exactly once per request, outside the component
+Entries use the same [route data loader](#data-loading) shape as `attr.data`, `serviceData()`
+sugar included - there is no new helper and no wrapper. τjs starts each named loader exactly once per request, outside the component
 tree and before the head resolves, and the selected renderer projects the named promise onto its own
 Suspense primitive. Because the work is declared, it appears in the request graph (contributing to a
 service's `usedBy`) and each entry records one outcome on the request episode.
@@ -1203,6 +1211,9 @@ security: {
 ### Single Page Application
 
 ```typescript
+import { defineConfig } from "@taujs/server/config";
+import { reactRenderer } from "@taujs/react/renderer";
+
 export default defineConfig({
   server: {
     port: 3000,
@@ -1211,6 +1222,7 @@ export default defineConfig({
     {
       appId: "web",
       entryPoint: "client",
+      renderer: reactRenderer({ project: "./tsconfig.json" }),
       routes: [
         {
           path: "/",
@@ -1231,6 +1243,9 @@ export default defineConfig({
 ### Multi-App Configuration
 
 ```typescript
+import { defineConfig } from "@taujs/server/config";
+import { reactRenderer } from "@taujs/react/renderer";
+
 export default defineConfig({
   server: {
     host: "localhost",
@@ -1240,6 +1255,7 @@ export default defineConfig({
     {
       appId: "customer",
       entryPoint: "app",
+      renderer: reactRenderer({ project: "./tsconfig.json" }),
       routes: [
         {
           path: "/app/*",
@@ -1254,6 +1270,7 @@ export default defineConfig({
     {
       appId: "admin",
       entryPoint: "admin",
+      renderer: reactRenderer({ project: "./tsconfig.json" }),
       routes: [
         {
           path: "/admin/*",
@@ -1492,6 +1509,7 @@ export default defineConfig({
     {
       appId: "web",
       entryPoint: "client",
+      renderer: reactRenderer({ project: "./tsconfig.json" }),
       routes: [
         /* ... */
       ],
