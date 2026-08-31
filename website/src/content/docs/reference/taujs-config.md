@@ -81,7 +81,7 @@ type AppConfig = {
   appId: string;
   entryPoint: string;
   plugins?: PluginOption[];
-  routes?: readonly { path: string; attr?: RouteAttributes }[];
+  routes?: readonly { path: string; attr?: { render: "ssr" | "streaming"; /* ...see Route Attributes below */ } }[];
 };
 ```
 
@@ -822,7 +822,7 @@ Routes define URL patterns, rendering strategies, and data requirements.
 | Property | Type              | Required | Description                  |
 | -------- | ----------------- | -------- | ---------------------------- |
 | `path`   | `string`          | Yes      | Fastify route path |
-| `attr`   | `RouteAttributes` | No       | Rendering and data config    |
+| `attr`   | route attribute config | No       | See [Route Attributes](#route-attributes) |
 
 ### Route Attributes
 
@@ -1322,7 +1322,113 @@ export default {
 };
 ```
 
-### 2. Use Service Descriptors
+### 2. Compose Route and App Fragments
+
+Routes do not have to live in `taujs.config.ts`. `defineRoutes` is a const-preserving identity
+helper: a domain or feature module builds its own route array, and composes at the root by
+spreading - the literal path and data types survive the module boundary exactly as if the routes
+had been declared inline.
+
+```typescript
+// authRoutes.ts
+import { defineRoutes } from "@taujs/server/config";
+
+export const authRoutes = defineRoutes([
+  { path: "/login", attr: { render: "ssr" } },
+  { path: "/register", attr: { render: "ssr" } },
+]);
+```
+
+```typescript
+// dashboardRoutes.ts
+import { defineRoutes } from "@taujs/server/config";
+
+export const dashboardRoutes = defineRoutes([
+  { path: "/dashboard", attr: { render: "streaming", meta: {} } },
+  { path: "/settings", attr: { render: "ssr" } },
+]);
+```
+
+```typescript
+// taujs.config.ts
+import { defineConfig } from "@taujs/server/config";
+import { reactRenderer } from "@taujs/react/renderer";
+import { authRoutes } from "./authRoutes";
+import { dashboardRoutes } from "./dashboardRoutes";
+
+export default defineConfig({
+  apps: [
+    {
+      appId: "web",
+      entryPoint: "client",
+      renderer: reactRenderer({ project: "./tsconfig.json" }),
+      routes: [...authRoutes, ...dashboardRoutes],
+    },
+  ],
+});
+```
+
+`defineRoutes` is the common form - most applications compose within one app. Reach for
+`defineApp` only where a domain genuinely owns a whole application boundary: its own renderer,
+its own client and SSR build.
+
+```typescript
+// adminApp.ts
+import { defineApp } from "@taujs/server/config";
+import { reactRenderer } from "@taujs/react/renderer";
+
+export const adminApp = defineApp({
+  appId: "admin",
+  entryPoint: "admin",
+  renderer: reactRenderer({ project: "./tsconfig.json" }),
+  routes: [{ path: "/admin/*", attr: { render: "ssr" } }],
+});
+```
+
+```typescript
+// taujs.config.ts
+import { defineConfig } from "@taujs/server/config";
+import { adminApp } from "./adminApp";
+import { webApp } from "./webApp";
+
+export default defineConfig({
+  apps: [webApp, adminApp],
+});
+```
+
+Both helpers are identity at runtime - neither validates anything. Their entire job is to be the
+point where a fragment's literal types are captured, so `RouteContext` and `RouteData` stay exact
+wherever the fragment is authored. Only use them at a fragment's module boundary: wrapping routes
+that are already declared inline inside `defineConfig` is redundant ceremony.
+
+**A plain variable typed with a broad annotation before it reaches either helper still loses
+precision - the composition still compiles, silently.** Neither helper can reconstruct precision
+an upstream declaration already erased. One line pins the exact path union a fragment author
+expects, so a regression fails to compile instead of degrading silently:
+
+```typescript
+// selfCheck.ts
+import type { RouteContext } from "@taujs/server/config";
+import config from "./taujs.config";
+
+type Eq<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type Expect<T extends true> = T;
+
+type _RoutesStayExact = Expect<Eq<RouteContext<typeof config>["path"], "/login" | "/register" | "/dashboard" | "/settings">>;
+```
+
+If any fragment's routes widen - a variable annotated with a broad type upstream, a missed
+spread, a stray `satisfies AppConfig` on a mutable object - this assertion fails to compile,
+naming exactly what changed.
+
+**Composition is organisational, not runtime isolation.** Splitting configuration into fragments
+is about which team owns which routes, reviewed and versioned wherever that team's code lives. It
+does not create a second dev server, a second Fastify scope or a second service registry - one
+τjs installation still runs exactly one of each, however many modules the configuration is
+authored across. See [τjs Architecture](/guides/architecture#the-ownership-layers) for the full
+ownership boundary.
+
+### 3. Use Service Descriptors
 
 ```typescript
 // testable, reusable
@@ -1339,7 +1445,7 @@ data: async (params) => {
 };
 ```
 
-### 3. Provide Complete Meta for Streaming
+### 4. Provide Complete Meta for Streaming
 
 ```typescript
 // reliable SEO
@@ -1356,7 +1462,7 @@ data: async (params) => {
 }
 ```
 
-### 4. Use Structured Logging
+### 5. Use Structured Logging
 
 ```typescript
 data: async (params, ctx) => {
