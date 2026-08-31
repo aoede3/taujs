@@ -1,5 +1,13 @@
 # @taujs/react
 
+## 0.9.0
+
+### Minor Changes
+
+- [#134](https://github.com/aoede3/taujs/pull/134) [`fe2d70a`](https://github.com/aoede3/taujs/commit/fe2d70a4c6c2fed84f5ced90417c3d1d7172d0c6) Thanks [@aoede3](https://github.com/aoede3)! - Raise the TypeScript peer floor to `^5.6.2`.
+
+  `@vitejs/plugin-react` 5.2's published declarations require TypeScript 5.6 or later to parse; a consumer on TypeScript 5.5.x that reaches the `/renderer` or `/plugin` entry could not typecheck. The declared floor now matches the measured minimum, so the peer range no longer advertises a combination that fails to compile.
+
 ## 0.8.2
 
 ### Patch Changes
