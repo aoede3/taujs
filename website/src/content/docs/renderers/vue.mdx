@@ -67,7 +67,7 @@ npm install @taujs/vue vue @vue/server-renderer
 ```
 
 <Aside type="caution" title="Peer version rule">
-`@vue/server-renderer` must be installed at the **same version** as `vue`. A version skew between the two is unsupported and produces subtle SSR/hydration failures. `@vitejs/plugin-vue` is required only when you consume `@taujs/vue/plugin`.
+`@vue/server-renderer` must be installed at the **same version** as `vue`. A version skew between the two is unsupported and produces subtle SSR/hydration failures. Vite, TypeScript and `@vitejs/plugin-vue` are optional for the root `@taujs/vue` runtime entry, but required when you consume `@taujs/vue/renderer` or `@taujs/vue/plugin` - the renderer's option types are derived from the plugin's own declarations.
 </Aside>
 
 Recommended dependency ranges:
@@ -80,7 +80,9 @@ Recommended dependency ranges:
     "vue": "^3.5.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^6.0.0"
+    "@vitejs/plugin-vue": "^6.0.3",
+    "typescript": "^5.6.2",
+    "vite": "^8.2.1"
   }
 }
 ```
