@@ -41,7 +41,8 @@ const catalogueFor = (root: string): { entries: ContractCatalogueEntry[]; unavai
       // An owner that simply is not installed is unremarkable in the CATALOGUE (most projects
       // install one renderer); an installed owner whose contracts are missing or unservable is
       // worth a line. Exact-id retrieval reports owner_not_installed through its own path.
-      if (resolved.reason !== 'owner_not_installed') unavailable.push({ owner, reason: resolved.reason, ...(resolved.detail ? { detail: resolved.detail } : {}) });
+      if (resolved.reason !== 'owner_not_installed')
+        unavailable.push({ owner, reason: resolved.reason, ...(resolved.detail ? { detail: resolved.detail } : {}) });
       continue;
     }
     for (const entry of resolved.entries)
@@ -61,8 +62,7 @@ export const contractTools = (root: string): ToolDefinition[] => [
   defineTool({
     name: 'taujs_find_contract',
     title: 'Find a τjs contract',
-    description:
-      `Version-locked contract lookup from the installed τjs packages. Without an id: a bounded catalogue of available contracts. With an exact id: that contract's body and citation, served only when the installed owner version is coherent with the emitted graph. No topic search - retrieval requires the exact id from the catalogue. ${UNTRUSTED_NOTE}`,
+    description: `Version-locked contract lookup from the installed τjs packages. Without an id: a bounded catalogue of available contracts. With an exact id: that contract's body and citation, served only when the installed owner version is coherent with the emitted graph. No topic search - retrieval requires the exact id from the catalogue. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({
       id: z.string().max(200).optional().describe('Exact contract id from the catalogue, e.g. "server:render-strategies"'),
     }),
@@ -130,7 +130,14 @@ export const contractTools = (root: string): ToolDefinition[] => [
 
       return {
         ok: true,
-        contract: { id: resolution.id, title: resolution.title, owner, ownerVersion: resolution.version, body: resolution.body, truncated: resolution.truncated },
+        contract: {
+          id: resolution.id,
+          title: resolution.title,
+          owner,
+          ownerVersion: resolution.version,
+          body: resolution.body,
+          truncated: resolution.truncated,
+        },
         citation: { contractId: resolution.id, owner, ownerVersion: resolution.version },
         provenance: {
           resolvedFrom: `node_modules/${owner}/contracts/`,
@@ -147,7 +154,10 @@ export const contractTools = (root: string): ToolDefinition[] => [
 // resolver fully serves the contract (owner, manifest, entry AND document) and the graph's
 // emitter version agrees with the installed package. A citation can never point at a document
 // retrieval could not serve; failed resolution removes only the citation, never a graph fact.
-export const renderStrategyCitation = (root: string, graphServer: string | undefined): { contractId: string; owner: ContractOwner; ownerVersion: string } | undefined => {
+export const renderStrategyCitation = (
+  root: string,
+  graphServer: string | undefined,
+): { contractId: string; owner: ContractOwner; ownerVersion: string } | undefined => {
   if (graphServer === undefined) return undefined;
   const resolution = resolveExactContract(root, '@taujs/server', 'server:render-strategies');
   if (!resolution.ok || resolution.version !== graphServer) return undefined;

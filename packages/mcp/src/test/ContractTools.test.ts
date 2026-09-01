@@ -118,7 +118,7 @@ describe('taujs_find_contract - catalogue and exact-id retrieval', () => {
     const root = await mkFixture();
     const result = call(root, 'taujs_find_contract', { id: 'server:render-strategies' });
     expect(result.ok).toBe(true);
-    expect(result.contract.body).toContain("client-only navigation exists by omission");
+    expect(result.contract.body).toContain('client-only navigation exists by omission');
     expect(result.contract.truncated).toBe(false);
     expect(result.citation).toEqual({ contractId: 'server:render-strategies', owner: '@taujs/server', ownerVersion: '1.2.3' });
     expect(result.provenance.graphServerVersion).toBe('1.2.3');

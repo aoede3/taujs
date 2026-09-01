@@ -143,7 +143,13 @@ export const resolveOwner = (root: string, owner: ContractOwner): OwnerResolutio
     return { ok: false, owner, reason: 'manifest_identity_mismatch', detail: capDetail(`contract id "${malformedId.id}" is not owner-scoped kebab form`) };
   const prefix = ownerIdPrefix(owner);
   const badId = parsed.contracts.find((c) => !c.id.startsWith(prefix));
-  if (badId) return { ok: false, owner, reason: 'manifest_identity_mismatch', detail: capDetail(`contract id "${badId.id}" does not carry the owner prefix "${prefix}"`) };
+  if (badId)
+    return {
+      ok: false,
+      owner,
+      reason: 'manifest_identity_mismatch',
+      detail: capDetail(`contract id "${badId.id}" does not carry the owner prefix "${prefix}"`),
+    };
   if (new Set(parsed.contracts.map((c) => c.id)).size !== parsed.contracts.length)
     return { ok: false, owner, reason: 'manifest_identity_mismatch', detail: 'duplicate contract ids in the manifest' };
 

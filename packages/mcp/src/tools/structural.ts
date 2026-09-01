@@ -337,7 +337,11 @@ export const structuralTools = (root: string): ToolDefinition[] => [
               id: route.id,
               path: route.path,
               appId: route.appId,
-              render: { ...route.render, note: route.render.defaulted ? 'render was not declared; runtime default ssr applies' : undefined, ...(citation ? { contract: citation } : {}) },
+              render: {
+                ...route.render,
+                note: route.render.defaulted ? 'render was not declared; runtime default ssr applies' : undefined,
+                ...(citation ? { contract: citation } : {}),
+              },
               hydrate: route.hydrate,
               specificity: route.specificity,
               middleware: route.middleware,
