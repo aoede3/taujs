@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.31.1
+
+### Patch Changes
+
+- [#137](https://github.com/aoede3/taujs/pull/137) [`1f81db7`](https://github.com/aoede3/taujs/commit/1f81db710c9fc7112f5f7e386a7797675d131f8a) Thanks [@aoede3](https://github.com/aoede3)! - Hydration beacon amendments now reach the on-disk episode mirror promptly. A beacon virtually always amends an episode that has already finalised, and the amendment did not advance the episode revision the file emitter polls, so `episodes.ndjson` kept `client: null` for that episode until an unrelated later episode finalised or the server closed. `clientHydration` now advances the revision when it amends a finalised episode, matching the existing late-deferred-outcome behaviour, so the hydration outcome appears through the ordinary bounded rewrite.
+
 ## 0.31.0
 
 ### Minor Changes
