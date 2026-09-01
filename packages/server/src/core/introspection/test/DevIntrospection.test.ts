@@ -1,8 +1,14 @@
 // @vitest-environment node
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import fastify from 'fastify';
 import { describe, it, expect, vi } from 'vitest';
 
 import { defineService, defineServiceRegistry, callServiceMethod } from '../../services/DataServices';
 import { createDevIntrospection } from '../DevIntrospection';
+import { registerDevFiles } from '../DevFiles';
 import { createSafeRecorder, noopEpisodeRecorder } from '../EpisodeRecorder';
 
 import type { EpisodeRecorder } from '../EpisodeRecorder';
@@ -142,6 +148,73 @@ describe('clientHydration beacon application', () => {
     dev.recorder.clientHydration({ requestId: 'gone', ok: true });
 
     expect(dev.getEpisodes()).toHaveLength(0);
+  });
+
+  it('a beacon amending a FINALISED episode marks it DIRTY: episodesRevision advances without a new episode', () => {
+    const dev = createDevIntrospection();
+    start(dev);
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
+    const afterFinalize = dev.stats();
+
+    // Beacons virtually always arrive after the response finalised the episode; without a
+    // revision bump the file mirror never rewrites, so the on-disk episode reads client: null
+    // until an unrelated later episode finalises or the server closes.
+    dev.recorder.clientHydration({ requestId: T, ok: false, ms: 18, error: 'boom' });
+    const afterBeacon = dev.stats();
+
+    expect(afterBeacon.episodes).toBe(afterFinalize.episodes);
+    expect(afterBeacon.episodesRevision).toBe(afterFinalize.episodesRevision + 1);
+  });
+
+  it('an ignored beacon (duplicate or unknown) does not advance episodesRevision', () => {
+    const dev = createDevIntrospection();
+    start(dev);
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
+    dev.recorder.clientHydration({ requestId: T, ok: true, ms: 5 });
+    const applied = dev.stats();
+
+    dev.recorder.clientHydration({ requestId: T, ok: false, error: 'late duplicate' });
+    dev.recorder.clientHydration({ requestId: 'gone', ok: true });
+
+    expect(dev.stats().episodesRevision).toBe(applied.episodesRevision);
+  });
+
+  it('a late beacon amendment reaches the on-disk episodes.ndjson through the ordinary bounded rewrite', async () => {
+    const mkLogger = (): any => {
+      const l: any = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), isDebugEnabled: () => false };
+      l.child = () => l;
+      return l;
+    };
+    const dir = await mkdtemp(path.join(tmpdir(), 'taujs-beacon-'));
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    try {
+      const dev = createDevIntrospection();
+      const app = fastify();
+      registerDevFiles(app, dev, mkLogger());
+
+      dev.recorder.requestStart({ requestId: 'beacon-disk', url: '/', method: 'GET' });
+      dev.recorder.sent({ requestId: 'beacon-disk', status: 200, mode: 'ssr' });
+
+      await app.listen({ port: 0, host: '127.0.0.1' });
+
+      const episodesPath = path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson');
+      await vi.waitFor(async () => {
+        await stat(episodesPath);
+        expect(await readFile(episodesPath, 'utf8')).toContain('beacon-disk');
+      });
+      expect(await readFile(episodesPath, 'utf8')).toContain('"client":null');
+
+      // The beacon arrives AFTER the episode was finalised and persisted - the ordinary case.
+      dev.recorder.clientHydration({ requestId: 'beacon-disk', ok: false, ms: 18, error: 'boom' });
+
+      await vi.waitFor(async () => {
+        expect(await readFile(episodesPath, 'utf8')).toContain('"client":{"hydrated":false,"hydrationMs":18,"error":"boom"}');
+      });
+
+      await app.close();
+    } finally {
+      cwdSpy.mockRestore();
+    }
   });
 });
 
