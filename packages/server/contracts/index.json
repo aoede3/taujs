@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "owner": "@taujs/server",
+  "contracts": [
+    {
+      "id": "server:render-strategies",
+      "title": "Render strategies and the default",
+      "doc": "render-strategies.md",
+      "appliesTo": ["route attr.render", "render.defaulted", "streaming.missing_meta"],
+      "related": []
+    }
+  ]
+}

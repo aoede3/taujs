@@ -349,6 +349,7 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
               expect(tools.tools.map((t) => t.name).sort()).toEqual([
                 'taujs_doctor',
                 'taujs_explain_route',
+                'taujs_find_contract',
                 'taujs_get_episode',
                 'taujs_get_episode_logs',
                 'taujs_get_recent_episodes',

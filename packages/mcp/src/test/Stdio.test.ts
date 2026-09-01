@@ -33,6 +33,7 @@ const BIN = path.resolve(__dirname, '../../dist/bin.js');
 const TOOL_NAMES = [
   'taujs_doctor',
   'taujs_explain_route',
+  'taujs_find_contract',
   'taujs_get_episode',
   'taujs_get_episode_logs',
   'taujs_get_recent_episodes',

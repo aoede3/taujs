@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { NO_ACTIVE_BOOT_REFUSAL, STALE_REASON_MESSAGE, discoverSubstrate, readGraph, readLogs, readEpisodes } from '../SubstrateReader';
 import { UNTRUSTED_NOTE, bounded, defineTool } from '../toolkit';
+import { renderStrategyCitation } from './contracts';
 
 import type { SubstrateDiscovery } from '../SubstrateReader';
 import type { ToolDefinition, ToolResult } from '../toolkit';
@@ -283,7 +284,18 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
           ...graph.fallthrough,
           note: graph.fallthrough.reachable ? undefined : 'A wildcard route makes fallthrough unreachable.',
         },
-        defaultedRenders: { source: 'declared', routeIds: defaultedRenders },
+        defaultedRenders: {
+          source: 'declared',
+          routeIds: defaultedRenders,
+          // Contract-backed enrichment only (RFC 0015 Phase B): absent on older or mismatched
+          // installations, while the routeIds fact keeps flowing.
+          ...((): Record<string, unknown> => {
+            // Optional-chained: enrichment must never fail a doctor that previously answered,
+            // even against a substrate whose graph lacks the emitter block.
+            const citation = renderStrategyCitation(root, graph.taujs?.server);
+            return citation ? { contract: citation } : {};
+          })(),
+        },
         // Two explicit branches, built where the fact is known. It used to be assembled by probing
         // the value's shape (`'items' in ...`) under a hard-coded `source: 'observed'`, which
         // produced an object announcing itself as OBSERVED while carrying `unavailable` inside it.

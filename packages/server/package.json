@@ -46,7 +46,8 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "contracts"
   ],
   "dependencies": {
     "@fastify/static": "^9.1.3",
