@@ -276,9 +276,15 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
 
     clientHydration(e) {
       // One beacon per requestId; late beacons for evicted episodes drop silently.
+      // Beacons virtually always amend a FINALISED episode (the response completes before the
+      // browser hydrates), so the amendment must bump `episodesRevision` - the deferredData
+      // idiom - or the on-disk NDJSON keeps client: null until an unrelated later episode
+      // finalises or the server closes.
+      const finalised = pending.get(e.requestId) === undefined;
       const episode = pending.get(e.requestId) ?? episodes.find((t) => t.requestId === e.requestId);
       if (!episode || episode.client) return;
       episode.client = { hydrated: e.ok, hydrationMs: e.ms ?? null, error: e.error ? cap(e.error, MESSAGE_CAP) : null };
+      if (finalised) episodesRevision += 1;
     },
   };
 
