@@ -2,12 +2,13 @@ import { McpServer } from '@modelcontextprotocol/server';
 
 import pkg from '../package.json';
 import { skills } from './skills';
+import { contractTools } from './tools/contracts';
 import { runtimeTools } from './tools/runtime';
 import { structuralTools } from './tools/structural';
 
 import type { ToolDefinition, ToolResult } from './toolkit';
 
-export const allTools = (root: string): ToolDefinition[] => [...structuralTools(root), ...runtimeTools(root)];
+export const allTools = (root: string): ToolDefinition[] => [...structuralTools(root), ...runtimeTools(root), ...contractTools(root)];
 
 // Tool results are JSON text content: agents parse structure, humans read it too. The same
 // `result` object backs both content shapes - structuredContent and the text block never drift.

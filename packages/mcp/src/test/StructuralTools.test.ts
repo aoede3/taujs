@@ -505,6 +505,7 @@ describe('MCP server end-to-end (InMemory transport)', () => {
     expect(tools.tools.map((t) => t.name).sort()).toEqual([
       'taujs_doctor',
       'taujs_explain_route',
+      'taujs_find_contract',
       'taujs_get_episode',
       'taujs_get_episode_logs',
       'taujs_get_recent_episodes',

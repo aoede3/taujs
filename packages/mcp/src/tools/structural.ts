@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { NO_ACTIVE_BOOT_REFUSAL, readObservations } from '../SubstrateReader';
 import { UNTRUSTED_NOTE, bounded, defineTool, withGraph } from '../toolkit';
+import { renderStrategyCitation } from './contracts';
 
 import type { GraphContext, ToolDefinition, ToolResult } from '../toolkit';
 import type { GraphRoute, GraphRouteData } from '../types';
@@ -310,6 +311,10 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         const matches = selection.routes;
         if (matches.length === 0) return routeMiss(ctx);
 
+        // Contract-backed enrichment only (RFC 0015 Phase B): absent on older or mismatched
+        // installations, while every existing fact keeps flowing.
+        const citation = renderStrategyCitation(root, ctx.graph.taujs?.server);
+
         return {
           ok: true,
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
@@ -332,7 +337,11 @@ export const structuralTools = (root: string): ToolDefinition[] => [
               id: route.id,
               path: route.path,
               appId: route.appId,
-              render: { ...route.render, note: route.render.defaulted ? 'render was not declared; runtime default ssr applies' : undefined },
+              render: {
+                ...route.render,
+                note: route.render.defaulted ? 'render was not declared; runtime default ssr applies' : undefined,
+                ...(citation ? { contract: citation } : {}),
+              },
               hydrate: route.hydrate,
               specificity: route.specificity,
               middleware: route.middleware,
