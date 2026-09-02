@@ -1,4 +1,5 @@
 import { createLogger, type Logger } from './Logger';
+import { redactDeniedKeys } from './Redaction';
 
 import type { FastifyRequest } from 'fastify';
 import type { BaseLogger, DebugConfig, LogLevel } from '../core/logging/types';
@@ -27,7 +28,9 @@ type RuntimeLoggerOptions = {
  * structured metadata.
  */
 export const createRuntimeLogger = (selection: RuntimeLoggerSelection, options: RuntimeLoggerOptions = {}): Logger => {
-  const customChild = options.context ? selection.custom?.child?.(options.context) : undefined;
+  // Same rule as Logger.child(): the external child seam retains its bindings, so they are
+  // redacted before the sink ever sees them - this path does not go through Logger.child().
+  const customChild = options.context ? selection.custom?.child?.(redactDeniedKeys(options.context) as Record<string, unknown>) : undefined;
 
   return createLogger({
     debug: selection.debug,
