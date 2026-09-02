@@ -233,7 +233,6 @@ export async function callServiceMethod(
     const ms = +(now() - t0).toFixed(1);
     logger.error(
       {
-        params,
         error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
         ms,
       },

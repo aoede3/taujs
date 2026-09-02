@@ -266,6 +266,38 @@ describe('callServiceMethod', () => {
       details: { err: 'weird' },
     });
   });
+
+  it('failure log carries no params property and no application values, only error + ms', async () => {
+    const S = await importModule();
+    const registry = {
+      s: {
+        m: async () => {
+          throw new Error('handler blew up');
+        },
+      },
+    } as any;
+
+    await expect(
+      S.callServiceMethod(registry, 's', 'm', { creditCard: '4111-1111-1111-1111', password: 'hunter2' }, { logger: makeLogger() as any }),
+    ).rejects.toBeTruthy();
+
+    expect(hoisted.errorMock).toHaveBeenCalledTimes(1);
+    const [meta, msg] = (hoisted.errorMock as any).mock.calls[0];
+    expect(Object.prototype.hasOwnProperty.call(meta, 'params')).toBe(false);
+    expect(meta).toEqual({ error: { name: 'Error', message: 'handler blew up', stack: expect.any(String) }, ms: expect.any(Number) });
+    expect(msg).toBe('Service method failed');
+    expect(JSON.stringify(meta)).not.toContain('4111-1111-1111-1111');
+    expect(JSON.stringify(meta)).not.toContain('hunter2');
+  });
+
+  it('success log carries only ms, unchanged by the failure-path redaction', async () => {
+    const S = await importModule();
+    const registry = { s: { m: async () => ({ ok: true }) } } as any;
+
+    await S.callServiceMethod(registry, 's', 'm', { anything: 'here' }, { logger: makeLogger() as any });
+
+    expect(hoisted.debugMock).toHaveBeenCalledWith({ ms: expect.any(Number) }, 'Service method ok');
+  });
 });
 
 describe('withDeadline', () => {

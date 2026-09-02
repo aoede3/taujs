@@ -317,9 +317,10 @@ It records duration and success or failure in the development request episode.
 - a deferred service failure becomes that entry's detail-free `failed` outcome after the shell may
   have committed
 
-Current failure records include the service parameter object and error details. Do not put passwords,
-session tokens or other secrets into service parameters. Configure redaction on the selected Fastify,
-Pino or custom logger for sensitive application fields. See
+Failure records carry the service, method, duration and error details - never the parameter object.
+Logger metadata additionally passes through τjs's fixed sensitive-key redaction before any sink sees
+it. That denylist is key-based and deliberately not exhaustive, so still configure redaction on the
+selected Fastify, Pino or custom logger for application-specific sensitive fields. See
 [Logging & Telemetry](/guides/logging-telemetry/#sensitive-data).
 
 ## Testing

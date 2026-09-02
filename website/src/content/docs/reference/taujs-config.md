@@ -351,7 +351,12 @@ warning naming this field, so a proxied topology fails visibly rather than silen
 ### `introspection.redaction`
 
 What τjs withholds from the development introspection record written under
-`node_modules/.taujs/` and served to the overlay. Redaction here is **structural**: τjs never
+`node_modules/.taujs/` and served to the overlay. Customisation here (`denyKeys`,
+`replaceDefaultDenyKeys`) affects **only this development annex**: the ordinary runtime
+logger applies the same default denylist to all metadata as a fixed policy - it is not
+configurable and does not pick up extensions made here (see
+[Logging & Telemetry](/guides/logging-telemetry/#sensitive-data)). Redaction here is
+**structural**: τjs never
 scans values looking for things that resemble secrets, and each rule acts on the one record
 type that carries the data it filters. Episodes get URL hygiene; the log annex gets
 metadata-key dropping; observations (service edges) are structural records - service and

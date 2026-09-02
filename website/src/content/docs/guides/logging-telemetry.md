@@ -332,12 +332,25 @@ Use both where they add value:
 τjs does not put route-data payloads, renderer stores, service return values, request bodies or full
 request headers into its normal lifecycle records.
 
-There is one important current behaviour: a failed service call logs its parameter object alongside
-error details. Treat service parameters as loggable identifiers and options, not a place for passwords,
-session tokens or raw credentials. Configure redaction on Fastify, Pino or the explicit sink for
-application-specific sensitive fields.
+Failed service calls do not log their parameter object. A failure record carries the service, method,
+duration and error details; parameter values never enter it.
 
-Application records can disclose anything explicitly passed to them:
+All logger metadata additionally passes through a fixed redaction step before any sink - custom or
+console - sees it, and the bindings handed to a custom logger's `child()` seam are redacted the same
+way. The policy is structural and identical in development and production:
+
+- a key name matching the denylist (`password`, `token`, `secret`, `ssn`, `auth`, `cookie`,
+  `session`, `key`) by case-insensitive substring is dropped with its entire subtree;
+- redaction fails closed: a property that cannot be read safely becomes an `[unreadable]` marker, an
+  object that defeats inspection becomes `[unredactable]`, and generous depth, node and array budgets
+  replace whatever lies beyond them with `[truncated]` - metadata is never passed through unredacted;
+- messages and error-message strings are **not** scanned: redaction acts on metadata key names, never
+  on text.
+
+The denylist is deliberately conservative and not exhaustive - it cannot know application-specific
+field names. Sink-level redaction on Fastify, Pino or the explicit sink remains advisable for those.
+
+Application records can still disclose sensitive values whose key names do not match the denylist:
 
 ```ts
 // suitable
@@ -346,7 +359,8 @@ ctx.logger.info(
   "Password reset requested",
 );
 
-// unsafe
+// unsafe: `email` matches no denylist entry and is logged verbatim
+// (`password` and `token` keys are dropped, but do not rely on naming alone)
 ctx.logger.info(
   { email: input.email, password: input.password, token: sessionToken },
   "Login attempt",
