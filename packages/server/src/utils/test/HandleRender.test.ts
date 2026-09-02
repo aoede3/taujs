@@ -9,6 +9,7 @@ import * as System from '../../System';
 
 import * as Templates from '../Templates';
 import * as Telemetry from '../Telemetry';
+import * as CoreTelemetry from '../../core/telemetry/Telemetry';
 import { handleRender } from '../HandleRender';
 import { createLogger } from '../../logging/Logger';
 import { testRenderer, brandedRenderModule } from '../../test/support/renderer';
@@ -20,6 +21,11 @@ vi.mock('../../core/routes/DataRoutes');
 vi.mock('../../System');
 vi.mock('../Templates');
 vi.mock('../Telemetry');
+// The request-budget deadline is captured against this module's `now()`. Mocked (like the other
+// modules above) so the request-budget admission-timing cell can control it directly; every other
+// test gets the REAL clock back via the default `mockImplementation` set in the main beforeEach
+// below, so `ms` measurements elsewhere in this file are unaffected.
+vi.mock('../../core/telemetry/Telemetry');
 
 vi.mock('../../core/errors/AppError', async () => {
   const actual = await vi.importActual<any>('../../core/errors/AppError');
@@ -190,6 +196,11 @@ describe('handleRender', () => {
     vi.mocked(Templates.applyViteTransform).mockImplementation(actualTemplates.applyViteTransform);
     // Use the REAL attribute-escape so the SSR bootstrap-tag sink is exercised end-to-end (R2-02 SEC2).
     vi.mocked(Templates.escapeHtmlAttribute).mockImplementation(actualTemplates.escapeHtmlAttribute);
+
+    // Default: the REAL monotonic clock, so every `ms` measurement elsewhere in this file is
+    // unaffected. Only the request-budget admission-timing describe block below overrides this.
+    const actualCoreTelemetry = await vi.importActual<typeof import('../../core/telemetry/Telemetry')>('../../core/telemetry/Telemetry');
+    vi.mocked(CoreTelemetry.now).mockImplementation(actualCoreTelemetry.now);
   });
 
   afterEach(() => {
@@ -3300,6 +3311,339 @@ describe('handleRender', () => {
       await p;
 
       expect(renderStream).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('server.requestBudgetMs admission (ctx.budget)', () => {
+    const stubTemplate = () => {
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      } as any);
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html>full</html>');
+    };
+
+    it('ssr: ctx.budget exists when requestBudgetMs is configured', async () => {
+      (globalThis as any).AbortController = OriginalAbortController;
+      stubTemplate();
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr' });
+      mockMaps.renderModules.set('/test/client', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) });
+
+      let loaderCtx: any;
+      vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+        loaderCtx = ctx;
+        return {};
+      });
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { requestBudgetMs: 5_000 });
+
+      expect(loaderCtx?.budget).toBeDefined();
+      expect(typeof loaderCtx.budget.remaining).toBe('function');
+      expect(loaderCtx.budget.remaining()).toBeGreaterThan(0);
+    });
+
+    it('ssr: ctx.budget is absent when requestBudgetMs is not configured', async () => {
+      (globalThis as any).AbortController = OriginalAbortController;
+      stubTemplate();
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr' });
+      mockMaps.renderModules.set('/test/client', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) });
+
+      let loaderCtx: any;
+      vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+        loaderCtx = ctx;
+        return {};
+      });
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(loaderCtx?.budget).toBeUndefined();
+    });
+
+    it('streaming: ctx.budget exists when requestBudgetMs is configured', async () => {
+      (globalThis as any).AbortController = OriginalAbortController;
+      stubTemplate();
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+
+      let loaderCtx: any;
+      vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+        loaderCtx = ctx;
+        return { ok: true };
+      });
+
+      const mockRenderStream = vi.fn((writable: any, callbacks: any, initialData: any) => {
+        void (initialData as () => Promise<unknown>)();
+        callbacks.onHead?.('<title>Stream</title>');
+        writable.end();
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+      await collectDocument(
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { requestBudgetMs: 5_000 }),
+      );
+
+      expect(loaderCtx?.budget).toBeDefined();
+      expect(loaderCtx.budget.remaining()).toBeGreaterThan(0);
+    });
+
+    it('streaming: ctx.budget is absent when requestBudgetMs is not configured', async () => {
+      (globalThis as any).AbortController = OriginalAbortController;
+      stubTemplate();
+      mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+
+      let loaderCtx: any;
+      vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+        loaderCtx = ctx;
+        return { ok: true };
+      });
+
+      const mockRenderStream = vi.fn((writable: any, callbacks: any, initialData: any) => {
+        void (initialData as () => Promise<unknown>)();
+        callbacks.onHead?.('<title>Stream</title>');
+        writable.end();
+        return { abort: vi.fn(), done: Promise.resolve() };
+      });
+      mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+      await collectDocument(await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps));
+
+      expect(loaderCtx?.budget).toBeUndefined();
+    });
+
+    // These cells exercise the REAL dev-module-loading branch (`isDevelopment && viteDevServer`)
+    // rather than counting `now()` calls in the abstract: `ssrLoadModule` is where genuine
+    // pre-arm work (loading the entry module) happens, and it is the mock that advances the
+    // clock, deterministically and unambiguously BETWEEN handleRender's entry (where the deadline
+    // is captured) and the arm's `ctx.budget` construction (which happens after this branch).
+    describe('deadline captured once at entry (not re-derived after pre-arm work)', () => {
+      it('ssr: pre-arm dev-module-loading work leaves the first service call only the remainder, never a fresh allowance', async () => {
+        (globalThis as any).AbortController = OriginalAbortController;
+        vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+        (mockReq as any).cspNonce = '';
+
+        const mockRoute = createMockRouteMatch({ render: 'ssr' });
+        mockSelectedRoute = mockRoute;
+        vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body></body></html>');
+        vi.mocked(Templates.processTemplate).mockReturnValue({
+          beforeHead: '<html><head>',
+          afterHead: '</head>',
+          beforeBody: '<body>',
+          afterBody: '</body></html>',
+        });
+        vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html/>');
+        vi.mocked(Templates.collectStyle).mockResolvedValue('');
+
+        let t = 0;
+        vi.mocked(CoreTelemetry.now).mockImplementation(() => t);
+
+        mockViteDevServer.ssrLoadModule.mockImplementation(async () => {
+          // The genuine pre-arm work: loading the entry module. This is what the fix must bind
+          // the already-captured deadline THROUGH, rather than re-deriving a fresh allowance once
+          // it resolves.
+          t += 90;
+          return brandedRenderModule('test', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) });
+        });
+        mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head></head><body></body></html>');
+
+        let loaderCtx: any;
+        vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+          loaderCtx = ctx;
+          return {};
+        });
+
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+          viteDevServer: mockViteDevServer,
+          requestBudgetMs: 100,
+        });
+
+        // Deadline = 0 (the clock reading AT ENTRY, before ssrLoadModule ran) + 100 = 100. By the
+        // time the arm constructs the budget and the service call reads remaining(), the 90ms
+        // spent inside ssrLoadModule has already elapsed - 10ms left, never a fresh 100ms.
+        expect(loaderCtx.budget.deadline).toBe(100);
+        expect(loaderCtx.budget.remaining()).toBe(10);
+      });
+
+      it('ssr: pre-arm dev-module-loading work that already exceeds the budget leaves the first service call refusing immediately', async () => {
+        (globalThis as any).AbortController = OriginalAbortController;
+        vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+        (mockReq as any).cspNonce = '';
+
+        const mockRoute = createMockRouteMatch({ render: 'ssr' });
+        mockSelectedRoute = mockRoute;
+        vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body></body></html>');
+        vi.mocked(Templates.processTemplate).mockReturnValue({
+          beforeHead: '<html><head>',
+          afterHead: '</head>',
+          beforeBody: '<body>',
+          afterBody: '</body></html>',
+        });
+        vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html/>');
+        vi.mocked(Templates.collectStyle).mockResolvedValue('');
+
+        let t = 0;
+        vi.mocked(CoreTelemetry.now).mockImplementation(() => t);
+
+        mockViteDevServer.ssrLoadModule.mockImplementation(async () => {
+          // 250ms of pre-arm work against a 100ms budget - already exhausted before the arm ever
+          // constructs the budget.
+          t += 250;
+          return brandedRenderModule('test', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) });
+        });
+        mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head></head><body></body></html>');
+
+        let loaderCtx: any;
+        vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+          loaderCtx = ctx;
+          return {};
+        });
+
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+          viteDevServer: mockViteDevServer,
+          requestBudgetMs: 100,
+        });
+
+        expect(loaderCtx.budget.remaining()).toBe(0);
+        expect(loaderCtx.budget.signal.aborted).toBe(true);
+      });
+
+      it('streaming: pre-arm dev-module-loading work leaves the first service call only the remainder', async () => {
+        (globalThis as any).AbortController = OriginalAbortController;
+        vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+        (mockReq as any).cspNonce = '';
+
+        mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+        vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body></body></html>');
+        vi.mocked(Templates.processTemplate).mockReturnValue({
+          beforeHead: '<html><head>',
+          afterHead: '</head>',
+          beforeBody: '<body>',
+          afterBody: '</body></html>',
+        });
+        vi.mocked(Templates.collectStyle).mockResolvedValue('');
+
+        let t = 0;
+        vi.mocked(CoreTelemetry.now).mockImplementation(() => t);
+
+        const mockRenderStream = vi.fn((writable: any, callbacks: any, initialData: any) => {
+          void (initialData as () => Promise<unknown>)();
+          callbacks.onHead?.('<title>Stream</title>');
+          writable.end();
+          return { abort: vi.fn(), done: Promise.resolve() };
+        });
+        mockViteDevServer.ssrLoadModule.mockImplementation(async () => {
+          t += 90;
+          return brandedRenderModule('test', { renderStream: mockRenderStream });
+        });
+        mockViteDevServer.transformIndexHtml.mockResolvedValue('<!doctype html><html><head></head><body></body></html>');
+
+        let loaderCtx: any;
+        vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+          loaderCtx = ctx;
+          return { ok: true };
+        });
+
+        await collectDocument(
+          await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+            viteDevServer: mockViteDevServer,
+            requestBudgetMs: 100,
+          }),
+        );
+
+        expect(loaderCtx.budget.deadline).toBe(100);
+        expect(loaderCtx.budget.remaining()).toBe(10);
+      });
+    });
+
+    describe('response terminals dispose the budget (timer + parent listener released, refusal unaffected)', () => {
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it('ssr: normal completion disposes the budget - the deadline no longer fires signal afterwards', async () => {
+        (globalThis as any).AbortController = OriginalAbortController;
+        vi.useFakeTimers();
+        stubTemplate();
+        mockSelectedRoute = createMockRouteMatch({ render: 'ssr' });
+        mockMaps.renderModules.set('/test/client', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '<div>ok</div>' }) });
+
+        let loaderCtx: any;
+        vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+          loaderCtx = ctx;
+          return {};
+        });
+
+        await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { requestBudgetMs: 10 });
+
+        const finishCall = (mockReply.raw.on as unknown as Mock).mock.calls.find(([event]) => event === 'finish');
+        expect(finishCall).toBeTruthy();
+        finishCall![1](); // simulate Fastify's 'finish' -> finaliseSsrOnce('complete') -> ctx.budget.dispose()
+
+        expect(loaderCtx.budget.signal.aborted).toBe(false);
+        vi.advanceTimersByTime(10_000); // far past the 10ms budget
+        expect(loaderCtx.budget.signal.aborted).toBe(false); // the deadline timer was cleared by dispose()
+        // remaining() stays pure clock math - unaffected by disposal, still floors at 0 once past.
+        expect(loaderCtx.budget.remaining()).toBe(0);
+      });
+
+      it('ssr: a failure path also disposes the budget', async () => {
+        (globalThis as any).AbortController = OriginalAbortController;
+        vi.useFakeTimers();
+        stubTemplate();
+        mockSelectedRoute = createMockRouteMatch({ render: 'ssr' });
+        mockMaps.renderModules.set('/test/client', { renderSSR: vi.fn().mockRejectedValue(new Error('boom')) });
+
+        let loaderCtx: any;
+        vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+          loaderCtx = ctx;
+          return {};
+        });
+
+        await expect(
+          handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, { requestBudgetMs: 10 }),
+        ).rejects.toThrow();
+
+        expect(loaderCtx.budget.signal.aborted).toBe(false);
+        vi.advanceTimersByTime(10_000);
+        expect(loaderCtx.budget.signal.aborted).toBe(false);
+      });
+
+      it('streaming: normal completion disposes the budget - the deadline no longer fires signal afterwards', async () => {
+        (globalThis as any).AbortController = OriginalAbortController;
+        vi.useFakeTimers();
+        stubTemplate();
+        mockSelectedRoute = createMockRouteMatch({ render: 'streaming', meta: {} });
+
+        let loaderCtx: any;
+        vi.mocked(DataRoutes.fetchInitialData).mockImplementation(async (_attr, _params, _reg, ctx) => {
+          loaderCtx = ctx;
+          return { ok: true };
+        });
+
+        const mockRenderStream = vi.fn((writable: any, callbacks: any, initialData: any) => {
+          void (initialData as () => Promise<unknown>)();
+          callbacks.onHead?.('<title>Stream</title>');
+          writable.end();
+          return { abort: vi.fn(), done: Promise.resolve() };
+        });
+        mockMaps.renderModules.set('/test/client', { renderStream: mockRenderStream });
+
+        const payload = await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+          requestBudgetMs: 10,
+        });
+        await collectDocument(payload);
+
+        const finishCall = (mockReply.raw.on as unknown as Mock).mock.calls.find(([event]) => event === 'finish');
+        expect(finishCall).toBeTruthy();
+        finishCall![1](); // simulate Fastify's 'finish' -> finaliseResponseOnce('complete') -> ctx.budget.dispose()
+
+        expect(loaderCtx.budget.signal.aborted).toBe(false);
+        vi.advanceTimersByTime(10_000);
+        expect(loaderCtx.budget.signal.aborted).toBe(false);
+        expect(loaderCtx.budget.remaining()).toBe(0);
+      });
     });
   });
 });

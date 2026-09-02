@@ -298,6 +298,100 @@ describe('callServiceMethod', () => {
 
     expect(hoisted.debugMock).toHaveBeenCalledWith({ ms: expect.any(Number) }, 'Service method ok');
   });
+
+  describe('ctx.budget', () => {
+    it('refuses BEFORE the handler runs when ctx.budget is exhausted, following the normal failure log/recorder path', async () => {
+      const S = await importModule();
+      const handler = vi.fn(async () => ({ ok: true }));
+      const registry = { s: { m: handler } } as any;
+      const logger = makeLogger();
+      const recorder = { serviceCall: vi.fn() };
+      const budget = { remaining: () => 0 } as any;
+
+      await expect(
+        S.callServiceMethod(registry, 's', 'm', {}, { requestId: 'r1', logger: logger as any, recorder: recorder as any, budget }),
+      ).rejects.toMatchObject({ name: 'AppError', code: 'TIMEOUT', message: 'Request budget exhausted' });
+
+      expect(handler).not.toHaveBeenCalled();
+      // The failure path fires exactly the way a handler rejection would - error log + ok:false.
+      expect(hoisted.errorMock).toHaveBeenCalledTimes(1);
+      expect(recorder.serviceCall).toHaveBeenCalledWith({ requestId: 'r1', service: 's', method: 'm', ms: expect.any(Number), ok: false });
+    });
+
+    it('proceeds to the handler when ctx.budget still has remaining time', async () => {
+      const S = await importModule();
+      const handler = vi.fn(async () => ({ ok: true }));
+      const registry = { s: { m: handler } } as any;
+      const budget = { remaining: () => 500 } as any;
+
+      const out = await S.callServiceMethod(registry, 's', 'm', {}, { logger: makeLogger() as any, budget });
+
+      expect(out).toEqual({ ok: true });
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it('no ctx.budget at all leaves behaviour unchanged (the existing suite above is the control)', async () => {
+      const S = await importModule();
+      const handler = vi.fn(async () => ({ ok: true }));
+      const registry = { s: { m: handler } } as any;
+
+      const out = await S.callServiceMethod(registry, 's', 'm', {}, { logger: makeLogger() as any });
+
+      expect(out).toEqual({ ok: true });
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it('a nested ctx.call() sees the SAME budget and refuses once the injected clock passes the deadline mid-chain, even though the outer call started in time', async () => {
+      const S = await importModule();
+      const { createRequestBudget } = await import('../RequestBudget');
+
+      let t = 0;
+      const clockNow = () => t;
+      const budget = createRequestBudget({ budgetMs: 100, now: clockNow });
+
+      const inner = vi.fn(async () => ({ inner: true }));
+      const outer = vi.fn(async (_params: any, ctx: any) => {
+        // Time passes DURING the outer handler - the nested call must see the CURRENT remaining
+        // time, not a fresh allowance and not the time that was left when the outer call began.
+        t += 150;
+        return ctx.call('svc', 'inner', {});
+      });
+
+      const registry = S.defineServiceRegistry({ svc: S.defineService({ outer, inner }) });
+      const ctx: any = { requestId: 'r1', logger: makeLogger() as any, budget };
+      ctx.call = S.createCaller(registry, ctx);
+
+      await expect(ctx.call('svc', 'outer', {})).rejects.toMatchObject({ name: 'AppError', code: 'TIMEOUT', message: 'Request budget exhausted' });
+      expect(outer).toHaveBeenCalled();
+      expect(inner).not.toHaveBeenCalled();
+    });
+
+    it('a call made through a DISPOSED budget still refuses once genuinely past the deadline (refusal is pure clock math)', async () => {
+      const S = await importModule();
+      const { createRequestBudget } = await import('../RequestBudget');
+
+      // Models a deferred loader that still holds `ctx.budget` after the response terminal has
+      // already called `dispose()` on it (HandleRender's terminal coordinators do exactly this).
+      let t = 0;
+      const clockNow = () => t;
+      const budget = createRequestBudget({ budgetMs: 100, now: clockNow });
+
+      budget.dispose();
+      expect(budget.signal.aborted).toBe(false); // dispose never aborts the signal
+
+      t += 150; // now genuinely past the deadline
+
+      const handler = vi.fn(async () => ({ ok: true }));
+      const registry = { s: { m: handler } } as any;
+
+      await expect(S.callServiceMethod(registry, 's', 'm', {}, { logger: makeLogger() as any, budget })).rejects.toMatchObject({
+        name: 'AppError',
+        code: 'TIMEOUT',
+        message: 'Request budget exhausted',
+      });
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('withDeadline', () => {

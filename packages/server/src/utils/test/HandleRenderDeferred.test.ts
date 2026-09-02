@@ -91,13 +91,13 @@ const mkRenderer = (captured: Captured, read?: (registry: any) => Promise<unknow
   }),
 });
 
-const run = async (attr: Record<string, unknown>, renderModule: any, opts: { recorder?: EpisodeRecorder; logger?: any } = {}) => {
+const run = async (attr: Record<string, unknown>, renderModule: any, opts: { recorder?: EpisodeRecorder; logger?: any; requestBudgetMs?: number } = {}) => {
   const logger = opts.logger ?? mkLogger();
   const req = mkReq('/product/42', opts.recorder, logger);
   const reply = mkReply();
   // The streaming strategy returns a COLD document as the Fastify payload. Consuming it is what
   // starts the renderer; deferred work, by contrast, is EAGER and has already started by now.
-  const payload = await handleRender(req, reply, route(attr) as any, configs, {} as any, maps(renderModule), { logger });
+  const payload = await handleRender(req, reply, route(attr) as any, configs, {} as any, maps(renderModule), { logger, requestBudgetMs: opts.requestBudgetMs });
   const { document } = await collectPartialDocument(payload);
   await new Promise((r) => setTimeout(r, 20));
 
@@ -517,5 +517,55 @@ describe('handleRender streaming: the PRE-CONSUMPTION failure terminal', () => {
 
     // The document still rejects when anything does pull it, so Fastify can answer.
     await expect(collectDocumentFailure(payload)).resolves.toBeDefined();
+  });
+});
+
+describe('server.requestBudgetMs on the deferred path', () => {
+  // Deferred entries start EAGERLY, before the renderer runs (decision above: "deferred work ...
+  // has already started by now") - `ctx` is the SAME request service context `attr.data` uses,
+  // so placing `ctx.budget` on it before `createDeferredData` runs is sufficient for a deferred
+  // loader (and, by the same ctx.call inheritance DataServices proves, any nested service call it
+  // makes) to see it.
+  it('a deferred loader sees ctx.budget when requestBudgetMs is configured', async () => {
+    let entryBudget: any;
+    const captured: Captured = {};
+    await run(
+      {
+        render: 'streaming',
+        meta: {},
+        deferred: {
+          reviews: async (_p: unknown, ctx: any) => {
+            entryBudget = ctx.budget;
+            return { count: 3 };
+          },
+        },
+      },
+      mkRenderer(captured),
+      { requestBudgetMs: 5_000 },
+    );
+
+    expect(entryBudget).toBeDefined();
+    expect(typeof entryBudget.remaining).toBe('function');
+    expect(entryBudget.remaining()).toBeGreaterThan(0);
+  });
+
+  it('a deferred loader sees no ctx.budget when requestBudgetMs is not configured', async () => {
+    let entryBudget: unknown = 'unset';
+    const captured: Captured = {};
+    await run(
+      {
+        render: 'streaming',
+        meta: {},
+        deferred: {
+          reviews: async (_p: unknown, ctx: any) => {
+            entryBudget = ctx.budget;
+            return { count: 3 };
+          },
+        },
+      },
+      mkRenderer(captured),
+    );
+
+    expect(entryBudget).toBeUndefined();
   });
 });

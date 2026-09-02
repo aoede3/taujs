@@ -159,10 +159,12 @@ The base public context is:
 ```ts
 type ServiceContext = {
   signal?: AbortSignal;
+  /** @deprecated Use `budget` (`server.requestBudgetMs`) instead. */
   deadlineMs?: number;
   requestId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
+  budget?: RequestBudget;
 };
 ```
 
@@ -269,6 +271,63 @@ the signal reason with a generic abort error, but cancellation still occurs.
 A deferred route entry also has the renderer's response-level deferred deadline. That outer deadline
 and a service-specific deadline solve different problems: response completion versus one downstream
 operation.
+
+### `ctx.budget`
+
+Opt-in, via `server.requestBudgetMs`: a single monotonic time budget spanning every phase of the
+request - head, critical, deferred, and any nested service call reached via `ctx.call()`.
+
+```ts
+type RequestBudget = {
+  readonly deadline: number; // monotonic ms
+  readonly signal: AbortSignal; // aborts at the deadline or when the parent signal aborts
+  remaining(): number; // ms left, floored at 0
+  child(reserveMs: number): RequestBudget; // same terminal, minus a reservation for later phases
+};
+```
+
+`ctx.budget` is the SAME object across a call chain - a nested `ctx.call()` inherits it unchanged,
+so it sees the time actually remaining rather than a fresh allowance:
+
+```ts
+export const OrderService = defineService({
+  details: async (params: { orderId: string }, ctx) => {
+    // Time already spent earlier in the request is reflected here, not reset.
+    const product = await ctx.call("catalogue", "product", { id: params.orderId });
+
+    return { product };
+  },
+});
+```
+
+Service dispatch refuses to start a call once `ctx.budget.remaining()` reaches `0`, rather than
+beginning work that cannot possibly finish.
+
+`child(reserveMs)` is for a handler's OWN direct, budget-aware operations only - work the handler
+does itself with the child's `signal` or `remaining()`, reserving time for something that follows
+it in the SAME handler:
+
+```ts
+const budget = ctx.budget?.child(200); // reserve 200ms for this handler's own cleanup after the fetch
+const response = await fetch(url, { signal: budget?.signal });
+```
+
+`child()` does not change what a subsequent `ctx.call()` inherits: a nested call always inherits
+`ctx.budget` itself - the same object, unchanged - never a child, regardless of any `child()` the
+handler happens to have created for its own use. There is no automated phase reservation in τjs
+(head time reserved for critical work, for example, or any other configured split) - `child()` is
+a manual primitive for userland's own direct operations, not a policy τjs applies on its own.
+
+`deadlineMs` and `withDeadline()` are deprecated in favour of `ctx.budget`: they start a fresh
+relative timer on every call, so a nested `ctx.call()` receives a new full allowance instead of
+the time left on the request. They are unchanged and still work; prefer `ctx.budget` for a budget
+that actually spans a call chain.
+
+τjs releases the budget's internal deadline timer once the response reaches its terminal; this
+lifecycle step is not part of the public type. `remaining()` keeps reporting real values
+afterwards (refusal is pure clock math), so a deferred loader still in flight past the response
+terminal still refuses a call made once genuinely past the deadline; what ends at the terminal is
+only a late `signal` abort firing.
 
 ## Runtime validation
 

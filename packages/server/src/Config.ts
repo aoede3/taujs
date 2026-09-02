@@ -64,6 +64,8 @@ export { createServiceData, getServiceDataMetadata } from './core/services/Servi
 
 export type { ServiceDataMetadata } from './core/services/ServiceData';
 
+export type { RequestBudget } from './core/services/RequestBudget';
+
 /**
  * Public-alias repair (2026-07-30): generic with a broad default, mirroring `RouteData` below.
  * Bare `RouteContext` is the broad runtime shape `{ appId, path, attr, params }`; supply your
