@@ -66,6 +66,7 @@ type ServerConfig = {
   mountPrefix?: string; // Default: '' (root)
   publicBasePath?: string; // Default: mountPrefix
   hmrTransport?: 'fixed-port' | 'attached' | 'mediated'; // Default: 'fixed-port'
+  requestBudgetMs?: number; // Opt-in; default: no budget
 };
 
 // Development only - the surface is structurally absent from a production build,
@@ -303,6 +304,42 @@ The same trusted-development-network requirement applies - see the note above.
 
 See also: [combining HMR with another upgrade consumer](/guides/hmr-cohabitation/) if your
 application already has a WebSocket consumer of its own.
+
+### `server.requestBudgetMs`
+
+Opt-in. A single monotonic time budget, in milliseconds, spanning every phase of a request -
+head, critical, deferred, and any nested service call reached via `ctx.call()`.
+
+```ts
+export default defineConfig({
+  server: {
+    requestBudgetMs: 5000,
+  },
+});
+```
+
+When set, τjs starts the allowance as soon as it begins handling the request - before any
+pre-render work such as development module loading or transforms - and places the resulting
+budget on the service context as `ctx.budget`. A nested `ctx.call()` inherits the same budget
+rather than starting a fresh allowance, so time already spent earlier in the request (pre-render
+work included) is reflected in what a later call sees. See [Services](/guides/services/) for
+`ctx.budget`'s shape.
+
+**What V1 enforces.** Service work that cannot possibly fit refuses to start - a call made once
+the budget is exhausted fails immediately, before its handler runs - and `ctx.budget.signal`
+aborts at the deadline for budget-aware userland to observe. Once the response reaches its
+terminal, τjs releases the budget's timer without aborting `signal` or changing `remaining()` -
+a deferred service call still in flight past that point still refuses once genuinely past the
+deadline; it only loses the chance to observe a late `signal` abort.
+
+**What it does not do.** An exhausted budget never aborts the request's own render or response:
+it does not cancel an in-flight render, does not change terminal classification, and does not
+alter what is sent to the client. It only governs whether new service work is allowed to start.
+
+**Validation.** Must be a positive finite number of milliseconds, and no greater than
+`2_147_483_647` (the largest delay Node's `setTimeout` honours before clamping it to fire almost
+immediately) - anything else is rejected at startup. Left unset (the default), behaviour is
+unchanged byte-for-byte - no budget is ever created, and `ctx.budget` is `undefined`.
 
 ## Development Introspection
 

@@ -3,6 +3,7 @@ import { resolveLogs } from '../logging/resolve';
 
 import type { Logs } from '../logging/types';
 import type { EpisodeRecorder } from '../introspection/EpisodeRecorder';
+import type { RequestBudget } from './RequestBudget';
 import { now } from '../telemetry/Telemetry';
 
 // runtime checks instead happens at the boundary
@@ -20,11 +21,19 @@ const runSchema = <T>(schema: NarrowSchema<T> | undefined, input: unknown): T =>
 
 type BaseServiceContext = {
   signal?: AbortSignal; // request/client abort passed in request
+  /** @deprecated Per-call, non-monotonic and reset on every nested `ctx.call()`. Use `ctx.budget` (`server.requestBudgetMs`) instead. */
   deadlineMs?: number; // available to userland; not enforced here
   requestId?: string;
   logger?: Logs;
   user?: { id: string; roles: string[] } | null;
   recorder?: EpisodeRecorder; // dev-only, safety-wrapped; absent in production
+  /**
+   * The single monotonic time budget spanning every phase of this request, when
+   * `server.requestBudgetMs` is configured. Absent otherwise. Inherited unchanged by nested
+   * `ctx.call()` work - it is the SAME object, never re-derived - so a nested call sees what is
+   * actually left rather than a fresh allowance.
+   */
+  budget?: RequestBudget;
 };
 
 type UntypedRegistryCaller = (serviceName: string, methodName: string, args?: JsonObject) => Promise<JsonObject>;
@@ -74,7 +83,12 @@ export function ensureServiceCaller<R extends ServiceRegistry>(
   if (!ctx.call) (ctx as any).call = createCaller(registry, ctx);
 }
 
-// Helper for userland: combine a parent AbortSignal with a per-call timeout
+/**
+ * Helper for userland: combine a parent AbortSignal with a per-call timeout.
+ * @deprecated Starts a fresh relative timer per call, so a nested `ctx.call()` receives a NEW
+ * full allowance instead of the time remaining on the request. Use `ctx.budget` (via
+ * `server.requestBudgetMs`) for a single monotonic budget that spans nested calls. Unchanged.
+ */
 export function withDeadline(signal: AbortSignal | undefined, ms?: number): AbortSignal | undefined {
   if (!ms) return signal;
   const ctrl = new AbortController();
@@ -217,7 +231,12 @@ export async function callServiceMethod(
   const t0 = now();
 
   try {
-    // No automatic deadlines here; handlers can use ctx.signal or withDeadline(ctx.signal, ms)
+    // Mirrors the ctx.signal?.aborted check above, but INSIDE the try: an exhausted budget is a
+    // service-call failure like any other, so it follows the normal logging/recorder path
+    // (`ok: false`) instead of the unrecorded early throw the signal check takes.
+    if (ctx.budget && ctx.budget.remaining() <= 0) throw AppError.timeout('Request budget exhausted');
+
+    // No automatic deadlines here; handlers can use ctx.signal, ctx.budget, or withDeadline(ctx.signal, ms)
     const result = await method(params ?? {}, ctx as RuntimeServiceContext);
 
     if (typeof result !== 'object' || result === null) {

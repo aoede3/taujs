@@ -363,6 +363,22 @@ export type CoreTaujsConfig = {
      * network - see the τjs documentation; τjs adds no proxy machinery of its own.
      */
     hmrTransport?: 'fixed-port' | 'attached' | 'mediated';
+    /**
+     * Opt-in: a single monotonic time budget, in ms, spanning every phase of a request - head,
+     * critical, deferred, and any nested service call reached via `ctx.call()`. When set, τjs
+     * creates one request budget at route admission and places it on the service context as
+     * `ctx.budget` (deadline, signal, remaining(), child(reserveMs)); a nested `ctx.call()`
+     * inherits the SAME budget rather than starting a fresh allowance. Service work that cannot
+     * possibly fit refuses to start rather than beginning anyway.
+     *
+     * Left absent (the default), behaviour is unchanged byte-for-byte: no budget is created, and
+     * `ctx.budget` is undefined. POSITIVE FINITE only, validated at boot.
+     *
+     * V1 is deliberately bounded: an exhausted budget refuses new service work and aborts
+     * `ctx.budget.signal`, but never aborts the request's own AbortController and never changes
+     * render or response behaviour on its own.
+     */
+    requestBudgetMs?: number;
   };
   // RFC 0005 (VS2): the declarative home for the alias maps that are programmatic-only today
   // (`createServer`/`taujsBuild` options). Vite-free (plain `Record`), so it lives on the core
