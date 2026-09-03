@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.36.1
+
+### Patch Changes
+
+- [#151](https://github.com/aoede3/taujs/pull/151) [`cc4a4f3`](https://github.com/aoede3/taujs/commit/cc4a4f385e7316fce72aaa7819b7f4c1168ba322) Thanks [@aoede3](https://github.com/aoede3)! - Development: when React's compiler shares the development Vite server with Vue's renderer, τjs now disables oxc JSX fast refresh for that server and says so at boot, so Vue SSR routes render instead of failing with `$RefreshSig$ is not defined`. React edits fall back to a full reload in that composition only; production output was never affected. Contains an upstream `@vitejs/plugin-vue` defect (vitejs/vite-plugin-vue#798, fix pending in PR [#814](https://github.com/aoede3/taujs/issues/814)); the containment is removed once a plugin-vue release carries the fix.
+
 ## 0.36.0
 
 ### Minor Changes

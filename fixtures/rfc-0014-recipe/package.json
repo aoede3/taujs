@@ -1,6 +1,6 @@
 {
   "name": "rfc-0014-recipe",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "private": true,
   "description": "RFC 0014 M6: the complexity-budget recipe (docs/rfcs/0014 §1), compiled against the PUBLISHED @taujs/server API - workspace-linked exports and generated declarations, not source paths.",
   "type": "module",
