@@ -31,6 +31,7 @@ import type { CoreTaujsConfig } from '../../../server/src/core/config/types';
 const BIN = path.resolve(__dirname, '../../dist/bin.js');
 
 const TOOL_NAMES = [
+  'taujs_compare_graphs',
   'taujs_doctor',
   'taujs_explain_route',
   'taujs_find_contract',

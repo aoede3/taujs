@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-import { NO_ACTIVE_BOOT_REFUSAL, readObservations } from '../SubstrateReader';
+import { compareGraphs, summarizeCompare } from '../GraphCompare';
+import { NO_ACTIVE_BOOT_REFUSAL, capStrings, readBaselineGraph, readObservations } from '../SubstrateReader';
 import { UNTRUSTED_NOTE, bounded, defineTool, withGraph } from '../toolkit';
 import { renderStrategyCitation } from './contracts';
 
@@ -8,6 +9,25 @@ import type { GraphContext, ToolDefinition, ToolResult } from '../toolkit';
 import type { GraphRoute, GraphRouteData } from '../types';
 
 const DEFAULT_LIST_LIMIT = 20;
+const COMPARE_DEFAULT_LIMIT = 50;
+const COMPARE_MAX_LIMIT = 200;
+
+// The comparison boundary, stated once at the tool's entry point (mirrors GRAPH_SCOPE below):
+// every field this tool reports is truthful within it, and a caller that does not know the
+// boundary could read a clean `identical: true` as a wider guarantee than it is. `services` is
+// named explicitly because comparing it would be dishonest across build-vs-boot graphs - a build
+// graph may carry `services: null` while a boot graph carries the full registry, which is a
+// difference in WHAT WAS EMITTED, not in the declared application - and the declared critical,
+// head and deferred service edges that registry would describe remain covered through the route
+// facets this tool does compare.
+const COMPARE_SCOPE =
+  'Compares only declared graph fields: apps (added/removed, entryPoint), routes (added/removed), and per-route facets ' +
+  '(render, hydrate, middleware.auth, middleware.csp, data, head, deferred), plus the global security and fallthrough blocks. ' +
+  'emittedAt, source, taujs.server, apps[].routeCount, routes[].specificity, services and warnings are never compared: comparing ' +
+  'services would be dishonest across build-vs-boot graphs (a build graph may carry services: null while a boot graph does not), ' +
+  'and the declared critical, head and deferred service edges a registry describes remain covered through the route facets above. ' +
+  'Rows state exact declared differences only - no verdicts, no risk labels. Detection is exact over full declared values; ' +
+  'string values shown in rows and metadata are capped at 500 characters for display.';
 
 // The graph's extent, stated once at the entry point: every field in every response is truthful
 // WITHIN this boundary, and an agent that does not know the boundary reads the composite as
@@ -353,5 +373,58 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           }),
         };
       }),
+  }),
+  defineTool({
+    name: 'taujs_compare_graphs',
+    title: 'Compare request graphs',
+    description: `Compares a retained baseline request graph (a file the caller copied earlier, given as a project-relative baselinePath) against the currently emitted graph and reports exact declared differences - apps added/removed/entryPoint-changed, routes added/removed, and per-route facet changes (render, hydrate, middleware.auth, middleware.csp, data, head, deferred), plus the global security and fallthrough blocks. No verdicts. ${UNTRUSTED_NOTE}`,
+    inputSchema: z.object({
+      baselinePath: z.string().describe('Project-relative path to a previously retained graph.json'),
+      limit: z.number().int().positive().max(COMPARE_MAX_LIMIT).optional().describe(`Max change rows (default ${COMPARE_DEFAULT_LIMIT})`),
+    }),
+    handler: (args) =>
+      withGraph(
+        root,
+        (ctx) => {
+          // ONE uncapped snapshot (cap: false below) backs staleness, metadata and the comparison
+          // alike - a second read could race a graph rewrite into an internally inconsistent
+          // response, and a capped read would make two values sharing their first 500 characters
+          // compare equal (a false `identical: true`). This handler therefore owns the display
+          // cap: every untrusted string is capped where it enters the response.
+          const baseline = readBaselineGraph(root, args.baselinePath);
+          // Refusals echo untrusted input (the supplied path, a malformed version value) - capped
+          // at this boundary like every other emitted string.
+          if (!baseline.ok) return capStrings({ ok: false, reason: baseline.reason, message: baseline.message });
+
+          const limit = args.limit ?? COMPARE_DEFAULT_LIMIT;
+          const rows = compareGraphs(baseline.graph, ctx.graph);
+          const summary = summarizeCompare(rows);
+
+          // `identical` and `summary` describe the uncapped comparison; capStrings caps only what
+          // is displayed.
+          return {
+            ok: true,
+            identical: rows.length === 0,
+            ...(ctx.stalenessLine ? { staleness: capStrings(ctx.stalenessLine) } : {}),
+            baseline: capStrings({
+              path: args.baselinePath,
+              source: baseline.graph.source,
+              emittedAt: baseline.graph.emittedAt,
+              taujsServer: baseline.graph.taujs.server,
+              schemaVersion: baseline.graph.schemaVersion,
+            }),
+            current: capStrings({
+              source: ctx.graph.source,
+              emittedAt: ctx.graph.emittedAt,
+              taujsServer: ctx.graph.taujs.server,
+              schemaVersion: ctx.graph.schemaVersion,
+            }),
+            summary,
+            changes: capStrings(bounded(rows, limit)),
+            scope: COMPARE_SCOPE,
+          };
+        },
+        { cap: false },
+      ),
   }),
 ];
