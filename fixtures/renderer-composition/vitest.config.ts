@@ -13,6 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@taujs/server-internal/ownership': resolve(here, '../../packages/server/src/utils/OwnershipPrepass.ts'),
+      '@taujs/server-internal/vite-plugins': resolve(here, '../../packages/server/src/utils/VitePlugins.ts'),
       // Renderer v1: solidRenderer() is INTERNAL (no public `@taujs/solid/renderer` export); the fixtures
       // reach the internal factory directly so the composition/build matrix can still exercise Solid.
     },

@@ -51,6 +51,36 @@ export function pluginCollisionMessage({ name, sources, winner }: PluginCollisio
   return `Duplicate Vite plugin "${name}" declared by ${sources.join(', ')}; keeping ${winner} (first occurrence wins), other instance(s) dropped`;
 }
 
+/**
+ * The development containment event: the TRIGGERING keys only - the managed compiler whose refresh is
+ * disabled and the non-managed renderer that inherits it (today exactly `react` and `vue`). Reported
+ * once per boot when the containment plugin actually disables oxc JSX fast refresh (see
+ * `taujs:oxc-refresh-containment` in OwnershipPrepass).
+ */
+export type RefreshContainment = {
+  /** The managed compiler key(s) whose oxc JSX refresh is disabled. */
+  managedKeys: readonly string[];
+  /** The non-managed renderer key(s) whose transpile inherits the shared oxc config. */
+  environmentRendererKeys: readonly string[];
+};
+
+/**
+ * The ONE containment message. Development-only: it states the degradation (React fast refresh
+ * becomes a full reload for this composition), names the upstream cause, and names the removal
+ * trigger. See `docs/followups/react-refresh-leaks-into-vue.md`.
+ */
+export function refreshContainmentMessage({ managedKeys, environmentRendererKeys }: RefreshContainment): string {
+  const managed = managedKeys.join(', ');
+  const env = environmentRendererKeys.join(', ');
+  return (
+    `Development containment: oxc JSX fast refresh is disabled on this shared development server because managed compiler(s) ${managed} ` +
+    `share it with non-managed renderer(s) ${env}. ${managed} edits fall back to a full reload; rendering is unaffected. ` +
+    `Cause: @vitejs/plugin-vue applies the shared oxc config to its own SFC transpile ` +
+    `(https://github.com/vitejs/vite-plugin-vue/issues/798; fix pending in https://github.com/vitejs/vite-plugin-vue/pull/814). ` +
+    `Remove this containment once @taujs/vue's @vitejs/plugin-vue floor carries that fix.`
+  );
+}
+
 /** The ONE reserved-prefix message shared by dev and build (RFC 0005 §5). */
 export function reservedPluginMessage({ name, source }: ReservedPluginDrop): string {
   return `Vite plugin "${name}" from ${source} uses the reserved "${RESERVED_PLUGIN_PREFIX}" framework prefix and was dropped`;

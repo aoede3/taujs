@@ -153,6 +153,7 @@ vi.mock('../utils/VitePlugins', () => ({
   composePlugins: composePluginsMock,
   pluginCollisionMessage: (c: any) => `collision:${c.name}`,
   reservedPluginMessage: (d: any) => `reserved:${d.name}`,
+  refreshContainmentMessage: (i: any) => `containment:${i.managedKeys.join('+')}`,
 }));
 
 import { ssrServerPlugin, TEMPLATE } from '../SSRServer';

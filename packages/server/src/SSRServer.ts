@@ -28,7 +28,7 @@ import { createRequestContext, getRequestContext } from './utils/Telemetry';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { registerStaticAssets } from './utils/StaticAssets';
-import { pluginCollisionMessage, reservedPluginMessage } from './utils/VitePlugins';
+import { pluginCollisionMessage, refreshContainmentMessage, reservedPluginMessage } from './utils/VitePlugins';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import type { ViteDevServer } from 'vite';
@@ -138,6 +138,19 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       overridePlugins,
       onCollision: (c) => logger.warn({ plugin: c.name, sources: c.sources, winner: c.winner }, pluginCollisionMessage(c)),
       onReservedPrefix: (d) => logger.warn({ plugin: d.name, source: d.source }, reservedPluginMessage(d)),
+      // Development containment for an upstream @vitejs/plugin-vue defect - reported at WARN through
+      // the same reporter shape as the two above, so the boot output states the degradation rather
+      // than leaving fast refresh silently off. See createRefreshContainmentPlugin.
+      onRefreshContainment: (i) =>
+        logger.warn(
+          {
+            component: 'ownership',
+            managedKeys: i.managedKeys,
+            environmentRendererKeys: i.environmentRendererKeys,
+            upstream: 'https://github.com/vitejs/vite-plugin-vue/issues/798',
+          },
+          refreshContainmentMessage(i),
+        ),
     });
     const rawOf = (appId: string) => ownership.rawByApp.get(appId) ?? [];
 

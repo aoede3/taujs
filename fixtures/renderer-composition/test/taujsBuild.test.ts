@@ -186,7 +186,13 @@ describe('ESC-1 real taujsBuild - Vue coexistence (vueRenderer) alongside a mana
     mkdirSync(vueDir, { recursive: true });
     writeFileSync(path.join(vueDir, 'entry-client.ts'), 'import App from "./App.vue";\nexport default App;\n');
     writeFileSync(path.join(vueDir, 'entry-server.ts'), 'import App from "./App.vue";\nexport default App;\n');
-    writeFileSync(path.join(vueDir, 'App.vue'), '<template><div class="v">vue</div></template>\n');
+    // `<script setup lang="ts">` with a `use*` call - the exact SFC shape that, in DEVELOPMENT, makes
+    // @vitejs/plugin-vue emit a `$RefreshSig$()` signature from the shared oxc config
+    // (docs/followups/react-refresh-leaks-into-vue.md). Here it pins that BUILD never went near it.
+    writeFileSync(
+      path.join(vueDir, 'App.vue'),
+      '<script setup lang="ts">\nimport { useSlots } from \'vue\';\nconst slots = useSlots();\nvoid slots;\n</script>\n\n<template><div class="v">vue</div></template>\n',
+    );
     writeFileSync(path.join(vueDir, 'index.html'), '<!doctype html><html><body><script type="module" src="./entry-client.ts"></script></body></html>\n');
 
     const config = {
@@ -210,6 +216,61 @@ describe('ESC-1 real taujsBuild - Vue coexistence (vueRenderer) alongside a mana
     const vueOut = readEmitted(projectRoot, 'shop');
     expect(vueOut).toMatch(/createElementBlock|openBlock|createVNode|vue/);
     expect(vueOut).not.toMatch(SOLID_MARK);
+  });
+
+  it('production output carries no refresh code - pinned, was never affected (client and SSR, React + Vue)', async () => {
+    // A PIN, expected green on the merge base too: @vitejs/plugin-vue reads `options.devServer` for the
+    // oxc config it spreads, and that is undefined during build, so the development defect this cell's
+    // SFC shape triggers (docs/followups/react-refresh-leaks-into-vue.md) has no build counterpart.
+    // The pin exists so a future change to the containment cannot quietly reach the build path.
+    const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'esc1-vue-refresh-'));
+    roots.push(projectRoot);
+    const clientBaseDir = path.join(projectRoot, 'src', 'client');
+
+    mkdirSync(clientBaseDir, { recursive: true });
+    writeFileSync(path.join(clientBaseDir, 'entry-client.tsx'), 'export { default } from "./App";\n');
+    writeFileSync(path.join(clientBaseDir, 'entry-server.tsx'), 'export { default } from "./App";\n');
+    writeFileSync(path.join(clientBaseDir, 'App.tsx'), 'export default function App() {\n  return <div className="r">react</div>;\n}\n');
+    writeFileSync(
+      path.join(clientBaseDir, 'index.html'),
+      '<!doctype html><html><body><script type="module" src="./entry-client.tsx"></script></body></html>\n',
+    );
+    writeFileSync(path.join(clientBaseDir, 'tsconfig.react.json'), JSON.stringify({ compilerOptions: { jsx: 'react-jsx' }, include: ['*.tsx'] }));
+
+    const vueDir = path.join(clientBaseDir, 'shop');
+    mkdirSync(vueDir, { recursive: true });
+    writeFileSync(path.join(vueDir, 'entry-client.ts'), 'import App from "./App.vue";\nexport default App;\n');
+    writeFileSync(path.join(vueDir, 'entry-server.ts'), 'import App from "./App.vue";\nexport default App;\n');
+    writeFileSync(
+      path.join(vueDir, 'App.vue'),
+      '<script setup lang="ts">\nimport { useSlots } from \'vue\';\nconst slots = useSlots();\nvoid slots;\n</script>\n\n<template><div class="v">vue</div></template>\n',
+    );
+    writeFileSync(path.join(vueDir, 'index.html'), '<!doctype html><html><body><script type="module" src="./entry-client.ts"></script></body></html>\n');
+
+    const config = {
+      apps: [
+        { appId: 'web', entryPoint: '', renderer: reactRenderer({ project: 'src/client/tsconfig.react.json' }) },
+        { appId: 'shop', entryPoint: 'shop', renderer: vueRenderer() },
+      ],
+    };
+    const build = async (isSSRBuild: boolean) =>
+      taujsBuild({
+        config: config as never,
+        projectRoot,
+        clientBaseDir,
+        isSSRBuild,
+        vite: { build: { rollupOptions: { external: EXTERNAL } }, logLevel: 'silent' } as never,
+      });
+
+    await build(false);
+    await build(true);
+
+    for (const type of ['client', 'ssr'] as const) {
+      const vueOut = readEmitted(projectRoot, 'shop', type);
+      expect(vueOut).toMatch(/createElementBlock|openBlock|createVNode|vue/);
+      expect(vueOut).not.toMatch(/\$RefreshSig\$/);
+      expect(vueOut).not.toMatch(/\$RefreshReg\$/);
+    }
   });
 });
 
