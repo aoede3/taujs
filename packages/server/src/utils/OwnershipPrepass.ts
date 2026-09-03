@@ -14,7 +14,7 @@ import { composePlugins } from './VitePlugins';
 
 import type { PluginOption, Plugin } from 'vite';
 import type { ManagedContributionShape, ManagedGroupMember, OwnershipMatcher, PrepareInput, PreparedPlan } from './ManagedPlugins';
-import type { PluginCollision, PluginInput, PluginSource, ReservedPluginDrop } from './VitePlugins';
+import type { PluginCollision, PluginInput, PluginSource, RefreshContainment, ReservedPluginDrop } from './VitePlugins';
 
 /**
  * ESC-1 - the renderer-neutral host pre-pass (RFC 0006 / `docs/solid` ESC-1 reduced checkpoint §4-§6).
@@ -33,6 +33,8 @@ import type { PluginCollision, PluginInput, PluginSource, ReservedPluginDrop } f
  * When no app declares a managed contribution the pre-pass is a complete no-op: existing single-framework
  * projects compose exactly as before.
  */
+
+export type { RefreshContainment } from './VitePlugins';
 
 /** One app's declaration handed to phase 1 (the Vite-free core keeps `plugins`/`renderer` as `unknown`). */
 export type AppPluginInput = {
@@ -224,6 +226,57 @@ export function assembleManagedSources(opts: {
   return { hostSources };
 }
 
+/** The one host-owned containment plugin's name, and its labelled source in the dev composition. */
+export const REFRESH_CONTAINMENT_PLUGIN = 'taujs:oxc-refresh-containment';
+
+/**
+ * Development containment for an UPSTREAM defect - `docs/followups/react-refresh-leaks-into-vue.md`.
+ *
+ * MECHANISM. On Rolldown Vite, `@vitejs/plugin-react`'s `config()` hook puts `oxc.jsx.refresh: true`
+ * into the shared resolved config during `serve`. Vite's own `vite:oxc` plugin then applies that
+ * per module, correctly: refresh is forced off for a server consumer and for ids the refresh
+ * include/exclude filters reject. `@vitejs/plugin-vue` never reaches that plugin for an SFC whose
+ * `<script setup>` is `lang="ts"`/`"tsx"`: it transpiles the script block itself by calling Vite's
+ * `transformWithOxc` and SPREADING the dev server's whole resolved `config.oxc` into the call, with
+ * no environment. Oxc's refresh pass then reads any `use*` call as a hook and emits a
+ * `$RefreshSig$()` signature. Vue SSR has no refresh preamble, so the SSR module throws
+ * `ReferenceError: $RefreshSig$ is not defined`. This plugin runs `enforce: 'post'`, sees the
+ * accumulated config plugin-react contributed, and overrides exactly one field - `oxc.jsx.refresh` -
+ * for the one shared development server. On a non-Rolldown Vite there is no `oxc` key at all, so the
+ * hook returns undefined and nothing is reported: no version sniffing anywhere.
+ *
+ * WHY IT CANNOT BE NARROWER. The injection point is INSIDE plugin-vue's own transpile call, which
+ * takes no environment and consults no filter, so nothing τjs can pass through plugin-react's
+ * supported surface reaches it - the scope τjs supplies is exactly what the bypassed path ignores.
+ * The decision is therefore server-wide or nothing, which is why it is conditioned on the exact
+ * pair the defect needs (React's compiler + Vue's renderer on one server) rather than applied globally.
+ *
+ * RULED OUT (do not reintroduce): patching generated Vue output to strip `$RefreshSig$`; injecting
+ * React's refresh globals into Vue pages; broadening the Vue renderer to understand React; handing
+ * plugin-vue a proxied dev server whose `config.oxc` is doctored. Each hides compiler contamination
+ * inside a foreign plugin's private state.
+ *
+ * REMOVAL TRIGGER. Upstream issue https://github.com/vitejs/vite-plugin-vue/issues/798, fix pending
+ * in https://github.com/vitejs/vite-plugin-vue/pull/814. When a `@vitejs/plugin-vue` release carries
+ * that fix, raise `packages/vue`'s `@vitejs/plugin-vue` peer floor to it and DELETE this plugin, its
+ * tests and the boot warning. Production was never affected (plugin-vue reads `options.devServer`,
+ * which is undefined during build), so nothing on the build path changes either way.
+ */
+function createRefreshContainmentPlugin(info: RefreshContainment, onRefreshContainment?: (info: RefreshContainment) => void): Plugin {
+  return {
+    name: REFRESH_CONTAINMENT_PLUGIN,
+    apply: 'serve',
+    enforce: 'post',
+    config(conf, env) {
+      if (env.command !== 'serve') return;
+      const jsx = (conf as { oxc?: { jsx?: unknown } }).oxc?.jsx;
+      if (typeof jsx !== 'object' || jsx === null || (jsx as { refresh?: unknown }).refresh !== true) return;
+      onRefreshContainment?.(info);
+      return { oxc: { jsx: { refresh: false } } } as never;
+    },
+  };
+}
+
 /**
  * ESC-1 dev composition - the SINGLE ordering that both the shared dev server (SSRServer) and
  * first-party integration tests drive, so neither hand-rolls (and neither can drift from) the §5 order.
@@ -246,6 +299,8 @@ export async function assembleDevPluginChain(opts: {
   overridePlugins?: PluginInput;
   onCollision?: (collision: PluginCollision) => void;
   onReservedPrefix?: (drop: ReservedPluginDrop) => void;
+  /** Reported once per boot when {@link createRefreshContainmentPlugin} actually disables oxc JSX fast refresh. */
+  onRefreshContainment?: (info: RefreshContainment) => void;
 }): Promise<{ plugins: Plugin[]; ownership: PreparedOwnership }> {
   const ownership = await prepareOwnership(opts.apps, { projectRoot: opts.projectRoot, lifecycle: 'dev' });
   const rawOf = (appId: string): PluginOption[] => ownership.rawByApp.get(appId) ?? [];
@@ -269,9 +324,30 @@ export async function assembleDevPluginChain(opts: {
     env: 'dev',
   });
 
+  // The upstream-defect containment (see createRefreshContainmentPlugin), gated on the NAMED pair the
+  // defect needs and nothing broader: React's managed compiler (the plugin that turns oxc JSX refresh on
+  // for the whole shared server) sharing this server with Vue's renderer (the plugin whose SFC transpile
+  // inherits that config). A generic "any managed + any non-managed" gate was reviewed and REJECTED: it
+  // would switch React's refresh off beside an unrelated renderer and blame plugin-vue, and would report
+  // Solid as degraded when only React's refresh is affected. This is a temporary workaround for one
+  // named defect, so the literal keys are the honest condition, and the reported keys are the
+  // triggering pair only. React + Solid, Vue alone, React + any other renderer and Solid + Vue all
+  // compose exactly as before.
+  const hasVueRenderer = opts.apps.some((app) => isRendererContribution(app.renderer) && !app.renderer.managedCompilation && app.renderer.key === 'vue');
+  const containmentSources: PluginSource[] =
+    ownership.plans.has('react') && hasVueRenderer
+      ? [
+          {
+            source: 'taujs:refresh-containment',
+            plugins: [createRefreshContainmentPlugin({ managedKeys: ['react'], environmentRendererKeys: ['vue'] }, opts.onRefreshContainment)],
+          },
+        ]
+      : [];
+
   const plugins = composePlugins({
     sources: [
       ...managed.hostSources,
+      ...containmentSources,
       ...opts.apps.map((app) => ({ source: app.appId, plugins: pluginsFor(app.appId) })),
       ...(opts.overridePlugins ? [{ source: 'config.vite', plugins: opts.overridePlugins }] : []),
     ],
