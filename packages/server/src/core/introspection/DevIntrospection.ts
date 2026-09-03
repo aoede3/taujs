@@ -2,14 +2,13 @@ import crypto from 'node:crypto';
 
 import { now } from '../telemetry/Telemetry';
 import { createSafeRecorder } from './EpisodeRecorder';
-import { DEFAULT_DENY_KEYS, isDeniedKey } from '../../logging/Redaction';
 
 import type { Logs } from '../logging/types';
 import type { EpisodeRecorder } from './EpisodeRecorder';
 
-// Re-exported unchanged so this module's export surface is identical to before the denylist
-// moved to logging/Redaction.ts - the logger and this annex now share the one list.
-export { DEFAULT_DENY_KEYS };
+// Redaction denylist (conventions rule 13). Matching is case-insensitive substring on the
+// key; a matched key's entire subtree is dropped, never partially serialised.
+export const DEFAULT_DENY_KEYS = ['password', 'token', 'secret', 'ssn', 'auth', 'cookie', 'session', 'key'] as const;
 
 // Caps (spec 03 §2)
 const MESSAGE_CAP = 500;
@@ -109,7 +108,10 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     k.toLowerCase(),
   );
 
-  const isDenied = (key: string): boolean => isDeniedKey(key, denyKeys);
+  const isDenied = (key: string): boolean => {
+    const lower = key.toLowerCase();
+    return denyKeys.some((deny) => lower.includes(deny));
+  };
 
   // URL hygiene (spec 03 §2): raw URLs never enter the buffer — pathname + surviving query
   // key names only, values always dropped, denylisted keys dropped entirely.

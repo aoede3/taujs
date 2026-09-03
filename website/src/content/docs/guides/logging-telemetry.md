@@ -335,22 +335,11 @@ request headers into its normal lifecycle records.
 Failed service calls do not log their parameter object. A failure record carries the service, method,
 duration and error details; parameter values never enter it.
 
-All logger metadata additionally passes through a fixed redaction step before any sink - custom or
-console - sees it, and the bindings handed to a custom logger's `child()` seam are redacted the same
-way. The policy is structural and identical in development and production:
+τjs does not redact runtime logger metadata. Configure redaction on Fastify, Pino or the explicit sink
+for application-specific sensitive fields - passwords, session tokens or other credentials passed as
+loggable context.
 
-- a key name matching the denylist (`password`, `token`, `secret`, `ssn`, `auth`, `cookie`,
-  `session`, `key`) by case-insensitive substring is dropped with its entire subtree;
-- redaction fails closed: a property that cannot be read safely becomes an `[unreadable]` marker, an
-  object that defeats inspection becomes `[unredactable]`, and generous depth, node and array budgets
-  replace whatever lies beyond them with `[truncated]` - metadata is never passed through unredacted;
-- messages and error-message strings are **not** scanned: redaction acts on metadata key names, never
-  on text.
-
-The denylist is deliberately conservative and not exhaustive - it cannot know application-specific
-field names. Sink-level redaction on Fastify, Pino or the explicit sink remains advisable for those.
-
-Application records can still disclose sensitive values whose key names do not match the denylist:
+Application records can disclose anything explicitly passed to them:
 
 ```ts
 // suitable
@@ -359,8 +348,7 @@ ctx.logger.info(
   "Password reset requested",
 );
 
-// unsafe: `email` matches no denylist entry and is logged verbatim
-// (`password` and `token` keys are dropped, but do not rely on naming alone)
+// unsafe
 ctx.logger.info(
   { email: input.email, password: input.password, token: sessionToken },
   "Login attempt",

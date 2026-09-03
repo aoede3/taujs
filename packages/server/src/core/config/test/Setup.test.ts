@@ -4,7 +4,7 @@ vi.mock('../constants', () => ({
   CONTENT: { TAG: '[τjs]' },
 }));
 
-import { extractBuildConfigs, extractRoutes, extractSecurity, resolveRequestBudgetMs } from '../Setup';
+import { extractBuildConfigs, extractRoutes, extractSecurity } from '../Setup';
 
 import type { CoreTaujsConfig, Route } from '../../config/types';
 
@@ -217,34 +217,5 @@ describe('extractRoutes attr.head validation (RFC 0004 H1)', () => {
 
   it('names the offending route and app', () => {
     expect(() => extractRoutes(withHead({ data: 42 }))).toThrow(/Route "\/product\/:id" \(app "shop"\)/);
-  });
-});
-
-describe('resolveRequestBudgetMs', () => {
-  it('returns undefined when server.requestBudgetMs is not declared (no budget - unchanged behaviour)', () => {
-    expect(resolveRequestBudgetMs({})).toBeUndefined();
-    expect(resolveRequestBudgetMs({ server: {} })).toBeUndefined();
-  });
-
-  it('returns the declared value when it is a positive finite number', () => {
-    expect(resolveRequestBudgetMs({ server: { requestBudgetMs: 5_000 } })).toBe(5_000);
-    expect(resolveRequestBudgetMs({ server: { requestBudgetMs: 0.5 } })).toBe(0.5);
-  });
-
-  it.each([[0], [-1], [Number.NaN], [Infinity], ['5000']])('rejects requestBudgetMs %s (positive finite only)', (v) => {
-    expect(() => resolveRequestBudgetMs({ server: { requestBudgetMs: v as any } })).toThrow(
-      /server\.requestBudgetMs must be a positive finite number of milliseconds/,
-    );
-  });
-
-  // Node clamps a setTimeout delay above 2_147_483_647ms to 1ms rather than rejecting it, so an
-  // accepted value beyond this would expire almost immediately while remaining() kept reporting
-  // the full allowance - rejected at boot instead.
-  it('accepts the timer-safe maximum (2_147_483_647ms) exactly', () => {
-    expect(resolveRequestBudgetMs({ server: { requestBudgetMs: 2_147_483_647 } })).toBe(2_147_483_647);
-  });
-
-  it('rejects one millisecond above the timer-safe maximum', () => {
-    expect(() => resolveRequestBudgetMs({ server: { requestBudgetMs: 2_147_483_648 } })).toThrow(/server\.requestBudgetMs must not exceed 2147483647ms/);
   });
 });

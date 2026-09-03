@@ -70,12 +70,6 @@ export type SSRServerOptions = {
    * and threaded like the coordinates above so registration never re-derives it.
    */
   introspectionAllowedHosts?: ReadonlySet<string>;
-  /**
-   * Validated `server.requestBudgetMs` (`resolveRequestBudgetMs`, positive finite ms), threaded
-   * like the coordinates above so the request path never re-derives it from the raw config.
-   * `undefined` (the default) means no request budget is created for any request.
-   */
-  requestBudgetMs?: number;
 };
 
 export type GenericPlugin = FastifyPluginCallback<Record<string, unknown>> | FastifyPluginAsync<Record<string, unknown>>;

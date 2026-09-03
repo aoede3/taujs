@@ -1,7 +1,7 @@
 // HARD GATE on the PUBLIC ENTRY: these imports come from '../Config', exercising exactly what
-// ships as '@taujs/server/config' (the PublicRequestBudget.test-d.ts idiom - the internal
-// `core/policy/RoutePolicy` module exporting the type cannot substitute, which is precisely
-// how a prior unit's export missed the real entry). Proves: `RoutePolicy`, `RoutePolicyRule`,
+// ships as '@taujs/server/config' - the internal `core/policy/RoutePolicy` module exporting the
+// type cannot substitute, which is precisely how a prior unit's export missed the real entry.
+// Proves: `RoutePolicy`, `RoutePolicyRule`,
 // `RoutePolicySelector` and `RoutePolicyEvidenceName` are named exports of the public config
 // surface, with exactly the RFC 0016 (Phase A) shape - no service/method selectors, no
 // `forbid`, no severity, no coverage.
@@ -12,7 +12,7 @@ type Eq<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 
 type Expect<T extends true> = T;
 
 declare const evidence: RoutePolicyEvidenceName;
-type _evidence = Expect<Eq<typeof evidence, 'taujs.auth-wired' | 'taujs.csp-configured' | 'taujs.request-budget-configured'>>;
+type _evidence = Expect<Eq<typeof evidence, 'taujs.auth-wired' | 'taujs.csp-configured'>>;
 
 declare const selector: RoutePolicySelector;
 type _selectorKeys = Expect<Eq<keyof RoutePolicySelector, 'appId' | 'path' | 'render' | 'hydrate' | 'hasData' | 'hasHead' | 'hasDeferred'>>;

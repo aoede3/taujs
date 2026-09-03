@@ -27,21 +27,6 @@ describe('createRuntimeLogger', () => {
     expect(info).toHaveBeenCalledWith({ route: '/' }, 'ready');
   });
 
-  it('redacts denied bindings before they reach the custom child seam', () => {
-    const info = vi.fn();
-    const child = vi.fn(() => ({ info }));
-
-    createRuntimeLogger(selection({ child }), {
-      context: { component: 'ssr-server', session: 'raw-secret-value' },
-    });
-
-    expect(child).toHaveBeenCalledTimes(1);
-    const bindings = (child as any).mock.calls[0][0] as Record<string, unknown>;
-    expect(bindings.component).toBe('ssr-server');
-    expect(bindings.session).toBeUndefined();
-    expect(JSON.stringify(child.mock.calls)).not.toContain('raw-secret-value');
-  });
-
   it('keeps structured context for a plain sink without child()', () => {
     const info = vi.fn();
     const logger = createRuntimeLogger(selection({ info }), {

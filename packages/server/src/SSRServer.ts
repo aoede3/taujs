@@ -275,7 +275,6 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
         logger,
         viteDevServer,
         publicBasePath,
-        requestBudgetMs: opts.requestBudgetMs,
       });
     });
   }
