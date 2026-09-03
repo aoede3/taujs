@@ -16,6 +16,8 @@ import {
 } from './core/config/Setup';
 import { REGEX } from './core/constants';
 import { normaliseError } from './core/errors/AppError';
+import { createRequestGraph } from './core/introspection/RequestGraph';
+import { evaluateRoutePolicy, validateRoutePolicy } from './core/policy/RoutePolicy';
 
 import { CONTENT } from './constants';
 import { createRuntimeLogger, type RuntimeLoggerSelection } from './logging/RuntimeLogger';
@@ -122,6 +124,13 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   // declaration must fail before any host state exists. `undefined` (the default) is byte-for-
   // byte unchanged behaviour - no request budget is ever created.
   const requestBudgetMs = resolveRequestBudgetMs(opts.config);
+
+  // RFC 0016 (Phase A): validated at FUNCTION ENTRY for the same reason - a policy typo must
+  // fail before any host state exists. `undefined` (the default): no canonical request graph
+  // is ever built and no evaluation, policy logging or request-time work ever runs - this
+  // validation call and its one property read are the entire cost of absence (see the
+  // `routePolicy` branch after `verifyContracts` below).
+  const routePolicy = validateRoutePolicy(opts.config);
 
   // SC-09 ruling 4: on a τjs-created host, request identity aligns at Fastify construction - the
   // one place τjs legitimately owns that policy. A single valid inbound `x-request-id` becomes
@@ -256,6 +265,50 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   );
 
   printContractReport(logger, report);
+
+  // RFC 0016 (Phase A): ONLY when `routePolicy` is declared - with no policy this branch is
+  // skipped whole: no graph construction, no evaluation, no policy logging, no new failure
+  // surface or presentation change. `verifyContracts` above already ran exactly as it does
+  // with no policy at all - its behaviour, timing and presentation are untouched by this
+  // branch.
+  if (routePolicy) {
+    // `verifyContracts` throws before returning if a declared auth seam failed verification,
+    // so reaching this line honestly means whatever auth requirement existed was satisfied (or
+    // none existed at all) - the "auth" report item can carry only 'verified' or 'skipped'
+    // here, never 'error'. Combined with each route's OWN `middleware.auth.declared` flag in
+    // the evaluator, this is the wired-seam fact, never an authentication outcome.
+    const authSeamVerified = report.items.some((item) => item.key === 'auth' && item.status !== 'error');
+
+    // The one canonical in-memory graph, built the same way `emitGraphArtifact` builds it -
+    // same function, same options shape - so boot policy and the introspection graph can never
+    // disagree about what a route looks like. `security` above already carries the durable,
+    // production-effective CSP posture (`hasExplicitCSP`); development fallback directives
+    // never count as an explicit global policy.
+    const graph = createRequestGraph(opts.config, {
+      source: 'boot',
+      emittedAt: new Date().toISOString(),
+      serviceRegistry: opts.serviceRegistry,
+    });
+
+    const policyResult = evaluateRoutePolicy(routePolicy, {
+      graph,
+      installation: { requestBudgetMs, globalCspConfigured: hasExplicitCSP },
+      bootFacts: { authSeamVerified },
+    });
+
+    // Every finding logs, in both environments, before the single aggregate refusal - so a
+    // reader sees the complete list rather than only the first problem found.
+    for (const finding of policyResult.findings) {
+      logger.error(
+        { component: 'routePolicy', code: finding.code, routeId: finding.routeId, ruleId: finding.ruleId, evidence: finding.evidence },
+        `${CONTENT.TAG} [routePolicy] ${finding.message}`,
+      );
+    }
+
+    if (!policyResult.ok) {
+      throw new Error(`${CONTENT.TAG} routePolicy: ${policyResult.findings.length} finding(s) refuse boot - see the [routePolicy] log lines above.`);
+    }
+  }
 
   try {
     // RFC 0012: the mount is Fastify's own scope-prefix primitive on the one τjs registration.

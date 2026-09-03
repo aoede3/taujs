@@ -57,7 +57,31 @@ type TaujsConfig = {
   apps: AppConfig[];
   alias?: Record<string, string>;
   vite?: TaujsViteOverride;
+  routePolicy?: RoutePolicy; // Opt-in; see Route Policy below
 };
+
+// Opt-in, fail-closed boot invariant - see Route Policy below.
+type RoutePolicy = {
+  rules: RoutePolicyRule[];
+};
+
+type RoutePolicyRule = {
+  id: string; // required, unique, stable: /^[a-z][a-z0-9-]{0,63}$/
+  match: RoutePolicySelector; // fields are conjunctive; {} is the explicit catch-all
+  require?: RoutePolicyEvidenceName[]; // empty/omitted is valid - explicitly public
+};
+
+type RoutePolicySelector = {
+  appId?: string; // exact match
+  path?: string; // exact match against the declared path string
+  render?: 'ssr' | 'streaming';
+  hydrate?: boolean;
+  hasData?: boolean; // route declares attr.data
+  hasHead?: boolean; // route declares attr.head.data
+  hasDeferred?: boolean; // route declares at least one attr.deferred entry
+};
+
+type RoutePolicyEvidenceName = 'taujs.auth-wired' | 'taujs.csp-configured' | 'taujs.request-budget-configured';
 
 type ServerConfig = {
   host?: string; // Default: 'localhost'
@@ -440,6 +464,75 @@ the defaults that protect, so choose the replacement list deliberately.
 
 The whole surface is development-only. In production the introspection module is never loaded,
 nothing is written, and there is nothing to redact.
+
+## Route Policy
+
+Opt-in. `routePolicy` answers a question boot verification does not: which routes were
+*supposed* to require declared evidence, and which are explicitly public? It is a boot
+invariant, not a request-time check - there is no per-request enforcement, no wildcard path
+grammar and no reachability analysis of nested service calls.
+
+```typescript
+export default defineConfig({
+  routePolicy: {
+    rules: [
+      { id: 'admin-area', match: { path: '/admin' }, require: ['taujs.auth-wired'] },
+      { id: 'everything-else', match: {}, require: [] },
+    ],
+  },
+});
+```
+
+**Opt-in.** With no `routePolicy` declared, no canonical request graph is built, no
+evaluation or policy logging runs, and there is no request-time work, new failure surface or
+presentation change - configuration validation is the entire cost of absence. Declaring it is
+what switches the behaviour on.
+
+### Rules are ordered and first-match
+
+Rules are evaluated in declaration order. The **first** rule whose `match` selector matches a
+route owns it - later rules that would also have matched are never consulted for that route.
+Every field in `match` is an **exact match**; `path` in particular has no wildcard grammar, so
+`path: '/admin'` matches only the literal route `/admin`, never `/admin/*` or `/admin/users`.
+Fields within one selector are conjunctive - every declared field must agree for the rule to
+match.
+
+`{}` is the explicit catch-all: a rule matching `{}` owns every route no earlier, more specific
+rule has already claimed.
+
+### Unmatched routes are a fail-closed error
+
+A route that no rule owns - not even a catch-all - is a `policy.route_unmatched` finding, and
+any finding refuses boot. If you want a class of routes to be explicitly public, say so with an
+empty or omitted `require`:
+
+```typescript
+{ id: 'public-pages', match: { hasData: false }, require: [] }
+```
+
+An empty `require` is not the same as no rule matching at all - it is an explicit statement that
+this route needs no evidence.
+
+### Evidence
+
+Three evidence names, each framework-derived and environment-independent:
+
+- **`taujs.auth-wired`** - the route declares `middleware.auth`, and τjs's boot-time auth seam
+  verification passed. This proves the seam is wired, never that any particular request would
+  actually authenticate.
+- **`taujs.csp-configured`** - the route's CSP posture is durable and production-effective: an
+  active per-route override, or an unmodified/soft-disabled declaration backed by an explicit
+  `security.csp`. Development fallback CSP directives never count as configured - only an
+  explicit global policy does.
+- **`taujs.request-budget-configured`** - `server.requestBudgetMs` is set (see
+  [`server.requestBudgetMs`](#serverrequestbudgetms) above).
+
+### Enforcement
+
+Every finding is logged, then boot refuses with one aggregate error - in development and
+production alike, with no escape switch. A typo in a rule (an unknown key, an unknown selector,
+an unknown evidence name, a malformed or duplicate rule id) is rejected at configuration
+validation, before evaluation ever runs, so a mistake can never silently weaken a policy.
 
 ## App Configuration
 

@@ -1,4 +1,5 @@
 import type { RENDERTYPE } from '../constants';
+import type { RoutePolicy } from '../policy/RoutePolicy';
 import type { RegistryCaller, ServiceContext, ServiceDescriptor, ServiceRegistry } from '../services/DataServices';
 import type { Logs } from '../logging/types';
 import type { RequestContext } from '../telemetry/Telemetry';
@@ -386,4 +387,15 @@ export type CoreTaujsConfig = {
   // `CoreTaujsConfig`). Relative values normalise against `projectRoot` at config load (VS5).
   // Typed here but unread until VS5.
   alias?: Record<string, string>;
+  /**
+   * RFC 0016 (Phase A): opt-in, fail-closed boot invariant - ordered first-match rules
+   * declaring which routes are supposed to require which framework-derived evidence, and
+   * which are explicitly public (an empty or omitted `require`). When absent: no canonical
+   * request graph is built and no evaluation, policy logging or request-time work runs -
+   * configuration validation is the entire cost. When declared, τjs builds the canonical graph (development and
+   * production alike), evaluates every route, logs every finding, then refuses to boot on ANY
+   * finding - in both environments, with no escape switch. Validated at `createServer`
+   * function entry, before any host state exists.
+   */
+  routePolicy?: RoutePolicy;
 };
