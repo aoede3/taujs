@@ -1,5 +1,15 @@
 # @taujs/server
 
+## 0.36.0
+
+### Minor Changes
+
+- [#147](https://github.com/aoede3/taujs/pull/147) [`9e16a1e`](https://github.com/aoede3/taujs/commit/9e16a1ece5d726ebcaa163788b31629fa78a88c7) Thanks [@aoede3](https://github.com/aoede3)! - Remove `server.requestBudgetMs`, `ctx.budget`, the `RequestBudget` type, and the logger's runtime metadata redaction - these exceeded what τjs should own and are retracted with no deprecation period.
+
+  What remains true: service failure logs never include the parameter object; development introspection redacts what it persists (its own denylist, unchanged); applications configure their own production logger/sink redaction; `ctx.signal` and `withDeadline()` are the cancellation/deadline surface.
+
+  A route policy requiring the removed `taujs.request-budget-configured` evidence name now fails configuration validation as an unknown name. `server.requestBudgetMs` is no longer declared or read by τjs; if supplied through an extended or untyped configuration, it is ignored.
+
 ## 0.35.0
 
 ### Minor Changes
