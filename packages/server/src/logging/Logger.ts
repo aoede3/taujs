@@ -1,18 +1,11 @@
 import pc from 'picocolors';
 
 import { parseDebugInput } from './Parser';
-import { redactDeniedKeys } from './Redaction';
 import { runtimeMode } from '../System';
 import { DEBUG_CATEGORIES, type BaseLogger, type DebugCategory, type DebugConfig, type Logs, type LogLevel } from '../core/logging/types';
 
 export { DEBUG_CATEGORIES };
 export type { DebugCategory, DebugConfig, Logs, BaseLogger, LogLevel };
-
-/** Redact to a plain record; a root the walker replaced with a marker survives as { value }. */
-const toSafeRecord = (value: unknown, stripStackKeys: boolean): Record<string, unknown> => {
-  const redacted = redactDeniedKeys(value, undefined, { stripStackKeys });
-  return redacted && typeof redacted === 'object' && !Array.isArray(redacted) ? (redacted as Record<string, unknown>) : { value: redacted };
-};
 
 export class Logger implements Logs {
   private debugEnabled = new Set<DebugCategory>();
@@ -28,16 +21,11 @@ export class Logger implements Logs {
       singleLine?: boolean;
     } = {},
   ) {
-    // Caller-owned context is walked by the guarded traversal BEFORE anything reads it - a spread
-    // here would execute its getters unguarded. Stored context is therefore always a safe record.
-    if (config.context) this.context = toSafeRecord(config.context, false);
+    if (config.context) this.context = { ...config.context };
   }
 
   child(context: Record<string, unknown>): Logger {
-    // Caller context is redacted through the guarded walk BEFORE merging - spreading it raw would
-    // execute its getters unguarded. The external child seam RETAINS its bindings (a pino-style
-    // sink keeps them verbatim), so what it receives is the already-safe merged record.
-    const mergedContext = { ...this.context, ...toSafeRecord(context, false) };
+    const mergedContext = { ...this.context, ...context };
     const customChild = this.config.custom?.child?.(mergedContext);
     const child = new Logger({
       ...this.config,
@@ -88,6 +76,25 @@ export class Logger implements Logs {
     return include(level);
   }
 
+  private stripStacks(meta: unknown, seen = new WeakSet<object>()): unknown {
+    if (!meta || typeof meta !== 'object') return meta;
+    if (seen.has(meta as object)) return '[circular]';
+    seen.add(meta as object);
+
+    if (Array.isArray(meta)) return meta.map((v) => this.stripStacks(v, seen));
+
+    const copy: Record<string, unknown> = { ...(meta as Record<string, unknown>) };
+    for (const k of Object.keys(copy)) {
+      if (k === 'stack' || k.endsWith('Stack')) {
+        delete copy[k];
+      } else {
+        copy[k] = this.stripStacks(copy[k], seen);
+      }
+    }
+
+    return copy;
+  }
+
   private formatTimestamp(): string {
     const now = new Date();
     if (runtimeMode === 'production') return now.toISOString();
@@ -118,18 +125,19 @@ export class Logger implements Logs {
     const consoleFallback = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
     const hasCustom = !!boundSink;
 
-    // ONE guarded, bounded traversal does stack filtering and denylist redaction together, and it
-    // is the FIRST thing that touches caller metadata - no spread or recursive walk precedes it
-    // (even Array.isArray on a revoked proxy throws, so the raw value goes straight to the
-    // walker). Default denylist only, applied before ANY sink sees metadata - custom sink,
-    // console fallback and the singleLine JSON path alike. The message string is untouched (keys
-    // are the unit of redaction, not text). A root the walker replaced with a marker survives as
-    // { value } instead of vanishing through the hasMeta check.
-    const stripStackKeys = !this.shouldIncludeStack(level);
-    const safeMeta = meta === undefined ? {} : toSafeRecord(meta, stripStackKeys);
-    const ctxSafe = wantCtx && Object.keys(this.context).length > 0 ? redactDeniedKeys(this.context, undefined, { stripStackKeys }) : undefined;
-    const withCtx = ctxSafe !== undefined ? { context: ctxSafe, ...safeMeta } : safeMeta;
-    const finalMeta = category ? { ...withCtx, category } : withCtx;
+    let baseMeta: Record<string, unknown>;
+    if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+      baseMeta = meta as Record<string, unknown>;
+    } else if (meta === undefined) {
+      baseMeta = {};
+    } else {
+      baseMeta = { value: meta };
+    }
+
+    const withCtx = wantCtx && Object.keys(this.context).length > 0 ? { context: this.context, ...baseMeta } : baseMeta;
+    const withCategory = category ? { ...withCtx, category } : withCtx;
+
+    const finalMeta = this.shouldIncludeStack(level) ? withCategory : this.stripStacks(withCategory);
     const hasMeta = finalMeta && typeof finalMeta === 'object' ? Object.keys(finalMeta as any).length > 0 : false;
 
     const levelText = level.toLowerCase() + (category ? `:${category.toLowerCase()}` : '');

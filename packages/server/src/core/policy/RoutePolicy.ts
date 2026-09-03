@@ -1,12 +1,12 @@
 import type { GraphRoute } from '../introspection/RequestGraph';
 
 /**
- * RFC 0016 (Phase A): the three evidence names τjs can honestly derive from what it already
+ * RFC 0016 (Phase A): the two evidence names τjs can honestly derive from what it already
  * proves at boot - never an authentication OUTCOME, never a coverage statement about runtime
  * reachability. Framework-derived and environment-independent (the truth tables live on
  * `isEvidencePresent` below).
  */
-export type RoutePolicyEvidenceName = 'taujs.auth-wired' | 'taujs.csp-configured' | 'taujs.request-budget-configured';
+export type RoutePolicyEvidenceName = 'taujs.auth-wired' | 'taujs.csp-configured';
 
 /**
  * RFC 0016 (Phase A): every field is DETERMINATE (match or no-match, nothing else) and
@@ -73,8 +73,6 @@ export type RoutePolicyResult = {
 export type RoutePolicyEvaluatorInput = {
   graph: { routes: readonly GraphRoute[] };
   installation: {
-    /** The resolved `server.requestBudgetMs`, or `undefined` when not declared. */
-    requestBudgetMs: number | undefined;
     /**
      * A DURABLE production-effective global CSP configuration exists (`extractSecurity`'s
      * `hasExplicitCSP`). Development fallback directives never count - this is exactly the
@@ -96,7 +94,7 @@ const ALLOWED_RULE_KEYS = new Set(['id', 'match', 'require']);
 const ALLOWED_SELECTOR_KEYS = new Set(['appId', 'path', 'render', 'hydrate', 'hasData', 'hasHead', 'hasDeferred']);
 const BOOLEAN_SELECTOR_KEYS = ['hydrate', 'hasData', 'hasHead', 'hasDeferred'] as const;
 const RENDER_VALUES = new Set(['ssr', 'streaming']);
-const EVIDENCE_NAMES: ReadonlySet<RoutePolicyEvidenceName> = new Set(['taujs.auth-wired', 'taujs.csp-configured', 'taujs.request-budget-configured']);
+const EVIDENCE_NAMES: ReadonlySet<RoutePolicyEvidenceName> = new Set(['taujs.auth-wired', 'taujs.csp-configured']);
 
 // The established τjs plain-record check (ResolveRouteData.ts / Setup.ts): a foreign prototype
 // is rejected outright, so inherited `rules`/selector fields can never smuggle past the exact
@@ -107,8 +105,8 @@ const quoteList = (values: string[]): string => values.map((v) => `"${v}"`).join
 
 /**
  * RFC 0016 (Phase A): validate and resolve `routePolicy`, at FUNCTION ENTRY for the same reason
- * `resolveRequestBudgetMs` and the coordinate resolvers are - invalid configuration must fail
- * before any host state exists. `undefined` (the default) means no policy is declared: no graph
+ * the coordinate resolvers are - invalid configuration must fail before any host state exists.
+ * `undefined` (the default) means no policy is declared: no graph
  * construction, evaluation, logging or request-time work happens anywhere (this validation
  * call and its one property read are the entire cost of absence).
  *
@@ -235,8 +233,6 @@ const isEvidencePresent = (
 
       return true; // active route override
     }
-    case 'taujs.request-budget-configured':
-      return installation.requestBudgetMs !== undefined;
   }
 };
 

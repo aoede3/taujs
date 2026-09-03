@@ -6,7 +6,6 @@ import { AppError, normaliseError, toReason } from '../core/errors/AppError';
 import { logResponseFailure } from '../core/errors/ResponseFailureLog';
 import { fetchHeadData, fetchInitialData } from '../core/routes/DataRoutes';
 import { buildDeferredEnvelopeJson, createDeferredData } from '../core/routes/DeferredData';
-import { createRequestBudget } from '../core/services/RequestBudget';
 import { now } from '../core/telemetry/Telemetry';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
@@ -32,7 +31,6 @@ import type { ViteDevServer } from 'vite';
 import type { DebugConfig, Logs } from '../core/logging/types';
 import type { SelectedPageRoute } from '../core/routes/FastifyRoutes';
 import type { ServiceRegistry } from '../core/services/DataServices';
-import type { ManagedRequestBudget } from '../core/services/RequestBudget';
 import type { DeferredDataController } from '../core/routes/DeferredData';
 import type { Manifest, ProcessedConfig, RenderModule } from '../types';
 
@@ -130,22 +128,9 @@ export const handleRender = async (
     viteDevServer?: ViteDevServer;
     /** RFC 0012: the installation's validated emission coordinate; prefixes the dev beacon URL. */
     publicBasePath?: string;
-    /**
-     * Validated `server.requestBudgetMs` (positive finite ms). When set, one request budget is
-     * created per request and placed on the service context as `ctx.budget`, chained to that
-     * arm's own AbortController signal. `undefined` (the default) creates no budget.
-     */
-    requestBudgetMs?: number;
   } = {},
 ) => {
   const { viteDevServer } = opts;
-
-  // The request budget deadline is captured ONCE, here at entry - before request-context
-  // resolution, dev module loading/transform work, or anything else that can take real time - so
-  // a slow pre-render phase never hands the service pipeline a fresh allowance. Both arms
-  // construct their budget from this SAME absolute deadline via `deadlineAt`; neither re-reads
-  // `now()` against `opts.requestBudgetMs` at the arm.
-  const requestBudgetDeadlineAt = opts.requestBudgetMs !== undefined ? now() + opts.requestBudgetMs : undefined;
 
   const baseLogger =
     (opts.logger as Logs | undefined) ??
@@ -287,16 +272,7 @@ export const handleRender = async (
     const devStamp = devtools ? buildTaujsDevStamp(requestId, devtools.token, cspNonce, opts.publicBasePath ?? '') : '';
     // R1-01 (design 4): each branch sets `ctx.signal` from its request AbortController BEFORE the
     // data is fetched, so loaders that honour `ctx.signal` stop on client disconnect / deadline.
-    // `ctx.budget` is set the same way, alongside `ctx.signal`, when `opts.requestBudgetMs` is
-    // configured - see the two assignment sites below.
-    const ctx = {
-      requestId,
-      logger: reqLogger,
-      headers,
-      recorder,
-      signal: undefined as AbortSignal | undefined,
-      budget: undefined as ManagedRequestBudget | undefined,
-    };
+    const ctx = { requestId, logger: reqLogger, headers, recorder, signal: undefined as AbortSignal | undefined };
     const initialDataInput = async () => {
       const dataT0 = now();
       try {
@@ -413,16 +389,6 @@ export const handleRender = async (
           deferred?.release();
         } catch {}
 
-        // Every response terminal - complete, failed or aborted - releases the budget's timer and
-        // parent-signal listener HERE, once, via the latch above. `dispose()` never aborts
-        // `signal` and never changes `remaining()` (pure clock math), so it does not affect
-        // classification, and userland already holding a reference to `ctx.budget` keeps a
-        // working `remaining()`/refusal - it only stops receiving a late `signal` abort
-        // notification once the response is already settled.
-        try {
-          ctx.budget?.dispose();
-        } catch {}
-
         try {
           if (arm === 'complete') {
             recorder?.sent({ requestId, status: reply.raw.statusCode ?? 200, mode: 'ssr' });
@@ -490,13 +456,6 @@ export const handleRender = async (
       if (reply.raw.destroyed) finaliseSsrOnce('aborted', { phase: ssrStage, disconnect: true });
 
       ctx.signal = ac.signal; // R1-01: propagate into the data context before fetching
-      // Deliberate V1 boundary: the budget is chained to THIS arm's own AbortController signal,
-      // so a client disconnect aborts it too, but an exhausted budget never aborts `ac` itself -
-      // it only refuses new service work (DataServices.callServiceMethod) and aborts
-      // `ctx.budget.signal` for budget-aware userland. Render/terminal behaviour is unchanged.
-      // Bound to `requestBudgetDeadlineAt` (captured at entry) via `deadlineAt`, never a fresh
-      // `budgetMs` read here - see the entry comment.
-      if (requestBudgetDeadlineAt !== undefined) ctx.budget = createRequestBudget({ deadlineAt: requestBudgetDeadlineAt, parentSignal: ac.signal });
 
       if (ac.signal.aborted) {
         logger.warn({ url: req.url }, 'SSR skipped; already aborted');
@@ -693,17 +652,6 @@ export const handleRender = async (
           deferred?.release();
         } catch {}
 
-        // Every response terminal releases the budget's timer and parent-signal listener HERE,
-        // once. `dispose()` never aborts `signal` and never changes `remaining()` (pure clock
-        // math): a deferred entry that is STILL settling after this terminal - `release()` above
-        // detaches but does not force-cancel one already started - keeps a working
-        // `remaining()`/refusal on any nested service call it makes; it only loses the late
-        // `signal` abort notification a budget-aware loader could otherwise observe. Deliberate
-        // V1 trade-off, not a classification change.
-        try {
-          ctx.budget?.dispose();
-        } catch {}
-
         try {
           if (arm === 'complete') {
             recorder?.sent({ requestId, status: reply.raw.statusCode ?? 200, mode: 'streaming' });
@@ -785,12 +733,6 @@ export const handleRender = async (
       });
 
       ctx.signal = ac.signal; // R1-01: propagate into the data context before renderStream fetches it
-      // Deliberate V1 boundary: as in the SSR arm, an exhausted budget never aborts `ac` itself -
-      // it only refuses new service work and aborts `ctx.budget.signal`. Set before
-      // `createDeferredData` below so the deferred registry's ctx (which starts its own eager
-      // work here) inherits the same budget. Bound to `requestBudgetDeadlineAt` (captured at
-      // entry) via `deadlineAt`, never a fresh `budgetMs` read here - see the entry comment.
-      if (requestBudgetDeadlineAt !== undefined) ctx.budget = createRequestBudget({ deadlineAt: requestBudgetDeadlineAt, parentSignal: ac.signal });
 
       // RFC 0007 (R2, decision 2): the declared deferred entries start HERE - immediately after
       // `ctx.signal` is assigned and BEFORE head resolution, the earliest point at which the

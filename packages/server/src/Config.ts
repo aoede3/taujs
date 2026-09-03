@@ -64,8 +64,6 @@ export { createServiceData, getServiceDataMetadata } from './core/services/Servi
 
 export type { ServiceDataMetadata } from './core/services/ServiceData';
 
-export type { RequestBudget } from './core/services/RequestBudget';
-
 // RFC 0016 (Phase A): the declared route-policy surface - the top-level `routePolicy` grammar
 // and its evidence vocabulary. The evaluator and its result type are deliberately NOT exported
 // here: Phase A has no doctor/CI consumer and no application assertions, so only the

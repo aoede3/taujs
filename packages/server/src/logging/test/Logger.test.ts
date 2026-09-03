@@ -435,92 +435,24 @@ describe('Logger', () => {
     expect(call[0]).toMatch(/\[info\] primitive meta$/);
   });
 
-  it('info-level (stacks excluded) hostile and revoked proxies fail closed: no throw, marker as { value }', () => {
+  it('sets hasMeta to false when finalMeta is non-object (via stripStacks override)', () => {
     const logger = createLogger({
       includeStack: false,
       includeContext: false,
       minLevel: 'debug',
     });
 
-    const hostile = new Proxy(
-      { leak: 'raw-secret-value' },
-      {
-        ownKeys() {
-          throw new Error('no keys for you');
-        },
-      },
-    );
-    expect(() => logger.info(hostile, 'hostile at info')).not.toThrow();
-    const hostileCall = (console.log as any).mock.calls.pop()!;
-    expect(hostileCall[1]).toEqual({ value: '[unredactable]' });
-    expect(JSON.stringify(hostileCall)).not.toContain('raw-secret-value');
+    const stripSpy = vi.spyOn(logger as any, 'stripStacks').mockReturnValue('not-an-object' as any);
 
-    const { proxy, revoke } = Proxy.revocable({ leak: 'raw-secret-value' }, {});
-    revoke();
-    expect(() => logger.info(proxy, 'revoked at info')).not.toThrow();
-    const revokedCall = (console.log as any).mock.calls.pop()!;
-    expect(revokedCall[1]).toEqual({ value: '[unredactable]' });
-    expect(JSON.stringify(revokedCall)).not.toContain('raw-secret-value');
-  });
+    logger.info({ k: 1 }, 'primitive finalMeta');
 
-  it('a denied throwing getter never executes: through the stacks-excluded path, context assembly, or child()', () => {
-    let executed = 0;
-    const withDeniedGetter = (): Record<string, unknown> => ({
-      keep: 1,
-      get password(): string {
-        executed += 1;
-        throw new Error('must never run');
-      },
-    });
+    expect(stripSpy).toHaveBeenCalled();
 
-    const logger = createLogger({ includeStack: false, includeContext: false, minLevel: 'debug' });
-    expect(() => logger.info(withDeniedGetter(), 'denied getter at info')).not.toThrow();
+    expect(console.log).toHaveBeenCalledTimes(1);
+    const call = (console.log as any).mock.calls[0];
 
-    const ctxLogger = createLogger({ context: withDeniedGetter(), includeContext: true, minLevel: 'debug' });
-    expect(() => ctxLogger.info({ ok: 1 }, 'denied getter in context')).not.toThrow();
-
-    const childSpy = vi.fn().mockReturnValue({ info: vi.fn() });
-    const parent = createLogger({ custom: { info: vi.fn(), child: childSpy } as any });
-    expect(() => parent.child(withDeniedGetter())).not.toThrow();
-    expect(JSON.stringify(childSpy.mock.calls)).not.toContain('password');
-
-    expect(executed).toBe(0);
-  });
-
-  it('deep metadata stays bounded when stacks are excluded - even past any recursion limit', () => {
-    const logger = createLogger({ includeStack: false, includeContext: false, minLevel: 'debug' });
-
-    let deep: any = { leaf: true };
-    for (let i = 0; i < 100_000; i += 1) deep = { down: deep };
-
-    expect(() => logger.info(deep, 'deep at info')).not.toThrow();
-    const call = (console.log as any).mock.calls.pop()!;
-    const serialised = JSON.stringify(call[1]);
-    expect(serialised).toContain('"[depth]"');
-    expect(serialised).not.toContain('leaf');
-  });
-
-  it('a throwing stack getter is skipped without being read when stacks are excluded, and is [unreadable] when included', () => {
-    let read = 0;
-    const meta = () => ({
-      ok: 1,
-      get stack(): string {
-        read += 1;
-        throw new Error('stack read');
-      },
-    });
-
-    const stripping = createLogger({ includeStack: false, includeContext: false, minLevel: 'debug' });
-    expect(() => stripping.info(meta(), 'stack getter stripped')).not.toThrow();
-    expect(read).toBe(0);
-    const stripped = (console.log as any).mock.calls.pop()!;
-    expect(stripped[1]).toEqual({ ok: 1 });
-
-    const including = createLogger({ includeStack: true, includeContext: false, minLevel: 'debug' });
-    expect(() => including.info(meta(), 'stack getter included')).not.toThrow();
-    expect(read).toBe(1);
-    const included = (console.log as any).mock.calls.pop()!;
-    expect(included[1]).toEqual({ ok: 1, stack: '[unreadable]' });
+    expect(call.length).toBe(1);
+    expect(call[0]).toMatch(/\[info\] primitive finalMeta$/);
   });
 
   it('defaults message to empty string for info when omitted', () => {
@@ -578,185 +510,5 @@ describe('Logger', () => {
     expect(call.length).toBe(2);
     expect(call[0]).toMatch(/\[debug:routes\] $/);
     expect(call[1]).toEqual({ category: 'routes' });
-  });
-
-  describe('redaction: the default denylist applies to all assembled metadata before any sink', () => {
-    it("drops a denylisted key's entire subtree in nested objects", () => {
-      const logger = createLogger({ includeContext: false });
-
-      logger.info({ userId: 7, nested: { password: 'x', keep: 'y' } }, 'nested');
-
-      const meta = (console.log as any).mock.calls.pop()![1];
-      expect(meta.userId).toBe(7);
-      expect(meta.nested.password).toBeUndefined();
-      expect(meta.nested.keep).toBe('y');
-    });
-
-    it('redacts denylisted keys inside arrays of objects', () => {
-      const logger = createLogger({ includeContext: false });
-
-      logger.info(
-        {
-          items: [
-            { name: 'a', token: 't1' },
-            { name: 'b', token: 't2' },
-          ],
-        },
-        'array',
-      );
-
-      const meta = (console.log as any).mock.calls.pop()![1];
-      expect(meta.items).toEqual([{ name: 'a' }, { name: 'b' }]);
-    });
-
-    it('is cycle-safe and still redacts the rest of a cyclic metadata object', () => {
-      const logger = createLogger({ includeContext: false });
-
-      const circular: any = { secret: 's', keep: 'k' };
-      circular.self = circular;
-
-      logger.info(circular, 'cyclic');
-
-      const meta = (console.log as any).mock.calls.pop()![1];
-      expect(meta.secret).toBeUndefined();
-      expect(meta.keep).toBe('k');
-      expect(meta.self).toBe('[circular]');
-    });
-
-    it('custom sink receives redacted metadata, never the raw denylisted values', () => {
-      const custom = { info: vi.fn() };
-      const logger = createLogger({ custom: custom as any, includeContext: false });
-
-      logger.info({ apiKey: 'raw-secret-value', ok: true }, 'via custom sink');
-
-      expect(custom.info).toHaveBeenCalledTimes(1);
-      const meta = (custom.info as any).mock.calls[0][0];
-      expect(meta.apiKey).toBeUndefined();
-      expect(meta.ok).toBe(true);
-      expect(JSON.stringify((custom.info as any).mock.calls)).not.toContain('raw-secret-value');
-    });
-
-    it('console fallback receives redacted metadata when there is no custom sink', () => {
-      const logger = createLogger({ includeContext: false });
-
-      logger.error({ password: 'raw-secret-value', code: 'E1' }, 'via console fallback');
-
-      expect(console.error).toHaveBeenCalledTimes(1);
-      const meta = (console.error as any).mock.calls[0][1];
-      expect(meta.password).toBeUndefined();
-      expect(meta.code).toBe('E1');
-      expect(JSON.stringify((console.error as any).mock.calls)).not.toContain('raw-secret-value');
-    });
-
-    it('the singleLine JSON path emits redacted JSON', () => {
-      const logger = createLogger({ singleLine: true, includeContext: false, minLevel: 'debug' });
-
-      logger.info({ cookie: 'raw-secret-value', note: 'hello' }, 'single line');
-
-      expect(console.log).toHaveBeenCalledTimes(1);
-      const line = (console.log as any).mock.calls[0][0] as string;
-      expect(line).not.toContain('raw-secret-value');
-      expect(line).not.toContain('cookie');
-      expect(line).toContain('"note":"hello"');
-    });
-
-    it('redacts a denied key merged in from child-logger context', () => {
-      const base = createLogger({
-        includeContext: true,
-        context: { session: 'raw-secret-value', app: 'tau' },
-      });
-
-      base.info({ extra: 1 }, 'ctx redaction');
-
-      const meta = (console.log as any).mock.calls.pop()![1];
-      expect(meta.context.session).toBeUndefined();
-      expect(meta.context.app).toBe('tau');
-      expect(meta.extra).toBe(1);
-    });
-
-    it('does not touch the message string - "token" in the message passes through untouched', () => {
-      const logger = createLogger({ includeContext: false });
-
-      logger.info({ ok: true }, 'refresh the token now');
-
-      const call = (console.log as any).mock.calls.pop()!;
-      expect(call[0]).toContain('refresh the token now');
-    });
-
-    it('a mixed object keeps non-denied siblings intact alongside a dropped denied subtree', () => {
-      const logger = createLogger({ includeContext: false });
-
-      logger.info({ userId: 42, secret: 'raw-secret-value', label: 'kept', count: 3 }, 'mixed');
-
-      const meta = (console.log as any).mock.calls.pop()![1];
-      expect(meta).toEqual({ userId: 42, label: 'kept', count: 3 });
-    });
-
-    it('an Error in error-level metadata keeps name/message/stack for the sink and drops its denied enumerable props', () => {
-      const custom = { error: vi.fn() };
-      const logger = createLogger({ custom: custom as any, includeContext: false });
-
-      const err = new Error('boom') as Error & { apiToken?: string; requestPath?: string };
-      err.apiToken = 'raw-secret-value';
-      err.requestPath = '/checkout';
-
-      logger.error({ err }, 'error instance');
-
-      const meta = (custom.error as any).mock.calls[0][0];
-      expect(meta.err.name).toBe('Error');
-      expect(meta.err.message).toBe('boom');
-      expect(meta.err.stack).toEqual(expect.any(String));
-      expect(meta.err.requestPath).toBe('/checkout');
-      expect(meta.err.apiToken).toBeUndefined();
-      expect(JSON.stringify((custom.error as any).mock.calls)).not.toContain('raw-secret-value');
-    });
-
-    it('a Date in error-level metadata is rebuilt to the same instant, shedding expando properties', () => {
-      const custom = { error: vi.fn() };
-      const logger = createLogger({ custom: custom as any, includeContext: false });
-
-      const when = new Date('2026-09-02T00:00:00Z') as Date & { apiToken?: string };
-      when.apiToken = 'raw-secret-value';
-      logger.error({ when }, 'date instance');
-
-      const meta = (custom.error as any).mock.calls[0][0];
-      expect(meta.when).toBeInstanceOf(Date);
-      expect(meta.when.getTime()).toBe(when.getTime());
-      expect(meta.when).not.toBe(when);
-      expect(JSON.stringify((custom.error as any).mock.calls)).not.toContain('raw-secret-value');
-    });
-
-    it('the custom child seam receives redacted bindings - a pino-style sink never retains denied context', () => {
-      const childSpy = vi.fn().mockReturnValue({ info: vi.fn() });
-      const custom = { info: vi.fn(), child: childSpy };
-      const logger = createLogger({ custom: custom as any });
-
-      logger.child({ session: 'raw-secret-value', component: 'svc' });
-
-      expect(childSpy).toHaveBeenCalledTimes(1);
-      const bindings = childSpy.mock.calls[0]![0] as Record<string, unknown>;
-      expect(bindings.session).toBeUndefined();
-      expect(bindings.component).toBe('svc');
-      expect(JSON.stringify(childSpy.mock.calls)).not.toContain('raw-secret-value');
-    });
-
-    it('logger.error on a hostile proxy fails closed: no throw, no raw metadata, the marker survives', () => {
-      const custom = { error: vi.fn() };
-      const logger = createLogger({ custom: custom as any, includeContext: false });
-
-      const hostile = new Proxy(
-        { leak: 'raw-secret-value' },
-        {
-          ownKeys() {
-            throw new Error('no keys for you');
-          },
-        },
-      );
-
-      expect(() => logger.error(hostile, 'hostile proxy')).not.toThrow();
-      const meta = (custom.error as any).mock.calls[0][0];
-      expect(meta).toEqual({ value: '[unredactable]' });
-      expect(JSON.stringify((custom.error as any).mock.calls)).not.toContain('raw-secret-value');
-    });
   });
 });

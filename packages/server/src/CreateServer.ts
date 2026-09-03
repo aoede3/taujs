@@ -12,7 +12,6 @@ import {
   extractSecurity,
   resolveHmrTransport,
   resolveIntrospectionAllowedHosts,
-  resolveRequestBudgetMs,
 } from './core/config/Setup';
 import { REGEX } from './core/constants';
 import { normaliseError } from './core/errors/AppError';
@@ -119,11 +118,6 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   // before any host state exists, and production must reject the typo a shared configuration
   // would otherwise hide, even though the surface it admits is structurally dev-absent.
   const introspectionAllowedHosts = resolveIntrospectionAllowedHosts(opts.config);
-
-  // Resolved at FUNCTION ENTRY for the same reason the coordinates above are: an invalid
-  // declaration must fail before any host state exists. `undefined` (the default) is byte-for-
-  // byte unchanged behaviour - no request budget is ever created.
-  const requestBudgetMs = resolveRequestBudgetMs(opts.config);
 
   // RFC 0016 (Phase A): validated at FUNCTION ENTRY for the same reason - a policy typo must
   // fail before any host state exists. `undefined` (the default): no canonical request graph
@@ -292,7 +286,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
 
     const policyResult = evaluateRoutePolicy(routePolicy, {
       graph,
-      installation: { requestBudgetMs, globalCspConfigured: hasExplicitCSP },
+      installation: { globalCspConfigured: hasExplicitCSP },
       bootFacts: { authSeamVerified },
     });
 
@@ -335,7 +329,6 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       devNet: { host: net.host, hmrPort: net.hmrPort },
       taujsConfig: opts.config,
       introspectionAllowedHosts,
-      requestBudgetMs,
       // RFC 0010: the single caller-root exception, and the only value that reaches the plugin from
       // the caller's instance. Vite must observe development URLs Fastify did not route, which only
       // a root-level hook sees. Withheld unless the caller owns the host AND we are in development,

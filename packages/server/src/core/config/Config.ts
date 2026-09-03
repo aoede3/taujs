@@ -14,8 +14,6 @@ export { callServiceMethod, defineService, defineServiceRegistry, withDeadline }
 
 export type { JsonObject, JsonPrimitive, JsonValue, RegistryCaller, ServiceContext, TypedServiceContext } from '../services/DataServices';
 
-export type { RequestBudget } from '../services/RequestBudget';
-
 export { AppError } from '../errors/AppError';
 
 export function defineConfig<const C>(config: C & CoreTaujsConfig): C {

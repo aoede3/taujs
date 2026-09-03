@@ -220,35 +220,6 @@ export const extractPathCoordinates = (config: Pick<CoreTaujsConfig, 'server'>):
   return { mountPrefix, publicBasePath };
 };
 
-// Node clamps a `setTimeout` delay above this to 1ms (TimeoutOverflowWarning) rather than
-// rejecting it, so an accepted configuration above the bound would expire almost immediately
-// while `remaining()` kept reporting the full allowance - a silent contradiction, not a graceful
-// degradation. Rejected at boot instead; see https://nodejs.org/api/timers.html#settimeoutcallback-delay-args.
-const MAX_REQUEST_BUDGET_MS = 2_147_483_647;
-
-/**
- * Validate and resolve `server.requestBudgetMs`, at FUNCTION ENTRY for the same reason the
- * coordinates and transport above are - invalid configuration must fail before any host state
- * exists. `undefined` (the default) means no request budget is created; declared, it must be a
- * POSITIVE FINITE number of milliseconds no greater than `MAX_REQUEST_BUDGET_MS`, following the
- * same rule `attr.head.timeoutMs` uses (RFC 0004 ruling 3) since both are bounded time
- * allowances, never a wait-forever sentinel.
- */
-export const resolveRequestBudgetMs = (config: Pick<CoreTaujsConfig, 'server'>): number | undefined => {
-  const declared = config.server?.requestBudgetMs;
-  if (declared === undefined) return undefined;
-
-  if (!(typeof declared === 'number' && Number.isFinite(declared) && declared > 0)) {
-    throw new Error(`server.requestBudgetMs must be a positive finite number of milliseconds (received ${String(declared)})`);
-  }
-
-  if (declared > MAX_REQUEST_BUDGET_MS) {
-    throw new Error(`server.requestBudgetMs must not exceed ${MAX_REQUEST_BUDGET_MS}ms (the largest delay setTimeout honours; received ${declared})`);
-  }
-
-  return declared;
-};
-
 /**
  * RFC 0012 (verdict-round ruling): the per-app Vite `base`, composing the canonical
  * `publicBasePath` AROUND the existing `entryPoint` spelling. With `publicBasePath: ''` this

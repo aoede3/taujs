@@ -19,7 +19,6 @@ const route = (overrides: Partial<GraphRoute> = {}): GraphRoute => ({
 });
 
 const installation = (overrides: Partial<RoutePolicyEvaluatorInput['installation']> = {}): RoutePolicyEvaluatorInput['installation'] => ({
-  requestBudgetMs: undefined,
   globalCspConfigured: false,
   ...overrides,
 });
@@ -95,6 +94,7 @@ describe('validateRoutePolicy', () => {
     ['match.hasDeferred is not a boolean', { rules: [{ id: 'a', match: { hasDeferred: 1 } }] }],
     ['require is not an array', { rules: [{ id: 'a', match: {}, require: 'taujs.auth-wired' }] }],
     ['require contains an unknown evidence name', { rules: [{ id: 'a', match: {}, require: ['taujs.made-up'] }] }],
+    ['require contains the removed request-budget evidence name', { rules: [{ id: 'a', match: {}, require: ['taujs.request-budget-configured'] }] }],
     ['require contains a non-string entry', { rules: [{ id: 'a', match: {}, require: [1] }] }],
   ])('rejects: %s', (_label, malformed) => {
     expect(() => validateRoutePolicy({ routePolicy: malformed as RoutePolicy })).toThrow();
@@ -106,7 +106,7 @@ describe('validateRoutePolicy', () => {
         {
           id: 'full',
           match: { appId: 'web', path: '/a', render: 'streaming', hydrate: true, hasData: true, hasHead: true, hasDeferred: true },
-          require: ['taujs.auth-wired', 'taujs.csp-configured', 'taujs.request-budget-configured'],
+          require: ['taujs.auth-wired', 'taujs.csp-configured'],
         },
       ],
     };
@@ -187,13 +187,13 @@ describe('evaluateRoutePolicy: rule ownership', () => {
 
   it('every missing evidence produces its own finding - not just the first', () => {
     const result = evaluateRoutePolicy(
-      { rules: [{ id: 'strict', match: {}, require: ['taujs.auth-wired', 'taujs.csp-configured', 'taujs.request-budget-configured'] }] },
+      { rules: [{ id: 'strict', match: {}, require: ['taujs.auth-wired', 'taujs.csp-configured'] }] },
       { graph: { routes: [route()] }, installation: installation(), bootFacts: bootFacts() },
     );
 
     expect(result.ok).toBe(false);
-    expect(result.findings).toHaveLength(3);
-    expect(result.findings.map((f) => f.evidence)).toEqual(['taujs.auth-wired', 'taujs.csp-configured', 'taujs.request-budget-configured']);
+    expect(result.findings).toHaveLength(2);
+    expect(result.findings.map((f) => f.evidence)).toEqual(['taujs.auth-wired', 'taujs.csp-configured']);
     expect(result.findings.every((f) => f.ruleId === 'strict' && f.code === 'policy.evidence_missing')).toBe(true);
   });
 
@@ -338,21 +338,5 @@ describe('evaluateRoutePolicy: taujs.auth-wired', () => {
   it('absent: route does not declare middleware.auth at all, regardless of the boot seam fact', () => {
     expect(evidencePresent(false, true)).toBe(false);
     expect(evidencePresent(false, false)).toBe(false);
-  });
-});
-
-describe('evaluateRoutePolicy: taujs.request-budget-configured', () => {
-  const evidencePresent = (requestBudgetMs: number | undefined): boolean =>
-    evaluateRoutePolicy(
-      { rules: [{ id: 'r', match: {}, require: ['taujs.request-budget-configured'] }] },
-      { graph: { routes: [route()] }, installation: installation({ requestBudgetMs }), bootFacts: bootFacts() },
-    ).ok;
-
-  it('present: server.requestBudgetMs resolved to a value', () => {
-    expect(evidencePresent(5000)).toBe(true);
-  });
-
-  it('absent: server.requestBudgetMs not declared (resolved to undefined)', () => {
-    expect(evidencePresent(undefined)).toBe(false);
   });
 });
