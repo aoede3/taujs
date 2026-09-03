@@ -120,6 +120,10 @@ function scaffold(): string {
 
 type Booted = { url: string; output: () => string };
 
+// eslint-disable-next-line no-control-regex
+const ANSI = /\u001b\[[0-9;]*m/g;
+const stripAnsi = (text: string): string => text.replace(ANSI, '');
+
 let child: ChildProcess | undefined;
 let root: string | undefined;
 
@@ -143,14 +147,18 @@ async function boot(order: 'react-first' | 'vue-first'): Promise<Booted> {
   let captured = '';
   const proc = spawn(process.execPath, [CHILD, root, order], {
     cwd: FIXTURE_DIR,
-    env: { ...process.env, NODE_ENV: 'development' },
+    // Deterministic colour: the server's logger (picocolors) honours FORCE_COLOR/NO_COLOR, and a
+    // maintainer shell exporting FORCE_COLOR wrapped the level tag in ANSI codes, so a substring pin on
+    // `[warn] ...` missed. The child gets colour OFF explicitly, and the captured output is stripped of
+    // ANSI before every assertion as well, so the pin holds under any terminal.
+    env: { ...process.env, NODE_ENV: 'development', FORCE_COLOR: '0', NO_COLOR: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child = proc;
   proc.stdout!.setEncoding('utf8');
   proc.stderr!.setEncoding('utf8');
-  proc.stdout!.on('data', (chunk: string) => (captured += chunk));
-  proc.stderr!.on('data', (chunk: string) => (captured += chunk));
+  proc.stdout!.on('data', (chunk: string) => (captured += stripAnsi(chunk)));
+  proc.stderr!.on('data', (chunk: string) => (captured += stripAnsi(chunk)));
 
   const url = await new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`dev boot timed out; output was:\n${captured}`)), 45000);
