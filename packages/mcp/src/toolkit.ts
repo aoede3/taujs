@@ -29,11 +29,14 @@ export type GraphContext = {
 
 // Structural tools all start the same way: discover, read the graph, degrade honestly.
 // Discovery runs per call — the dev server may start or stop between tool calls.
-export const withGraph = (root: string, fn: (ctx: GraphContext) => ToolResult): ToolResult => {
+// `cap` forwards to readGraph (default capped). A tool reading uncapped gets ONE snapshot for
+// everything — staleness, metadata and comparison alike; a second read could race a graph rewrite
+// into an internally inconsistent response — and owns capping every string it emits.
+export const withGraph = (root: string, fn: (ctx: GraphContext) => ToolResult, opts?: { cap?: boolean }): ToolResult => {
   const discovery = discoverSubstrate(root);
   if (discovery.mode === 'none') return { ok: false, reason: 'nothing_emitted', message: discovery.message };
 
-  const result: GraphReadResult = readGraph(discovery);
+  const result: GraphReadResult = readGraph(discovery, opts);
   if (!result.ok) return { ok: false, reason: result.reason, message: result.message };
 
   return fn({ discovery, graph: result.graph, stalenessLine: result.stalenessLine });

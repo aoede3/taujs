@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { DevJsonSchema, EpisodeRecordSchema, LogAnnexRecordSchema } from './schemas';
 
+import type { ComparableGraph } from './GraphCompare';
+
 import type { z } from 'zod';
 import type { DevJson, LogAnnexRecord, LogLevel, ObservationsDocument, RequestGraphV1, EpisodeRecord } from './types';
 
@@ -214,7 +216,11 @@ export const stalenessLineFor = (graph: Pick<RequestGraphV1, 'source' | 'emitted
   return `As of the last dev boot at ${graph.emittedAt} — no active dev server; data may be stale.`;
 };
 
-export const readGraph = (discovery: SubstrateDiscovery): GraphReadResult => {
+// `cap` defaults to true: every tool that presents graph values reads them display-capped. The
+// comparison tool alone reads uncapped (cap: false) - two strings sharing their first 500
+// characters must still compare as different - and applies the cap itself at its response
+// boundary instead.
+export const readGraph = (discovery: SubstrateDiscovery, opts?: { cap?: boolean }): GraphReadResult => {
   if (discovery.mode === 'none') return { ok: false, reason: 'not_found', message: NOTHING_EMITTED_MESSAGE };
 
   const graphPath = discovery.paths.graph;
@@ -232,7 +238,7 @@ export const readGraph = (discovery: SubstrateDiscovery): GraphReadResult => {
     };
   }
 
-  const graph = capStrings(raw);
+  const graph = opts?.cap === false ? raw : capStrings(raw);
   return { ok: true, graph, stalenessLine: stalenessLineFor(graph, discovery.mode) };
 };
 
@@ -318,6 +324,98 @@ export const readLogs = (
 
   // The any-level count lets a caller tell "logged nothing" from "logged nothing at this level".
   return { ok: true, records: forEpisode.filter((r) => LEVEL_ORDER[r.level] >= min), malformed: read.malformed, anyLevelCount: forEpisode.length };
+};
+
+export type BaselineGraphReadResult =
+  | { ok: true; graph: ComparableGraph }
+  | { ok: false; reason: 'invalid_baseline_path' | 'baseline_not_found' | 'baseline_unreadable' | 'schema_skew'; message: string };
+
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+// Proves every field the graph comparison COMPARES OR EMITS - identities and dereferenced paths
+// (app/route ids, the middleware object facets are reached through, deferred keys sorted by),
+// the facet values and global blocks that land in change rows, and the metadata the response
+// reports (source, emittedAt, taujs.server). It is deliberately NOT the full v1 schema: interior
+// facet shapes (a render's fields, a csp's contents) are compared and shown as-is by deep
+// structural equality, and misdeclaring those is a difference for a row to state, not a reason
+// to refuse. A document that passes produces complete metadata and well-formed rows; a partial
+// one that would not - even one no dereference trips over - refuses as a baseline problem.
+const hasComparableGraphShape = (raw: unknown): raw is ComparableGraph => {
+  if (!isRecord(raw)) return false;
+  if (typeof raw.source !== 'string' || typeof raw.emittedAt !== 'string') return false;
+  if (!isRecord(raw.taujs) || typeof raw.taujs.server !== 'string') return false;
+  if (!isRecord(raw.security) || !isRecord(raw.fallthrough)) return false;
+  if (!Array.isArray(raw.apps) || !raw.apps.every((a) => isRecord(a) && typeof a.appId === 'string' && typeof a.entryPoint === 'string')) return false;
+  if (!Array.isArray(raw.routes)) return false;
+
+  return raw.routes.every(
+    (r) =>
+      isRecord(r) &&
+      typeof r.id === 'string' &&
+      isRecord(r.render) &&
+      isRecord(r.hydrate) &&
+      isRecord(r.middleware) &&
+      isRecord(r.middleware.auth) &&
+      isRecord(r.middleware.csp) &&
+      isRecord(r.data) &&
+      (r.head === undefined || isRecord(r.head)) &&
+      (r.deferred === undefined || (Array.isArray(r.deferred) && r.deferred.every((e) => isRecord(e) && typeof e.key === 'string'))),
+  );
+};
+
+// A retained baseline is a file the CALLER copied earlier, from anywhere under the project. It is
+// never resolved through node_modules/.taujs (containedPaths is for artefacts this adapter itself
+// derives), so it gets its own containment logic against the project root - reusing the exact
+// realpath pattern containedFile applies to the substrate directory, plus a lexical pre-check so a
+// syntactically invalid path (absolute, or `../` escaping the root before any file even exists) is
+// distinguished from a path that resolves on disk to somewhere it should not.
+export const readBaselineGraph = (root: string, baselinePath: string): BaselineGraphReadResult => {
+  if (path.isAbsolute(baselinePath))
+    return { ok: false, reason: 'invalid_baseline_path', message: `baselinePath must be project-relative, not absolute: "${baselinePath}".` };
+
+  const realRoot = realDirOf(root);
+  const lexical = path.normalize(path.join(root, baselinePath));
+  if (!realRoot || (lexical !== root && !lexical.startsWith(root + path.sep)))
+    return { ok: false, reason: 'invalid_baseline_path', message: `baselinePath escapes the project root by traversal: "${baselinePath}".` };
+
+  // Beyond this point the path is lexically inside root; a symlink can still escape it, or the
+  // target can be missing or not a regular file - containedFile answers all three the same honest
+  // way the substrate directory's own artefacts are resolved.
+  const real = containedFile(lexical, realRoot);
+  if (!real)
+    return {
+      ok: false,
+      reason: 'baseline_not_found',
+      message: `"${baselinePath}" is not present as a regular file inside the project root (or resolves outside it via a symlink).`,
+    };
+
+  const raw = readJson<unknown>(real);
+  if (raw === undefined) return { ok: false, reason: 'baseline_unreadable', message: `Could not parse baseline graph at "${baselinePath}".` };
+
+  // Same version-skew discipline as readGraph: a baseline is untrusted application data too, and
+  // an unrecognised schema must degrade explicitly rather than be misread as today's shape.
+  const version = isRecord(raw) ? raw.schemaVersion : undefined;
+  if (version !== ADAPTER_SCHEMA_VERSION)
+    return {
+      ok: false,
+      reason: 'schema_skew',
+      message: `Baseline graph is schema v${String(version)}; this adapter understands v${ADAPTER_SCHEMA_VERSION} — upgrade @taujs/mcp.`,
+    };
+
+  // A right-version document can still be malformed - a caller can retain (or hand-edit) anything.
+  // That must refuse as a baseline problem, not surface later as a generic tool_failure when the
+  // comparison dereferences a path that is not there.
+  if (!hasComparableGraphShape(raw))
+    return {
+      ok: false,
+      reason: 'baseline_unreadable',
+      message: `Baseline graph at "${baselinePath}" parses as schema v${ADAPTER_SCHEMA_VERSION} but does not have the request-graph shape this comparison reads.`,
+    };
+
+  // Returned UNCAPPED, deliberately: the one consumer (taujs_compare_graphs) must compare original
+  // values - capping first would make long values equal at character 500 - and applies the display
+  // cap itself at its response boundary.
+  return { ok: true, graph: raw };
 };
 
 export type ObservationsReadResult =

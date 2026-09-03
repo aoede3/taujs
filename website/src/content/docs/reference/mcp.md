@@ -48,6 +48,7 @@ Run `pnpm dev` once so the full substrate exists, then point your MCP client at 
 | `taujs_get_route`         | One route's full graph row plus its warnings                       |
 | `taujs_who_calls_service` | Route → service edges, labelled `declared` vs `observed`           |
 | `taujs_explain_route`     | Composed explanation: render, data edge, schema flags, middleware  |
+| `taujs_compare_graphs`    | Diffs a retained baseline graph against the current one, field by field |
 | `taujs_get_recent_episodes` | Recent request episodes (live dev boot only)                         |
 | `taujs_get_episode`         | One episode: timeline, service calls, hydration, error               |
 | `taujs_get_episode_logs`    | That episode's log lines, on demand (`warn` and above by default)    |
@@ -62,6 +63,7 @@ Three skills also ship as MCP prompts: broken-route diagnosis, hydration-mismatc
 - **Sources are labelled** - `declared` (from configuration) vs `observed` (seen in dev traffic). Absence of an observed edge means _not exercised yet_, never "no relationship"
 - **Version-skew safe** - a graph emitted by a newer `@taujs/server` degrades with an explicit upgrade message, never a misread
 - **Untrusted by default** - field values in responses are your application's data: capped, never treated as instructions. Episode URLs never include query values
+- **Comparison is declared-fields-only** - `taujs_compare_graphs` diffs a retained baseline against the current graph over declared fields alone (apps, routes, security, fallthrough); metadata, `services`, and `warnings` are never compared, and rows state exact differences, never a verdict
 
 ## Introspection Configuration
 

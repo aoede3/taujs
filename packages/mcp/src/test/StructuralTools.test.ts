@@ -503,6 +503,7 @@ describe('MCP server end-to-end (InMemory transport)', () => {
 
     const tools = await client.listTools();
     expect(tools.tools.map((t) => t.name).sort()).toEqual([
+      'taujs_compare_graphs',
       'taujs_doctor',
       'taujs_explain_route',
       'taujs_find_contract',
