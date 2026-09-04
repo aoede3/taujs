@@ -57,6 +57,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.4",
     "@babel/preset-typescript": "^7.24.7",
+    "@fastify/compress": "8.3.1",
     "@types/node": "^20.14.9",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.9",

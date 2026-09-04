@@ -493,12 +493,22 @@ describe('streaming transport: acceptance spine (real listener)', () => {
     expect(episodesFor(host, PATHS.syncThrow)).toHaveLength(1);
   });
 
-  it('3: a fatal AFTER the first document byte aborts the transfer', async () => {
+  it('3: a fatal AFTER the first document byte aborts the transfer and records no pre-commit failure', async () => {
     const host = await boot();
     const wire = await read(host.port, PATHS.postByteFatal);
 
     // The status cannot become 500 once bytes are delivered; the honest answer is an aborted
     // transfer with the partial document.
+    //
+    // docs/followups/live/streaming-pre-shell-error-transform-ruling.md: `failResponse`
+    // (`HandleRender.ts`) only calls `recordPreCommitFailure` in its PRE-commit branch, gated on
+    // `!documentState.committed`. By the time this fatal fires, the shell byte has already gone
+    // out and `documentState.committed` is true, so this run of `failResponse` takes the
+    // post-commit branch and never records anything for this request. The status staying 200 with
+    // the partial body (rather than the recorded-failure substitution this file's sibling,
+    // `StreamingPreShellTransform.test.ts`, proves for a genuine pre-commit failure) is exactly
+    // what "records nothing" looks like from the wire: there is nothing for the scope error
+    // handler to have consulted even if it had run.
     expect(wire.status).toBe(200);
     expect(wire.body).toContain('<main>partial</main>');
     expect(wire.body).not.toContain('taujs:data-ready');
