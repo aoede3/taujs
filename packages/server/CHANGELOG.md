@@ -1,5 +1,13 @@
 # @taujs/server
 
+## 0.37.1
+
+### Patch Changes
+
+- [#160](https://github.com/aoede3/taujs/pull/160) [`5fd7072`](https://github.com/aoede3/taujs/commit/5fd707266f4335db59d8eca87bcfdf1eadf913ae) Thanks [@aoede3](https://github.com/aoede3)! - `ServiceRegistry`, the type `createServer`'s `serviceRegistry` option is declared with, is now exported from `@taujs/server/config`. Nothing else changes.
+
+- [#161](https://github.com/aoede3/taujs/pull/161) [`587e0d7`](https://github.com/aoede3/taujs/commit/587e0d7cbef334c7539cad68fb102c4f0ea63525) Thanks [@aoede3](https://github.com/aoede3)! - A streaming route whose loader or renderer fails before the first document byte now keeps its original error status and envelope, even when a payload transform such as compression sits between the document and the wire and reports its own stream error instead of the original one. The abandoned content encoding is cleared before the replacement body is sent, so it decodes correctly. Post-byte failures are unaffected and continue to abort the transfer.
+
 ## 0.37.0
 
 ### Minor Changes
