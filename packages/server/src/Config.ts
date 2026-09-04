@@ -62,7 +62,7 @@ export type {
 
 export { createServiceData, getServiceDataMetadata } from './core/services/ServiceData';
 
-export type { ServiceDataMetadata } from './core/services/ServiceData';
+export type { ServiceDataMetadata, ServiceDataRequestFacts } from './core/services/ServiceData';
 
 // RFC 0016 (Phase A): the declared route-policy surface - the top-level `routePolicy` grammar
 // and its evidence vocabulary. The evaluator and its result type are deliberately NOT exported

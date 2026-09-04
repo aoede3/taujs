@@ -134,6 +134,42 @@ The `{}` parameter is load-bearing: `serviceData()` may omit its mapper only whe
 parameter type accepts the route params, and a bare `async () =>` carries no parameter type for that
 check, so the mapper stays required.
 
+### Read request facts in the mapper
+
+A mapper takes a second argument, `facts`: a frozen copy of the request's `url` and `headers`. Use
+it to map query state or a specific header value into the explicit params a service method
+declares, without giving up the declared edge:
+
+```ts
+export const CatalogueService = defineService({
+  product: async (params: { id: string; variant: string; tenant: string | null }) =>
+    loadProduct(params),
+});
+
+{
+  path: "/products/:id",
+  attr: {
+    render: "ssr",
+    data: serviceData("catalogue", "product", ({ id }, facts) => {
+      const queryStart = facts.url.indexOf("?");
+      const query = new URLSearchParams(queryStart === -1 ? "" : facts.url.slice(queryStart + 1));
+
+      return {
+        id: String(id),
+        variant: query.get("variant") ?? "default",
+        tenant: facts.headers["x-tenant"] ?? null,
+      };
+    }),
+  },
+}
+```
+
+`facts` is a frozen copy containing only `url` and `headers`. It does not grant the mapper τjs's
+request-scoped registry caller; mappers should remain synchronous, side-effect-free argument
+translations. `headers` may carry credentials or session cookies, so map only the specific values
+the service actually needs rather than passing the whole object through. Reading `facts` this way
+keeps the declared `catalogue.product` edge - the request graph still reports it, never `dynamic`.
+
 A hand-written service descriptor remains valid, but loses some inference and static discoverability:
 
 ```ts
