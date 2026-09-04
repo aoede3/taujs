@@ -56,6 +56,7 @@ export type {
   RegistryCaller,
   ServiceContext,
   ServiceMethodMetadata,
+  ServiceRegistry,
   TypedServiceContext,
 } from './core/services/DataServices';
 
