@@ -7,6 +7,7 @@ import { createServiceData } from '../ServiceData';
 import { createCaller, defineService, defineServiceRegistry } from '../DataServices';
 
 import type { RouteParams } from '../../config/types';
+import type { ServiceDataRequestFacts } from '../ServiceData';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 type Expect<T extends true> = T;
@@ -61,7 +62,7 @@ void call('good', 'byAlias', { slug: 'a' });
 // --- Arm d: the serviceData() mapper keeps method-specific params typing (instantiation expression). ---
 const sd = createServiceData<typeof reg>();
 
-type _MapperArm = Expect<Equal<Parameters<typeof sd<'good', 'byAlias'>>[2], (params: RouteParams) => Alias>>;
+type _MapperArm = Expect<Equal<Parameters<typeof sd<'good', 'byAlias'>>[2], (params: RouteParams, facts: ServiceDataRequestFacts) => Alias>>;
 
 // --- Arm e: a spec holding the diagnostic is not a ServiceRegistry. ---
 // @ts-expect-error - a spec holding the diagnostic is not a ServiceRegistry

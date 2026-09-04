@@ -9,7 +9,7 @@ import { expectTypeOf } from 'vitest';
 
 import { defineService, defineServiceRegistry } from '../Config';
 
-import type { ServiceRegistry } from '../Config';
+import type { ServiceDataRequestFacts, ServiceRegistry } from '../Config';
 
 // --- (a) A `defineServiceRegistry({...})` value is assignable to the public `ServiceRegistry`. ---
 const catalog = defineService({
@@ -26,3 +26,11 @@ const roundTripped = identity(registry);
 
 expectTypeOf(roundTripped).toEqualTypeOf<typeof registry>();
 expectTypeOf(roundTripped.catalog.getProduct).toEqualTypeOf<typeof registry.catalog.getProduct>();
+
+// --- (c) `ServiceDataRequestFacts` (RULED 2026-09-04) is a named export of the public config
+// surface, not just the internal `core/services/ServiceData` module - a `serviceData` mapper's
+// second-argument type is importable from '@taujs/server/config'. ---
+declare const facts: ServiceDataRequestFacts;
+
+expectTypeOf(facts.url).toEqualTypeOf<string>();
+expectTypeOf(facts.headers).toEqualTypeOf<Readonly<Record<string, string>>>();
