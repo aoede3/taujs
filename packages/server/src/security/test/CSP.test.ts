@@ -283,6 +283,25 @@ describe('selected route metadata', () => {
 });
 
 describe('cspPlugin', () => {
+  it('explicit directives in development replace the fallback entirely, they are not merged with it', async () => {
+    const { cspPlugin } = await importer(true);
+    const fastify = makeFastify();
+    selectedRouteMock.mockReturnValue(undefined);
+
+    await cspPlugin(fastify as any, { directives: { 'img-src': ["'self'", 'https://cdn.example.com'] } });
+
+    const { req, reply, done } = makeReqReply('/dev-explicit-config');
+    await fastify._hooks.onRequest(req, reply, done);
+
+    const header = (reply.header as any).mock.calls[0][1] as string;
+    expect(header).toContain("img-src 'self' https://cdn.example.com");
+    // DEV_CSP_DIRECTIVES (default-src, connect-src, style-src, img-src) is a fallback used only when
+    // no explicit directives are configured; its default-src must not leak in behind explicit config.
+    // The development allowances defaultGenerateCSP adds on top are a separate, documented step.
+    expect(header).not.toContain('default-src');
+    expect(done).toHaveBeenCalled();
+  });
+
   it('applies only global directives to a host-owned or unmatched Fastify route', async () => {
     const { cspPlugin } = await importer(true);
     const fastify = makeFastify();
