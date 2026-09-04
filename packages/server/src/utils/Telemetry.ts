@@ -9,6 +9,33 @@ export function getRequestContext<L extends Logs>(req: FastifyRequest): RequestC
   return (req.taujsRequestContext as RequestContext<L> | null | undefined) ?? undefined;
 }
 
+/**
+ * Streaming pre-commit failure identity - ENTIRELY INTERNAL to `@taujs/server`. Never exported
+ * from the package, never placed on the public loader context or `ServiceContext`. Keyed by the
+ * exact request object, so an entry is reachable only for as long as the request itself is and is
+ * never readable for any request other than the one that wrote it - a connection, a route or a
+ * module-level slot would all leak across requests under keep-alive or load; a `WeakMap` keyed by
+ * the request cannot.
+ *
+ * Written exactly once, only by `HandleRender.ts`'s `failResponse` in its pre-commit branch (the
+ * same moment `preCommitFailure.reason` is set there); read exactly once, only by `SSRServer.ts`'s
+ * scope error handler, itself gated on the identical structural test `failResponse` already uses
+ * (`!reply.raw.headersSent`) - never by inspecting the transport error's shape or message.
+ */
+const preCommitFailures = new WeakMap<FastifyRequest, { reason: unknown }>();
+
+export function recordPreCommitFailure(req: FastifyRequest, reason: unknown): void {
+  preCommitFailures.set(req, { reason });
+}
+
+/** Reads and clears the recorded failure for this request, if any. */
+export function consumePreCommitFailure(req: FastifyRequest): { reason: unknown } | undefined {
+  const failure = preCommitFailures.get(req);
+  if (failure) preCommitFailures.delete(req);
+
+  return failure;
+}
+
 export function createRequestContext<L extends Logs>(
   req: FastifyRequest,
   reply: FastifyReply,

@@ -10,7 +10,7 @@ import { now } from '../core/telemetry/Telemetry';
 import { createLogger } from '../logging/Logger';
 import { isDevelopment } from '../System';
 import { resolveEntryFile } from './Entry';
-import { createRequestContext, getRequestContext } from './Telemetry';
+import { createRequestContext, getRequestContext, recordPreCommitFailure } from './Telemetry';
 import {
   requireTemplate,
   buildTaujsDevStamp,
@@ -679,6 +679,14 @@ export const handleRender = async (
           const failure = reason ?? new Error('taujs: streaming failed before the first document byte');
 
           preCommitFailure = { reason: failure };
+
+          // Docs/followups/live/streaming-pre-shell-error-transform-ruling.md: a payload transform
+          // (compression, for example) sitting between this cold document and the wire may replace
+          // the stream error it is about to observe with one of its own, so the scope error handler
+          // cannot rely on the object Fastify eventually hands it. Recording the original error here,
+          // keyed by this exact request, gives that handler a way back to it without widening any
+          // public shape.
+          recordPreCommitFailure(req, failure);
           rejectShell(failure);
           resolveTail(undefined);
 

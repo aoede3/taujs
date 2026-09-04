@@ -185,6 +185,12 @@ request, and do not assume the payload you are handed is the one the client rece
 A failure **after** the first byte cannot become an error response: the transfer is aborted with
 whatever was already delivered.
 
+A payload transform that replaces the streamed document - compression, for example - sits between
+that document and the wire, and may report its own stream error when the document fails before its
+first byte, rather than the original one. τjs now restores the original error's status and envelope
+in that case, and clears the abandoned content encoding so the replacement body decodes correctly.
+On releases before this one, exclude streamed HTML from such transforms.
+
 ### Replacing or wrapping the payload
 
 An `onSend` hook may replace the streamed document outright. If it does, the renderer never runs at

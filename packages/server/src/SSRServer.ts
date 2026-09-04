@@ -24,7 +24,7 @@ import { createAuthHook } from './security/Auth';
 import { cspPlugin } from './security/CSP';
 import { cspReportPlugin } from './security/CSPReporting';
 import { createMaps, loadAssets, processConfigs } from './utils/AssetManager';
-import { createRequestContext, getRequestContext } from './utils/Telemetry';
+import { consumePreCommitFailure, createRequestContext, getRequestContext } from './utils/Telemetry';
 import { handleRender } from './utils/HandleRender';
 import { handleNotFound } from './utils/HandleNotFound';
 import { registerStaticAssets } from './utils/StaticAssets';
@@ -329,6 +329,32 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       e = AppError.from(err);
     } catch {
       e = AppError.internal('Internal error');
+    }
+
+    // docs/followups/live/streaming-pre-shell-error-transform-ruling.md: a streaming response can
+    // fail before its first byte, and a payload transform sitting between the document and the
+    // wire (compression, for example) can report that failure as an error of its own, discarding
+    // the original one. Consult the request-local original only while the response has genuinely
+    // not committed - the same structural test the streaming terminal itself uses - and never by
+    // inspecting this error's shape or message.
+    if (!reply.raw.headersSent) {
+      const recorded = consumePreCommitFailure(req);
+
+      if (recorded) {
+        // The abandoned transform may already have declared an encoding for a body that will never
+        // be sent; the replacement envelope below is always plain JSON, so that declaration must
+        // not survive it, independently of whether `err` below turns out to be an `AppError`.
+        reply.removeHeader('content-encoding');
+        reply.raw.removeHeader('content-encoding');
+
+        if (!AppError.isAppError(err)) {
+          try {
+            e = AppError.from(recorded.reason);
+          } catch {
+            e = AppError.internal('Internal error');
+          }
+        }
+      }
     }
 
     logResponseFailure({
