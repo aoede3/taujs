@@ -118,6 +118,22 @@ This checks the service name, method and mapper result at compile time. It also 
 non-enumerable metadata on the loader so the request graph can show the route-to-service edge without
 executing application code.
 
+A method that takes no route-derived input still needs an explicit `{}` parameter so `serviceData()`
+can drop the mapper:
+
+```ts
+export const ContentService = defineService({
+  home: async (_params: {}) => ({ title: "Home" }),
+});
+
+// no mapper - the route has no params this method needs
+data: serviceData("content", "home"),
+```
+
+The `{}` parameter is load-bearing: `serviceData()` may omit its mapper only when the method's
+parameter type accepts the route params, and a bare `async () =>` carries no parameter type for that
+check, so the mapper stays required.
+
 A hand-written service descriptor remains valid, but loses some inference and static discoverability:
 
 ```ts
