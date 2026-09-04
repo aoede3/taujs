@@ -208,7 +208,12 @@ describe('handleRender', () => {
       } as any);
       mockSelectedRoute = createMockRouteMatch({ render: 'ssr', data: async () => ({}) });
       vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
-      vi.mocked(Templates.processTemplate).mockReturnValue({ beforeHead: '<html><head>', afterHead: '</head>', beforeBody: '<body>', afterBody: '</body></html>' });
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
       vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html></html>');
       mockMaps.renderModules.set('/test/client', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '<div/>' }) });
       vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
