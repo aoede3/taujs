@@ -61,7 +61,7 @@ describe('taujsBuild — graph emission', () => {
 
     expect(graph.source).toBe('build');
     expect(graph.services).toBeNull();
-    expect(graph.schemaVersion).toBe(1);
+    expect(graph.schemaVersion).toBe(2);
     expect(graph.routes.map((r: { id: string }) => r.id)).toEqual(['web:/about', 'web:/']);
     expect(graph.warnings.some((w: { code: string }) => w.code === 'render.defaulted')).toBe(true);
   });

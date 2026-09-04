@@ -77,7 +77,7 @@ describe('emitGraphArtifact', () => {
     expect(ok).toBe(true);
     expect(graph.source).toBe('build');
     expect(graph.services).toBeNull();
-    expect(graph.schemaVersion).toBe(1);
+    expect(graph.schemaVersion).toBe(2);
     expect(new Date(graph.emittedAt).toISOString()).toBe(graph.emittedAt);
   });
 

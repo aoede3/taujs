@@ -257,7 +257,6 @@ export type RouteData<C extends { apps: readonly any[] }, Path extends string> =
 
 export type CoreSecurityConfig = {
   csp?: {
-    defaultMode?: 'merge' | 'replace';
     directives?: unknown;
     generateCSP?: (directives: unknown, nonce: string, req?: unknown) => string;
     reporting?: {

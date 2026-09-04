@@ -6,13 +6,17 @@ import { DevJsonSchema, EpisodeRecordSchema, LogAnnexRecordSchema } from './sche
 import type { ComparableGraph } from './GraphCompare';
 
 import type { z } from 'zod';
-import type { DevJson, LogAnnexRecord, LogLevel, ObservationsDocument, RequestGraphV1, EpisodeRecord } from './types';
+import type { DevJson, LogAnnexRecord, LogLevel, ObservationsDocument, RequestGraphV2, EpisodeRecord } from './types';
 
 // The adapter is a thin file reader (RFC v11): no network, no config loading, no framework
 // imports. Reads are synchronous — files are small by construction (ring-capped) and the
 // stdio server answers one tool call at a time.
 
-export const ADAPTER_SCHEMA_VERSION = 1;
+// The request graph and the observations document are versioned independently: the graph
+// carries breaking config-shape changes (schemaVersion 2, decisions.md), the observations
+// document has had none yet and stays at 1.
+export const GRAPH_SCHEMA_VERSION = 2;
+export const OBSERVATIONS_SCHEMA_VERSION = 1;
 
 // Refusal contract (phase-1-notes, verbatim): every runtime tool returns this when there
 // is no active dev boot. Structural tools remain available.
@@ -204,11 +208,11 @@ export const discoverSubstrate = (root: string = process.cwd()): SubstrateDiscov
 };
 
 export type GraphReadResult =
-  { ok: true; graph: RequestGraphV1; stalenessLine: string | null } | { ok: false; reason: 'not_found' | 'unreadable' | 'schema_skew'; message: string };
+  { ok: true; graph: RequestGraphV2; stalenessLine: string | null } | { ok: false; reason: 'not_found' | 'unreadable' | 'schema_skew'; message: string };
 
 // Staleness is stated, never hidden (conventions rule 6): every non-active answer carries
 // a citation line consumers must surface.
-export const stalenessLineFor = (graph: Pick<RequestGraphV1, 'source' | 'emittedAt'>, mode: SubstrateDiscovery['mode']): string | null => {
+export const stalenessLineFor = (graph: Pick<RequestGraphV2, 'source' | 'emittedAt'>, mode: SubstrateDiscovery['mode']): string | null => {
   if (mode === 'active') return null;
   if (graph.source === 'build') {
     return `As of the last build at ${graph.emittedAt}, which is when the topology graph was emitted, not when every referenced application bundle was rebuilt — no active dev server; data may be stale.`;
@@ -226,15 +230,15 @@ export const readGraph = (discovery: SubstrateDiscovery, opts?: { cap?: boolean 
   const graphPath = discovery.paths.graph;
   if (!graphPath) return { ok: false, reason: 'not_found', message: notFoundMessage('graph.json', 'node_modules/.taujs or dist/.taujs') };
 
-  const raw = readJson<RequestGraphV1>(graphPath);
+  const raw = readJson<RequestGraphV2>(graphPath);
   if (!raw) return { ok: false, reason: 'unreadable', message: `Could not parse ${graphPath}.` };
 
   // Version skew: degrade explicitly, never misread (phase-1-notes forget-risk).
-  if (raw.schemaVersion !== ADAPTER_SCHEMA_VERSION) {
+  if (raw.schemaVersion !== GRAPH_SCHEMA_VERSION) {
     return {
       ok: false,
       reason: 'schema_skew',
-      message: `Request graph is schema v${String(raw.schemaVersion)}; this adapter understands v${ADAPTER_SCHEMA_VERSION} — upgrade @taujs/mcp.`,
+      message: `Request graph is schema v${String(raw.schemaVersion)}; this adapter understands v${GRAPH_SCHEMA_VERSION} — upgrade @taujs/mcp.`,
     };
   }
 
@@ -395,11 +399,11 @@ export const readBaselineGraph = (root: string, baselinePath: string): BaselineG
   // Same version-skew discipline as readGraph: a baseline is untrusted application data too, and
   // an unrecognised schema must degrade explicitly rather than be misread as today's shape.
   const version = isRecord(raw) ? raw.schemaVersion : undefined;
-  if (version !== ADAPTER_SCHEMA_VERSION)
+  if (version !== GRAPH_SCHEMA_VERSION)
     return {
       ok: false,
       reason: 'schema_skew',
-      message: `Baseline graph is schema v${String(version)}; this adapter understands v${ADAPTER_SCHEMA_VERSION} — upgrade @taujs/mcp.`,
+      message: `Baseline graph is schema v${String(version)}; this adapter understands v${GRAPH_SCHEMA_VERSION} — upgrade @taujs/mcp.`,
     };
 
   // A right-version document can still be malformed - a caller can retain (or hand-edit) anything.
@@ -409,7 +413,7 @@ export const readBaselineGraph = (root: string, baselinePath: string): BaselineG
     return {
       ok: false,
       reason: 'baseline_unreadable',
-      message: `Baseline graph at "${baselinePath}" parses as schema v${ADAPTER_SCHEMA_VERSION} but does not have the request-graph shape this comparison reads.`,
+      message: `Baseline graph at "${baselinePath}" parses as schema v${GRAPH_SCHEMA_VERSION} but does not have the request-graph shape this comparison reads.`,
     };
 
   // Returned UNCAPPED, deliberately: the one consumer (taujs_compare_graphs) must compare original
@@ -430,11 +434,11 @@ export const readObservations = (discovery: SubstrateDiscovery): ObservationsRea
 
   const raw = readJson<ObservationsDocument>(obsPath);
   if (!raw) return { ok: false, reason: 'unreadable', message: `Could not parse ${obsPath}.` };
-  if (raw.schemaVersion !== ADAPTER_SCHEMA_VERSION) {
+  if (raw.schemaVersion !== OBSERVATIONS_SCHEMA_VERSION) {
     return {
       ok: false,
       reason: 'schema_skew',
-      message: `Observations are schema v${String(raw.schemaVersion)}; this adapter understands v${ADAPTER_SCHEMA_VERSION} — upgrade @taujs/mcp.`,
+      message: `Observations are schema v${String(raw.schemaVersion)}; this adapter understands v${OBSERVATIONS_SCHEMA_VERSION} — upgrade @taujs/mcp.`,
     };
   }
 

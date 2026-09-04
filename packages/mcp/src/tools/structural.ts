@@ -319,7 +319,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
   defineTool({
     name: 'taujs_explain_route',
     title: 'Explain a route',
-    description: `Composed explanation of one route: effective render/hydrate, data edge with schema flags, middleware posture, the schema-v1 declaration score (not Fastify runtime precedence), and its warnings. ${UNTRUSTED_NOTE}`,
+    description: `Composed explanation of one route: effective render/hydrate, data edge with schema flags, middleware posture, the schema-v2 declaration score (not Fastify runtime precedence), and its warnings. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({
       routeId: z.string().optional().describe('Stable id, e.g. "storefront:/product/:id"'),
       path: z.string().optional().describe('Exact declared path'),

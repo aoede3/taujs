@@ -61,7 +61,7 @@ const seed = async (files: Record<string, string>): Promise<string> => {
   const defaults: Record<string, string> = {
     'dev.json': JSON.stringify(devJson),
     'graph.json': JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       source: 'boot',
       emittedAt: '2026-08-26T09:00:00.000Z',
       routes: [],
@@ -186,7 +186,7 @@ describe('doctor shape (@taujs/mcp)', () => {
     await writeFile(
       path.join(dir, 'graph.json'),
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         source: 'boot',
         emittedAt: '2026-08-26T09:00:00.000Z',
         routes: [],

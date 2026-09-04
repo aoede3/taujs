@@ -29,13 +29,12 @@ export function printSecuritySummary(logger: Logger, routes: Route[], security: 
   const enabled = total - disabled;
 
   const hasReporting = !!security.csp?.reporting?.endpoint;
-  const mode = security.csp?.defaultMode ?? 'merge';
 
   let status = 'configured';
   let detail = '';
 
   if (hasExplicitCSP) {
-    detail = `explicit, mode=${mode}`;
+    detail = 'explicit';
     if (hasReporting) detail += ', reporting';
     if (custom > 0) detail += `, ${custom} route override(s)`;
   } else {

@@ -44,9 +44,8 @@ exports[`registerBootGraphEmission > registers an onListen writer and its onClos
       "specificity": 0,
     },
   ],
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "security": {
-    "cspDefaultMode": "merge",
     "reporting": false,
   },
   "services": null,

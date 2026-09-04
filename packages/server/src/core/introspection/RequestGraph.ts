@@ -55,7 +55,7 @@ export type GraphServiceMethod = { name: string; params: GraphSchemaFlag; result
 export type GraphService = { name: string; methods: GraphServiceMethod[] };
 
 export type RequestGraph = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   taujs: { server: string };
   source: GraphSource;
   emittedAt: string;
@@ -63,7 +63,7 @@ export type RequestGraph = {
   apps: { appId: string; entryPoint: string; routeCount: number }[];
   routes: GraphRoute[];
   services: GraphService[] | null;
-  security: { cspDefaultMode: 'merge' | 'replace'; reporting: boolean };
+  security: { reporting: boolean };
   fallthrough: { mode: 'spa'; appId: string; assetLike: 404; reachable: boolean };
   warnings: GraphWarning[];
 };
@@ -81,7 +81,7 @@ const isMatchAllWildcard = (path: string): boolean => path === '/*' || path === 
 const isServiceEdge = (edge: GraphRouteData, service: string, method: string): boolean =>
   edge.kind === 'service' && edge.service === service && edge.method === method;
 
-// Pure, deterministic, no I/O. Serialises the resolved config into spec 02 schema v1 —
+// Pure, deterministic, no I/O. Serialises the resolved config into spec 02 schema v2 -
 // nothing here executes data handlers or touches a server instance; declared route → service
 // edges come only from the P0A-01/P0A-02 metadata accessors.
 export function createRequestGraph(config: CoreTaujsConfig, options: CreateRequestGraphOptions): RequestGraph {
@@ -125,7 +125,7 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
               : {
                   declared: true,
                   // Effective per-route mode: CSP.ts applies 'replace' only when explicit,
-                  // otherwise merges — the global defaultMode does not participate here.
+                  // otherwise merges. There is no global mode option - this is the only input.
                   mode: csp.mode === 'replace' ? 'replace' : 'merge',
                   dynamic: typeof csp.directives === 'function',
                   reportOnly: Boolean(csp.reportOnly),
@@ -249,7 +249,7 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
   }
 
   const { hasExplicitCSP, summary } = extractSecurity(config);
-  const security = { cspDefaultMode: summary.defaultMode, reporting: summary.hasReporting };
+  const security = { reporting: summary.hasReporting };
 
   if (!hasExplicitCSP) {
     warnings.push({
@@ -281,7 +281,7 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
   warnings.sort((a, b) => a.code.localeCompare(b.code) || (a.routeId ?? '').localeCompare(b.routeId ?? '') || (a.message ?? '').localeCompare(b.message ?? ''));
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     taujs: { server: pkg.version },
     source: options.source,
     emittedAt: options.emittedAt,
