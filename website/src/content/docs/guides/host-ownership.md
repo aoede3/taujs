@@ -149,6 +149,21 @@ Two questions decide whether a hook is a usable policy point, and they have diff
 The table is identical for both installation shapes. It is verified against a real listener, not an
 injected request, because header behaviour on a streamed response is only observable on the wire.
 
+### Headers that depend on route data
+
+A response header must be known before the shell byte. On a streamed page the shell is deliberately
+sent before `attr.data` resolves, so a header whose value comes from a subrequest made inside the
+route's data loader (a session cookie, a timing header, a cache key) cannot reach the client on that
+strategy; `onSend` has already run. This is not a hook-ordering defect. It is what streaming means.
+
+Two placements exist today:
+
+- `attr.head` is the pre-byte work slot. It resolves before the document is handed to Fastify, so a
+  subrequest made there finishes before `onSend`. The head loader has no header-setting API of its
+  own; the host carries the value across in its own request-scoped state and sets it in `onSend`.
+- A route whose response headers depend on body-data-time work should declare `render: 'ssr'`.
+  There the whole page, and every subrequest behind it, is complete before `onSend` runs.
+
 ### A streamed response that fails before its first byte
 
 A streamed page hands Fastify a document that has not started producing bytes. If rendering fails
