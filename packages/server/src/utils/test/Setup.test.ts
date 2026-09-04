@@ -83,7 +83,6 @@ describe('printSecuritySummary', () => {
   it('logs configured summary when explicit CSP is provided', () => {
     const security: CoreSecurityConfig = {
       csp: {
-        defaultMode: 'merge',
         directives: {} as any,
         reporting: { endpoint: '/rep', reportOnly: false },
       },

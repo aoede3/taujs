@@ -97,20 +97,20 @@ describe('taujs_compare_graphs — baseline refusals', () => {
 
   it('refuses schema skew, explicitly', async () => {
     const { call, root } = await mkProject(smallConfig);
-    await writeFileAt(root, 'baseline-skew.json', JSON.stringify({ schemaVersion: 2 }));
+    await writeFileAt(root, 'baseline-skew.json', JSON.stringify({ schemaVersion: 1 }));
 
     const result = call({ baselinePath: 'baseline-skew.json' });
 
     expect(result).toMatchObject({ ok: false, reason: 'schema_skew' });
-    expect(result.message).toContain('v2');
     expect(result.message).toContain('v1');
+    expect(result.message).toContain('v2');
   });
 
-  it('refuses a partial-but-nonthrowing schema-v1 baseline (missing source/emittedAt/security/fallthrough and route facets)', async () => {
+  it('refuses a partial-but-nonthrowing schema-v2 baseline (missing source/emittedAt/security/fallthrough and route facets)', async () => {
     const { call, root } = await mkProject(smallConfig);
     // Every dereference this document survives - nothing throws - yet comparing it would emit
     // incomplete metadata and malformed change rows. It must refuse as a baseline problem.
-    await writeFileAt(root, 'baseline-partial.json', JSON.stringify({ schemaVersion: 1, taujs: { server: 'x' }, apps: [], routes: [] }));
+    await writeFileAt(root, 'baseline-partial.json', JSON.stringify({ schemaVersion: 2, taujs: { server: 'x' }, apps: [], routes: [] }));
 
     const result = call({ baselinePath: 'baseline-partial.json' });
 
@@ -118,9 +118,9 @@ describe('taujs_compare_graphs — baseline refusals', () => {
     expect(result.message).toContain('shape');
   });
 
-  it('refuses parseable JSON with schemaVersion 1 but an invalid graph shape, cleanly - never a generic tool_failure', async () => {
+  it('refuses parseable JSON with schemaVersion 2 but an invalid graph shape, cleanly - never a generic tool_failure', async () => {
     const { call, root } = await mkProject(smallConfig);
-    await writeFileAt(root, 'baseline-malformed.json', JSON.stringify({ schemaVersion: 1, apps: [], routes: 'nope' }));
+    await writeFileAt(root, 'baseline-malformed.json', JSON.stringify({ schemaVersion: 2, apps: [], routes: 'nope' }));
 
     // A direct handler call: a throw here would escape as an exception (the server wraps it into
     // tool_failure), so reaching an ok:false envelope IS the proof of a clean refusal.

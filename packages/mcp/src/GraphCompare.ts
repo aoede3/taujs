@@ -10,9 +10,9 @@ export type RowKind = 'app' | 'route' | 'security' | 'fallthrough';
 export type RowChange = 'added' | 'removed' | 'changed';
 
 // The comparator's HONEST input contract: exactly the fields it compares or the tool emits, and
-// no more. A full RequestGraphV1 satisfies it structurally, but the baseline reader's guard only
+// no more. A full RequestGraphV2 satisfies it structurally, but the baseline reader's guard only
 // ever proves this much - naming that boundary keeps the narrowing truthful instead of claiming a
-// v1 document it never validated. Facet interiors are `unknown` on purpose: they flow through
+// v2 document it never validated. Facet interiors are `unknown` on purpose: they flow through
 // deep structural equality and into rows as-is, so their shape is a difference to report, never a
 // contract to enforce.
 export type ComparableRoute = {

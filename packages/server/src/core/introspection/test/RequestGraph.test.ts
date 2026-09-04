@@ -83,7 +83,7 @@ const fixtureMultiApp: CoreTaujsConfig = {
       ],
     },
   ],
-  security: { csp: { defaultMode: 'merge', reporting: { endpoint: '/csp-report' } } },
+  security: { csp: { reporting: { endpoint: '/csp-report' } } },
 };
 
 // (c) terminal wildcard: fallthrough unreachable.
@@ -98,7 +98,7 @@ const fixtureAppShell: CoreTaujsConfig = {
       ],
     },
   ],
-  security: { csp: { defaultMode: 'replace' } },
+  security: { csp: {} },
 };
 
 // (d) triggers every warning code in the registry at least once.
@@ -159,7 +159,7 @@ const fixturePlayground: CoreTaujsConfig = {
   ],
 };
 
-describe('createRequestGraph — fixture snapshots (spec 02 schema v1)', () => {
+describe('createRequestGraph — fixture snapshots (spec 02 schema v2)', () => {
   it('(a) minimal single app', () => {
     expect(versionAgnostic(createRequestGraph(fixtureMinimal, OPTS))).toMatchSnapshot();
   });
@@ -208,8 +208,16 @@ describe('createRequestGraph — contract assertions', () => {
     expect(graph.source).toBe('build');
     expect(graph.emittedAt).toBe('2000-01-01T00:00:00.000Z');
     expect(graph.taujs.server).toBe(pkg.version);
-    expect(graph.schemaVersion).toBe(1);
+    expect(graph.schemaVersion).toBe(2);
     expect(graph.disclosure).toBe('conservative');
+  });
+
+  it('the emitted graph carries schemaVersion 2 and no cspDefaultMode', () => {
+    const graph = createRequestGraph(fixtureMultiApp, { ...OPTS, serviceRegistry: registry });
+
+    expect(graph.schemaVersion).toBe(2);
+    expect(graph.security).toEqual({ reporting: true });
+    expect('cspDefaultMode' in graph.security).toBe(false);
   });
 
   it('declared edges: usedBy points at the serviceData route; unused methods have empty usedBy', () => {

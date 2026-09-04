@@ -12,7 +12,7 @@ import { defineService, defineServiceRegistry } from '../../../server/src/core/s
 import { compareGraphs, summarizeCompare } from '../GraphCompare';
 
 import type { CoreTaujsConfig } from '../../../server/src/core/config/types';
-import type { RequestGraphV1 } from '../types';
+import type { RequestGraphV2 } from '../types';
 
 const catalog = defineService({
   getProduct: { handler: async (p: { id: string }) => ({ product: { id: p.id } }), params: { parse: (u: unknown) => u as { id: string } } },
@@ -55,7 +55,7 @@ const OPTS = { source: 'boot' as const, emittedAt: '2026-09-01T10:00:00.000Z', s
 
 // The one graph every test compares against. JSON round-tripped once here so every `clone()`
 // below starts from exactly the shape the adapter itself would read off disk.
-const current: RequestGraphV1 = JSON.parse(JSON.stringify(createRequestGraph(config, OPTS)));
+const current: RequestGraphV2 = JSON.parse(JSON.stringify(createRequestGraph(config, OPTS)));
 
 // Deep clone, typed as the mutable JSON shape a test needs to poke at.
 const clone = (): any => JSON.parse(JSON.stringify(current));
@@ -355,10 +355,10 @@ describe('compareGraphs — route facet rows (every included facet)', () => {
 describe('compareGraphs — global security and fallthrough', () => {
   it('security changed produces one whole-object row, id "security"', () => {
     const baseline = clone();
-    baseline.security = { cspDefaultMode: 'replace', reporting: true };
+    baseline.security = { reporting: true };
 
     expect(compareGraphs(baseline, current)).toEqual([
-      { kind: 'security', change: 'changed', id: 'security', baseline: { cspDefaultMode: 'replace', reporting: true }, current: current.security },
+      { kind: 'security', change: 'changed', id: 'security', baseline: { reporting: true }, current: current.security },
     ]);
   });
 
@@ -425,7 +425,7 @@ describe('compareGraphs — determinism', () => {
     const baseline = clone();
     // Scatter several differences across every kind, in a deliberately non-sorted mutation order.
     baseline.fallthrough = { ...current.fallthrough, reachable: !current.fallthrough.reachable };
-    baseline.security = { cspDefaultMode: 'replace', reporting: true };
+    baseline.security = { reporting: true };
     routeIn(baseline, '/hydrate-route').hydrate = { enabled: false, defaulted: false };
     routeIn(baseline, '/auth-route').middleware.auth = { declared: false };
     appIn(baseline, 'admin').entryPoint = 'apps/admin-OLD';

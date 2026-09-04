@@ -16,7 +16,6 @@ export type ExtractSecurityResult<S extends CoreSecurityConfig = CoreSecurityCon
   hasExplicitCSP: boolean;
   summary: {
     mode: 'explicit' | 'dev-defaults';
-    defaultMode: 'merge' | 'replace';
     hasReporting: boolean;
     reportOnly: boolean;
   };
@@ -356,7 +355,6 @@ export const extractSecurity = <S extends CoreSecurityConfig = CoreSecurityConfi
 
   const normalisedCsp = userCsp
     ? {
-        defaultMode: userCsp.defaultMode ?? 'merge',
         directives: userCsp.directives,
         generateCSP: userCsp.generateCSP,
         reporting: userCsp.reporting
@@ -373,7 +371,6 @@ export const extractSecurity = <S extends CoreSecurityConfig = CoreSecurityConfi
 
   const summary = {
     mode: hasExplicitCSP ? ('explicit' as const) : ('dev-defaults' as const),
-    defaultMode: normalisedCsp?.defaultMode ?? 'merge',
     hasReporting: !!normalisedCsp?.reporting?.endpoint,
     reportOnly: !!normalisedCsp?.reporting?.reportOnly,
   };

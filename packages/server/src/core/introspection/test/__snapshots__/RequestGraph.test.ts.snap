@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (a) minimal single app 1`] = `
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (a) minimal single app 1`] = `
 {
   "apps": [
     {
@@ -44,9 +44,8 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (a) mini
       "specificity": 0,
     },
   ],
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "security": {
-    "cspDefaultMode": "merge",
     "reporting": false,
   },
   "services": null,
@@ -72,7 +71,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (a) mini
 }
 `;
 
-exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) multi-app with registry: kinds, usedBy, csp variants 1`] = `
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (b) multi-app with registry: kinds, usedBy, csp variants 1`] = `
 {
   "apps": [
     {
@@ -243,9 +242,8 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) mult
       "specificity": 10.1,
     },
   ],
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "security": {
-    "cspDefaultMode": "merge",
     "reporting": true,
   },
   "services": [
@@ -313,7 +311,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) mult
 }
 `;
 
-exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) without a registry: services is null, never [] 1`] = `
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (b) without a registry: services is null, never [] 1`] = `
 {
   "apps": [
     {
@@ -484,9 +482,8 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) with
       "specificity": 10.1,
     },
   ],
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "security": {
-    "cspDefaultMode": "merge",
     "reporting": true,
   },
   "services": null,
@@ -498,7 +495,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (b) with
 }
 `;
 
-exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (c) terminal wildcard: fallthrough unreachable 1`] = `
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (c) terminal wildcard: fallthrough unreachable 1`] = `
 {
   "apps": [
     {
@@ -567,9 +564,8 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (c) term
       "specificity": 0,
     },
   ],
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "security": {
-    "cspDefaultMode": "replace",
     "reporting": false,
   },
   "services": null,
@@ -589,7 +585,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (c) term
 }
 `;
 
-exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (d) every warning code fires at least once 1`] = `
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (d) every warning code fires at least once 1`] = `
 {
   "apps": [
     {
@@ -738,9 +734,8 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (d) ever
       "specificity": 10.1,
     },
   ],
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "security": {
-    "cspDefaultMode": "merge",
     "reporting": false,
   },
   "services": null,
@@ -793,7 +788,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (d) ever
 }
 `;
 
-exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) playground fixture: the P0B-05 app shape, registry-enriched 1`] = `
+exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (e) playground fixture: the P0B-05 app shape, registry-enriched 1`] = `
 {
   "apps": [
     {
@@ -941,9 +936,8 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v1) > (e) play
       "specificity": 0,
     },
   ],
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "security": {
-    "cspDefaultMode": "merge",
     "reporting": false,
   },
   "services": [

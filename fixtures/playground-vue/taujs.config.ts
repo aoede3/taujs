@@ -22,7 +22,6 @@ export default defineConfig({
   // securitypolicyviolation - which is exactly what the browser suite asserts never happens.
   security: {
     csp: {
-      defaultMode: 'merge',
       directives: {
         'default-src': ["'self'"],
         'style-src': ["'self'", "'unsafe-inline'"],

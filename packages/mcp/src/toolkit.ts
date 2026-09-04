@@ -2,7 +2,7 @@ import { discoverSubstrate, readGraph } from './SubstrateReader';
 
 import type { z } from 'zod';
 import type { GraphReadResult, SubstrateDiscovery } from './SubstrateReader';
-import type { RequestGraphV1 } from './types';
+import type { RequestGraphV2 } from './types';
 
 // Every tool description carries this — substrate strings are attacker-influenceable
 // (anyone can request /product/<payload> against a dev server). RFC security model §4.
@@ -23,7 +23,7 @@ export const defineTool = <S extends z.ZodObject<z.ZodRawShape>>(tool: ToolDefin
 
 export type GraphContext = {
   discovery: Exclude<SubstrateDiscovery, { mode: 'none' }>;
-  graph: RequestGraphV1;
+  graph: RequestGraphV2;
   stalenessLine: string | null;
 };
 

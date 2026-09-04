@@ -15,7 +15,6 @@ import type { TaujsViteOverride } from './ViteConfig';
 
 export type SecurityConfig = CoreSecurityConfig & {
   csp?: {
-    defaultMode?: 'merge' | 'replace';
     directives?: CSPDirectives;
     generateCSP?: (directives: CSPDirectives, nonce: string, req?: FastifyRequest) => string;
     reporting?: {

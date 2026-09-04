@@ -14,7 +14,8 @@ import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitG
 import { createRequestGraph } from '../../../server/src/core/introspection/RequestGraph';
 
 import {
-  ADAPTER_SCHEMA_VERSION,
+  GRAPH_SCHEMA_VERSION,
+  OBSERVATIONS_SCHEMA_VERSION,
   NO_ACTIVE_BOOT_REFUSAL,
   NOTHING_EMITTED_MESSAGE,
   capStrings,
@@ -154,7 +155,7 @@ describe('readGraph', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.graph.schemaVersion).toBe(ADAPTER_SCHEMA_VERSION);
+      expect(result.graph.schemaVersion).toBe(GRAPH_SCHEMA_VERSION);
       expect(result.graph.routes[0]!.id).toBe('web:/');
       expect(result.stalenessLine).toBeNull();
     }
@@ -189,10 +190,10 @@ describe('readGraph', () => {
     }
   });
 
-  it('schema skew degrades explicitly, never misreads', async () => {
+  it('a graph document at schemaVersion 1 is refused by the reader with the upgrade message', async () => {
     const root = await mkRoot();
     await emitGraph(root, (g) => {
-      g.schemaVersion = 2;
+      g.schemaVersion = 1;
     });
 
     const result = readGraph(discoverSubstrate(root));
@@ -200,7 +201,7 @@ describe('readGraph', () => {
     expect(result).toEqual({
       ok: false,
       reason: 'schema_skew',
-      message: 'Request graph is schema v2; this adapter understands v1 — upgrade @taujs/mcp.',
+      message: 'Request graph is schema v1; this adapter understands v2 — upgrade @taujs/mcp.',
     });
   });
 
@@ -323,7 +324,7 @@ describe('readLogs', () => {
 });
 
 describe('readObservations', () => {
-  it('reads the real document and reports skew explicitly', async () => {
+  it('an observations document at schemaVersion 1 is still accepted', async () => {
     const root = await mkRoot();
     await emitEpisodes(root, (dev) => {
       dev.recorder.requestStart({ requestId: 't-obs', url: '/p', method: 'GET' });
@@ -335,9 +336,24 @@ describe('readObservations', () => {
     const result = readObservations(discoverSubstrate(root));
     expect(result.ok).toBe(true);
     if (result.ok) {
+      // The observations document is versioned independently of the request graph (spec 03 stays
+      // at schemaVersion 1 even though the graph moved to 2) - this is the real, unmutated document.
+      expect(result.observations.schemaVersion).toBe(OBSERVATIONS_SCHEMA_VERSION);
       expect(result.observations.edges[0]).toMatchObject({ service: 'catalog', method: 'getProduct', count: 1 });
       expect(result.observations.shapes).toEqual([]);
     }
+  });
+
+  it('an observations document at schemaVersion 2 is refused with the upgrade message', async () => {
+    const root = await mkRoot();
+    const dev = await emitEpisodes(root, () => {});
+    await writeTaujsArtifact(taujsDir(root), 'observations.json', JSON.stringify({ ...dev.getObservations(), schemaVersion: 2 }, null, 2));
+
+    expect(readObservations(discoverSubstrate(root))).toEqual({
+      ok: false,
+      reason: 'schema_skew',
+      message: 'Observations are schema v2; this adapter understands v1 — upgrade @taujs/mcp.',
+    });
   });
 });
 

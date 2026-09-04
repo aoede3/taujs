@@ -108,7 +108,6 @@ describe('extractSecurity', () => {
     const out = extractSecurity(tau);
     expect(out.hasExplicitCSP).toBe(false);
     expect(out.security.csp).toBeUndefined();
-    expect(out.summary.defaultMode).toBe('merge');
     expect(out.summary.hasReporting).toBe(false);
     expect(out.summary.reportOnly).toBe(false);
     expect(typeof out.durationMs).toBe('number');
@@ -121,7 +120,6 @@ describe('extractSecurity', () => {
       apps: [{ appId: 'app', entryPoint: '/e' }],
       security: {
         csp: {
-          defaultMode: 'replace',
           directives: { 'default-src': ["'self'"] } as any,
           generateCSP,
           reporting: {
@@ -135,16 +133,14 @@ describe('extractSecurity', () => {
 
     const out = extractSecurity(tau);
     expect(out.hasExplicitCSP).toBe(true);
-    expect(out.security.csp?.defaultMode).toBe('replace');
     expect(out.security.csp?.reporting?.endpoint).toBe('/csp-report');
     expect(out.security.csp?.reporting?.onViolation).toBe(onViolation);
     expect(out.security.csp?.reporting?.reportOnly).toBe(true);
-    expect(out.summary.defaultMode).toBe('replace');
     expect(out.summary.hasReporting).toBe(true);
     expect(out.summary.reportOnly).toBe(true);
   });
 
-  it('defaults csp.defaultMode to "merge" and reporting.reportOnly to false when omitted', () => {
+  it('defaults reporting.reportOnly to false when omitted', () => {
     const tau: CoreTaujsConfig = {
       apps: [{ appId: 'app', entryPoint: '/e' }],
       security: {
@@ -161,11 +157,9 @@ describe('extractSecurity', () => {
 
     expect(out.hasExplicitCSP).toBe(true);
 
-    expect(out.security.csp?.defaultMode).toBe('merge');
     expect(out.security.csp?.reporting?.endpoint).toBe('/csp-report');
     expect(out.security.csp?.reporting?.reportOnly).toBe(false);
 
-    expect(out.summary.defaultMode).toBe('merge');
     expect(out.summary.hasReporting).toBe(true);
     expect(out.summary.reportOnly).toBe(false);
   });
@@ -175,7 +169,6 @@ describe('extractSecurity', () => {
       apps: [{ appId: 'app', entryPoint: '/e' }],
       security: {
         csp: {
-          defaultMode: undefined,
           directives: { 'default-src': ["'self'"] } as any,
         },
       },
@@ -186,9 +179,6 @@ describe('extractSecurity', () => {
     expect(out.hasExplicitCSP).toBe(true);
     expect(out.security.csp).toBeDefined();
     expect(out.security.csp?.reporting).toBeUndefined();
-
-    expect(out.security.csp?.defaultMode).toBe('merge');
-    expect(out.summary.defaultMode).toBe('merge');
 
     expect(out.summary.hasReporting).toBe(false);
     expect(out.summary.reportOnly).toBe(false);

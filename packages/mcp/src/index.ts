@@ -1,5 +1,6 @@
 export {
-  ADAPTER_SCHEMA_VERSION,
+  GRAPH_SCHEMA_VERSION,
+  OBSERVATIONS_SCHEMA_VERSION,
   NO_ACTIVE_BOOT_REFUSAL,
   NOTHING_EMITTED_MESSAGE,
   STALE_REASON_MESSAGE,
@@ -26,6 +27,6 @@ export type {
   LogAnnexRecord,
   LogLevel,
   ObservationsDocument,
-  RequestGraphV1,
+  RequestGraphV2,
   EpisodeRecord,
 } from './types';

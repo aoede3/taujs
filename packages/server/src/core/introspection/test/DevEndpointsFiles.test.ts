@@ -233,13 +233,13 @@ describe('declared host admissions (post-freeze ruling 2026-08-08)', () => {
 });
 
 describe('overlay endpoint contracts', () => {
-  it('GET /__taujs/graph serves a conservative schema v1 graph', async () => {
+  it('GET /__taujs/graph serves a conservative schema v2 graph', async () => {
     const { app, introspection } = await buildApp();
 
     const res = await app.inject({ method: 'GET', url: '/__taujs/graph', ...authed(introspection) });
 
     const graph = res.json();
-    expect(graph.schemaVersion).toBe(1);
+    expect(graph.schemaVersion).toBe(2);
     expect(graph.source).toBe('boot');
     expect(graph.disclosure).toBe('conservative');
   });
@@ -664,7 +664,7 @@ describe('dev files lifecycle (spec 03 §5)', () => {
       await closing;
 
       // The graph write completed BEFORE close resolved; teardown is immediately safe.
-      expect(JSON.parse(await readFile(path.join(taujsDir, 'graph.json'), 'utf8')).schemaVersion).toBe(1);
+      expect(JSON.parse(await readFile(path.join(taujsDir, 'graph.json'), 'utf8')).schemaVersion).toBe(2);
       await rm(taujsDir, { recursive: true });
       await new Promise((resolve) => setTimeout(resolve, 25));
       await expect(stat(taujsDir)).rejects.toThrow();

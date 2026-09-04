@@ -41,8 +41,8 @@ export type GraphServiceMethod = {
 
 export type GraphService = { name: string; methods: GraphServiceMethod[] };
 
-export type RequestGraphV1 = {
-  schemaVersion: 1;
+export type RequestGraphV2 = {
+  schemaVersion: 2;
   taujs: { server: string };
   source: GraphSource;
   emittedAt: string;
@@ -50,7 +50,7 @@ export type RequestGraphV1 = {
   apps: { appId: string; entryPoint: string; routeCount: number }[];
   routes: GraphRoute[];
   services: GraphService[] | null;
-  security: { cspDefaultMode: 'merge' | 'replace'; reporting: boolean };
+  security: { reporting: boolean };
   fallthrough: { mode: 'spa'; appId: string; assetLike: 404; reachable: boolean };
   warnings: GraphWarning[];
 };
