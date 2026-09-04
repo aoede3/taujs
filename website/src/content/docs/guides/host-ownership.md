@@ -222,6 +222,30 @@ app.addHook("onSend", async (request, reply, payload) => {
 });
 ```
 
+### A matched loader's not-found in a browser
+
+When a matched route's loader throws `AppError.notFound`, τjs answers with status 404 and the JSON
+error envelope, the same on both strategies (pre-byte only for streaming; after the first byte the
+transfer can only abort). That envelope is correct for a machine client and it reaches `onSend` as
+a replaceable payload. A host that wants a browser to see an HTML page replaces it there, keeping
+the status:
+
+```ts
+app.addHook("onSend", async (request, reply, payload) => {
+  const wantsHtml = (request.headers.accept ?? "").includes("text/html");
+  if (reply.statusCode !== 404 || !wantsHtml) return payload;
+
+  reply.removeHeader("content-length");
+  reply.type("text/html; charset=utf-8");
+  return notFoundPage(request.url);
+});
+```
+
+The route and its application are matched at this point, but `onSend` neither re-enters the
+application's renderer nor holds its rendering inputs, so the page is host-authored. That is the
+supported answer; a redirect lookup that must run first belongs in the same hook, before the page
+is chosen.
+
 Both `onRequest` and `preHandler` reach every strategy, so either covers all rendered pages. Which
 one depends on what the policy is:
 
