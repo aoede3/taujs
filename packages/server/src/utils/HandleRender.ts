@@ -141,7 +141,7 @@ export const handleRender = async (
       includeStack: (lvl) => lvl === 'error' || isDevelopment,
     });
   const requestContext = getRequestContext(req) ?? createRequestContext(req, reply, baseLogger);
-  const { requestId, logger, headers, recorder } = requestContext;
+  const { requestId, logger, headers, url: requestUrl, recorder } = requestContext;
   const reqLogger = logger;
 
   // RFC 0007 (R2 item 8): FUNCTION-SCOPED, not block-scoped inside the streaming branch. A
@@ -272,7 +272,7 @@ export const handleRender = async (
     const devStamp = devtools ? buildTaujsDevStamp(requestId, devtools.token, cspNonce, opts.publicBasePath ?? '') : '';
     // R1-01 (design 4): each branch sets `ctx.signal` from its request AbortController BEFORE the
     // data is fetched, so loaders that honour `ctx.signal` stop on client disconnect / deadline.
-    const ctx = { requestId, logger: reqLogger, headers, recorder, signal: undefined as AbortSignal | undefined };
+    const ctx = { requestId, logger: reqLogger, headers, url: requestUrl, recorder, signal: undefined as AbortSignal | undefined };
     const initialDataInput = async () => {
       const dataT0 = now();
       try {

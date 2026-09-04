@@ -182,6 +182,7 @@ describe('handleRender', () => {
       requestId: 'episode-1',
       logger: mockLogger,
       headers: { host: 'localhost' },
+      url: '/test-path',
     } as any);
 
     const actualTemplates = await vi.importActual<typeof import('../Templates')>('../Templates');
@@ -195,6 +196,37 @@ describe('handleRender', () => {
   afterEach(() => {
     vi.resetAllMocks();
     (globalThis as any).AbortController = OriginalAbortController;
+  });
+
+  describe('loader context', () => {
+    it('forwards the request context url to attr.data as ctx.url, query string included', async () => {
+      vi.mocked(Telemetry.createRequestContext).mockReturnValue({
+        requestId: 'episode-1',
+        logger: mockLogger,
+        headers: { host: 'localhost' },
+        url: '/x?a=1',
+      } as any);
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr', data: async () => ({}) });
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html></html>');
+      mockMaps.renderModules.set('/test/client', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '<div/>' }) });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(DataRoutes.fetchInitialData).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ url: '/x?a=1', headers: { host: 'localhost' } }),
+      );
+    });
   });
 
   describe('CSP nonce handling', () => {

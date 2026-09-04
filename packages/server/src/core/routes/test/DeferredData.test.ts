@@ -25,7 +25,7 @@ const mk = (deferred: Record<string, unknown>, opts: { signal?: AbortSignal; eve
     attr: { render: 'streaming', meta: {}, deferred } as any,
     params: { id: '42' },
     serviceRegistry: {} as any,
-    ctx: { requestId: 't1', logger, headers: {}, signal: opts.signal },
+    ctx: { requestId: 't1', logger, headers: {}, url: '/test-path', signal: opts.signal },
     requestId: 't1',
     ...(opts.events ? { recorder: mkRecorder(opts.events) } : {}),
     ...(opts.callServiceMethodImpl ? { callServiceMethodImpl: opts.callServiceMethodImpl } : {}),
@@ -43,7 +43,7 @@ describe('createDeferredData - declaration and start (R2)', () => {
         attr: { render: 'streaming', meta: {} } as any,
         params: {},
         serviceRegistry: {} as any,
-        ctx: { requestId: 't', logger: mkLogger() },
+        ctx: { requestId: 't', logger: mkLogger(), url: '/test-path' },
         requestId: 't',
       }),
     ).toBeUndefined();
@@ -52,7 +52,7 @@ describe('createDeferredData - declaration and start (R2)', () => {
         attr: { render: 'ssr' } as any,
         params: {},
         serviceRegistry: {} as any,
-        ctx: { requestId: 't', logger: mkLogger() },
+        ctx: { requestId: 't', logger: mkLogger(), url: '/test-path' },
         requestId: 't',
       }),
     ).toBeUndefined();

@@ -1056,10 +1056,25 @@ data: async (params, ctx) => {
   // ctx.requestId: canonical request identity, always String(req.id)
   // ctx.logger: Scoped logger
   // ctx.headers: Request headers
+  // ctx.url: Request target as received, path plus query string (e.g. /products?sort=price)
+  // ctx.signal: Abort signal for the request
+  // ctx.call: Registry caller for service methods
 
   ctx.logger.info({ userId: params.id }, "Loading user");
 
   return { user: await getUser(params.id) };
+};
+```
+
+`ctx.url` is Fastify's request target, never an absolute URL or a parsed object. A loader whose
+state lives in the query string parses it itself and passes explicit params to services:
+
+```typescript
+data: async (_params, ctx) => {
+  const query = ctx.url.indexOf("?");
+  const search = new URLSearchParams(query === -1 ? "" : ctx.url.slice(query + 1));
+
+  return ctx.call("catalogue", "list", { sort: search.get("sort") ?? "featured" });
 };
 ```
 

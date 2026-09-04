@@ -53,6 +53,14 @@ describe('createRequestContext', () => {
     });
   });
 
+  it('carries req.url verbatim as ctx.url: path plus query string, no origin', () => {
+    const req: Req = { headers: { host: 'localhost' }, id: 'r-1', method: 'GET', url: '/products?sort=price&after=abc' };
+
+    const ctx = createRequestContext(req as any, reply as any, baseLogger);
+
+    expect(ctx.url).toBe('/products?sort=price&after=abc');
+  });
+
   it('a malformed inbound header is irrelevant: req.id is already the identity', () => {
     const req: Req = {
       headers: { 'x-request-id': '!!not-safe!!', host: 'localhost' },
