@@ -43,5 +43,5 @@ export function createRequestContext<L extends Logs>(
       return [headerName, normalisedValue];
     }),
   );
-  return { requestId, logger, headers };
+  return { requestId, logger, headers, url: req.url };
 }

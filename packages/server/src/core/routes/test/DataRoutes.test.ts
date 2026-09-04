@@ -32,9 +32,10 @@ describe('fetchInitialData', () => {
   });
 
   // mkCtx depends on the logger set in beforeEach, so define it here
-  const mkCtx = (overrides: Partial<{ requestId: string; headers: Record<string, string>; logger: any }> = {}) => ({
+  const mkCtx = (overrides: Partial<{ requestId: string; headers: Record<string, string>; url: string; logger: any }> = {}) => ({
     requestId: 'test-episode',
     headers: {},
+    url: '/test-path',
     logger,
     ...overrides,
   });
@@ -101,6 +102,14 @@ describe('fetchInitialData', () => {
 
     const out2 = await fetchInitialData(attr, {} as any, registry, mkCtx({ headers: { a: 'b' } }));
     expect(out2).toEqual({ gotHeaders: true });
+  });
+
+  it('hands the loader the request target verbatim as ctx.url, query string included', async () => {
+    const attr = { data: vi.fn(async (_p: any, ctx: any) => ({ url: ctx.url })) } as any;
+
+    const out = await fetchInitialData(attr, {} as any, registry, mkCtx({ url: '/x?a=1' }));
+
+    expect(out).toEqual({ url: '/x?a=1' });
   });
 
   it('uses {} when ServiceDescriptor.args is undefined (covers args ?? {}) and passes ctx through', async () => {
@@ -208,7 +217,7 @@ describe('fetchHeadData (RFC 0004 H1)', () => {
     },
   } as any;
 
-  const mkCtx = () => ({ requestId: 'test-episode', headers: {}, logger: { error: vi.fn(), warn: vi.fn() } });
+  const mkCtx = () => ({ requestId: 'test-episode', headers: {}, url: '/x?a=1', logger: { error: vi.fn(), warn: vi.fn() } });
 
   it('returns undefined when the route declares no head', async () => {
     expect(await fetchHeadData(undefined as any, {} as any, registry, mkCtx() as any)).toBeUndefined();
@@ -219,6 +228,12 @@ describe('fetchHeadData (RFC 0004 H1)', () => {
   it('returns a plain object from the head handler', async () => {
     const attr = { head: { data: vi.fn(async () => ({ title: 'T' })) } } as any;
     expect(await fetchHeadData(attr, {} as any, registry, mkCtx() as any)).toEqual({ title: 'T' });
+  });
+
+  it('hands the head loader the same ctx.url as attr.data', async () => {
+    const attr = { head: { data: vi.fn(async (_p: any, ctx: any) => ({ url: ctx.url })) } } as any;
+
+    await expect(fetchHeadData(attr, {} as any, registry, mkCtx() as any)).resolves.toEqual({ url: '/x?a=1' });
   });
 
   it('dispatches a ServiceDescriptor via callServiceMethodImpl', async () => {

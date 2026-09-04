@@ -6,6 +6,12 @@ export type RequestContext<L extends Logs = Logs> = {
   requestId: string;
   logger: L;
   headers?: Record<string, string>;
+  /**
+   * Fastify's request target as received: the path plus any query string (`/products?sort=price`),
+   * never an origin and never a parsed `URL`. Loaders read query state from here and parse what
+   * they need themselves.
+   */
+  url: string;
   /** Dev-only episode recorder (already safety-wrapped); absent in production. */
   recorder?: EpisodeRecorder;
 };
