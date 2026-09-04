@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.38.0
+
+### Minor Changes
+
+- [#163](https://github.com/aoede3/taujs/pull/163) [`d5ff3eb`](https://github.com/aoede3/taujs/commit/d5ff3eb32eaea1b8b69959ed34c3ff9fbf852240) Thanks [@aoede3](https://github.com/aoede3)! - `serviceData()` mappers now receive a second argument, `ServiceDataRequestFacts`: a frozen copy of the request's `url` and `headers`. A declared single-service edge can map query state (sort, filters, variant selection) and specific header values into explicit service params, without falling back to a hand-written closure that loses the declared edge. Existing one-argument mappers and mapper-free calls are unaffected. The facts view does not grant the mapper τjs's request-scoped registry caller; mappers should remain synchronous, side-effect-free argument translations.
+
 ## 0.37.1
 
 ### Patch Changes
