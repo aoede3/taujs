@@ -79,10 +79,16 @@ for the verified matrix.
 
 ### Development Mode
 
-τjs automatically relaxes CSP for development:
+If you configure no global `directives` at all, development falls back to a development fallback
+policy (`default-src`, `connect-src`, `style-src` and `img-src`: `'self'` plus `data:`, `ws:`,
+`http:` and `'unsafe-inline'`, the allowances Vite's dev server and HMR need). This fallback never
+reaches production.
+
+Whichever directives are in force - your own or the development fallback - τjs relaxes them for
+development on top:
 
 ```typescript
-// Your config
+// Your config, or the development fallback if you configured none
 {
   directives: {
     'script-src': ["'self'"],
@@ -100,7 +106,8 @@ for the verified matrix.
 
 ### Production Mode
 
-In production, only your directives plus nonce are used:
+Global `directives` are a complete base policy in production, not a delta over the development
+fallback - whatever you declare is what is sent, plus the nonce:
 
 ```typescript
 // Your config
@@ -116,7 +123,13 @@ In production, only your directives plus nonce are used:
 }
 ```
 
-If you ship with development-style directives, τjs logs a warning.
+If you configure no global `directives` at all, production sends **no** `Content-Security-Policy`
+header - the development fallback never applies outside development. A route can still carry its
+own CSP via `middleware.csp` even when no global policy exists.
+
+Separately, when `security.csp` itself is absent from the config, a production boot logs a warning
+to consider explicit configuration. A present but empty `security.csp: {}`, or one that only
+configures reporting, sends no global header and logs no warning.
 
 ## Per-Route CSP
 
