@@ -128,7 +128,14 @@ export const handleNotFound = async (
       try {
         if (outcome === 'sent') recorder.sent({ requestId: requestContext.requestId, status: reply.raw.statusCode ?? 200, mode: 'fallthrough' });
         else if (outcome === 'failed') {
-          recorder.failed({ requestId: requestContext.requestId, error: { kind: 'internal', message: describeError(error) } });
+          // RFC 0018 (Host terminal contract): the send catch always rethrows into the outer catch,
+          // which unconditionally wraps the error as a 500 - a 400 thrown underneath is never
+          // preserved - so the scope error handler always computes 500 here, whatever headers state.
+          recorder.failed({
+            requestId: requestContext.requestId,
+            status: reply.raw.headersSent ? reply.raw.statusCode : 500,
+            error: { kind: 'internal', message: describeError(error) },
+          });
         } else {
           recorder.aborted({ requestId: requestContext.requestId, phase: 'send' });
           logger.warn?.({ url: req.url }, 'Client disconnected before the fallthrough response finished');

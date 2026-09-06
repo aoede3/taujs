@@ -59,7 +59,15 @@ export type EpisodeRecord = {
   requestId: string;
   bootId: string;
   at: string;
+  /**
+   * RFC 0018: which substrate this episode belongs to. `'host'` is a Fastify route the
+   * application registered itself, observed only because it called through the τjs service
+   * registry - never a declared or governed route.
+   */
+  kind: 'page' | 'host';
   route: string | null;
+  /** RFC 0018: the request's own HTTP method, present only for a `kind: 'host'` episode. */
+  method: string | null;
   appId: string | null;
   mode: 'ssr' | 'streaming' | 'fallthrough' | null;
   outcome: 'complete' | 'failed' | 'aborted';
@@ -91,14 +99,20 @@ export type LogAnnexRecord = {
 };
 
 export type ObservationsDocument = {
-  schemaVersion: 1;
+  // RFC 0018 owns version 2 outright: kind/method, the status-carrying failed event and sent's
+  // discriminated page/host shape.
+  schemaVersion: 2;
   bootId: string;
   updatedAt: string;
   edges: {
     service: string;
     method: string;
-    /** `count` per route (additive, spec 03 §4 2026-08-20): calls attributed to that route; absent from older emissions. */
-    routes: { routeId: string; appId: string; path: string; count?: number }[];
+    /**
+     * `count` per route (additive, spec 03 §4 2026-08-20): calls attributed to that route; absent
+     * from older emissions. RFC 0018: `appId` is `null` for a host-observed row - a Fastify route
+     * the application registered itself, never a declared application identity.
+     */
+    routes: { routeId: string; appId: string | null; path: string; count?: number }[];
     count: number;
     lastObservedAt: string;
     sampleRequestIds: string[];

@@ -250,7 +250,7 @@ describe('overlay endpoint contracts', () => {
     const res = await app.inject({ method: 'GET', url: '/__taujs/observations', ...authed(introspection) });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ schemaVersion: 1, bootId: introspection.bootId, edges: [], shapes: [] });
+    expect(res.json()).toMatchObject({ schemaVersion: 2, bootId: introspection.bootId, edges: [], shapes: [] });
   });
 
   it('GET /__taujs/episodes honours ?limit with a small default', async () => {

@@ -35,14 +35,14 @@ const seed = async (root: string) => {
   const dev = createDevIntrospection();
 
   dev.recorder.requestStart({ requestId: 'ok-1', url: '/product/123', method: 'GET' });
-  dev.recorder.routeMatched({ requestId: 'ok-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
+  dev.recorder.routeMatched({ requestId: 'ok-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
   dev.recorder.serviceCall({ requestId: 'ok-1', service: 'catalog', method: 'getProduct', ms: 8, ok: true });
   dev.recorder.sent({ requestId: 'ok-1', status: 200, mode: 'streaming' });
 
   dev.recorder.requestStart({ requestId: 'boom-999', url: '/product/999?ref=demo', method: 'GET' });
-  dev.recorder.routeMatched({ requestId: 'boom-999', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
+  dev.recorder.routeMatched({ requestId: 'boom-999', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
   dev.recorder.serviceCall({ requestId: 'boom-999', service: 'catalog', method: 'getProduct', ms: 3, ok: false });
-  dev.recorder.failed({ requestId: 'boom-999', error: { kind: 'domain', message: 'Product 999 does not exist' } });
+  dev.recorder.failed({ requestId: 'boom-999', status: 404, error: { kind: 'domain', message: 'Product 999 does not exist' } });
 
   dev.recorder.requestStart({ requestId: 'spa-1', url: '/spa/x', method: 'GET' });
   dev.recorder.sent({ requestId: 'spa-1', status: 200, mode: 'fallthrough' });
@@ -170,7 +170,7 @@ describe('runtime tools (active boot)', () => {
       JSON.stringify(createRequestGraph(obsConfig, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z', serviceRegistry: registry })),
     );
     const foreign = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       bootId: 'previous-boot',
       updatedAt: '2026-07-10T10:59:00.000Z',
       edges: [

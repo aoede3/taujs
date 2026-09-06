@@ -70,6 +70,16 @@ export type SSRServerOptions = {
    * and threaded like the coordinates above so registration never re-derives it.
    */
   introspectionAllowedHosts?: ReadonlySet<string>;
+  /**
+   * RFC 0018 (Lifecycle). Internal wiring only, not a public `createServer` option: the moment host
+   * attribution acquires the binding, this receives an idempotent disposer closure that already
+   * captures the EXACT registry object and introspection instance used - never `opts.serviceRegistry`
+   * read back later, which normalises an absent registry to a fresh `{}` and would otherwise be a
+   * different object than the one actually acquired. `createServer` stores the disposer and calls it
+   * on a boot failure later in the same attempt, since the scope's own `onClose` hook never fires
+   * for a plugin registration that itself throws.
+   */
+  onHostAttributionAcquired?: (dispose: () => void) => void;
 };
 
 export type GenericPlugin = FastifyPluginCallback<Record<string, unknown>> | FastifyPluginAsync<Record<string, unknown>>;

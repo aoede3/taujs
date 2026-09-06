@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { allTools } from '../server';
-import { discoverSubstrate, readEpisodes, readGraph, readLogs } from '../SubstrateReader';
+import { OBSERVATIONS_SCHEMA_VERSION, discoverSubstrate, readEpisodes, readGraph, readLogs } from '../SubstrateReader';
 
 import type { ChildProcess } from 'node:child_process';
 import type { DevJson, EpisodeRecord } from '../types';
@@ -17,7 +17,9 @@ const fullEpisode = (overrides: Partial<EpisodeRecord> = {}): EpisodeRecord => (
   requestId: 'req',
   bootId: 'boot',
   at: '2026-08-20T00:00:00.000Z',
+  kind: 'page',
   route: null,
+  method: null,
   appId: null,
   mode: null,
   outcome: 'complete',
@@ -59,11 +61,18 @@ const seedDevJson = async (root: string, overrides: Partial<DevJson> = {}): Prom
   const devJsonPath = path.join(dir, 'dev.json');
   await writeFile(devJsonPath, JSON.stringify(devJson), 'utf8');
   // Every artefact the reader may consult must exist, so a cell fails on liveness or containment
-  // and never merely on a missing file.
+  // and never merely on a missing file. observations.json must additionally be schema-valid
+  // (RFC 0018): readEpisodes gates on its paired schemaVersion, so an empty `{}` document here
+  // would refuse episodes as an unreadable pairing rather than exercising the liveness cells
+  // these fixtures are actually for.
   await writeFile(path.join(dir, 'graph.json'), '{}', 'utf8');
   await writeFile(path.join(dir, 'episodes.ndjson'), '', 'utf8');
   await writeFile(path.join(dir, 'logs.ndjson'), '', 'utf8');
-  await writeFile(path.join(dir, 'observations.json'), '{}', 'utf8');
+  await writeFile(
+    path.join(dir, 'observations.json'),
+    JSON.stringify({ schemaVersion: OBSERVATIONS_SCHEMA_VERSION, bootId: devJson.bootId, updatedAt: devJson.startedAt, edges: [], shapes: [] }),
+    'utf8',
+  );
 
   return devJsonPath;
 };

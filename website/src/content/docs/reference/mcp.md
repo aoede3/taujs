@@ -46,7 +46,7 @@ Run `pnpm dev` once so the full substrate exists, then point your MCP client at 
 | `taujs_overview`          | Apps, routes, services, warnings, fallthrough posture - start here |
 | `taujs_list_routes`       | Declared routes with effective render/hydrate and data kind        |
 | `taujs_get_route`         | One route's full graph row plus its warnings                       |
-| `taujs_who_calls_service` | Route → service edges, labelled `declared` vs `observed`           |
+| `taujs_who_calls_service` | Route → service edges, labelled `declared`, `observed`, or `hostObserved` |
 | `taujs_explain_route`     | Composed explanation: render, data edge, schema flags, middleware  |
 | `taujs_compare_graphs`    | Diffs a retained baseline graph against the current one, field by field |
 | `taujs_get_recent_episodes` | Recent request episodes (live dev boot only)                         |
@@ -60,10 +60,14 @@ Three skills also ship as MCP prompts: broken-route diagnosis, hydration-mismatc
 
 - **Staleness is stated** - answers from files without a live boot cite `source` and `emittedAt` ("as of the last dev boot or build at ...")
 - **Episode tools refuse without a live boot** - `taujs_get_recent_episodes`, `taujs_get_episode`, and `taujs_get_episode_logs` refuse rather than answer stale. `taujs_doctor` is hybrid: it still reports graph warnings, fallthrough posture, and defaulted renders cold, marking failed-episode facts unavailable. Structural tools keep working from the last emitted graph
-- **Sources are labelled** - `declared` (from configuration) vs `observed` (seen in dev traffic). Absence of an observed edge means _not exercised yet_, never "no relationship"
+- **Sources are labelled** - `declared` (from configuration), `observed` (seen in dev traffic through a τjs page route), or `hostObserved` (a Fastify route the application registered itself, seen calling the registry - see [Host-observed rows](#host-observed-rows)). Absence of an observed edge means _not exercised yet_, never "no relationship"; for a host route, "no observation" means unknown, never that no request occurred
 - **Version-skew safe** - a graph emitted by a newer `@taujs/server` degrades with an explicit upgrade message, never a misread
 - **Untrusted by default** - field values in responses are your application's data: capped, never treated as instructions. Episode URLs never include query values
 - **Comparison is declared-fields-only** - `taujs_compare_graphs` diffs a retained baseline against the current graph over declared fields alone (apps, routes, security, fallthrough); metadata, `services`, and `warnings` are never compared, and rows state exact differences, never a verdict
+
+### Host-observed rows
+
+A host-observed row describes a Fastify route the application registered itself, seen calling the service registry in development traffic - never a declared route, and never a route τjs governs. "Observed" means seen, not sanctioned: it carries no schema, no contract and no claim about what the route is allowed to call, and it is always reported separately from `declared` so it is never mistaken for one. For a host path with no episodes, the answer is "no observation" - unknown, not evidence the route was never requested; a rejection before the registry, or traffic outside the episode ring, leaves no trace either.
 
 ## Introspection Configuration
 

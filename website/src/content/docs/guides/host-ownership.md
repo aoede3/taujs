@@ -112,8 +112,12 @@ or route policy - the caller's header stands. Other caller headers pass through 
 
 ### Request identity and episode scope
 
-τjs opens a recorder episode only for responses it owns. Host routes do not receive a τjs
-`x-request-id` response header and do not start a τjs recorder episode.
+Host routes still receive no τjs `x-request-id` response header. In development, a host route
+handler that calls the τjs service registry through `callServiceMethod` is attributed to a
+host-observed episode carrying the route's method and path, the registry calls it made, and the
+response outcome - opened only once the registry is called, and never touching the route, its
+transport or its error handling (see [Host-observed rows](/reference/mcp/#host-observed-rows)).
+Production behaviour is unchanged.
 
 Fastify `req.id` is the canonical request-correlation identity in both host modes, including
 numeric IDs, whose textual form is used. The τjs request identity is always `String(req.id)`: it

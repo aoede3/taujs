@@ -46,7 +46,7 @@ beforeAll(async () => {
 
   // One streaming request whose declared deferred entries settle three different ways.
   dev.recorder.requestStart({ requestId: 'deferred-1', url: '/product/42', method: 'GET' });
-  dev.recorder.routeMatched({ requestId: 'deferred-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
+  dev.recorder.routeMatched({ requestId: 'deferred-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
   dev.recorder.deferredData({ requestId: 'deferred-1', key: 'reviews', ms: 41.2, outcome: 'complete' });
   dev.recorder.deferredData({ requestId: 'deferred-1', key: 'blurb', ms: 5, outcome: 'failed' });
   dev.recorder.deferredData({ requestId: 'deferred-1', key: 'stock', ms: 120, outcome: 'aborted' });
@@ -61,6 +61,8 @@ beforeAll(async () => {
       .map((t) => JSON.stringify(t))
       .join('\n') + '\n',
   );
+  // RFC 0018: readEpisodes gates on its paired observations.json - the pair must exist together.
+  await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
 
   const devJson: DevJson = {
     bootId: dev.bootId,

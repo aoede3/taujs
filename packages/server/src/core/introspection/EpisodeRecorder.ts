@@ -5,7 +5,13 @@
 
 export interface EpisodeRecorder {
   requestStart(e: { requestId: string; url: string; method: string }): void;
-  routeMatched(e: { requestId: string; path: string; appId: string; render: 'ssr' | 'streaming' }): void;
+  /**
+   * RFC 0018 (Substrate): `kind` is required, with no "absent means page" default - a persisted
+   * discriminant must not acquire meaning implicitly. A host route has no appId and no render
+   * strategy, so both become optional; `method` is added optional and carries the request's own
+   * `request.method`, never a route's declared method (RFC 0018 Limits).
+   */
+  routeMatched(e: { requestId: string; path: string; method?: string; appId?: string; render?: 'ssr' | 'streaming'; kind: 'page' | 'host' }): void;
   dataFetch(e: { requestId: string; ms: number; ok: boolean }): void;
   /**
    * RFC 0007 (R5): fired exactly ONCE per declared `attr.deferred` key per request. `ms` measures
@@ -15,9 +21,19 @@ export interface EpisodeRecorder {
   deferredData(e: { requestId: string; key: string; ms: number; outcome: 'complete' | 'failed' | 'aborted' }): void;
   serviceCall(e: { requestId: string; service: string; method: string; ms: number; ok: boolean }): void;
   streamPhase(e: { requestId: string; phase: 'head' | 'shellReady' | 'allReady' }): void;
-  sent(e: { requestId: string; status: number; mode: 'ssr' | 'streaming' | 'fallthrough' }): void;
+  /**
+   * RFC 0018 (Host terminal contract): discriminated by `kind`. The page arm is unchanged; the host
+   * arm carries no `mode` at all - a route that never renders has no render mode to invent.
+   */
+  sent(e: { requestId: string; status: number; mode: 'ssr' | 'streaming' | 'fallthrough' } | { requestId: string; status: number; kind: 'host' }): void;
   aborted(e: { requestId: string; phase?: string }): void;
-  failed(e: { requestId: string; error: { kind: string; message: string } }): void;
+  /**
+   * RFC 0018 (Host terminal contract): `status` is the HTTP status the client received, or is
+   * about to receive - never a domain classification, which stays `error.kind`. `error` is optional
+   * so a host outcome with no error object still records a status; the assembler substitutes a
+   * redacted placeholder when it is absent.
+   */
+  failed(e: { requestId: string; status: number; error?: { kind: string; message: string } }): void;
   clientHydration(e: { requestId: string; ok: boolean; ms?: number; error?: string }): void;
 }
 
