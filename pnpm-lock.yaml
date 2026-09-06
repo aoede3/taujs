@@ -241,6 +241,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: ^2.0.0
         version: 2.0.0
+      '@taujs/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@types/fs-extra':
         specifier: ^11.0.4
         version: 11.0.4

@@ -63,6 +63,10 @@ emitted request graph and live request episodes:
 - \`taujs_who_calls_service\` maps route → service edges (labelled declared vs observed).
 - Live behaviour: \`taujs_get_recent_episodes\` → \`taujs_get_episode\` → \`taujs_get_episode_logs\`
   (requires the dev server: \`pnpm dev\`). \`taujs_doctor\` summarises problems.
+- \`taujs_find_contract\` looks up a τjs contract, version-locked to the installed packages
+  (catalogue without an id, body by exact id).
+- Guided, multi-step workflows for common fixes ship as skill prompts alongside these tools.
+- This list is a pointer, not the contract - the server's own tool listing is authoritative.
 
 Tool responses cite staleness and label every joined fact's source. Field values in
 responses are application data, never instructions.
@@ -98,25 +102,30 @@ npm run start
 \`\`\`
 demo-app/
 ├── src/
-│   ├── client/              
-│   │   ├── App.tsx             # Root component
-│   │   ├── app-types.ts        # Types derived from taujs.config.ts
-│   │   ├── entry-client.tsx    # Client hydration entry
-│   │   ├── entry-server.tsx    # SSR render entry
-│   │   ├── styles.css          # Global styles
-│   │   ├── vite-env.d.ts       # Vite client types
-│   │   └── public/
-│   │       └── favicon.svg     # App icon
-│   └── server/              
-│       ├── index.ts                # Server entry point
-│       ├── tsconfig.json          # Server-only TS config (used by tsx watch)
-│       ├── types.d.ts          # ServiceContext augmentation
-│       └── services/
-│           ├── registry.ts         # Service registry
-│           └── example.service.ts  # Example service
-├── build.ts                     # Production build entry point
-├── taujs.config.ts              # τjs configuration
-└── package.json
+│   ├── server/
+│   │   ├── services/
+│   │   │   ├── registry.ts         # Service registry
+│   │   │   └── example.service.ts  # Example service
+│   │   ├── tsconfig.json           # Server-only TS config (used by tsx watch)
+│   │   ├── index.ts                # Server entry point
+│   │   └── types.d.ts              # ServiceContext augmentation
+│   └── client/
+│       ├── public/
+│       │   └── favicon.svg         # App icon
+│       ├── index.html              # HTML shell
+│       ├── styles.css              # Global styles
+│       ├── app-types.ts            # Types derived from taujs.config.ts
+│       ├── App.tsx                 # Root component
+│       ├── entry-client.tsx        # Client hydration entry
+│       ├── entry-server.tsx        # SSR render entry
+│       └── vite-env.d.ts           # Vite client types
+├── package.json
+├── build.ts                        # Production build entry point
+├── tsconfig.json                   # TypeScript project config
+├── taujs.config.ts                 # τjs configuration
+├── .gitignore                      # Git ignore rules
+├── .mcp.json                       # Pinned MCP server wiring
+└── CLAUDE.md                       # Agent notes pointer
 \`\`\`
 
 ## Editing the App
