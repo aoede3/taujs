@@ -72,6 +72,9 @@ let acquisitions = 0;
 let channelBound = false;
 let warnedFeatureAbsent = false;
 
+/** Test-only: reads the module-private acquisition count, to verify a failed boot releases it. */
+export const acquisitionCountForTests = (): number => acquisitions;
+
 /**
  * RFC 0018 (Lifecycle; Contracts relied on). Idempotent per `(registry, introspection)` pair.
  * `logger` is used only for the two warnings this RFC requires (feature absence, shared-registry

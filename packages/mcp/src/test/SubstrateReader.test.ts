@@ -377,6 +377,32 @@ describe('readObservations', () => {
     // Both documents refuse together - fail closed, not one silently trusted while the other skews.
     expect(readObservations(discovery)).toMatchObject({ ok: false, reason: 'schema_skew' });
   });
+
+  it('RFC 0018: a MISSING observations.json refuses episodes.ndjson too, even though episodes.ndjson exists and parses cleanly', async () => {
+    const root = await mkRoot();
+    await emitEpisodes(root, (d) => {
+      d.recorder.requestStart({ requestId: 'paired-2', url: '/p', method: 'GET' });
+      d.recorder.sent({ requestId: 'paired-2', status: 200, mode: 'fallthrough' });
+    });
+    await rm(path.join(taujsDir(root), 'observations.json'), { force: true });
+
+    const episodesRead = readEpisodes(discoverSubstrate(root));
+    expect(episodesRead).toMatchObject({ ok: false, reason: 'unreadable' });
+    if (!episodesRead.ok) expect(episodesRead.message).toContain('governing observations document');
+  });
+
+  it('RFC 0018: a MALFORMED observations.json (unparsable JSON) refuses episodes.ndjson too', async () => {
+    const root = await mkRoot();
+    await emitEpisodes(root, (d) => {
+      d.recorder.requestStart({ requestId: 'paired-3', url: '/p', method: 'GET' });
+      d.recorder.sent({ requestId: 'paired-3', status: 200, mode: 'fallthrough' });
+    });
+    await writeFile(path.join(taujsDir(root), 'observations.json'), '{not json', 'utf8');
+
+    const episodesRead = readEpisodes(discoverSubstrate(root));
+    expect(episodesRead).toMatchObject({ ok: false, reason: 'unreadable' });
+    if (!episodesRead.ok) expect(episodesRead.message).toContain('governing observations document');
+  });
 });
 
 describe('hardening', () => {

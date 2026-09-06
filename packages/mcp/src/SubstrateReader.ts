@@ -292,15 +292,20 @@ const readNdjson = <T>(filePath: string | undefined, schema: z.ZodType<T>, artef
 };
 
 // RFC 0018 (Substrate): episode records carry no `schemaVersion` field of their own - the paired
-// read is gated on observations.json's version instead, read here without full validation (a
-// missing or unreadable observations document is not itself a version mismatch; readObservations
-// answers that case on its own terms).
-const peekObservationsSchemaVersion = (discovery: SubstrateDiscovery): number | undefined => {
-  if (discovery.mode === 'none') return undefined;
+// read is gated on observations.json's version instead, probed here without full validation. The
+// probe distinguishes exactly three outcomes: the exact supported version, a different (but
+// present and parseable) version, and a document that cannot be read at all (missing, unparsable,
+// or carrying no numeric `schemaVersion`) - the last of these is NOT "proceed", since a document
+// this reader cannot even inspect can never be confirmed a compatible pairing.
+type ObservationsVersionProbe = { kind: 'version'; version: number } | { kind: 'absent' };
+
+const probeObservationsSchemaVersion = (discovery: SubstrateDiscovery): ObservationsVersionProbe => {
+  if (discovery.mode === 'none') return { kind: 'absent' };
   const obsPath = discovery.paths.observations;
-  if (!obsPath) return undefined;
+  if (!obsPath) return { kind: 'absent' };
   const raw = readJson<{ schemaVersion?: unknown }>(obsPath);
-  return raw && typeof raw.schemaVersion === 'number' ? raw.schemaVersion : undefined;
+  if (!raw || typeof raw.schemaVersion !== 'number') return { kind: 'absent' };
+  return { kind: 'version', version: raw.schemaVersion };
 };
 
 // Newest-last; bootId-filtered so stale-boot records never masquerade as current
@@ -308,15 +313,28 @@ const peekObservationsSchemaVersion = (discovery: SubstrateDiscovery): number | 
 export const readEpisodes = (discovery: SubstrateDiscovery, options?: { bootId?: string; limit?: number }): NdjsonReadResult<EpisodeRecord> => {
   if (discovery.mode === 'none') return { ok: false, reason: 'not_found', message: NOTHING_EMITTED_MESSAGE };
 
+  // episodes.ndjson itself being absent is its own, more specific answer than a pairing refusal -
+  // checked first so it is not shadowed by the pairing gate below (which answers "found but
+  // cannot be trusted alongside its pair", not "not there at all").
+  if (!discovery.paths.episodes) return { ok: false, reason: 'not_found', message: notFoundMessage('episodes.ndjson', 'node_modules/.taujs') };
+
   // RFC 0018 (Substrate): gated as a PAIRED read with observations - both documents refuse
-  // together on a version mismatch, fail closed, rather than reading episode records individually
-  // and silently skipping the ones an older or newer reader cannot interpret consistently.
-  const obsVersion = peekObservationsSchemaVersion(discovery);
-  if (obsVersion !== undefined && obsVersion !== OBSERVATIONS_SCHEMA_VERSION) {
+  // together, fail closed, rather than reading episode records individually and silently skipping
+  // the ones an older or newer (or missing, or unreadable) pairing cannot be trusted alongside.
+  const probe = probeObservationsSchemaVersion(discovery);
+  if (probe.kind === 'absent') {
     return {
       ok: false,
       reason: 'unreadable',
-      message: `Observations are schema v${obsVersion}; this adapter understands v${OBSERVATIONS_SCHEMA_VERSION}. Episodes are refused together with observations rather than read at a mismatched pairing - upgrade @taujs/mcp.`,
+      message:
+        'Episodes cannot be read without their governing observations document: observations.json is missing or unreadable, so episodes.ndjson is refused as a paired read rather than trusted alone.',
+    };
+  }
+  if (probe.version !== OBSERVATIONS_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      reason: 'unreadable',
+      message: `Observations are schema v${probe.version}; this adapter understands v${OBSERVATIONS_SCHEMA_VERSION}. Episodes are refused together with observations rather than read at a mismatched pairing - upgrade @taujs/mcp.`,
     };
   }
 

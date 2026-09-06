@@ -61,6 +61,8 @@ beforeAll(async () => {
       .map((t) => JSON.stringify(t))
       .join('\n') + '\n',
   );
+  // RFC 0018: readEpisodes gates on its paired observations.json - the pair must exist together.
+  await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
 
   const devJson: DevJson = {
     bootId: dev.bootId,

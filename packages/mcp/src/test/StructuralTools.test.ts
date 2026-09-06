@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -488,6 +488,53 @@ describe('structural tools (cold/stale mode)', () => {
     expect(result.message.toLowerCase()).not.toContain('no request');
   });
 
+  it('RFC 0018: a stale (expired) dev.json with a matching host episode never answers hostObserved - liveness is `mode`, not devJson presence', async () => {
+    const hostRoot = await mkdtemp(path.join(scratch, 'host-explain-stale-'));
+    const dir = path.join(hostRoot, 'node_modules', '.taujs');
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: 'host-stale-1', url: '/api/products/7', method: 'POST' });
+    dev.recorder.routeMatched({ requestId: 'host-stale-1', path: '/api/products/:id', method: 'POST', kind: 'host' });
+    dev.recorder.sent({ requestId: 'host-stale-1', status: 200, kind: 'host' });
+    await writeTaujsArtifact(
+      dir,
+      'episodes.ndjson',
+      dev
+        .getEpisodes()
+        .map((e) => JSON.stringify(e))
+        .join('\n') + '\n',
+    );
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
+    const devJson: DevJson = {
+      bootId: dev.bootId,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T10:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    const devJsonPath = path.join(dir, 'dev.json');
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+    // A real, alive pid (this test process) with an expired heartbeat: discovery reads this as
+    // 'stale' with reason 'heartbeat_expired' - devJson (and its bootId) still travel on the
+    // result (SubstrateReader.ts: stale discovery deliberately retains devJson), which is exactly
+    // why `mode`, not devJson presence, must be the liveness gate.
+    const old = new Date(Date.now() - 60_000);
+    await utimes(devJsonPath, old, old);
+
+    const result = callAt(hostRoot, 'taujs_explain_route', { path: '/api/products/:id' });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('only consulted from a live dev boot');
+    expect(result.hostObserved).toBeUndefined();
+  });
+
   it('RFC 0018: taujs_explain_route without a live boot never consults episodes for a host path - absence is unknown, not "no observation"', () => {
     // The shared `root` fixture is deliberately cold/stale (no dev.json) - the case a live-boot
     // gate exists to catch: episodes on disk here, if any, could belong to a stale or foreign
@@ -496,6 +543,81 @@ describe('structural tools (cold/stale mode)', () => {
 
     expect(result.ok).toBe(false);
     expect(result.message).toContain('only consulted from a live dev boot');
+    expect(result.message).not.toContain('no observation exists');
+  });
+
+  // RFC 0018: a readEpisodes refusal (missing, malformed, or version-mismatched observations.json)
+  // must be PRESERVED by taujs_explain_route, never reported as "no observation" - "this could not
+  // be read" and "nothing was found" are different facts, and collapsing them into one misinforms
+  // the caller this refusal exists to warn.
+  const liveHostFixture = async (name: string) => {
+    const hostRoot = await mkdtemp(path.join(scratch, name));
+    const dir = path.join(hostRoot, 'node_modules', '.taujs');
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: 'host-refusal-1', url: '/api/products/7', method: 'POST' });
+    dev.recorder.routeMatched({ requestId: 'host-refusal-1', path: '/api/products/:id', method: 'POST', kind: 'host' });
+    dev.recorder.sent({ requestId: 'host-refusal-1', status: 200, kind: 'host' });
+    await writeTaujsArtifact(
+      dir,
+      'episodes.ndjson',
+      dev
+        .getEpisodes()
+        .map((e) => JSON.stringify(e))
+        .join('\n') + '\n',
+    );
+    const devJson: DevJson = {
+      bootId: dev.bootId,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T10:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+
+    return { hostRoot, dir, dev };
+  };
+
+  it('RFC 0018: taujs_explain_route preserves the reader refusal for a MISSING observations.json, never reporting "no observation"', async () => {
+    const { hostRoot } = await liveHostFixture('host-explain-missing-obs-');
+    // observations.json deliberately never written.
+
+    const result = callAt(hostRoot, 'taujs_explain_route', { path: '/api/products/:id' });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('unreadable');
+    expect(result.message).toContain('governing observations document');
+    expect(result.message).not.toContain('no observation exists');
+  });
+
+  it('RFC 0018: taujs_explain_route preserves the reader refusal for a MALFORMED observations.json, never reporting "no observation"', async () => {
+    const { hostRoot, dir } = await liveHostFixture('host-explain-malformed-obs-');
+    await writeFile(path.join(dir, 'observations.json'), '{not json', 'utf8');
+
+    const result = callAt(hostRoot, 'taujs_explain_route', { path: '/api/products/:id' });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('unreadable');
+    expect(result.message).toContain('governing observations document');
+    expect(result.message).not.toContain('no observation exists');
+  });
+
+  it('RFC 0018: taujs_explain_route preserves the reader refusal for a version-MISMATCHED observations.json, never reporting "no observation"', async () => {
+    const { hostRoot, dir, dev } = await liveHostFixture('host-explain-skew-obs-');
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify({ ...dev.getObservations(), schemaVersion: 1 }));
+
+    const result = callAt(hostRoot, 'taujs_explain_route', { path: '/api/products/:id' });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('unreadable');
+    expect(result.message).toContain('refused together with observations');
     expect(result.message).not.toContain('no observation exists');
   });
 

@@ -7,18 +7,22 @@
 import diagnostics_channel from 'node:diagnostics_channel';
 
 import fastify from 'fastify';
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 
 import { defineService, defineServiceRegistry, callServiceMethod } from '../../services/DataServices';
 import { fastifyConfigForRoute } from '../../routes/FastifyRoutes';
 import { createRequestContext } from '../../../utils/Telemetry';
 import { createDevIntrospection } from '../DevIntrospection';
-import { acquire, release } from '../HostAttribution';
+import { acquire, release, acquisitionCountForTests } from '../HostAttribution';
+import { createServer } from '../../../CreateServer';
+import { developmentFixture, disposeFixtures } from '../../../test/support/hostOwnership';
+import { testRenderer } from '../../../test/support/renderer';
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Logs } from '../../logging/types';
 import type { ServiceRegistry } from '../../services/DataServices';
 import type { DevIntrospection } from '../DevIntrospection';
+import type { TaujsConfig } from '../../../Config';
 
 // --- test-only plumbing --------------------------------------------------------------------
 
@@ -750,4 +754,95 @@ describe('observations.json for a page-only run', () => {
       shapes: [],
     });
   });
+});
+
+describe('release-gate through the real createServer (no serviceRegistry supplied)', () => {
+  it('a boot with no serviceRegistry that fails after acquiring host attribution releases the binding, so a clean boot afterwards acquires and attributes normally', async () => {
+    const cwd = process.cwd();
+
+    // isDevelopment is snapshotted once at module load (System.ts), so a real development boot
+    // needs a fresh module graph loaded with NODE_ENV already set - the same seam
+    // HostOwnershipDevelopment.test.ts uses. The plugin under test, the HostAttribution module it
+    // acquires against, AND the callServiceMethod this test's own host handler calls through must
+    // all come from this SAME fresh graph - the statically-imported callServiceMethod at the top
+    // of this file closes over a DIFFERENT HostAttribution instance (a different `als` and a
+    // different registrySets WeakMap), so it would never see this boot's acquisition at all.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    vi.resetModules();
+    let freshCreateServer: typeof createServer;
+    let freshAcquisitionCount: typeof acquisitionCountForTests;
+    let freshCallServiceMethod: typeof callServiceMethod;
+    let freshDefineService: typeof defineService;
+    let freshDefineServiceRegistry: typeof defineServiceRegistry;
+    try {
+      freshCreateServer = (await import('../../../CreateServer')).createServer;
+      freshAcquisitionCount = (await import('../HostAttribution')).acquisitionCountForTests;
+      ({
+        callServiceMethod: freshCallServiceMethod,
+        defineService: freshDefineService,
+        defineServiceRegistry: freshDefineServiceRegistry,
+      } = await import('../../services/DataServices'));
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    const before = freshAcquisitionCount();
+
+    // No serviceRegistry: SSRServer.ts normalises the absent option to a fresh `{}` it owns and
+    // acquires against THAT object - opts.serviceRegistry stays undefined, the exact condition the
+    // leak needs. The malformed route (an unclosed regexp constraint) is not a duplicate path, so
+    // extractRoutes' own boot-time check does not reject it before registration; Fastify's router
+    // only rejects it when the route loop actually calls .get(), which runs AFTER introspection is
+    // created and host attribution is acquired.
+    const faulted = await developmentFixture();
+    process.chdir(faulted.root);
+    const faultedConfig: TaujsConfig = {
+      apps: [
+        {
+          appId: 'fault-app',
+          entryPoint: 'app',
+          renderer: testRenderer(),
+          routes: [{ path: '/fault/:id(', attr: { render: 'ssr' } }] as never,
+        },
+      ],
+    };
+    try {
+      await expect(freshCreateServer({ config: faultedConfig, clientRoot: faulted.clientRoot, projectRoot: faulted.root })).rejects.toThrow();
+    } finally {
+      process.chdir(cwd);
+    }
+
+    // Released via the disposer CreateServer's catch calls - never leaked because no registry was
+    // supplied to compute `opts.serviceRegistry && ...` against.
+    expect(freshAcquisitionCount()).toBe(before);
+
+    // A clean boot afterwards, with a real, externally-held registry: acquires and attributes
+    // normally - proof the channel genuinely (re)binds rather than resting on a leaked prior count.
+    const clean = await developmentFixture();
+    process.chdir(clean.root);
+    const registry = freshDefineServiceRegistry({ demo: freshDefineService({ ok: async (_p: {}) => ({ ok: true }) }) });
+    const cleanConfig: TaujsConfig = {
+      apps: [{ appId: 'clean-app', entryPoint: 'app', renderer: testRenderer(), routes: [{ path: '/clean-page', attr: { render: 'ssr' } }] }],
+    };
+    let result: Awaited<ReturnType<typeof createServer>>;
+    try {
+      result = await freshCreateServer({ config: cleanConfig, clientRoot: clean.clientRoot, projectRoot: clean.root, serviceRegistry: registry });
+    } finally {
+      process.chdir(cwd);
+    }
+
+    const app = result.app!;
+    app.post('/host-clean', async () => freshCallServiceMethod(registry, 'demo', 'ok', {}, {}));
+
+    const res = await app.inject({ method: 'POST', url: '/host-clean' });
+    expect(res.statusCode).toBe(200);
+
+    const introspection = (app as unknown as { taujsIntrospection?: DevIntrospection }).taujsIntrospection;
+    expect(introspection).toBeDefined();
+    expect(introspection!.getEpisodes().some((e) => e.kind === 'host' && e.route === '/host-clean')).toBe(true);
+
+    await app.close();
+    await disposeFixtures();
+  }, 20_000);
 });

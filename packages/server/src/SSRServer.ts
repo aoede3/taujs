@@ -226,20 +226,24 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       scope.decorate('taujsIntrospection', introspection);
 
       // RFC 0018 (Lifecycle): acquired the moment introspection exists to observe the caller's own
-      // routes. Released in this scope's own `onClose` hook, guarded like the owned Vite dev server
-      // above, and (for a boot that acquires the binding and then fails before this scope ever
-      // closes - `onClose` never fires for a plugin registration that itself throws) by
-      // `createServer`'s own boot try/catch via `onHostAttributionAcquired`.
+      // routes. `serviceRegistry` here is already normalised (an absent option defaults to a fresh
+      // `{}` above) - the ONE disposer below closes over that exact object and this exact
+      // introspection instance, so releasing it never depends on re-deriving either later. Released
+      // in this scope's own `onClose` hook, guarded like the owned Vite dev server above, and (for a
+      // boot that acquires the binding and then fails before this scope ever closes - `onClose`
+      // never fires for a plugin registration that itself throws) by `createServer`'s own boot
+      // try/catch, which receives the SAME disposer via `onHostAttributionAcquired`.
       acquireHostAttribution(serviceRegistry, introspection, logger);
-      opts.onHostAttributionAcquired?.(introspection);
 
       const acquiredIntrospection = introspection;
       let hostAttributionReleased = false;
-      scope.addHook('onClose', async () => {
+      const disposeHostAttribution = (): void => {
         if (hostAttributionReleased) return;
         hostAttributionReleased = true;
         releaseHostAttribution(serviceRegistry, acquiredIntrospection);
-      });
+      };
+      opts.onHostAttributionAcquired?.(disposeHostAttribution);
+      scope.addHook('onClose', async () => disposeHostAttribution());
 
       registerDevFiles(scope, introspection, logger);
       registerIntrospectionEndpoints(scope, {

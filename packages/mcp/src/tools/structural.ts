@@ -344,40 +344,49 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           // RFC 0018: a path may be a Fastify route the application registered itself, never
           // declared in the τjs graph. Episodes are the only account of it - answer from them
           // when this path was observed as a host route, rather than refusing outright. Episodes
-          // are consulted ONLY from a live dev boot (a defined bootId): reading them without one
-          // would answer from whichever stale or foreign boot's records happen to be on disk,
-          // contradicting this reader's own "episode tools refuse without a live boot" posture.
+          // are consulted ONLY from a live dev boot: `discovery.mode === 'active'` is the actual
+          // liveness fact - a 'stale' discovery deliberately retains its own `devJson` (a crashed
+          // or expired boot), so a defined bootId alone is not proof of a live one.
           if (args.path) {
-            const liveBootId = ctx.discovery.devJson?.bootId;
-            if (liveBootId !== undefined) {
-              const episodesRead = readEpisodes(ctx.discovery, { bootId: liveBootId });
-              if (episodesRead.ok) {
-                const hostEpisodes = episodesRead.records.filter((e) => e.kind === 'host' && e.route === args.path);
-                if (hostEpisodes.length > 0) {
-                  return {
-                    ok: true,
-                    ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
-                    hostObserved: {
-                      path: args.path,
-                      note: 'Not a declared τjs route. τjs observed registry-backed work performed through this Fastify route handler, without taking ownership of it - this reports what was observed, never a declared contract.',
-                      methods: [...new Set(hostEpisodes.map((e) => e.method).filter((m): m is string => m !== null))],
-                      // A plain bounded slice, not the {items,total,truncated} shape `bounded` returns
-                      // elsewhere in this file: this field is a small evidence list, not a paged one.
-                      episodes: hostEpisodes.slice(-DEFAULT_LIST_LIMIT).map((e) => ({
-                        requestId: e.requestId,
-                        method: e.method,
-                        outcome: e.outcome,
-                        status: e.status,
-                        serviceCalls: e.serviceCalls.map((c) => ({ service: c.service, method: c.method, ok: c.ok })),
-                      })),
-                    },
-                  };
-                }
+            if (ctx.discovery.mode === 'active') {
+              const episodesRead = readEpisodes(ctx.discovery, { bootId: ctx.discovery.devJson.bootId });
+              if (!episodesRead.ok) {
+                // Preserve the reader's own refusal - a paired-read or schema-skew refusal is not
+                // "no observation", it is "this could not be read", and reporting it as absence
+                // would misinform exactly the caller this refusal exists to warn.
+                return {
+                  ok: false,
+                  reason: episodesRead.reason,
+                  ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+                  message: episodesRead.message,
+                };
               }
 
-              // A live boot exists but no host episode matches this exact path: unknown, never
-              // proof the path went unrequested - a rejection before the registry, or traffic
-              // outside the ring, leaves no episode either.
+              const hostEpisodes = episodesRead.records.filter((e) => e.kind === 'host' && e.route === args.path);
+              if (hostEpisodes.length > 0) {
+                return {
+                  ok: true,
+                  ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+                  hostObserved: {
+                    path: args.path,
+                    note: 'Not a declared τjs route. τjs observed registry-backed work performed through this Fastify route handler, without taking ownership of it - this reports what was observed, never a declared contract.',
+                    methods: [...new Set(hostEpisodes.map((e) => e.method).filter((m): m is string => m !== null))],
+                    // A plain bounded slice, not the {items,total,truncated} shape `bounded` returns
+                    // elsewhere in this file: this field is a small evidence list, not a paged one.
+                    episodes: hostEpisodes.slice(-DEFAULT_LIST_LIMIT).map((e) => ({
+                      requestId: e.requestId,
+                      method: e.method,
+                      outcome: e.outcome,
+                      status: e.status,
+                      serviceCalls: e.serviceCalls.map((c) => ({ service: c.service, method: c.method, ok: c.ok })),
+                    })),
+                  },
+                };
+              }
+
+              // A live boot exists and read cleanly, but no host episode matches this exact path:
+              // unknown, never proof the path went unrequested - a rejection before the registry,
+              // or traffic outside the ring, leaves no episode either.
               return {
                 ...routeMiss(ctx),
                 message:

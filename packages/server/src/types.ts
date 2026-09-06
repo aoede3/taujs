@@ -5,7 +5,6 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 
 import type { CoreTaujsConfig, Route, RouteParams } from './core/config/types';
 import type { DeferredDataRegistry } from './core/routes/DeferredData';
 import type { DebugConfig, Logs } from './core/logging/types';
-import type { DevIntrospection } from './core/introspection/DevIntrospection';
 import type { ServiceRegistry } from './core/services/DataServices';
 import type { MediatedHmrController } from './utils/MediatedHmr';
 
@@ -72,13 +71,15 @@ export type SSRServerOptions = {
    */
   introspectionAllowedHosts?: ReadonlySet<string>;
   /**
-   * RFC 0018 (Lifecycle). Internal wiring only, not a public `createServer` option: `createServer`
-   * supplies a callback that receives the introspection instance the moment host attribution binds
-   * to `serviceRegistry`, so a boot failure later in the same attempt can release the binding
-   * before rethrowing - the scope's own `onClose` hook never fires for a plugin registration that
-   * itself throws.
+   * RFC 0018 (Lifecycle). Internal wiring only, not a public `createServer` option: the moment host
+   * attribution acquires the binding, this receives an idempotent disposer closure that already
+   * captures the EXACT registry object and introspection instance used - never `opts.serviceRegistry`
+   * read back later, which normalises an absent registry to a fresh `{}` and would otherwise be a
+   * different object than the one actually acquired. `createServer` stores the disposer and calls it
+   * on a boot failure later in the same attempt, since the scope's own `onClose` hook never fires
+   * for a plugin registration that itself throws.
    */
-  onHostAttributionAcquired?: (introspection: DevIntrospection) => void;
+  onHostAttributionAcquired?: (dispose: () => void) => void;
 };
 
 export type GenericPlugin = FastifyPluginCallback<Record<string, unknown>> | FastifyPluginAsync<Record<string, unknown>>;

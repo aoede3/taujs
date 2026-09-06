@@ -16,7 +16,6 @@ import {
 import { REGEX } from './core/constants';
 import { normaliseError } from './core/errors/AppError';
 import { createRequestGraph } from './core/introspection/RequestGraph';
-import { release as releaseHostAttribution } from './core/introspection/HostAttribution';
 import { evaluateRoutePolicy, validateRoutePolicy } from './core/policy/RoutePolicy';
 
 import { CONTENT } from './constants';
@@ -32,7 +31,6 @@ import { createMediatedHmr } from './utils/MediatedHmr';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import type { DevIntrospection } from './core/introspection/DevIntrospection';
 import type { ServiceRegistry } from './core/services/DataServices';
 import type { BaseLogger, DebugConfig } from './core/logging/types';
 import type { TaujsConfig } from './Config';
@@ -306,12 +304,15 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     }
   }
 
-  // RFC 0018 (Lifecycle): set by the plugin the moment it acquires host attribution for
-  // `opts.serviceRegistry`, so a failure later in THIS boot attempt can release the binding
+  // RFC 0018 (Lifecycle): set by the plugin the moment it acquires host attribution, to an
+  // idempotent disposer that already closes over the EXACT registry object and introspection
+  // instance it acquired with - never re-derived from `opts.serviceRegistry` here, which is
+  // `undefined` when the caller supplied none while the plugin normalises and acquires against a
+  // fresh `{}` it owns, so a failure later in THIS boot attempt can release the binding
   // synchronously before the error is rethrown below - the plugin's own `onClose` hook never runs
   // for a registration that itself throws (verified: Fastify does not invoke `onClose` for hooks
   // already registered on a scope whose plugin body goes on to throw).
-  let acquiredHostAttribution: DevIntrospection | undefined;
+  let disposeHostAttribution: (() => void) | undefined;
 
   try {
     // RFC 0012: the mount is Fastify's own scope-prefix primitive on the one τjs registration.
@@ -343,17 +344,17 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       // a root-level hook sees. Withheld unless the caller owns the host AND we are in development,
       // so production never receives the handle at all.
       viteRequestHookOwner: callerOwnedHost && isDevelopment ? app : undefined,
-      onHostAttributionAcquired: (introspection) => {
-        acquiredHostAttribution = introspection;
+      onHostAttributionAcquired: (dispose) => {
+        disposeHostAttribution = dispose;
       },
     });
   } catch (err) {
     // RFC 0018 (Lifecycle, step 6): a boot that acquired the binding and then failed later in this
     // same try block releases it synchronously, rather than leaving the channel bound with no
-    // server left to unbind it.
-    if (acquiredHostAttribution && opts.serviceRegistry) {
-      releaseHostAttribution(opts.serviceRegistry, acquiredHostAttribution);
-    }
+    // server left to unbind it. The disposer is idempotent and already knows its own registry and
+    // introspection, including the no-registry-supplied case where the plugin acquired against a
+    // fresh `{}` this scope never sees.
+    disposeHostAttribution?.();
 
     logger.error(
       {
