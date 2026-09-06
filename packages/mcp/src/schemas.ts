@@ -66,7 +66,11 @@ export const EpisodeRecordSchema: z.ZodType<EpisodeRecord> = z.looseObject({
   requestId: z.string(),
   bootId: z.string(),
   at: z.string(),
+  // RFC 0018: required, no implicit default - a persisted discriminant must not acquire meaning
+  // through absence.
+  kind: z.enum(['page', 'host']),
   route: z.string().nullable(),
+  method: z.string().nullable(),
   appId: z.string().nullable(),
   mode: z.enum(['ssr', 'streaming', 'fallthrough']).nullable(),
   outcome: z.enum(['complete', 'failed', 'aborted']),

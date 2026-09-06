@@ -103,7 +103,7 @@ beforeAll(async () => {
   // Observed traffic: one getProduct call recorded through the real assembler.
   const dev = createDevIntrospection();
   dev.recorder.requestStart({ requestId: 'obs-1', url: '/product/7', method: 'GET' });
-  dev.recorder.routeMatched({ requestId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
+  dev.recorder.routeMatched({ requestId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
   dev.recorder.serviceCall({ requestId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
   dev.recorder.sent({ requestId: 'obs-1', status: 200, mode: 'streaming' });
   observationsDoc = dev.getObservations();
@@ -364,7 +364,7 @@ describe('structural tools (cold/stale mode)', () => {
       dir,
       'observations.json',
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         bootId: 'boot-t1',
         updatedAt: '2026-07-09T09:00:00.000Z',
         edges: [
@@ -386,6 +386,117 @@ describe('structural tools (cold/stale mode)', () => {
     expect(result.staleness).toContain('2026-07-10T10:00:00.000Z');
     expect(result.observedStaleness).toContain('boot-t1');
     expect(result.observedStaleness).toContain('2026-07-09T09:00:00.000Z');
+  });
+
+  it('RFC 0018: taujs_who_calls_service lists a host-observed caller separately, never merged into declared or observed', async () => {
+    const hostRoot = await mkdtemp(path.join(scratch, 'host-who-'));
+    const dir = path.join(hostRoot, 'node_modules', '.taujs');
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+
+    // A Fastify route the application registered itself, observed calling catalog.getProduct
+    // through the real assembler's host arm - never a declared or τjs page route.
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: 'host-who-1', url: '/api/products/7', method: 'GET' });
+    dev.recorder.routeMatched({ requestId: 'host-who-1', path: '/api/products/:id', method: 'GET', kind: 'host' });
+    dev.recorder.serviceCall({ requestId: 'host-who-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true });
+    dev.recorder.sent({ requestId: 'host-who-1', status: 200, kind: 'host' });
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
+
+    const result = callAt(hostRoot, 'taujs_who_calls_service', { service: 'catalog', method: 'getProduct' });
+
+    expect(result.ok).toBe(true);
+    // catalog.getProduct is declared via /product/:id - that row still appears in `edges`, and
+    // no `observed` row does, since no τjs page traffic was recorded in this fixture.
+    expect(result.edges).toEqual([expect.objectContaining({ source: 'declared', routeId: 'playground-react:/product/:id' })]);
+    expect(result.hostObserved).toHaveLength(1);
+    expect(result.hostObserved[0]).toMatchObject({ source: 'hostObserved', service: 'catalog', method: 'getProduct', path: '/api/products/:id' });
+    expect('appId' in result.hostObserved[0]).toBe(false);
+  });
+
+  it('RFC 0018: taujs_explain_route answers for a host path from episodes, labelled apart from a declared explanation', async () => {
+    const hostRoot = await mkdtemp(path.join(scratch, 'host-explain-'));
+    const dir = path.join(hostRoot, 'node_modules', '.taujs');
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: 'host-explain-1', url: '/api/products/7', method: 'POST' });
+    dev.recorder.routeMatched({ requestId: 'host-explain-1', path: '/api/products/:id', method: 'POST', kind: 'host' });
+    dev.recorder.serviceCall({ requestId: 'host-explain-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true });
+    dev.recorder.sent({ requestId: 'host-explain-1', status: 200, kind: 'host' });
+    await writeTaujsArtifact(
+      dir,
+      'episodes.ndjson',
+      dev
+        .getEpisodes()
+        .map((e) => JSON.stringify(e))
+        .join('\n') + '\n',
+    );
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
+    // A live boot - episodes are consulted ONLY when one exists (Ruling, structural.ts).
+    const devJson: DevJson = {
+      bootId: dev.bootId,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T10:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+
+    const result = callAt(hostRoot, 'taujs_explain_route', { path: '/api/products/:id' });
+
+    expect(result.ok).toBe(true);
+    expect(result.explanations).toBeUndefined();
+    expect(result.hostObserved).toMatchObject({ path: '/api/products/:id', methods: ['POST'] });
+    expect(result.hostObserved.episodes).toHaveLength(1);
+    expect(result.hostObserved.episodes[0]).toMatchObject({ requestId: 'host-explain-1', outcome: 'complete', status: 200 });
+  });
+
+  it('RFC 0018: taujs_explain_route with a live boot but no matching host episode says "no observation", never that no request occurred', async () => {
+    const hostRoot = await mkdtemp(path.join(scratch, 'host-explain-empty-'));
+    const dir = path.join(hostRoot, 'node_modules', '.taujs');
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+
+    const dev = createDevIntrospection();
+    await writeTaujsArtifact(dir, 'episodes.ndjson', '');
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
+    const devJson: DevJson = {
+      bootId: dev.bootId,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T10:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+
+    const result = callAt(hostRoot, 'taujs_explain_route', { path: '/never/registered' });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('no observation exists');
+    expect(result.message.toLowerCase()).not.toContain('no request');
+  });
+
+  it('RFC 0018: taujs_explain_route without a live boot never consults episodes for a host path - absence is unknown, not "no observation"', () => {
+    // The shared `root` fixture is deliberately cold/stale (no dev.json) - the case a live-boot
+    // gate exists to catch: episodes on disk here, if any, could belong to a stale or foreign
+    // boot, so they must never be read as this boot's observations.
+    const result = call('taujs_explain_route', { path: '/never/registered' });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('only consulted from a live dev boot');
+    expect(result.message).not.toContain('no observation exists');
   });
 
   it('taujs_list_routes bypasses the overview but still carries the declared-topology qualification, via the shared staleness line', async () => {
@@ -429,7 +540,7 @@ describe('structural tools (cold/stale mode)', () => {
     const activeDir = path.join(activeRoot, 'node_modules', '.taujs');
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'obs-active-1', url: '/product/9', method: 'GET' });
-    dev.recorder.routeMatched({ requestId: 'obs-active-1', path: '/product/:id', appId: 'playground-react', render: 'streaming' });
+    dev.recorder.routeMatched({ requestId: 'obs-active-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
     dev.recorder.serviceCall({ requestId: 'obs-active-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
     dev.recorder.sent({ requestId: 'obs-active-1', status: 200, mode: 'streaming' });
     await writeTaujsArtifact(

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { compareGraphs, summarizeCompare } from '../GraphCompare';
-import { NO_ACTIVE_BOOT_REFUSAL, capStrings, readBaselineGraph, readObservations } from '../SubstrateReader';
+import { NO_ACTIVE_BOOT_REFUSAL, capStrings, readBaselineGraph, readEpisodes, readObservations } from '../SubstrateReader';
 import { UNTRUSTED_NOTE, bounded, defineTool, withGraph } from '../toolkit';
 import { renderStrategyCitation } from './contracts';
 
@@ -167,7 +167,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
   defineTool({
     name: 'taujs_who_calls_service',
     title: 'Who calls a service',
-    description: `Route → service edges for a service (optionally one method). Each edge is labelled declared (from config: a serviceData edge, a deferred entry or a head edge) or observed (seen in dev traffic — absence means "not exercised yet", never "no relationship"). A known service with zero edges is a successful empty result, not an error. ${UNTRUSTED_NOTE}`,
+    description: `Route → service edges for a service (optionally one method). Each edge is labelled declared (from config: a serviceData edge, a deferred entry or a head edge), observed (seen in dev traffic through a τjs page route - absence means "not exercised yet", never "no relationship"), or hostObserved (a Fastify route the application registered itself, seen calling this service through the registry in dev traffic - reported separately so it is never mistaken for a declared edge). A known service with zero edges is a successful empty result, not an error. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({
       service: z.string().describe('Service name, e.g. "catalog"'),
       method: z.string().optional().describe('Method name, e.g. "getProduct"'),
@@ -212,33 +212,35 @@ export const structuralTools = (root: string): ToolDefinition[] => [
                 observedStaleness: `Observations document from dev boot ${obs.observations.bootId}, last updated at ${obs.observations.updatedAt} — no active dev server, so observations may be stale independently of the graph.`,
               }
             : {};
-        const observed = obs.ok
-          ? obs.observations.edges
-              .filter((e) => e.service === service && (!method || e.method === method))
-              .flatMap((e) =>
-                e.routes.map((r) => ({
-                  source: 'observed' as const,
-                  service,
-                  method: e.method,
-                  routeId: r.routeId,
-                  appId: r.appId,
-                  path: r.path,
-                  // The substrate counts per service.method, not per route: every row of this
-                  // method carries the same boot-wide total. routeCallCount is that route's own
-                  // attribution, present since the spec 03 §4 additive field (2026-08-20).
-                  methodCallCount: e.count,
-                  ...(typeof r.count === 'number' ? { routeCallCount: r.count } : {}),
-                  lastObservedAt: e.lastObservedAt,
-                })),
-              )
-          : [];
+        // RFC 0018: a host-observed row (`appId === null`) is a Fastify route the application
+        // registered itself, observed only because it called through the τjs service registry -
+        // recognised by the typed `appId` field, never by parsing the route id string. Reported as
+        // its own labelled list, never merged into `observed`, so a reader cannot mistake it for a
+        // declared edge or for traffic through a τjs page route.
+        const observedRows = obs.ok ? obs.observations.edges.filter((e) => e.service === service && (!method || e.method === method)) : [];
+        const toRow = (source: 'observed' | 'hostObserved') => (e: (typeof observedRows)[number], r: (typeof e.routes)[number]) => ({
+          source,
+          service,
+          method: e.method,
+          routeId: r.routeId,
+          ...(source === 'observed' ? { appId: r.appId } : {}),
+          path: r.path,
+          // The substrate counts per service.method, not per route: every row of this method
+          // carries the same boot-wide total. routeCallCount is that route's own attribution,
+          // present since the spec 03 §4 additive field (2026-08-20).
+          methodCallCount: e.count,
+          ...(typeof r.count === 'number' ? { routeCallCount: r.count } : {}),
+          lastObservedAt: e.lastObservedAt,
+        });
+        const observed = observedRows.flatMap((e) => e.routes.filter((r) => r.appId !== null).map((r) => toRow('observed')(e, r)));
+        const hostObserved = observedRows.flatMap((e) => e.routes.filter((r) => r.appId === null).map((r) => toRow('hostObserved')(e, r)));
 
         // Resolution comes BEFORE the edge check: routes/observations and the registry are
         // emitted independently, so a dangling edge can reference an identifier the registry
         // does not have. `ok` answers "did the identifier resolve" — the dangling edges are
         // still returned, labelled, because they are real config the asker is likely chasing.
         if (ctx.graph.services) {
-          const dangling = [...declared, ...observed];
+          const dangling = [...declared, ...observed, ...hostObserved];
           const danglingFields =
             dangling.length > 0
               ? {
@@ -280,13 +282,20 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           }
         }
 
-        if (declared.length === 0 && observed.length === 0) {
+        if (declared.length === 0 && observed.length === 0 && hostObserved.length === 0) {
           const emptyNote = `No declared or observed edges for "${service}${method ? `.${method}` : ''}". Observed edges only exist for traffic seen this boot; the service may still be called from code outside the graph.`;
 
           // Registry present and the identifier resolved above: a successful empty result —
           // agents branch hard on `ok`, and this is "the answer is none", not "I asked wrong".
           if (ctx.graph.services) {
-            return { ok: true, ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}), ...observedStaleness, edges: [], note: emptyNote };
+            return {
+              ok: true,
+              ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+              ...observedStaleness,
+              edges: [],
+              hostObserved: [],
+              note: emptyNote,
+            };
           }
 
           // Registry absent: existence cannot be checked — say so rather than guess either way.
@@ -302,6 +311,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
             ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
             ...observedStaleness,
             edges: [],
+            hostObserved: [],
             note: `${emptyNote} The registry is not present in this graph, so whether "${service}" exists cannot be checked.`,
             servicesSeenOnRouteEdges: bounded(seen, DEFAULT_LIST_LIMIT),
           };
@@ -311,15 +321,16 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           ok: true,
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
           ...observedStaleness,
-          note: 'declared = from config (a serviceData edge, a deferred entry or a head edge); observed = seen in dev traffic, never complete truth. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution.',
+          note: 'declared = from config (a serviceData edge, a deferred entry or a head edge); observed = seen in dev traffic through a τjs page route, never complete truth; hostObserved = seen in dev traffic through a Fastify route the application registered itself, reported separately so it is never mistaken for a declared edge. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution.',
           edges: [...declared, ...observed],
+          hostObserved,
         };
       }),
   }),
   defineTool({
     name: 'taujs_explain_route',
     title: 'Explain a route',
-    description: `Composed explanation of one route: effective render/hydrate, data edge with schema flags, middleware posture, the schema-v2 declaration score (not Fastify runtime precedence), and its warnings. ${UNTRUSTED_NOTE}`,
+    description: `Composed explanation of one route: effective render/hydrate, data edge with schema flags, middleware posture, the schema-v2 declaration score (not Fastify runtime precedence), and its warnings. For a path with no declared route, answers from episodes when the path was observed as a host route (a Fastify route the application registered itself, seen calling the τjs service registry) - "no observation" means unknown, never that no request occurred. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({
       routeId: z.string().optional().describe('Stable id, e.g. "storefront:/product/:id"'),
       path: z.string().optional().describe('Exact declared path'),
@@ -329,7 +340,61 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         const selection = selectRoutes(ctx, args);
         if ('refusal' in selection) return selection.refusal;
         const matches = selection.routes;
-        if (matches.length === 0) return routeMiss(ctx);
+        if (matches.length === 0) {
+          // RFC 0018: a path may be a Fastify route the application registered itself, never
+          // declared in the τjs graph. Episodes are the only account of it - answer from them
+          // when this path was observed as a host route, rather than refusing outright. Episodes
+          // are consulted ONLY from a live dev boot (a defined bootId): reading them without one
+          // would answer from whichever stale or foreign boot's records happen to be on disk,
+          // contradicting this reader's own "episode tools refuse without a live boot" posture.
+          if (args.path) {
+            const liveBootId = ctx.discovery.devJson?.bootId;
+            if (liveBootId !== undefined) {
+              const episodesRead = readEpisodes(ctx.discovery, { bootId: liveBootId });
+              if (episodesRead.ok) {
+                const hostEpisodes = episodesRead.records.filter((e) => e.kind === 'host' && e.route === args.path);
+                if (hostEpisodes.length > 0) {
+                  return {
+                    ok: true,
+                    ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
+                    hostObserved: {
+                      path: args.path,
+                      note: 'Not a declared τjs route. τjs observed registry-backed work performed through this Fastify route handler, without taking ownership of it - this reports what was observed, never a declared contract.',
+                      methods: [...new Set(hostEpisodes.map((e) => e.method).filter((m): m is string => m !== null))],
+                      // A plain bounded slice, not the {items,total,truncated} shape `bounded` returns
+                      // elsewhere in this file: this field is a small evidence list, not a paged one.
+                      episodes: hostEpisodes.slice(-DEFAULT_LIST_LIMIT).map((e) => ({
+                        requestId: e.requestId,
+                        method: e.method,
+                        outcome: e.outcome,
+                        status: e.status,
+                        serviceCalls: e.serviceCalls.map((c) => ({ service: c.service, method: c.method, ok: c.ok })),
+                      })),
+                    },
+                  };
+                }
+              }
+
+              // A live boot exists but no host episode matches this exact path: unknown, never
+              // proof the path went unrequested - a rejection before the registry, or traffic
+              // outside the ring, leaves no episode either.
+              return {
+                ...routeMiss(ctx),
+                message:
+                  'No declared route matched, and no observation exists for this path. Absence here is unknown, never evidence about whether the path was ever requested.',
+              };
+            }
+
+            // No live dev boot: episodes on disk, if any, could be a stale or foreign boot's -
+            // answering from them here would contradict this reader's own live-boot-only posture.
+            return {
+              ...routeMiss(ctx),
+              message: 'No declared route matched. Observed host-route episodes are only consulted from a live dev boot; absence here is unknown.',
+            };
+          }
+
+          return routeMiss(ctx);
+        }
 
         // Contract-backed enrichment only (RFC 0015 Phase B): absent on older or mismatched
         // installations, while every existing fact keeps flowing.

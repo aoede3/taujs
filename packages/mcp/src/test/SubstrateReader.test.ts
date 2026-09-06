@@ -324,11 +324,11 @@ describe('readLogs', () => {
 });
 
 describe('readObservations', () => {
-  it('an observations document at schemaVersion 1 is still accepted', async () => {
+  it('an observations document at schemaVersion 2 (RFC 0018, the current version) is accepted', async () => {
     const root = await mkRoot();
     await emitEpisodes(root, (dev) => {
       dev.recorder.requestStart({ requestId: 't-obs', url: '/p', method: 'GET' });
-      dev.recorder.routeMatched({ requestId: 't-obs', path: '/p', appId: 'web', render: 'ssr' });
+      dev.recorder.routeMatched({ requestId: 't-obs', path: '/p', appId: 'web', render: 'ssr', kind: 'page' });
       dev.recorder.serviceCall({ requestId: 't-obs', service: 'catalog', method: 'getProduct', ms: 5, ok: true });
       dev.recorder.sent({ requestId: 't-obs', status: 200, mode: 'ssr' });
     });
@@ -336,24 +336,46 @@ describe('readObservations', () => {
     const result = readObservations(discoverSubstrate(root));
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // The observations document is versioned independently of the request graph (spec 03 stays
-      // at schemaVersion 1 even though the graph moved to 2) - this is the real, unmutated document.
+      // This is the real, unmutated document the server emitted - RFC 0018 owns version 2 outright.
       expect(result.observations.schemaVersion).toBe(OBSERVATIONS_SCHEMA_VERSION);
       expect(result.observations.edges[0]).toMatchObject({ service: 'catalog', method: 'getProduct', count: 1 });
       expect(result.observations.shapes).toEqual([]);
     }
   });
 
-  it('an observations document at schemaVersion 2 is refused with the upgrade message', async () => {
+  it('an observations document at schemaVersion 1 (pre-RFC-0018) is refused with the upgrade message', async () => {
     const root = await mkRoot();
     const dev = await emitEpisodes(root, () => {});
-    await writeTaujsArtifact(taujsDir(root), 'observations.json', JSON.stringify({ ...dev.getObservations(), schemaVersion: 2 }, null, 2));
+    await writeTaujsArtifact(taujsDir(root), 'observations.json', JSON.stringify({ ...dev.getObservations(), schemaVersion: 1 }, null, 2));
 
     expect(readObservations(discoverSubstrate(root))).toEqual({
       ok: false,
       reason: 'schema_skew',
-      message: 'Observations are schema v2; this adapter understands v1 — upgrade @taujs/mcp.',
+      message: 'Observations are schema v1; this adapter understands v2 — upgrade @taujs/mcp.',
     });
+  });
+
+  it('RFC 0018: a v1 observations document refuses episodes.ndjson too, as a paired read, even though episodes.ndjson parses cleanly on its own', async () => {
+    const root = await mkRoot();
+    const dev = await emitEpisodes(root, (d) => {
+      d.recorder.requestStart({ requestId: 'paired-1', url: '/p', method: 'GET' });
+      d.recorder.routeMatched({ requestId: 'paired-1', path: '/p', appId: 'web', render: 'ssr', kind: 'page' });
+      d.recorder.sent({ requestId: 'paired-1', status: 200, mode: 'ssr' });
+    });
+    // episodes.ndjson on disk is a perfectly valid v2 record - only observations.json is rolled
+    // back, to prove the gate reads the PAIRED version rather than validating episodes alone.
+    await writeTaujsArtifact(taujsDir(root), 'observations.json', JSON.stringify({ ...dev.getObservations(), schemaVersion: 1 }, null, 2));
+
+    const discovery = discoverSubstrate(root);
+    const episodesRead = readEpisodes(discovery);
+    expect(episodesRead.ok).toBe(false);
+    if (!episodesRead.ok) {
+      expect(episodesRead.reason).toBe('unreadable');
+      expect(episodesRead.message).toContain('refused together with observations');
+    }
+
+    // Both documents refuse together - fail closed, not one silently trusted while the other skews.
+    expect(readObservations(discovery)).toMatchObject({ ok: false, reason: 'schema_skew' });
   });
 });
 

@@ -13,6 +13,7 @@ import fp from 'fastify-plugin';
 import { TEMPLATE } from './constants';
 import { AppError } from './core/errors/AppError';
 import { logResponseFailure } from './core/errors/ResponseFailureLog';
+import { acquire as acquireHostAttribution, release as releaseHostAttribution } from './core/introspection/HostAttribution';
 import { fastifyConfigForRoute, selectedRouteFrom } from './core/routes/FastifyRoutes';
 import { isDevelopment, runtimeMode } from './System';
 
@@ -223,6 +224,23 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       introspection = createDevIntrospection({ logger, denyKeys: redaction?.denyKeys, replaceDefaultDenyKeys: redaction?.replaceDefaultDenyKeys });
 
       scope.decorate('taujsIntrospection', introspection);
+
+      // RFC 0018 (Lifecycle): acquired the moment introspection exists to observe the caller's own
+      // routes. Released in this scope's own `onClose` hook, guarded like the owned Vite dev server
+      // above, and (for a boot that acquires the binding and then fails before this scope ever
+      // closes - `onClose` never fires for a plugin registration that itself throws) by
+      // `createServer`'s own boot try/catch via `onHostAttributionAcquired`.
+      acquireHostAttribution(serviceRegistry, introspection, logger);
+      opts.onHostAttributionAcquired?.(introspection);
+
+      const acquiredIntrospection = introspection;
+      let hostAttributionReleased = false;
+      scope.addHook('onClose', async () => {
+        if (hostAttributionReleased) return;
+        hostAttributionReleased = true;
+        releaseHostAttribution(serviceRegistry, acquiredIntrospection);
+      });
+
       registerDevFiles(scope, introspection, logger);
       registerIntrospectionEndpoints(scope, {
         introspection,
@@ -262,7 +280,12 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     );
     if (introspection) {
       requestContext.logger = introspection.wrapRequestLogger(requestContext.logger, requestContext.requestId);
-      requestContext.recorder = introspection.recorder;
+      // RFC 0018 (Rulings: Request-ID collision across instances): a claim precedes every
+      // requestStart, page or ambient. A failed claim leaves `recorder` unset, so every downstream
+      // `recorder?.`-guarded call is already a no-op for this request.
+      if (introspection.claimRequest(requestContext.requestId, req)) {
+        requestContext.recorder = introspection.recorder;
+      }
     }
     req.taujsRequestContext = requestContext;
     requestContext.recorder?.requestStart({ requestId: requestContext.requestId, url: req.url, method: req.method });

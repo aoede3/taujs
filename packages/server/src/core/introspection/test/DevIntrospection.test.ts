@@ -22,7 +22,7 @@ describe('episode assembly - event sequences (spec 03 §1-2)', () => {
   it('rendered SSR: requestStart → routeMatched → dataFetch → serviceCall → sent', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr' });
+    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr', kind: 'page' });
     dev.recorder.dataFetch({ requestId: T, ms: 12.5, ok: true });
     dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 11.2, ok: true });
     dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
@@ -48,7 +48,7 @@ describe('episode assembly - event sequences (spec 03 §1-2)', () => {
   it('rendered streaming: streamPhase events land in the timeline', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'streaming' });
+    dev.recorder.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'streaming', kind: 'page' });
     dev.recorder.streamPhase({ requestId: T, phase: 'head' });
     dev.recorder.streamPhase({ requestId: T, phase: 'shellReady' });
     dev.recorder.streamPhase({ requestId: T, phase: 'allReady' });
@@ -74,11 +74,12 @@ describe('episode assembly - event sequences (spec 03 §1-2)', () => {
   it('failed: outcome failed with error kind and capped message', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr' });
-    dev.recorder.failed({ requestId: T, error: { kind: 'domain', message: 'x'.repeat(600) } });
+    dev.recorder.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr', kind: 'page' });
+    dev.recorder.failed({ requestId: T, status: 500, error: { kind: 'domain', message: 'x'.repeat(600) } });
 
     const [episode] = dev.getEpisodes();
     expect(episode!.outcome).toBe('failed');
+    expect(episode!.status).toBe(500);
     expect(episode!.error!.kind).toBe('domain');
     expect(episode!.error!.message).toHaveLength(500);
   });
@@ -97,7 +98,7 @@ describe('episode assembly - event sequences (spec 03 §1-2)', () => {
 
   it('events for unknown request IDs are ignored, never thrown', () => {
     const dev = createDevIntrospection();
-    dev.recorder.routeMatched({ requestId: 'ghost', path: '/p', appId: 'a', render: 'ssr' });
+    dev.recorder.routeMatched({ requestId: 'ghost', path: '/p', appId: 'a', render: 'ssr', kind: 'page' });
     dev.recorder.sent({ requestId: 'ghost', status: 200, mode: 'ssr' });
 
     expect(dev.getEpisodes()).toHaveLength(0);
@@ -222,12 +223,12 @@ describe('observations derivation (spec 03 §4)', () => {
   it('upserts edges with routes, counts, and sample request IDs; shapes deferred as empty', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr' });
+    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr', kind: 'page' });
     dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 10, ok: true });
     dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 12, ok: true });
 
     const obs = dev.getObservations();
-    expect(obs.schemaVersion).toBe(1);
+    expect(obs.schemaVersion).toBe(2);
     expect(obs.bootId).toBe(dev.bootId);
     expect(obs.shapes).toEqual([]);
     expect(obs.edges).toHaveLength(1);
@@ -243,13 +244,13 @@ describe('observations derivation (spec 03 §4)', () => {
   it('attributes per-route counts alongside the method-wide total (spec 03 §4 additive field, 2026-08-20)', () => {
     const dev = createDevIntrospection();
     start(dev);
-    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr' });
+    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr', kind: 'page' });
     dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 10, ok: true });
     dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 12, ok: true });
 
     // A second episode on a DIFFERENT route reaching the same method.
     start(dev, '/all', 'episode-2');
-    dev.recorder.routeMatched({ requestId: 'episode-2', path: '/all', appId: 'storefront', render: 'ssr' });
+    dev.recorder.routeMatched({ requestId: 'episode-2', path: '/all', appId: 'storefront', render: 'ssr', kind: 'page' });
     dev.recorder.serviceCall({ requestId: 'episode-2', service: 'catalog', method: 'getProduct', ms: 5, ok: true });
 
     // And a call with NO route attribution: the method-wide total moves, route counts do not.
@@ -419,13 +420,13 @@ describe('recorder isolation (spec 03 invariant 2)', () => {
 
     expect(() => {
       safe.requestStart({ requestId: T, url: '/x', method: 'GET' });
-      safe.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr' });
+      safe.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr', kind: 'page' });
       safe.dataFetch({ requestId: T, ms: 1, ok: true });
       safe.serviceCall({ requestId: T, service: 's', method: 'm', ms: 1, ok: true });
       safe.streamPhase({ requestId: T, phase: 'head' });
       safe.sent({ requestId: T, status: 200, mode: 'ssr' });
       safe.aborted({ requestId: T });
-      safe.failed({ requestId: T, error: { kind: 'x', message: 'y' } });
+      safe.failed({ requestId: T, status: 500, error: { kind: 'x', message: 'y' } });
       safe.clientHydration({ requestId: T, ok: true });
     }).not.toThrow();
     expect(onFirstError).toHaveBeenCalledTimes(1);

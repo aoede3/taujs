@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyPluginCallback } from 
 import type { CoreTaujsConfig, Route, RouteParams } from './core/config/types';
 import type { DeferredDataRegistry } from './core/routes/DeferredData';
 import type { DebugConfig, Logs } from './core/logging/types';
+import type { DevIntrospection } from './core/introspection/DevIntrospection';
 import type { ServiceRegistry } from './core/services/DataServices';
 import type { MediatedHmrController } from './utils/MediatedHmr';
 
@@ -70,6 +71,14 @@ export type SSRServerOptions = {
    * and threaded like the coordinates above so registration never re-derives it.
    */
   introspectionAllowedHosts?: ReadonlySet<string>;
+  /**
+   * RFC 0018 (Lifecycle). Internal wiring only, not a public `createServer` option: `createServer`
+   * supplies a callback that receives the introspection instance the moment host attribution binds
+   * to `serviceRegistry`, so a boot failure later in the same attempt can release the binding
+   * before rethrowing - the scope's own `onClose` hook never fires for a plugin registration that
+   * itself throws.
+   */
+  onHostAttributionAcquired?: (introspection: DevIntrospection) => void;
 };
 
 export type GenericPlugin = FastifyPluginCallback<Record<string, unknown>> | FastifyPluginAsync<Record<string, unknown>>;

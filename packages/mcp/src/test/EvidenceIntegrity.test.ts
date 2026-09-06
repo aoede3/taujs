@@ -28,7 +28,9 @@ const EPISODE = {
   requestId: 'req-1',
   bootId: 'boot-1',
   at: '2026-08-26T10:00:00.000Z',
+  kind: 'page',
   route: '/product/:id',
+  method: null,
   appId: 'web',
   mode: 'streaming',
   outcome: 'complete',
@@ -71,7 +73,7 @@ const seed = async (files: Record<string, string>): Promise<string> => {
     }),
     'episodes.ndjson': '',
     'logs.ndjson': '',
-    'observations.json': JSON.stringify({ schemaVersion: 1, bootId: 'boot-1', updatedAt: '2026-08-26T10:00:00.000Z', edges: [] }),
+    'observations.json': JSON.stringify({ schemaVersion: 2, bootId: 'boot-1', updatedAt: '2026-08-26T10:00:00.000Z', edges: [] }),
   };
 
   for (const [name, body] of Object.entries({ ...defaults, ...files })) await writeFile(path.join(dir, name), body, 'utf8');

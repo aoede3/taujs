@@ -8,6 +8,7 @@ import { fetchHeadData, fetchInitialData } from '../core/routes/DataRoutes';
 import { buildDeferredEnvelopeJson, createDeferredData } from '../core/routes/DeferredData';
 import { now } from '../core/telemetry/Telemetry';
 import { createLogger } from '../logging/Logger';
+import { httpStatusFrom } from '../logging/utils';
 import { isDevelopment } from '../System';
 import { resolveEntryFile } from './Entry';
 import { createRequestContext, getRequestContext, recordPreCommitFailure } from './Telemetry';
@@ -182,7 +183,8 @@ export const handleRender = async (
     const { attr, appId } = route;
 
     // Dev-only recorder riding the hoisted context (P0B-02); absent → all calls no-op.
-    if (recorder) recorder.routeMatched({ requestId, path: route.path, appId: appId ?? '', render: attr?.render ?? RENDERTYPE.ssr });
+    // RFC 0018 (Substrate): `kind: 'page'` is required at every routeMatched call site.
+    if (recorder) recorder.routeMatched({ requestId, path: route.path, appId: appId ?? '', render: attr?.render ?? RENDERTYPE.ssr, kind: 'page' });
     const routeContext = {
       appId,
       path: route.path,
@@ -396,8 +398,17 @@ export const handleRender = async (
             // Each failing site keeps the kind it records today - 'send' for a send failure, the
             // AppError kind (or 'internal') for a throw reaching the outer catch. Only the OWNER
             // moved; the recorded classification did not.
+            //
+            // RFC 0018 (Host terminal contract): `status` means the HTTP status the client
+            // received or is about to receive. The `kind: 'send'` branch already knows its own
+            // final status unconditionally - `reply.status(200)` ran before the send that failed,
+            // and the send catch returns without rethrowing, so the error never reaches the scope
+            // error handler. Every other reach of this branch (a render failure before any send,
+            // reached both directly and via the outer catch's `finaliseSsrResponse`) DOES rethrow
+            // afterward, so the real status is whatever the scope error handler is about to send.
             recorder?.failed({
               requestId,
+              status: info.kind === 'send' ? reply.raw.statusCode : reply.raw.headersSent ? reply.raw.statusCode : httpStatusFrom(info.error),
               error: {
                 kind: info.kind ?? (AppError.isAppError(info.error) ? (info.error as { kind: string }).kind : 'internal'),
                 message: safeErrorMessage(info.error),
@@ -656,7 +667,16 @@ export const handleRender = async (
           if (arm === 'complete') {
             recorder?.sent({ requestId, status: reply.raw.statusCode ?? 200, mode: 'streaming' });
           } else if (arm === 'failed') {
-            recorder?.failed({ requestId, error: { kind: safeErrorKind(info.error), message: safeErrorMessage(info.error) } });
+            // RFC 0018 (Host terminal contract): this arm always lets the error continue to the
+            // scope's error handler (via `failResponse`'s post-commit destroy or pre-commit
+            // `rejectShell`), so the real status is whatever that handler is about to send, unless
+            // headers are already on the wire, in which case whatever status was already committed
+            // stands.
+            recorder?.failed({
+              requestId,
+              status: reply.raw.headersSent ? reply.raw.statusCode : httpStatusFrom(info.error),
+              error: { kind: safeErrorKind(info.error), message: safeErrorMessage(info.error) },
+            });
           } else {
             recorder?.aborted({ requestId, phase: info.phase ?? 'stream' });
           }
@@ -1076,8 +1096,12 @@ export const handleRender = async (
         deferred?.release();
       } catch {}
 
+      // RFC 0018 (Host terminal contract): no coordinator was ever installed, so this throw still
+      // reaches the scope's own error handler below (`if (AppError.isAppError(err)) throw err`) -
+      // the same deferred-to-the-handler formula as the streaming arm.
       recorder?.failed({
         requestId,
+        status: reply.raw.headersSent ? reply.raw.statusCode : httpStatusFrom(err),
         error: { kind: AppError.isAppError(err) ? err.kind : 'internal', message: safeErrorMessage(err) },
       });
     }

@@ -13,10 +13,12 @@ import type { DevJson, LogAnnexRecord, LogLevel, ObservationsDocument, RequestGr
 // stdio server answers one tool call at a time.
 
 // The request graph and the observations document are versioned independently: the graph
-// carries breaking config-shape changes (schemaVersion 2, decisions.md), the observations
-// document has had none yet and stays at 1.
+// carries breaking config-shape changes (schemaVersion 2, decisions.md). RFC 0018 bumps the
+// observations version to 2 for its own kind/method additions, the status-carrying `failed`
+// event and `sent`'s discriminated page/host shape - and episodes.ndjson is gated on this SAME
+// version, read below, since episode records carry no version field of their own.
 export const GRAPH_SCHEMA_VERSION = 2;
-export const OBSERVATIONS_SCHEMA_VERSION = 1;
+export const OBSERVATIONS_SCHEMA_VERSION = 2;
 
 // Refusal contract (phase-1-notes, verbatim): every runtime tool returns this when there
 // is no active dev boot. Structural tools remain available.
@@ -289,10 +291,34 @@ const readNdjson = <T>(filePath: string | undefined, schema: z.ZodType<T>, artef
   return { ok: true, records, malformed };
 };
 
+// RFC 0018 (Substrate): episode records carry no `schemaVersion` field of their own - the paired
+// read is gated on observations.json's version instead, read here without full validation (a
+// missing or unreadable observations document is not itself a version mismatch; readObservations
+// answers that case on its own terms).
+const peekObservationsSchemaVersion = (discovery: SubstrateDiscovery): number | undefined => {
+  if (discovery.mode === 'none') return undefined;
+  const obsPath = discovery.paths.observations;
+  if (!obsPath) return undefined;
+  const raw = readJson<{ schemaVersion?: unknown }>(obsPath);
+  return raw && typeof raw.schemaVersion === 'number' ? raw.schemaVersion : undefined;
+};
+
 // Newest-last; bootId-filtered so stale-boot records never masquerade as current
 // (also covers crashed-server port reuse).
 export const readEpisodes = (discovery: SubstrateDiscovery, options?: { bootId?: string; limit?: number }): NdjsonReadResult<EpisodeRecord> => {
   if (discovery.mode === 'none') return { ok: false, reason: 'not_found', message: NOTHING_EMITTED_MESSAGE };
+
+  // RFC 0018 (Substrate): gated as a PAIRED read with observations - both documents refuse
+  // together on a version mismatch, fail closed, rather than reading episode records individually
+  // and silently skipping the ones an older or newer reader cannot interpret consistently.
+  const obsVersion = peekObservationsSchemaVersion(discovery);
+  if (obsVersion !== undefined && obsVersion !== OBSERVATIONS_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      reason: 'unreadable',
+      message: `Observations are schema v${obsVersion}; this adapter understands v${OBSERVATIONS_SCHEMA_VERSION}. Episodes are refused together with observations rather than read at a mismatched pairing - upgrade @taujs/mcp.`,
+    };
+  }
 
   const read = readNdjson(discovery.paths.episodes, EpisodeRecordSchema, 'episodes.ndjson');
   if (!read.ok) return read;

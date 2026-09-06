@@ -16,6 +16,7 @@ import {
 import { REGEX } from './core/constants';
 import { normaliseError } from './core/errors/AppError';
 import { createRequestGraph } from './core/introspection/RequestGraph';
+import { release as releaseHostAttribution } from './core/introspection/HostAttribution';
 import { evaluateRoutePolicy, validateRoutePolicy } from './core/policy/RoutePolicy';
 
 import { CONTENT } from './constants';
@@ -31,6 +32,7 @@ import { createMediatedHmr } from './utils/MediatedHmr';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
+import type { DevIntrospection } from './core/introspection/DevIntrospection';
 import type { ServiceRegistry } from './core/services/DataServices';
 import type { BaseLogger, DebugConfig } from './core/logging/types';
 import type { TaujsConfig } from './Config';
@@ -304,6 +306,13 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
     }
   }
 
+  // RFC 0018 (Lifecycle): set by the plugin the moment it acquires host attribution for
+  // `opts.serviceRegistry`, so a failure later in THIS boot attempt can release the binding
+  // synchronously before the error is rethrown below - the plugin's own `onClose` hook never runs
+  // for a registration that itself throws (verified: Fastify does not invoke `onClose` for hooks
+  // already registered on a scope whose plugin body goes on to throw).
+  let acquiredHostAttribution: DevIntrospection | undefined;
+
   try {
     // RFC 0012: the mount is Fastify's own scope-prefix primitive on the one τjs registration.
     // `mounted` flips the plugin to its encapsulated form on a τjs-created host too - fastify-plugin
@@ -334,8 +343,18 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       // a root-level hook sees. Withheld unless the caller owns the host AND we are in development,
       // so production never receives the handle at all.
       viteRequestHookOwner: callerOwnedHost && isDevelopment ? app : undefined,
+      onHostAttributionAcquired: (introspection) => {
+        acquiredHostAttribution = introspection;
+      },
     });
   } catch (err) {
+    // RFC 0018 (Lifecycle, step 6): a boot that acquired the binding and then failed later in this
+    // same try block releases it synchronously, rather than leaving the channel bound with no
+    // server left to unbind it.
+    if (acquiredHostAttribution && opts.serviceRegistry) {
+      releaseHostAttribution(opts.serviceRegistry, acquiredHostAttribution);
+    }
+
     logger.error(
       {
         step: 'register:SSRServer',

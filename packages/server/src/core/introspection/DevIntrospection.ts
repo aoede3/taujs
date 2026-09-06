@@ -25,7 +25,15 @@ export type EpisodeRecord = {
   requestId: string;
   bootId: string;
   at: string;
+  /**
+   * RFC 0018 (Substrate): explicit and required from `requestStart` onward, never inferred - an
+   * episode that never receives a `routeMatched` still carries an honest `kind` rather than an
+   * implicit default.
+   */
+  kind: 'page' | 'host';
   route: string | null;
+  /** RFC 0018 (Limits): the request's own `request.method`, present only for a `kind: 'host'` episode. */
+  method: string | null;
   appId: string | null;
   mode: 'ssr' | 'streaming' | 'fallthrough' | null;
   outcome: 'complete' | 'failed' | 'aborted';
@@ -60,15 +68,20 @@ export type ObservedEdge = {
    * `count` per route is the calls attributed to THAT route (spec 03 §4 additive field,
    * decisions.md 2026-08-20). Route counts need not sum to the edge's method-wide `count`:
    * a call recorded before route match increments the method total only.
+   *
+   * RFC 0018 (Substrate): `appId` is `null` only for a host row - nothing here fabricates an
+   * application identity that was never declared.
    */
-  routes: { routeId: string; appId: string; path: string; count: number }[];
+  routes: { routeId: string; appId: string | null; path: string; count: number }[];
   count: number;
   lastObservedAt: string;
   sampleRequestIds: string[];
 };
 
 export type ObservationsDocument = {
-  schemaVersion: 1;
+  // RFC 0018 owns version 2 outright: the `kind`/`method` additions, the status-carrying `failed`
+  // event and `sent`'s discriminated page/host shape.
+  schemaVersion: 2;
   bootId: string;
   updatedAt: string;
   edges: ObservedEdge[];
@@ -95,6 +108,14 @@ export type DevIntrospection = {
    * visible in memory and absent from the on-disk NDJSON, and therefore from MCP.
    */
   stats: () => { episodes: number; episodesRevision: number; logs: number; observationsUpdatedAt: string | null };
+  /**
+   * RFC 0018 (Request-ID collision across instances). Internal - not part of the public
+   * `EpisodeRecorder` and not exported from the package's public entry points. Must be asked
+   * before every `requestStart`, page or ambient, and owned by the exact request object: refuses
+   * only when a different owner already holds a pending, unfinished episode for this id; a stale
+   * claim (its owner never finalised) is replaceable.
+   */
+  claimRequest: (requestId: string, owner: object) => boolean;
 };
 
 type PendingEpisode = EpisodeRecord & { t0: number; done: boolean };
@@ -153,11 +174,36 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
   let episodesRevision = 0;
   let totalLogs = 0;
 
+  // RFC 0018 (Request-ID collision across instances): a claim precedes every `requestStart`,
+  // ambient or page. Keyed by requestId, owned by the exact request object. A different owner is
+  // refused only while a pending, unfinished episode for that id still exists - a stale claim (its
+  // owner never finalised, and no matching pending episode remains) is replaceable. One warning per
+  // boot, not per collision.
+  const claims = new Map<string, object>();
+  let collisionWarned = false;
+
+  const claimRequest = (requestId: string, owner: object): boolean => {
+    const holder = claims.get(requestId);
+    if (holder !== undefined && holder !== owner && pending.has(requestId)) {
+      if (!collisionWarned) {
+        collisionWarned = true;
+        logger?.warn(
+          { component: 'introspection', requestId },
+          'Request ID collision refused: another owner already holds an open episode for this id (one warning per boot)',
+        );
+      }
+      return false;
+    }
+    claims.set(requestId, owner);
+    return true;
+  };
+
   const finalize = (episode: PendingEpisode, outcome: EpisodeRecord['outcome']): void => {
     if (episode.done) return;
     episode.done = true;
     episode.outcome = outcome;
     pending.delete(episode.requestId);
+    claims.delete(episode.requestId);
 
     const { t0: _t0, done: _done, ...record } = episode;
     episodes.push(record);
@@ -176,7 +222,11 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
         requestId: e.requestId,
         bootId,
         at: new Date().toISOString(),
+        // RFC 0018 (Substrate): honest default for an episode that never receives a
+        // `routeMatched` at all (a fallthrough or asset-like request) - explicit, not implicit.
+        kind: 'page',
         route: null,
+        method: null,
         appId: null,
         mode: null,
         outcome: 'complete',
@@ -194,10 +244,20 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     routeMatched(e) {
       const episode = pending.get(e.requestId);
       if (!episode) return;
-      episode.route = e.path;
-      episode.appId = e.appId;
-      episode.mode = e.render;
-      episode.timeline.matched = +(now() - episode.t0).toFixed(1);
+      // RFC 0018 (Substrate): branches on `e.kind`, no default case - identity construction for
+      // each kind stays its own code path (see the observed-edge upsert in `serviceCall` below).
+      if (e.kind === 'host') {
+        episode.kind = 'host';
+        episode.route = e.path;
+        episode.method = e.method ?? null;
+        episode.timeline.matched = +(now() - episode.t0).toFixed(1);
+      } else if (e.kind === 'page') {
+        episode.kind = 'page';
+        episode.route = e.path;
+        episode.appId = e.appId ?? null;
+        episode.mode = e.render ?? null;
+        episode.timeline.matched = +(now() - episode.t0).toFixed(1);
+      }
     },
 
     dataFetch(e) {
@@ -235,7 +295,21 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       edge.count += 1;
       edge.lastObservedAt = new Date().toISOString();
       if (edge.sampleRequestIds.length < SAMPLE_REQUEST_ID_CAP && !edge.sampleRequestIds.includes(e.requestId)) edge.sampleRequestIds.push(e.requestId);
-      if (episode?.route && episode.appId) {
+      // RFC 0018 (Substrate): identity branches on `episode.kind`; nothing downstream parses one
+      // field to recover the others. A page episode's identity construction is untouched. A host
+      // episode's is a separate, independent construction, needing only `route` and `method`,
+      // never `appId` - `appId: null` records that no application identity was ever declared.
+      if (episode?.kind === 'host') {
+        if (episode.route && episode.method) {
+          const routeId = `host:${episode.method} ${episode.route}`;
+          let row = edge.routes.find((r) => r.routeId === routeId);
+          if (!row) {
+            row = { routeId, appId: null, path: episode.route, count: 0 };
+            edge.routes.push(row);
+          }
+          row.count += 1;
+        }
+      } else if (episode?.route && episode.appId) {
         const routeId = `${episode.appId}:${episode.route}`;
         let row = edge.routes.find((r) => r.routeId === routeId);
         if (!row) {
@@ -257,7 +331,10 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       const episode = pending.get(e.requestId);
       if (!episode || episode.done) return;
       episode.status = e.status;
-      if (e.mode === 'fallthrough') episode.mode = 'fallthrough';
+      // RFC 0018 (Host terminal contract): the host arm carries no `mode` at all, so this leaves
+      // `episode.mode` at whatever `requestStart` initialised it to (`null`) rather than writing
+      // a synthetic render mode into it.
+      if ('mode' in e && e.mode === 'fallthrough') episode.mode = 'fallthrough';
       finalize(episode, 'complete');
     },
 
@@ -270,7 +347,12 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     failed(e) {
       const episode = pending.get(e.requestId);
       if (!episode || episode.done) return;
-      episode.error = { kind: e.error.kind, message: cap(e.error.message, MESSAGE_CAP) };
+      // RFC 0018 (Host terminal contract): `status` is assigned unconditionally, and `error` is
+      // never left `null` for a `failed` outcome - a redacted placeholder stands in when the
+      // coordinator holds no error object (the host arm never consumes the channel's own `error`
+      // event, so it never has one).
+      episode.status = e.status;
+      episode.error = e.error ? { kind: e.error.kind, message: cap(e.error.message, MESSAGE_CAP) } : { kind: 'http', message: `HTTP ${e.status}` };
       finalize(episode, 'failed');
     },
 
@@ -347,7 +429,7 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
     getEpisodes: (limit?: number) => (limit && limit > 0 ? episodes.slice(-limit) : [...episodes]),
     getLogs: (requestId?: string) => (requestId ? logs.filter((l) => l.requestId === requestId) : [...logs]),
     getObservations: () => ({
-      schemaVersion: 1,
+      schemaVersion: 2,
       bootId,
       updatedAt: observationsChangedAt ?? new Date().toISOString(),
       edges: [...edges.values()]
@@ -365,5 +447,6 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
       return episodes.find((t) => t.requestId === requestId);
     },
     stats: () => ({ episodes: totalEpisodes, episodesRevision, logs: totalLogs, observationsUpdatedAt: observationsChangedAt }),
+    claimRequest,
   };
 };
