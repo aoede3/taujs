@@ -348,13 +348,15 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         if (shouldWaitForDeferred) armDeferredDeadline();
 
         // Step 10: advisory onShellReady, THEN write appHtml (skip the write entirely for '').
+        // A synchronous throw from `write` is NOT swallowed here: it reaches the outer catch below
+        // and goes through `fail()` exactly once, same as any other step. A write that instead
+        // emits a fatal 'error' event (handled by the writable guards, which call `fail()`
+        // themselves) is caught by the terminal guard immediately below - `fail()` has already
+        // claimed the controller by the time this synchronous call returns.
         runObserver('onShellReady', () => cb.onShellReady());
         if (controller.isAborted) return;
-        if (appHtml) {
-          try {
-            writable.write(appHtml);
-          } catch {}
-        }
+        if (appHtml) writable.write(appHtml);
+        if (controller.isAborted) return;
 
         // Step 11: wait for deferred settlement, the deadline, or an abort - whichever first.
         if (shouldWaitForDeferred && deferredData) {
@@ -394,18 +396,18 @@ export function createRenderer<T extends Record<string, unknown> = Record<string
         runObserver('onAllReady', () => cb.onAllReady(resolvedData));
         if (controller.isAborted) return;
 
-        // Step 13: the streaming bootstrap tag, owned by the renderer.
+        // Step 13: the streaming bootstrap tag, owned by the renderer. Same reasoning as step 10:
+        // a synchronous write throw is not swallowed - it reaches the outer catch and `fail()`.
         if (bootstrapModules) {
           const nonceAttr = cspNonce ? ` nonce="${escapeHtml(cspNonce)}"` : '';
-          try {
-            writable.write(`<script type="module" src="${escapeHtml(bootstrapModules)}" async${nonceAttr}></script>`);
-          } catch {}
+          writable.write(`<script type="module" src="${escapeHtml(bootstrapModules)}" async${nonceAttr}></script>`);
         }
+        if (controller.isAborted) return;
 
-        // Step 14: end the sink. The 'finish' guard then calls controller.complete.
-        try {
-          writable.end();
-        } catch {}
+        // Step 14: end the sink. The 'finish' guard then calls controller.complete. A synchronous
+        // throw here also reaches the outer catch and `fail()`, rather than leaving `done` pending
+        // forever with no 'finish' ever able to fire.
+        writable.end();
       } catch (err) {
         fail(err);
       } finally {

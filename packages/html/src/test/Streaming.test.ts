@@ -312,6 +312,63 @@ describe('terminal guards under a race (contract section 4.3)', () => {
   });
 });
 
+describe('sink write/end failures are not swallowed (P1 regression)', () => {
+  it('a synchronously throwing writable.write of appHtml produces exactly one onError, a rejecting done, no onAllReady and no bootstrap tag', async () => {
+    const onError = vi.fn();
+    const onAllReady = vi.fn();
+    const pt = new PassThrough();
+    const writeSpy = vi.spyOn(pt, 'write').mockImplementation(() => {
+      throw new Error('write boom');
+    });
+    const { renderStream } = createRenderer({ render: () => ({ appHtml: 'A' }) });
+
+    const { done } = renderStream(pt, { onError, onAllReady }, {}, '/loc', '/entry.js');
+
+    await expect(done).rejects.toThrow('write boom');
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onAllReady).not.toHaveBeenCalled();
+    // Only the appHtml write was attempted - execution never reached the bootstrap-tag write.
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('a synchronously throwing writable.end() produces exactly one onError and a rejecting (not pending) done', async () => {
+    const onError = vi.fn();
+    const pt = new PassThrough();
+    pt.resume();
+    vi.spyOn(pt, 'end').mockImplementation(() => {
+      throw new Error('end boom');
+    });
+    const { renderStream } = createRenderer({ render: () => ({}) });
+
+    const { done } = renderStream(pt, { onError }, {}, '/loc');
+
+    // Bounded race, not an open await: a regression that leaves `done` pending forever must fail
+    // this test rather than hang the suite.
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('done did not settle within 1000ms')), 1_000));
+    await expect(Promise.race([done, timeout])).rejects.toThrow('end boom');
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('a body write that synchronously emits a non-socket error on the sink rejects done, fires onError once, and never calls onAllReady afterwards', async () => {
+    const onError = vi.fn();
+    const onAllReady = vi.fn();
+    const pt = new PassThrough();
+    vi.spyOn(pt, 'write').mockImplementation(() => {
+      // Simulates a sink whose write pipeline fails SYNCHRONOUSLY with a render/data-origin error
+      // (never benign by shape - R0-02) rather than throwing.
+      pt.emit('error', new Error('render exploded'));
+      return true;
+    });
+    const { renderStream } = createRenderer({ render: () => ({ appHtml: 'A' }) });
+
+    const { done } = renderStream(pt, { onError, onAllReady }, {}, '/loc');
+
+    await expect(done).rejects.toThrow('render exploded');
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onAllReady).not.toHaveBeenCalled();
+  });
+});
+
 describe('the streaming bootstrap tag', () => {
   it('writes a module script tag with src and async, after appHtml and before end', async () => {
     const pt = new PassThrough();
