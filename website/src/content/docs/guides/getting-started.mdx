@@ -1,20 +1,21 @@
 ---
 title: Getting Started with τjs
-description: Create a Fastify-hosted React, Vue or Solid application with declared routes and response orchestration.
+description: Create a Fastify-hosted React, Vue, Solid or plain-HTML application with declared routes and response orchestration.
 ---
 
 ::::note[Project status]
 τjs is in active development. Expect breaking changes on the path to v1, and check the release notes when upgrading.
 ::::
 
-τjs registers application routes from `taujs.config.ts` as real Fastify routes. After Fastify dispatches one of those routes, τjs coordinates its policy, data and rendering before handing the response to the React, Vue or Solid renderer selected by the application.
+τjs registers application routes from `taujs.config.ts` as real Fastify routes. After Fastify dispatches one of those routes, τjs coordinates its policy, data and rendering before handing the response to the React, Vue, Solid or plain-HTML renderer selected by the application.
 
 
 ::::caution[Prerequisites]
 **Node `^20.19.0 || >=22.12.0`**, inherited from Vite 8. Check with `node --version`.
 
-**New projects** generated with `@taujs/create-taujs` ship with Vite and its renderer plugin already
-pinned. There is nothing else to install.
+**New projects** generated with `@taujs/create-taujs` ship with Vite already pinned, and a renderer
+plugin already pinned where the chosen framework needs one - plain HTML needs none. There is
+nothing else to install.
 
 **Existing projects** adding τjs should satisfy peers as follows:
 
@@ -24,11 +25,12 @@ pinned. There is nothing else to install.
 | `@taujs/react`  | `@vitejs/plugin-react ^5.2.0` |
 | `@taujs/vue`    | `@vitejs/plugin-vue ^6.0.3`   |
 | `@taujs/solid`  | `vite-plugin-solid ^2.11.11`  |
+| `@taujs/html`   | none - no renderer plugin     |
 ::::
 
 ## Create a project
 
-`@taujs/create-taujs` scaffolds a working application and asks which framework and package manager to use:
+`@taujs/create-taujs` scaffolds a working application and asks which framework (React, Vue, Solid or plain HTML) and package manager to use:
 
 ```bash
 npx @taujs/create-taujs my-app
