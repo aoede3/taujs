@@ -248,6 +248,70 @@ describe('renderStream failure, abort and callback semantics', () => {
   });
 });
 
+describe('terminal guards under a race (contract section 4.3)', () => {
+  it('(a) aborting the signal while the critical-data THUNK is pending never calls onHead, writes nothing, and resolves done', async () => {
+    const onHead = vi.fn();
+    const pt = new PassThrough();
+    const text = collectText(pt);
+    const controller = new AbortController();
+    // A thunk that never settles: the render callback below would prove the outcome wrong if it
+    // ever ran, but this cell is about the DATA thunk being pending, not render.
+    const dataThunk = () => new Promise<Record<string, unknown>>(() => {});
+    const { renderStream } = createRenderer({ render: () => ({ appHtml: 'A' }) });
+
+    const { done } = renderStream(pt, { onHead }, dataThunk, '/loc', undefined, {}, controller.signal);
+    controller.abort();
+
+    await expect(done).resolves.toBeUndefined();
+    expect(onHead).not.toHaveBeenCalled();
+    expect(text()).toBe('');
+  });
+
+  it('(b) a shell-timer expiry while render is pending fails the stream exactly once, and a later render resolution produces no write and no callback', async () => {
+    const onError = vi.fn();
+    const onHead = vi.fn();
+    const onShellReady = vi.fn();
+    const onAllReady = vi.fn();
+    const pt = new PassThrough();
+    const text = collectText(pt);
+    let resolveRender!: (v: { appHtml: string }) => void;
+    const renderPromise = new Promise<{ appHtml: string }>((resolve) => {
+      resolveRender = resolve;
+    });
+    const { renderStream } = createRenderer({ render: () => renderPromise, streamOptions: { shellTimeoutMs: 10 } });
+
+    const { done } = renderStream(pt, { onHead, onShellReady, onAllReady, onError }, {}, '/loc');
+
+    await expect(done).rejects.toThrow(/Shell timeout: no content produced within 10ms for \/loc/);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // The render resolves AFTER the shell timeout has already failed the stream - the terminal
+    // guard after render's own await must discard this, not merely "the stream is already over".
+    resolveRender({ appHtml: 'A' });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(onHead).not.toHaveBeenCalled();
+    expect(onShellReady).not.toHaveBeenCalled();
+    expect(onAllReady).not.toHaveBeenCalled();
+    expect(text()).toBe('');
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('(d) onShellReady aborting the signal synchronously prevents the appHtml write, the bootstrap tag and end(), and resolves done', async () => {
+    const pt = new PassThrough();
+    const text = collectText(pt);
+    const endSpy = vi.spyOn(pt, 'end');
+    const controller = new AbortController();
+    const { renderStream } = createRenderer({ render: () => ({ appHtml: 'A' }) });
+
+    const { done } = renderStream(pt, { onShellReady: () => controller.abort() }, {}, '/loc', '/entry.js', {}, controller.signal);
+
+    await expect(done).resolves.toBeUndefined();
+    expect(text()).toBe('');
+    expect(endSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe('the streaming bootstrap tag', () => {
   it('writes a module script tag with src and async, after appHtml and before end', async () => {
     const pt = new PassThrough();

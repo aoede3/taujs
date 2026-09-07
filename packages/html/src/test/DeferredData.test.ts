@@ -3,6 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createRenderer } from '../SSRRender';
 
+const collectText = (pt: PassThrough): (() => string) => {
+  const chunks: string[] = [];
+  pt.on('data', (c: Buffer) => chunks.push(c.toString()));
+  return () => chunks.join('');
+};
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -149,5 +155,42 @@ describe('deferred data delivery (data delivery only, section 4.4)', () => {
     await done;
 
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('(c) aborting the signal during the deferred wait skips onAllReady, the bootstrap tag and end(), and resolves done', async () => {
+    const onAllReady = vi.fn();
+    const never = new Promise<Record<string, unknown>>(() => {});
+    const controller = new AbortController();
+    const pt = new PassThrough();
+    const text = collectText(pt);
+    const endSpy = vi.spyOn(pt, 'end');
+    const { renderStream } = createRenderer({ render: () => ({ appHtml: 'A' }) });
+
+    const { done } = renderStream(
+      pt,
+      {
+        onAllReady,
+        // Fires right after onHead, once the shell has committed and the deferred deadline is
+        // armed. Scheduled a MACROTASK later so the abort lands while step 11's `Promise.race` is
+        // actually awaiting - a synchronous abort here would instead exercise cell (d).
+        onShellReady: () => {
+          setTimeout(() => controller.abort(), 0);
+        },
+      },
+      {},
+      '/loc',
+      '/entry.js',
+      {},
+      controller.signal,
+      { shouldHydrate: true, deferredData: { reviews: never } },
+    );
+
+    await expect(done).resolves.toBeUndefined();
+
+    expect(onAllReady).not.toHaveBeenCalled();
+    // The appHtml WAS written (step 10, before the abort lands) but neither the bootstrap tag
+    // (step 13) nor anything past it ever runs.
+    expect(text()).toBe('A');
+    expect(endSpy).not.toHaveBeenCalled();
   });
 });
