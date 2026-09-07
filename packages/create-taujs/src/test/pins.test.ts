@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { planFiles, type Framework, type ProjectConfig } from '../index';
+import { FRAMEWORK_EXTRAS, planFiles, type Framework, type ProjectConfig } from '../index';
 
 // Reads the WORKSPACE manifests directly - never a copy, never a value hand-transcribed here - so
 // this test fails the moment a generated pin drifts from the peers it must satisfy, exactly the
@@ -77,6 +77,18 @@ describe('generated dependency pins never drift from the workspace they scaffold
 
       expect(isAtLeast(floor(pkg.devDependencies.typescript), highestRequired)).toBe(true);
     });
+
+    for (const dep of Object.keys(FRAMEWORK_EXTRAS[framework].runtimeDeps)) {
+      it(`${framework}: the ${dep} pin equals @taujs/${framework}'s own peerDependencies.${dep}`, () => {
+        expect(pkg.dependencies[dep]).toBe(renderer.peerDependencies[dep]);
+      });
+    }
+
+    for (const dep of Object.keys(FRAMEWORK_EXTRAS[framework].typeDeps ?? {})) {
+      it(`${framework}: the ${dep} pin's floor satisfies @taujs/${framework}'s own peer floor for it`, () => {
+        expect(isAtLeast(floor(pkg.devDependencies[dep]), floor(renderer.peerDependencies[dep]))).toBe(true);
+      });
+    }
 
     it(`${framework}: engines.node equals the workspace root's engines.node`, () => {
       expect(pkg.engines.node).toBe(rootPkg.engines.node);

@@ -404,22 +404,28 @@ type FrameworkExtras = {
   typeDeps?: Record<string, string>;
   /** devDependencies beyond the vite plugin and type deps (vue's `vue-tsc`). */
   extraDevDeps?: Record<string, string>;
+  /** The generated `lint` script (vue type-checks SFCs through `vue-tsc`). */
+  lint: string;
 };
 
 // A framework absent from this record is a compile error, not a silently-skipped branch -
-// adding a fourth framework must fill this in before it can ship.
-const FRAMEWORK_EXTRAS: Record<Framework, FrameworkExtras> = {
+// adding a fourth framework must fill this in before it can ship. generatePackageJson has no
+// per-framework branch: everything framework-specific in a generated package.json comes from here.
+// Guarded by pins.test.ts: runtime pins equal the renderer's own peers, `@types/*` satisfy them.
+export const FRAMEWORK_EXTRAS: Record<Framework, FrameworkExtras> = {
   react: {
     rendererPackage: '@taujs/react',
     runtimeDeps: { react: '^19.0.0', 'react-dom': '^19.0.0' },
     vitePlugin: ['@vitejs/plugin-react', '^5.2.0'],
     typeDeps: { '@types/react': '^19.0.2', '@types/react-dom': '^19.0.2' },
+    lint: 'tsc --noEmit',
   },
   vue: {
     rendererPackage: '@taujs/vue',
     runtimeDeps: { vue: '^3.5.0', '@vue/server-renderer': '^3.5.0' },
     vitePlugin: ['@vitejs/plugin-vue', '^6.0.3'],
     extraDevDeps: { 'vue-tsc': '^2.1.10' },
+    lint: 'vue-tsc --noEmit',
   },
   solid: {
     rendererPackage: '@taujs/solid',
@@ -427,88 +433,23 @@ const FRAMEWORK_EXTRAS: Record<Framework, FrameworkExtras> = {
     // The managed compiler instantiates this internally with `ssr: true` forced; the app never
     // adds it to `plugins` itself.
     vitePlugin: ['vite-plugin-solid', '^2.11.11'],
+    lint: 'tsc --noEmit',
   },
 };
+
+// package.json maps are written in alphabetical key order, which is the order every framework
+// already shipped in - so the derived output stays byte-identical to the hand-written maps.
+const sortedKeys = (o: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(
+    Object.keys(o)
+      .sort()
+      .map((k) => [k, o[k]!]),
+  );
 
 function generatePackageJson(projectName: string, framework: Framework) {
   const extras = FRAMEWORK_EXTRAS[framework];
   const [vitePluginName, vitePluginVersion] = extras.vitePlugin;
-
-  if (framework === 'vue') {
-    return {
-      name: projectName,
-      version: '0.1.0',
-      private: true,
-      engines: { node: NODE_ENGINE },
-      type: 'module',
-      scripts: {
-        dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
-        'build:client': 'cross-env NODE_ENV=production tsx build.ts',
-        'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
-        'build:server':
-          'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
-        build:
-          'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
-        start: 'cross-env NODE_ENV=production node dist/server/index.js',
-        lint: 'vue-tsc --noEmit',
-      },
-      dependencies: {
-        '@taujs/server': 'latest',
-        '@taujs/vue': 'latest',
-        '@vue/server-renderer': extras.runtimeDeps['@vue/server-renderer']!,
-        fastify: SHARED_PINS.fastify,
-        vue: extras.runtimeDeps.vue!,
-      },
-      devDependencies: {
-        '@taujs/mcp': 'latest',
-        '@types/node': SHARED_PINS.typesNode,
-        [vitePluginName]: vitePluginVersion,
-        'cross-env': SHARED_PINS.crossEnv,
-        esbuild: SHARED_PINS.esbuild,
-        tsx: SHARED_PINS.tsx,
-        typescript: SHARED_PINS.typescript,
-        vite: SHARED_PINS.vite,
-        ...extras.extraDevDeps,
-      },
-    };
-  }
-
-  if (framework === 'solid') {
-    return {
-      name: projectName,
-      version: '0.1.0',
-      private: true,
-      engines: { node: NODE_ENGINE },
-      type: 'module',
-      scripts: {
-        dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
-        'build:client': 'cross-env NODE_ENV=production tsx build.ts',
-        'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
-        'build:server':
-          'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
-        build:
-          'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
-        start: 'cross-env NODE_ENV=production node dist/server/index.js',
-        lint: 'tsc --noEmit',
-      },
-      dependencies: {
-        '@taujs/server': 'latest',
-        '@taujs/solid': 'latest',
-        fastify: SHARED_PINS.fastify,
-        'solid-js': extras.runtimeDeps['solid-js']!,
-      },
-      devDependencies: {
-        '@taujs/mcp': 'latest',
-        '@types/node': SHARED_PINS.typesNode,
-        'cross-env': SHARED_PINS.crossEnv,
-        esbuild: SHARED_PINS.esbuild,
-        tsx: SHARED_PINS.tsx,
-        typescript: SHARED_PINS.typescript,
-        vite: SHARED_PINS.vite,
-        [vitePluginName]: vitePluginVersion,
-      },
-    };
-  }
+  const serverBundle = `esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:${extras.rendererPackage}`;
 
   return {
     name: projectName,
@@ -520,32 +461,29 @@ function generatePackageJson(projectName: string, framework: Framework) {
       dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
       'build:client': 'cross-env NODE_ENV=production tsx build.ts',
       'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
-      'build:server':
-        'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
-      build:
-        'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
+      'build:server': serverBundle,
+      build: `cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && ${serverBundle}`,
       start: 'cross-env NODE_ENV=production node dist/server/index.js',
-      lint: 'tsc --noEmit',
+      lint: extras.lint,
     },
-    dependencies: {
-      '@taujs/react': 'latest',
+    dependencies: sortedKeys({
       '@taujs/server': 'latest',
+      [extras.rendererPackage]: 'latest',
       fastify: SHARED_PINS.fastify,
-      react: extras.runtimeDeps.react!,
-      'react-dom': extras.runtimeDeps['react-dom']!,
-    },
-    devDependencies: {
+      ...extras.runtimeDeps,
+    }),
+    devDependencies: sortedKeys({
       '@taujs/mcp': 'latest',
       '@types/node': SHARED_PINS.typesNode,
-      '@types/react': extras.typeDeps!['@types/react']!,
-      '@types/react-dom': extras.typeDeps!['@types/react-dom']!,
+      ...extras.typeDeps,
       [vitePluginName]: vitePluginVersion,
       'cross-env': SHARED_PINS.crossEnv,
       esbuild: SHARED_PINS.esbuild,
       tsx: SHARED_PINS.tsx,
       typescript: SHARED_PINS.typescript,
       vite: SHARED_PINS.vite,
-    },
+      ...extras.extraDevDeps,
+    }),
   };
 }
 
