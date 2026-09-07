@@ -41,6 +41,7 @@
     "react",
     "vue",
     "solid",
+    "html",
     "ssr",
     "fastify",
     "typescript"

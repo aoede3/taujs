@@ -9,7 +9,7 @@ import prompts from 'prompts';
 
 import { generateClaudeMd, generateMcpJson } from './mcp';
 
-export type Framework = 'react' | 'vue' | 'solid';
+export type Framework = 'react' | 'vue' | 'solid' | 'html';
 
 export type ProjectConfig = {
   projectName: string;
@@ -24,7 +24,7 @@ const PACKAGE_MANAGERS = {
   yarn: 'yarn install',
 } as const;
 
-const FRAMEWORKS: readonly Framework[] = ['react', 'vue', 'solid'];
+export const FRAMEWORKS: readonly Framework[] = ['react', 'vue', 'solid', 'html'];
 
 /** Derived from the existing install-command map, so the two can never disagree. */
 export type PackageManager = keyof typeof PACKAGE_MANAGERS;
@@ -168,6 +168,7 @@ async function main() {
         { title: 'React', value: 'react' },
         { title: 'Vue', value: 'vue' },
         { title: 'Solid', value: 'solid' },
+        { title: 'HTML (no component framework)', value: 'html' },
       ],
       initial: 0,
     },
@@ -324,30 +325,7 @@ export function planFiles(config: ProjectConfig): FileEntry[] {
     ...(framework === 'solid' ? [{ path: 'tsconfig.solid.json', json: generateSolidCompilerTsConfig() } as FileEntry] : []),
   ];
 
-  const client: FileEntry[] =
-    framework === 'solid'
-      ? [
-          { path: 'src/client/App.tsx', content: generateAppComponentSolid() },
-          { path: 'src/client/renderId.ts', content: generateSolidRenderId() },
-          { path: 'src/client/entry-client.tsx', content: generateEntryClientSolid() },
-          { path: 'src/client/entry-server.tsx', content: generateEntryServerSolid() },
-          { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
-        ]
-      : framework === 'vue'
-        ? [
-            { path: 'src/client/App.vue', content: generateAppVue() },
-            { path: 'src/client/HomePage.vue', content: generateHomePageVue() },
-            { path: 'src/client/StreamingPage.vue', content: generateStreamingPageVue() },
-            { path: 'src/client/entry-client.ts', content: generateEntryClientVue() },
-            { path: 'src/client/entry-server.ts', content: generateEntryServerVue() },
-            { path: 'src/client/vite-env.d.ts', content: generateViteEnvVue() },
-          ]
-        : [
-            { path: 'src/client/App.tsx', content: generateAppComponent() },
-            { path: 'src/client/entry-client.tsx', content: generateEntryClient() },
-            { path: 'src/client/entry-server.tsx', content: generateEntryServer() },
-            { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
-          ];
+  const client: FileEntry[] = CLIENT_FILES[framework]();
 
   const withoutReadme = [...shared, ...client];
   const readme: FileEntry = {
@@ -363,6 +341,40 @@ export function planFiles(config: ProjectConfig): FileEntry[] {
   return [...withoutReadme, readme];
 }
 
+// Per-framework client file plan. A framework absent from this record is a compile error, not a
+// silently-skipped branch - the same discipline as FRAMEWORK_EXTRAS/FRAMEWORK_META. Wrapped in a
+// thunk (rather than a plain array) so a generator with side effects is never called for a
+// framework planFiles was not asked to plan.
+const CLIENT_FILES: Record<Framework, () => FileEntry[]> = {
+  solid: () => [
+    { path: 'src/client/App.tsx', content: generateAppComponentSolid() },
+    { path: 'src/client/renderId.ts', content: generateSolidRenderId() },
+    { path: 'src/client/entry-client.tsx', content: generateEntryClientSolid() },
+    { path: 'src/client/entry-server.tsx', content: generateEntryServerSolid() },
+    { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
+  ],
+  vue: () => [
+    { path: 'src/client/App.vue', content: generateAppVue() },
+    { path: 'src/client/HomePage.vue', content: generateHomePageVue() },
+    { path: 'src/client/StreamingPage.vue', content: generateStreamingPageVue() },
+    { path: 'src/client/entry-client.ts', content: generateEntryClientVue() },
+    { path: 'src/client/entry-server.ts', content: generateEntryServerVue() },
+    { path: 'src/client/vite-env.d.ts', content: generateViteEnvVue() },
+  ],
+  react: () => [
+    { path: 'src/client/App.tsx', content: generateAppComponent() },
+    { path: 'src/client/entry-client.tsx', content: generateEntryClient() },
+    { path: 'src/client/entry-server.tsx', content: generateEntryServer() },
+    { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
+  ],
+  html: () => [
+    { path: 'src/client/page.ts', content: generatePageHtml() },
+    { path: 'src/client/entry-client.ts', content: generateEntryClientHtml() },
+    { path: 'src/client/entry-server.ts', content: generateEntryServerHtml() },
+    { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
+  ],
+};
+
 async function generateFiles(targetDir: string, config: ProjectConfig) {
   for (const entry of planFiles(config)) {
     const full = path.join(targetDir, entry.path);
@@ -375,10 +387,10 @@ async function generateFiles(targetDir: string, config: ProjectConfig) {
   }
 }
 
-// Pins shared by every generated project, regardless of framework - one edit changes all three.
+// Pins shared by every generated project, regardless of framework - one edit changes all four.
 // Values must stay compatible with @taujs/server's own peerDependencies (asserted directly against
 // the workspace manifests in pins.test.ts, so this object cannot drift from them unnoticed again).
-const SHARED_PINS = {
+export const SHARED_PINS = {
   fastify: '^5.8.5',
   vite: '^8.2.1',
   typescript: '^5.7.3',
@@ -396,10 +408,10 @@ const NODE_ENGINE = '^20.19.0 || >=22.12.0';
 type FrameworkExtras = {
   /** The renderer package, e.g. `@taujs/react`. */
   rendererPackage: string;
-  /** Framework runtime dependency/ies: react+react-dom, vue+@vue/server-renderer, solid-js. */
+  /** Framework runtime dependency/ies: react+react-dom, vue+@vue/server-renderer, solid-js; empty for html - it has no runtime dependencies. */
   runtimeDeps: Record<string, string>;
-  /** The framework's Vite plugin, as `[name, version]`. */
-  vitePlugin: readonly [name: string, version: string];
+  /** The framework's Vite plugin, as `[name, version]`; absent for html - it needs no managed compiler. */
+  vitePlugin?: readonly [name: string, version: string];
   /** `@types/*` packages the framework needs beyond the shared `@types/node` (react only). */
   typeDeps?: Record<string, string>;
   /** devDependencies beyond the vite plugin and type deps (vue's `vue-tsc`). */
@@ -409,7 +421,7 @@ type FrameworkExtras = {
 };
 
 // A framework absent from this record is a compile error, not a silently-skipped branch -
-// adding a fourth framework must fill this in before it can ship. generatePackageJson has no
+// adding another framework must fill this in before it can ship. generatePackageJson has no
 // per-framework branch: everything framework-specific in a generated package.json comes from here.
 // Guarded by pins.test.ts: runtime pins equal the renderer's own peers, `@types/*` satisfy them.
 export const FRAMEWORK_EXTRAS: Record<Framework, FrameworkExtras> = {
@@ -435,6 +447,11 @@ export const FRAMEWORK_EXTRAS: Record<Framework, FrameworkExtras> = {
     vitePlugin: ['vite-plugin-solid', '^2.11.11'],
     lint: 'tsc --noEmit',
   },
+  html: {
+    rendererPackage: '@taujs/html',
+    runtimeDeps: {},
+    lint: 'tsc --noEmit',
+  },
 };
 
 // package.json maps are written in alphabetical key order, which is the order every framework
@@ -448,7 +465,8 @@ const sortedKeys = (o: Record<string, string>): Record<string, string> =>
 
 function generatePackageJson(projectName: string, framework: Framework) {
   const extras = FRAMEWORK_EXTRAS[framework];
-  const [vitePluginName, vitePluginVersion] = extras.vitePlugin;
+  // Absent for html: it needs no managed compiler, so it declares no Vite plugin devDependency.
+  const vitePluginDep = extras.vitePlugin ? { [extras.vitePlugin[0]]: extras.vitePlugin[1] } : {};
   const serverBundle = `esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:${extras.rendererPackage}`;
 
   return {
@@ -476,7 +494,7 @@ function generatePackageJson(projectName: string, framework: Framework) {
       '@taujs/mcp': 'latest',
       '@types/node': SHARED_PINS.typesNode,
       ...extras.typeDeps,
-      [vitePluginName]: vitePluginVersion,
+      ...vitePluginDep,
       'cross-env': SHARED_PINS.crossEnv,
       esbuild: SHARED_PINS.esbuild,
       tsx: SHARED_PINS.tsx,
@@ -500,16 +518,22 @@ await taujsBuild({
 `;
 }
 
+// Vue SFCs are typed by vue-tsc; React needs the automatic JSX runtime; Solid PRESERVES JSX for
+// its own Babel transform and types it through `solid-js`; html has no JSX at all.
+const JSX_OPTIONS: Record<Framework, Record<string, string>> = {
+  react: { jsx: 'react-jsx' },
+  solid: { jsx: 'preserve', jsxImportSource: 'solid-js' },
+  vue: {},
+  html: {},
+};
+
 function generateTsConfig(framework: Framework) {
   return {
     compilerOptions: {
       target: 'ES2022',
       module: 'ESNext',
       lib: ['ES2022', 'DOM', 'DOM.Iterable'],
-      // Vue SFCs are typed by vue-tsc; React needs the automatic JSX runtime; Solid PRESERVES JSX
-      // for its own Babel transform and types it through `solid-js`.
-      ...(framework === 'react' ? { jsx: 'react-jsx' } : {}),
-      ...(framework === 'solid' ? { jsx: 'preserve', jsxImportSource: 'solid-js' } : {}),
+      ...JSX_OPTIONS[framework],
       moduleResolution: 'bundler',
       resolveJsonModule: true,
       allowImportingTsExtensions: true,
@@ -536,24 +560,32 @@ function generateServerTsConfig() {
   };
 }
 
+// Renderer v1: every app declares a REQUIRED singular `renderer:`. Vue and html supply no compiler
+// (no `plugins:` entry); React and Solid declare their ownership tsconfig `project` - Solid's is the
+// DISJOINT compiler project (`vite-plugin-solid` is supplied internally, with `ssr: true` forced, and
+// there is no option to override the transform mode), React's is the root tsconfig covering src/**.
+const RENDERER_DECLARATION: Record<Framework, { importLine: string; rendererLine: string }> = {
+  react: {
+    importLine: `\nimport { reactRenderer } from '@taujs/react/renderer';`,
+    rendererLine: `\n      renderer: reactRenderer({ project: './tsconfig.json' }),`,
+  },
+  vue: {
+    importLine: `\nimport { vueRenderer } from '@taujs/vue/renderer';`,
+    rendererLine: `\n      renderer: vueRenderer(),`,
+  },
+  solid: {
+    importLine: `\nimport { solidRenderer } from '@taujs/solid/renderer';`,
+    rendererLine: `\n      renderer: solidRenderer({ project: './tsconfig.solid.json' }),`,
+  },
+  html: {
+    importLine: `\nimport { htmlRenderer } from '@taujs/html/renderer';`,
+    rendererLine: `\n      renderer: htmlRenderer(),`,
+  },
+};
+
 function generateTaujsConfig(framework: Framework) {
-  // Renderer v1: every app declares a REQUIRED singular `renderer:`. Vue supplies its compiler internally
-  // (no plugins entry); React declares its ownership tsconfig `project` (the root tsconfig covers src/**).
-  const rendererImport =
-    framework === 'vue'
-      ? `\nimport { vueRenderer } from '@taujs/vue/renderer';`
-      : framework === 'solid'
-        ? `\nimport { solidRenderer } from '@taujs/solid/renderer';`
-        : `\nimport { reactRenderer } from '@taujs/react/renderer';`;
-  // Solid declares the DISJOINT ownership project, never a raw managed compiler plugin: the
-  // renderer supplies `vite-plugin-solid` internally with `ssr: true` forced, and there is no
-  // option to override the transform mode.
-  const rendererLine =
-    framework === 'vue'
-      ? `\n      renderer: vueRenderer(),`
-      : framework === 'solid'
-        ? `\n      renderer: solidRenderer({ project: './tsconfig.solid.json' }),`
-        : `\n      renderer: reactRenderer({ project: './tsconfig.json' }),`;
+  const { importLine: rendererImport, rendererLine } = RENDERER_DECLARATION[framework];
+  const streamingDescription = FRAMEWORK_META[framework].streamingDescription;
   return `import { createServiceData, defineConfig } from '@taujs/server/config';${rendererImport}
 
 import type { ServiceRegistry } from './src/server/services/registry.ts';
@@ -601,7 +633,7 @@ export default defineConfig({
             meta: {
               title: "τjs — Streaming",
               description:
-                "Streaming SSR route (Suspense progressively reveals content).",
+                "${streamingDescription}",
             },
           },
         },
@@ -654,12 +686,38 @@ coverage
 `;
 }
 
-// The framework-varying bits of the README, in one place so adding a framework is a compile
-// error until this is filled in.
-const FRAMEWORK_META: Record<Framework, { name: string; docsUrl: string; mainUi: string; clientExt: string }> = {
-  react: { name: 'React', docsUrl: 'https://react.dev', mainUi: 'App.tsx', clientExt: 'tsx' },
-  vue: { name: 'Vue', docsUrl: 'https://vuejs.org', mainUi: 'App.vue', clientExt: 'ts' },
-  solid: { name: 'Solid', docsUrl: 'https://www.solidjs.com', mainUi: 'App.tsx', clientExt: 'tsx' },
+// The framework-varying bits of the README, plus the streaming route's meta.description used by
+// generateTaujsConfig above - in one place so adding a framework is a compile error until this is
+// filled in.
+const FRAMEWORK_META: Record<Framework, { name: string; docsUrl: string; mainUi: string; clientExt: string; streamingDescription: string }> = {
+  react: {
+    name: 'React',
+    docsUrl: 'https://react.dev',
+    mainUi: 'App.tsx',
+    clientExt: 'tsx',
+    streamingDescription: 'Streaming SSR route (Suspense progressively reveals content).',
+  },
+  vue: {
+    name: 'Vue',
+    docsUrl: 'https://vuejs.org',
+    mainUi: 'App.vue',
+    clientExt: 'ts',
+    streamingDescription: 'Streaming SSR route (Suspense progressively reveals content).',
+  },
+  solid: {
+    name: 'Solid',
+    docsUrl: 'https://www.solidjs.com',
+    mainUi: 'App.tsx',
+    clientExt: 'tsx',
+    streamingDescription: 'Streaming SSR route (Suspense progressively reveals content).',
+  },
+  html: {
+    name: 'HTML',
+    docsUrl: 'https://developer.mozilla.org/docs/Web/HTML',
+    mainUi: 'page.ts',
+    clientExt: 'ts',
+    streamingDescription: 'Streaming SSR route (the response streams as chunks; no component framework).',
+  },
 };
 
 // One entry per path any framework's planFiles() can produce. Guarded by generate.test.ts in both
@@ -695,6 +753,15 @@ export const FILE_NOTES: Record<string, string> = {
   'src/client/StreamingPage.vue': 'Streaming route (await useSSRDataAsync)',
   'src/client/entry-client.ts': 'Client hydration entry',
   'src/client/entry-server.ts': 'SSR render entry',
+  'src/client/page.ts': 'Page markup: render function and the app-owned escaper',
+};
+
+// The shared note for src/client/entry-client.ts ("Client hydration entry") is false for html -
+// there is no hydration, only progressive enhancement. Keys must also exist in FILE_NOTES (a
+// generate.test.ts cell asserts it) so the two existing FILE_NOTES guards stay true; react/vue/solid
+// READMEs stay byte-identical because they have no override.
+export const FILE_NOTE_OVERRIDES: Partial<Record<Framework, Record<string, string>>> = {
+  html: { 'src/client/entry-client.ts': 'Client enhancement entry (no hydration)' },
 };
 
 type TreeNode = { children: Map<string, TreeNode>; fullPath: string };
@@ -743,9 +810,13 @@ export function orderedTreePaths(paths: string[]): string[] {
   return out;
 }
 
-/** Renders the box-drawing project tree from the plan's real paths, with notes from FILE_NOTES. */
-function planFilesTree(paths: string[]): string {
+/**
+ * Renders the box-drawing project tree from the plan's real paths, with notes from FILE_NOTES,
+ * overridden per FILE_NOTE_OVERRIDES[framework] where one exists (html's entry-client.ts note).
+ */
+function planFilesTree(paths: string[], framework: Framework): string {
   const lines: Array<{ text: string; note: string }> = [];
+  const overrides = FILE_NOTE_OVERRIDES[framework];
 
   const render = (node: TreeNode, prefix: string) => {
     const children = orderedChildren(node);
@@ -754,7 +825,7 @@ function planFilesTree(paths: string[]): string {
       const isDir = child.children.size > 0;
       const base = child.fullPath.split('/').pop()!;
       const name = isDir ? `${base}/` : base;
-      const note = isDir ? '' : (FILE_NOTES[child.fullPath] ?? '');
+      const note = isDir ? '' : (overrides?.[child.fullPath] ?? FILE_NOTES[child.fullPath] ?? '');
 
       lines.push({ text: `${prefix}${isLast ? '└── ' : '├── '}${name}`, note });
       if (isDir) render(child, prefix + (isLast ? '    ' : '│   '));
@@ -802,7 +873,7 @@ ${pmRun} start
 
 \`\`\`
 ${projectName}/
-${planFilesTree(paths)}
+${planFilesTree(paths, framework)}
 \`\`\`
 
 ## Editing the App
@@ -1466,6 +1537,79 @@ export const { renderSSR, renderStream } = createRenderer<AppData, AppRouteConte
       "τjs - Composing systems, not just apps"
     }">
   \`,
+});
+`;
+}
+
+function generatePageHtml() {
+  return `/**
+ * @taujs/html writes headContent and appHtml to the response VERBATIM - it provides NO escaping
+ * helper of its own. This file is where the app's markup is assembled, so every value taken from
+ * data, meta or user input passes through escapeHtml before it is interpolated. Skipping
+ * escapeHtml anywhere below is an XSS bug, not a style choice.
+ */
+import type { RenderContext } from '@taujs/html';
+
+import type { AppData } from './app-types';
+
+// The five-character replace every interpolation below goes through. @taujs/html ships no escaper
+// of its own - this one is the application's.
+export function escapeHtml(value: unknown): string {
+  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// RenderContext<AppData> is stated explicitly: a standalone function gets no contextual type from
+// its later use, and the generated project is strict: true.
+export function renderPage({ data, meta }: RenderContext<AppData>): { headContent: string; appHtml: string } {
+  const headContent = \`
+    <title>\${escapeHtml(meta.title || "τjs - Composing systems, not just apps")}</title>
+    <meta name="description" content="\${escapeHtml(meta.description || data?.message || "τjs - Composing systems, not just apps")}">
+  \`;
+
+  const appHtml = \`
+    <section class="card card--primary">
+      <p class="card-message">\${escapeHtml(data.message)}</p>
+      <p class="card-meta">Generated at: \${escapeHtml(data.timestamp)}</p>
+    </section>
+  \`;
+
+  return { headContent, appHtml };
+}
+`;
+}
+
+function generateEntryServerHtml() {
+  return `import { createRenderer } from '@taujs/html';
+
+import { renderPage } from './page';
+
+import type { AppData } from './app-types';
+
+// Generic derived from taujs.config.ts: typed data for renderPage.
+export const { renderSSR, renderStream } = createRenderer<AppData>({
+  render: renderPage,
+  enableDebug: process.env.NODE_ENV === "development",
+});
+`;
+}
+
+function generateEntryClientHtml() {
+  return `import { onDataReady } from '@taujs/html/client';
+
+import './styles.css';
+
+import type { AppData } from './app-types';
+
+// Progressive enhancement of server-rendered HTML: there is no hydration and no component tree.
+// \`deferred\` is always undefined here because neither generated route declares \`attr.deferred\`.
+onDataReady<AppData>(({ data }) => {
+  if (!data) return;
+
+  const section = document.querySelector('.card--primary');
+  const meta = document.querySelector('.card-meta');
+
+  if (meta) meta.textContent = \`Generated at: \${new Date(data.timestamp).toLocaleString()}\`;
+  if (section) section.setAttribute('data-enhanced', 'true');
 });
 `;
 }
