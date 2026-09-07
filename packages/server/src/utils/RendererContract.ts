@@ -6,7 +6,7 @@ import type { RenderModule } from '../types';
 /**
  * Renderer v1 (RFC 0006 / `docs/solid` renderer design v5) - the renderer CONTRIBUTION contract.
  *
- * A renderer factory (`reactRenderer()`/`vueRenderer()`) returns ONE opaque branded contribution declared
+ * A renderer factory returns ONE opaque branded contribution declared
  * on an app's REQUIRED singular `renderer:`. It is the paired contract's config-time DECLARATION half: it
  * names the framework identity + render-module contract version the host validates the loaded
  * {@link RenderModule} against (the runtime half), and carries EITHER a managed compiler contribution (a
@@ -96,7 +96,7 @@ export type RendererContributionShape = ManagedRendererContribution | Environmen
 declare const RENDERER_OPAQUE: unique symbol;
 /**
  * The ONE new public concept: an opaque renderer contribution obtained ONLY from a renderer factory
- * (`reactRenderer()`/`vueRenderer()`) and declared on an app's required singular `renderer:`. Application
+ * and declared on an app's required singular `renderer:`. Application
  * code never constructs or introspects it. Every renderer supplies a runtime render module the host
  * validates - there is no compiler-only/incomplete-renderer mode.
  */
