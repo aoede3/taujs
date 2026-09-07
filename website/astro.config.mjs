@@ -95,6 +95,7 @@ export default defineConfig({
           items: [
             { label: "React", slug: "renderers/react" },
             { label: "Solid", slug: "renderers/solid" },
+            { label: "HTML", slug: "renderers/html" },
             { label: "Vue", slug: "renderers/vue" },
           ],
         },

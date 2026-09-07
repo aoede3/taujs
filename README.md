@@ -7,6 +7,7 @@
 [![@taujs/react](https://img.shields.io/npm/v/@taujs/react?label=%40taujs%2Freact)](https://www.npmjs.com/package/@taujs/react)
 [![@taujs/vue](https://img.shields.io/npm/v/@taujs/vue?label=%40taujs%2Fvue)](https://www.npmjs.com/package/@taujs/vue)
 [![@taujs/solid](https://img.shields.io/npm/v/@taujs/solid?label=%40taujs%2Fsolid)](https://www.npmjs.com/package/@taujs/solid)
+[![@taujs/html](https://img.shields.io/npm/v/@taujs/html?label=%40taujs%2Fhtml)](https://www.npmjs.com/package/@taujs/html)
 [![@taujs/mcp](https://img.shields.io/npm/v/@taujs/mcp?label=%40taujs%2Fmcp)](https://www.npmjs.com/package/@taujs/mcp)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.11-brightgreen)](.nvmrc)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -22,6 +23,7 @@
 | [`@taujs/react`](packages/react)               | React renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                                                    |
 | [`@taujs/vue`](packages/vue)                   | Vue renderer: CSR, SSR, Streaming SSR. Standalone and runtime‑agnostic.                                                                                                      |
 | [`@taujs/solid`](packages/solid)               | Solid renderer: CSR, SSR and Streaming SSR. Standalone and runtime‑agnostic.                                                                                                 |
+| [`@taujs/html`](packages/html)                 | HTML renderer: SSR and Streaming SSR with no component framework. Standalone and runtime‑agnostic.                                                                           |
 | [`@taujs/mcp`](packages/mcp)                   | MCP server for AI agents: reads the dev‑emitted request graph and live request episodes (filesystem‑only stdio adapter). Wired by the scaffolder.                            |
 
 Current versions are shown by the badges above.
@@ -56,12 +58,14 @@ taujs/
 │   ├── playground-react/       # @taujs/react fixture (introspection e2e + demos)
 │   ├── playground-vue/         # @taujs/vue fixture
 │   ├── playground-solid/       # @taujs/solid fixture
+│   ├── playground-html/        # @taujs/html fixture
 │   └── renderer-composition/   # real-Vite multi-renderer composition proof
 └── packages/
     ├── server/         # @taujs/server
     ├── react/          # @taujs/react
     ├── vue/            # @taujs/vue
     ├── solid/          # @taujs/solid
+    ├── html/           # @taujs/html
     ├── mcp/            # @taujs/mcp
     └── create-taujs/   # @taujs/create-taujs
 ```

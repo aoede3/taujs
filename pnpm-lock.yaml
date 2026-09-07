@@ -21,6 +21,37 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
 
+  fixtures/playground-html:
+    dependencies:
+      '@taujs/html':
+        specifier: workspace:*
+        version: link:../../packages/html
+      '@taujs/server':
+        specifier: workspace:*
+        version: link:../../packages/server
+      fastify:
+        specifier: ^5.8.5
+        version: 5.10.0
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.9
+        version: 20.19.43
+      playwright-core:
+        specifier: 1.44.1
+        version: 1.44.1
+      tsx:
+        specifier: ^4.19.3
+        version: 4.23.0
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vite:
+        specifier: ^8.2.1
+        version: 8.2.1(@types/node@20.19.43)(esbuild@0.28.1)(tsx@4.23.0)
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.10(@types/node@20.19.43)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.11.0)(jsdom@25.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.1)(tsx@4.23.0))
+
   fixtures/playground-react:
     dependencies:
       '@taujs/react':
@@ -262,6 +293,33 @@ importers:
       vitest:
         specifier: ^4.1.9
         version: 4.1.10(@types/node@20.19.43)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.11.0)(jsdom@25.0.1)(vite@8.2.1(@types/node@20.19.43)(esbuild@0.27.7)(tsx@4.23.0))
+
+  packages/html:
+    devDependencies:
+      '@arethetypeswrong/cli':
+        specifier: ^0.18.4
+        version: 0.18.4
+      '@taujs/server':
+        specifier: workspace:*
+        version: link:../server
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      jsdom:
+        specifier: ^25.0.0
+        version: 25.0.1
+      prettier:
+        specifier: ^3.3.3
+        version: 3.9.4
+      tsup:
+        specifier: ^8.2.4
+        version: 8.5.1(postcss@8.5.26)(tsx@4.23.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.10(@types/node@22.20.1)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.11.0)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.0))
 
   packages/mcp:
     dependencies:

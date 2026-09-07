@@ -42,7 +42,7 @@ export type AppPluginInput = {
   appRoot: string;
   /** Ordinary user Vite plugins ONLY (renderer v1); a managed/renderer contribution here is a hard error. */
   plugins: ReadonlyArray<unknown> | undefined;
-  /** The app's opaque renderer contribution (`reactRenderer()`/`vueRenderer()`). */
+  /** The app's opaque renderer contribution (from a renderer factory). */
   renderer?: unknown;
 };
 
@@ -55,7 +55,7 @@ function extractRawPlugins(appId: string, plugins: ReadonlyArray<unknown> | unde
   const { raw, managed } = partitionAppPlugins(appId, plugins);
   if (managed.length > 0) {
     throw new Error(
-      `[taujs] app "${appId}": a managed compiler contribution was found in \`plugins\`. Declare the framework on the app's \`renderer:\` field (reactRenderer()/vueRenderer()), not in \`plugins\` - which now holds ordinary Vite plugins only.`,
+      `[taujs] app "${appId}": a managed compiler contribution was found in \`plugins\`. Declare the framework on the app's \`renderer:\` field (reactRenderer()/vueRenderer()/solidRenderer()/htmlRenderer()), not in \`plugins\` - which now holds ordinary Vite plugins only.`,
     );
   }
   for (const entry of raw) {
@@ -97,7 +97,7 @@ async function rendererEnvironmentPlugins(renderer: unknown, lifecycle: 'dev' | 
 /**
  * An app's full plugin list for ONE Vite environment: its raw plugins plus the fresh framework plugins its
  * renderer supplies (Vue). A raw plugin that DUPLICATES a renderer-supplied one (e.g. a raw `pluginVue()`
- * beside `vueRenderer()`) is a hard error - the renderer already provides it (design §2.4).
+ * beside a renderer factory's own pack) is a hard error - the renderer already provides it (design §2.4).
  */
 export async function appEnvironmentPlugins(
   appId: string,
@@ -111,7 +111,7 @@ export async function appEnvironmentPlugins(
     for (const name of collectPluginNames(rawPlugins)) {
       if (rendererNames.has(name)) {
         throw new Error(
-          `[taujs] app "${appId}": the raw Vite plugin "${name}" duplicates a plugin its renderer supplies. Remove it from \`plugins:\` - the renderer (e.g. vueRenderer()) already provides it.`,
+          `[taujs] app "${appId}": the raw Vite plugin "${name}" duplicates a plugin its renderer supplies. Remove it from \`plugins:\` - the renderer (reactRenderer()/vueRenderer()/solidRenderer()/htmlRenderer()) already provides it.`,
         );
       }
     }
@@ -209,7 +209,7 @@ export function assembleManagedSources(opts: {
   for (const name of collectPluginNames(resolvedChain)) {
     if (managedNameSet.has(name)) {
       throw new Error(
-        `[taujs:${env}] a raw Vite plugin named "${name}" collides with a managed compiler of the same name. Remove the raw compiler plugin from \`plugins:\` - the app's \`renderer:\` (reactRenderer()/vueRenderer()) already supplies the compiler.`,
+        `[taujs:${env}] a raw Vite plugin named "${name}" collides with a managed compiler of the same name. Remove the raw compiler plugin from \`plugins:\` - the app's \`renderer:\` (reactRenderer()/vueRenderer()/solidRenderer()/htmlRenderer()) already supplies the compiler.`,
       );
     }
   }

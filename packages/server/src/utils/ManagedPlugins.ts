@@ -151,7 +151,7 @@ export type ManagedGroupMember = {
 declare const MANAGED_OPAQUE: unique symbol;
 /**
  * An opaque managed compiler contribution (renderer v1: INTERNAL - it is nested as the `compiler` of a
- * renderer contribution built by `reactRenderer()` (and the internal Solid compiler integration), not a
+ * renderer contribution built by a renderer factory (and the internal Solid compiler integration), not a
  * public concept of its own). Never introspected by application code; the host extracts it pre-composePlugins.
  */
 export type TaujsManagedPluginContribution = { readonly [MANAGED_OPAQUE]: true };
@@ -199,7 +199,7 @@ export function partitionAppPlugins(appId: string, plugins: ReadonlyArray<unknow
     }
     if (Array.isArray(entry) && containsManaged(entry)) {
       throw new Error(
-        `[taujs] app "${appId}": a framework compiler contribution is nested inside \`plugins\`. Declare the framework on the app's \`renderer:\` field (reactRenderer()/vueRenderer()), not in \`plugins\` - which holds ordinary Vite plugins only.`,
+        `[taujs] app "${appId}": a framework compiler contribution is nested inside \`plugins\`. Declare the framework on the app's \`renderer:\` field (reactRenderer()/vueRenderer()/solidRenderer()/htmlRenderer()), not in \`plugins\` - which holds ordinary Vite plugins only.`,
       );
     }
     raw.push(entry as PluginOption);

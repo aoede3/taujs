@@ -524,7 +524,7 @@ apps: [
 | ------------ | ---------------- | -------- | ------------------------------ |
 | `appId`      | `string`         | Yes      | Unique identifier for this app |
 | `entryPoint` | `string`         | Yes      | `''` for the canonical root layout, or a directory under the client root |
-| `renderer`   | `TaujsRendererContribution` | Yes | The app's renderer - `reactRenderer()`, `vueRenderer()` or `solidRenderer()` |
+| `renderer`   | `TaujsRendererContribution` | Yes | The app's renderer - `reactRenderer()`, `vueRenderer()`, `solidRenderer()` or `htmlRenderer()` |
 | `routes`     | readonly route definitions | No       | See [Route Configuration](#route-configuration) |
 | `plugins`    | `PluginOption[]` | No       | Vite plugins for this app      |
 
