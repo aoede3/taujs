@@ -74,7 +74,7 @@ Each application declares one renderer and any routes whose responses the server
 }
 ```
 
-The same application shape works with `vueRenderer()` or `solidRenderer()`. See the [configuration reference](/reference/taujs-config/) for the complete contract.
+The same application shape works with `vueRenderer()`, `solidRenderer()` or `htmlRenderer()`. See the [configuration reference](/reference/taujs-config/) for the complete contract.
 
 A route can also declare head metadata, critical data, deferred data, authentication and Content Security Policy. These declarations are optional: components can still perform UI-local work and client-side fetching when that work does not belong to the server response contract.
 

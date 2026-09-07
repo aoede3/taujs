@@ -1,0 +1,206 @@
+---
+title: HTML
+description: taujs/html reference
+---
+
+import { LinkButton, Aside } from "@astrojs/starlight/components";
+
+# @taujs/html
+
+**Framework-free HTML SSR and Streaming SSR**
+
+A neutral HTML renderer for the τjs ecosystem: no component framework, no compiler, no
+templating and no escaping helper. `render()` returns raw `{ headContent, appHtml }` strings,
+written to the response verbatim. Standalone and runtime-agnostic - `@taujs/html` has no
+dependencies at all.
+
+<LinkButton
+  href="https://github.com/aoede3/taujs"
+  icon="external"
+  iconPlacement="start"
+  target="\_blank"
+>
+  τjs @taujs/html
+</LinkButton>
+
+---
+
+## Table of Contents
+
+- [When to use it](#when-to-use-it)
+- [Raw HTML: escaping is your responsibility](#raw-html-escaping-is-your-responsibility)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [`createRenderer`](#createrenderer)
+- [Server-side rendering](#server-side-rendering)
+- [Streaming SSR](#streaming-ssr)
+- [Deferred data](#deferred-data)
+- [Timeouts](#timeouts)
+- [What `@taujs/html` does NOT provide](#what-taujshtml-does-not-provide)
+
+## When to use it
+
+Reach for `@taujs/html` when a route has no component tree at all - a static marketing page, a
+generated document, or an application that owns its own client-side rendering and only wants τjs
+for routing, service-data resolution and streaming. `renderer:` is required on every τjs app;
+`htmlRenderer()` is the neutral implementation of that contract for a page with nothing to
+compile.
+
+<Aside type="caution" title="The application owns its HTML safety">
+`render()`'s returned `headContent` and `appHtml` are written to the response **verbatim** -
+neither field is auto-escaped. `@taujs/html` exports no `escapeHtml` and no templating helper:
+any value interpolated from `data`, `headData`, `meta` or user input **must be escaped by your
+own code** before it is written into the returned HTML. This is the one thing to get right before
+writing a single route.
+</Aside>
+
+## Installation
+
+```bash
+npm install @taujs/html
+```
+
+```json
+{
+  "peerDependencies": {
+    "@types/node": ">=20",
+    "typescript": "^5.6.2"
+  }
+}
+```
+
+Both peers are optional - they matter only because the published `.d.ts` references `node:stream`'s
+`Writable`. `@taujs/html` has no runtime dependencies and imports no Vite APIs at all.
+
+## Configuration
+
+```ts
+// taujs.config.ts
+import { defineConfig } from "@taujs/server/config";
+import { htmlRenderer } from "@taujs/html/renderer";
+
+export default defineConfig({
+  apps: [
+    {
+      appId: "app",
+      entryPoint: "",
+      renderer: htmlRenderer(),
+      routes: [
+        { path: "/", attr: { render: "ssr", data: /* ... */ } },
+      ],
+    },
+  ],
+});
+```
+
+`htmlRenderer()` takes no parameters and supplies no compiler or Vite plugin - unlike
+`reactRenderer()`/`solidRenderer()` (managed JSX compilation) or `vueRenderer()` (a fresh
+`.vue` plugin pack per environment), the HTML renderer's environment-plugin contribution is
+always an empty array. A plain `.ts`/`.html` client needs nothing compiled.
+
+## `createRenderer`
+
+```ts
+// entry-server.ts
+import { createRenderer } from "@taujs/html";
+
+export const { renderSSR, renderStream } = createRenderer({
+  render: ({ data, location, meta, routeContext, headData, signal }) => ({
+    headContent: `<title>${escape(meta.title)}</title>`,
+    appHtml: `<main>${escape(data.message)}</main>`,
+  }),
+});
+```
+
+`createRenderer(options?)` returns `{ renderSSR, renderStream }`, the same shape every τjs
+renderer produces - `entry-server.ts` re-exports them exactly as with the other renderers.
+`options.render` is entirely optional; called with no argument, `createRenderer()` is the
+zero-config form: both fragments are always `''` and the template owns the whole document.
+
+`render` receives one `RenderContext` per call:
+
+| Field         | Type                | Description                                          |
+| ------------- | ------------------- | ----------------------------------------------------- |
+| `data`        | `T`                 | The resolved critical route data                      |
+| `location`    | `string`            | The request target the host passed (path + query)     |
+| `meta`        | `Record<string, unknown>` | `attr.meta`, `{}` when the route declares none  |
+| `routeContext`| `R \| undefined`    | `opts.routeContext` from the host                      |
+| `headData`    | `H \| undefined`    | `opts.headData`, absent when the route declares no head |
+| `signal`      | `AbortSignal \| undefined` | The host's request signal                       |
+
+`render` may be sync or async - its return value is awaited either way - and is called exactly
+once per `renderSSR`/`renderStream` call, after the critical data has resolved. Omitting either
+`headContent` or `appHtml` from the returned object normalises it to `''`; returning anything
+else (`null`, a non-object, a fragment with a non-string field) throws a `TypeError` naming what
+was received.
+
+## Server-side rendering
+
+`render: 'ssr'` routes call `render` once, wait for it, and send the result. If the request signal
+is already aborted when `renderSSR` is invoked, `render` is never called and both fragments come
+back empty.
+
+## Streaming SSR
+
+`render: 'streaming'` routes behave like the other renderers' streaming arms: the shell (`onHead`)
+commits once the critical data has resolved and `render` has returned, `appHtml` is written to the
+sink, and the response ends normally once any deferred work has settled (see
+[Deferred data](#deferred-data)) - or the shell/deferred deadlines expire, whichever is sooner. A
+compliant stream carries the same abort handling, pre-observed `done`, exactly-once `onError` and
+sink-error classification as the framework renderers; there is simply no component tree underneath
+it.
+
+On streaming routes `@taujs/html` writes the client bootstrap `<script type="module" ... async>`
+tag itself, positioned after `appHtml` and before the host's own data script - the host injects no
+bootstrap script on this strategy.
+
+## Deferred data
+
+A `streaming` route's `attr.deferred` entries are delivered as **data**, never as server-rendered
+HTML: `@taujs/html` does not project deferred values into the response. Instead, the renderer waits
+for every declared entry to settle (or the deferred deadline to expire, or the request to abort),
+then ends the stream. The host writes the mixed `complete`/`failed`/`aborted` envelope into the
+document tail exactly as it does for the other renderers.
+
+The client reads that envelope through the one export in `@taujs/html/client`:
+
+```ts
+// entry-client.ts
+import { onDataReady } from "@taujs/html/client";
+
+onDataReady(({ data, deferred }) => {
+  // `data` is the window.__INITIAL_DATA__ snapshot.
+  // `deferred` is undefined when the route declared no `attr.deferred`, or `hydrate: false`.
+  if (deferred?.reviews?.status === "complete") {
+    // deferred.reviews.value is the resolved payload
+  }
+});
+```
+
+`onDataReady` runs its callback once the document is ready - immediately if it already is,
+otherwise on `DOMContentLoaded` - reads the initial-data snapshot and the deferred envelope, and
+hands both to your callback. There is no hydration step: your callback is where you enhance the
+server-rendered HTML in place. Deferred delivery requires `hydrate: true` - the host only emits the
+envelope when client execution is enabled.
+
+## Timeouts
+
+| Option              | Default   | Accepts                                             | Scope                        |
+| -------------------- | --------- | ---------------------------------------------------- | ----------------------------- |
+| `shellTimeoutMs`      | `10_000`  | `0`/`Infinity` (no bound), or a positive number of ms up to `2_147_483_647` | Factory, or per-call on `renderStream` |
+| `deferredTimeoutMs`   | `15_000`  | A positive finite number of ms - **no sentinel**      | Factory only                  |
+
+`deferredTimeoutMs` has no "disable" value: service calls carry no automatic deadline of their
+own, so this is the one bound that keeps a streaming response's total time finite. It is measured
+from `renderStream`'s entry and armed, with whatever remains of the budget, at shell commitment.
+
+## What `@taujs/html` does NOT provide
+
+- **No templating and no escaping helper.** `render`'s returned HTML is written verbatim; escaping
+  interpolated values is entirely the application's responsibility.
+- **No server-side projection of deferred values into HTML.** Deferred data arrives as data, read
+  through `onDataReady`, never as markup the renderer produces.
+- **No hydration.** There is no component tree to reconcile - `@taujs/html/client` reads the
+  snapshot and the deferred envelope and stops there; enhancing the DOM is your code's job.
+- **No Vite plugin or compiler.** `htmlRenderer()`'s environment-plugin contribution is always
+  empty.
