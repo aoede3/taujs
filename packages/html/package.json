@@ -1,0 +1,76 @@
+{
+  "name": "@taujs/html",
+  "version": "0.0.0",
+  "description": "Framework-free HTML SSR and streaming SSR renderer for taujs - standalone and runtime-agnostic",
+  "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
+  "license": "MIT",
+  "homepage": "https://taujs.dev/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aoede3/taujs.git",
+    "directory": "packages/html"
+  },
+  "bugs": {
+    "url": "https://github.com/aoede3/taujs/issues"
+  },
+  "keywords": [
+    "fastify",
+    "typescript",
+    "esm",
+    "streaming",
+    "html",
+    "ssr"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer.d.ts",
+      "import": "./dist/renderer.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.4",
+    "@taujs/server": "workspace:*",
+    "@types/node": "^22.10.0",
+    "jsdom": "^25.0.0",
+    "prettier": "^3.3.3",
+    "tsup": "^8.2.4",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "@types/node": ">=20",
+    "typescript": "^5.6.2"
+  },
+  "peerDependenciesMeta": {
+    "@types/node": {
+      "optional": true
+    },
+    "typescript": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "check-format": "prettier --check .",
+    "check-exports": "attw --pack . --profile esm-only"
+  },
+  "sideEffects": false
+}

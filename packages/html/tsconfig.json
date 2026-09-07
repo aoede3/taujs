@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["dom", "es2022"]
+  },
+  // `Renderer.test.ts` imports `@taujs/server`'s `RendererContract.ts` by relative path as a
+  // test-only dependency (the contract's own pattern: the same way the shared conformance vector is
+  // imported). Type-checking that file's transitive graph needs the server's own ambient Fastify
+  // request augmentation, which is not otherwise reachable from this package's `src/**/*` glob.
+  "include": ["src/**/*", "../server/src/fastify.d.ts"]
+}
