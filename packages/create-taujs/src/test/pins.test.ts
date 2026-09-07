@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { FRAMEWORK_EXTRAS, planFiles, type Framework, type ProjectConfig } from '../index';
+import { FRAMEWORK_EXTRAS, FRAMEWORKS, planFiles, SHARED_PINS, type Framework, type ProjectConfig } from '../index';
 
 // Reads the WORKSPACE manifests directly - never a copy, never a value hand-transcribed here - so
 // this test fails the moment a generated pin drifts from the peers it must satisfy, exactly the
@@ -19,15 +19,8 @@ const RENDERER_PKG: Record<Framework, Record<string, any>> = {
   react: readJSON('../../../react/package.json'),
   vue: readJSON('../../../vue/package.json'),
   solid: readJSON('../../../solid/package.json'),
+  html: readJSON('../../../html/package.json'),
 };
-
-const VITE_PLUGIN: Record<Framework, string> = {
-  react: '@vitejs/plugin-react',
-  vue: '@vitejs/plugin-vue',
-  solid: 'vite-plugin-solid',
-};
-
-const FRAMEWORKS: Framework[] = ['react', 'vue', 'solid'];
 
 const cfg = (framework: Framework): ProjectConfig => ({ projectName: 'demo-app', packageManager: 'npm', installDeps: false, framework });
 
@@ -66,11 +59,20 @@ describe('generated dependency pins never drift from the workspace they scaffold
       expect(pkg.devDependencies.vite).toBe(serverPkg.peerDependencies.vite);
     });
 
-    it(`${framework}: its Vite plugin pin equals @taujs/${framework}'s own peer for that plugin`, () => {
-      const pluginName = VITE_PLUGIN[framework];
+    const vitePlugin = FRAMEWORK_EXTRAS[framework].vitePlugin;
+    if (vitePlugin) {
+      it(`${framework}: its Vite plugin pin equals @taujs/${framework}'s own peer for that plugin`, () => {
+        const [pluginName] = vitePlugin;
 
-      expect(pkg.devDependencies[pluginName]).toBe(renderer.peerDependencies[pluginName]);
-    });
+        expect(pkg.devDependencies[pluginName]).toBe(renderer.peerDependencies[pluginName]);
+      });
+    } else {
+      it(`${framework}: declares no Vite plugin`, () => {
+        const devDeps = Object.keys(pkg.devDependencies);
+
+        expect(devDeps.some((dep) => dep.startsWith('@vitejs/') || dep.startsWith('vite-plugin-'))).toBe(false);
+      });
+    }
 
     it(`${framework}: the typescript pin's floor satisfies every peer floor server and @taujs/${framework} require`, () => {
       const highestRequired = higherFloor(floor(serverPkg.peerDependencies.typescript), floor(renderer.peerDependencies.typescript));
@@ -81,6 +83,12 @@ describe('generated dependency pins never drift from the workspace they scaffold
     for (const dep of Object.keys(FRAMEWORK_EXTRAS[framework].runtimeDeps)) {
       it(`${framework}: the ${dep} pin equals @taujs/${framework}'s own peerDependencies.${dep}`, () => {
         expect(pkg.dependencies[dep]).toBe(renderer.peerDependencies[dep]);
+      });
+    }
+
+    if (Object.keys(FRAMEWORK_EXTRAS[framework].runtimeDeps).length === 0) {
+      it(`${framework}: declares no framework runtime dependency`, () => {
+        expect(pkg.dependencies).toEqual({ '@taujs/html': 'latest', '@taujs/server': 'latest', fastify: SHARED_PINS.fastify });
       });
     }
 
