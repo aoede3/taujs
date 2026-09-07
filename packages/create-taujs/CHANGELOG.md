@@ -1,5 +1,11 @@
 # @taujs/create-taujs
 
+## 0.9.0
+
+### Minor Changes
+
+- [#171](https://github.com/aoede3/taujs/pull/171) [`f1de8ac`](https://github.com/aoede3/taujs/commit/f1de8ac27913d1af24be610003650fd38095ba0f) Thanks [@aoede3](https://github.com/aoede3)! - `--framework html` scaffolds a framework-free application on `@taujs/html`: `.ts` entries, no Vite plugin, progressive enhancement through `onDataReady`; the generated page escapes everything it interpolates.
+
 ## 0.8.1
 
 ### Patch Changes
