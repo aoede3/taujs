@@ -135,4 +135,17 @@ describe('requireRendererContribution - protocol discrimination', () => {
     expect(() => requireRendererContribution('web', undefined)).toThrow(/must declare a valid renderer.*found none/);
     expect(() => requireRendererContribution('web', { some: 'junk' })).toThrow(/must declare a valid renderer.*an invalid value/);
   });
+
+  it('the required-renderer message names every first-party factory', () => {
+    let message = '';
+    try {
+      requireRendererContribution('web', undefined);
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+
+    for (const factory of ['reactRenderer()', 'vueRenderer()', 'solidRenderer()', 'htmlRenderer()']) {
+      expect(message).toContain(factory);
+    }
+  });
 });

@@ -149,7 +149,7 @@ export function requireRendererContribution(appId: string, renderer: unknown): R
   }
   if (!isRendererContribution(renderer)) {
     throw AppError.internal(
-      `[taujs] app "${appId}" must declare a valid renderer: reactRenderer()/vueRenderer(). \`renderer:\` is required (found ${renderer === undefined ? 'none' : 'an invalid value'}).`,
+      `[taujs] app "${appId}" must declare a valid renderer: reactRenderer()/vueRenderer()/solidRenderer()/htmlRenderer(). \`renderer:\` is required (found ${renderer === undefined ? 'none' : 'an invalid value'}).`,
     );
   }
   return renderer;
