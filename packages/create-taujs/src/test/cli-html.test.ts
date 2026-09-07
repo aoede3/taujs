@@ -143,7 +143,7 @@ describe('create-taujs - HTML generation (through the package export)', () => {
     expect(entryClient).toContain("'data-enhanced', 'true'");
   });
 
-  it("page.ts escapes every interpolation - no \\${ in its template literals is followed by anything other than escapeHtml(", () => {
+  it('page.ts escapes every interpolation - no \\${ in its template literals is followed by anything other than escapeHtml(', () => {
     const { read } = generate('html');
     const page = read('src/client/page.ts');
 
