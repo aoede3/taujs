@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.39.1
+
+### Patch Changes
+
+- [#169](https://github.com/aoede3/taujs/pull/169) [`7910944`](https://github.com/aoede3/taujs/commit/791094419fb022483a46b488e70333382e3d14fb) Thanks [@aoede3](https://github.com/aoede3)! - The required-renderer diagnostic and the other runtime messages that name renderer factories now name all four first-party factories (`reactRenderer()`/`vueRenderer()`/`solidRenderer()`/`htmlRenderer()`), following the addition of `@taujs/html`. No behavioural change.
+
 ## 0.39.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@taujs/html",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Framework-free HTML SSR and streaming SSR renderer for taujs - standalone and runtime-agnostic",
   "author": "Aoede <taujs@aoede.uk.net> (https://www.aoede.uk.net)",
   "license": "MIT",
