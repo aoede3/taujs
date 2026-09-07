@@ -104,6 +104,8 @@ always an empty array. A plain `.ts`/`.html` client needs nothing compiled.
 // entry-server.ts
 import { createRenderer } from "@taujs/html";
 
+// `escape` here is YOUR OWN function - @taujs/html exports no escaping helper. See
+// "Raw HTML: escaping is your responsibility" above.
 export const { renderSSR, renderStream } = createRenderer({
   render: ({ data, location, meta, routeContext, headData, signal }) => ({
     headContent: `<title>${escape(meta.title)}</title>`,

@@ -25,10 +25,15 @@ https://taujs.dev/renderers/html/
 // entry-server.ts
 import { createRenderer } from '@taujs/html';
 
+// @taujs/html provides NO escaping helper - this three-line escaper is the APPLICATION's own
+// responsibility for any value interpolated from `data`/`meta` into the returned HTML.
+const escape = (value: unknown): string =>
+  String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 export const { renderSSR, renderStream } = createRenderer({
   render: ({ data, meta }) => ({
-    headContent: `<title>${String(meta.title ?? '')}</title>`,
-    appHtml: `<section>${String((data as { message?: string }).message ?? '')}</section>`,
+    headContent: `<title>${escape(meta.title ?? '')}</title>`,
+    appHtml: `<section>${escape((data as { message?: string }).message ?? '')}</section>`,
   }),
 });
 ```
