@@ -157,12 +157,17 @@ describe('create-taujs - HTML generation (through the package export)', () => {
     }
   });
 
-  it('README links MDN, never react.dev, and its tree lists page.ts', () => {
+  it('README links MDN, never react.dev, lists page.ts, and annotates entry-client.ts with the no-hydration note', () => {
     const { read } = generate('html');
     const readme = read('README.md');
 
     expect(readme).toContain('[HTML Documentation](https://developer.mozilla.org/docs/Web/HTML)');
     expect(readme).not.toContain('react.dev');
     expect(readme).toContain('page.ts');
+
+    // planFilesTree() must APPLY FILE_NOTE_OVERRIDES, not merely declare them: the tree line for
+    // entry-client.ts carries the html-specific note, and the shared hydration note is absent.
+    expect(readme).toMatch(/entry-client\.ts\s+# Client enhancement entry \(no hydration\)/);
+    expect(readme).not.toContain('Client hydration entry');
   });
 });
