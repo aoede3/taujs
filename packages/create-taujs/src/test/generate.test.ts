@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { planFiles, type Framework, type ProjectConfig } from '../index';
+import { FILE_NOTES, orderedTreePaths, planFiles, type Framework, type ProjectConfig } from '../index';
 
 const cfg = (framework: Framework): ProjectConfig => ({
   projectName: 'demo-app',
@@ -154,5 +154,58 @@ describe('planFiles — Vue template', () => {
     expect(vue['README.md']).toContain('StreamingPage.vue');
     expect(vue['README.md']).toContain('[Vue Documentation](https://vuejs.org)');
     expect(vue['README.md']).not.toContain('[React Documentation]');
+  });
+});
+
+describe('README project tree is rendered from planFiles, never hand-curated', () => {
+  const FRAMEWORKS: Framework[] = ['react', 'vue', 'solid'];
+
+  it('every path planFiles produces, for every framework, has a FILE_NOTES entry', () => {
+    for (const framework of FRAMEWORKS) {
+      const paths = planFiles(cfg(framework))
+        .map((e) => e.path)
+        .filter((p) => p !== 'README.md');
+
+      for (const p of paths) {
+        expect(Object.prototype.hasOwnProperty.call(FILE_NOTES, p), `${framework}: no FILE_NOTES entry for ${p}`).toBe(true);
+      }
+    }
+  });
+
+  it('every FILE_NOTES key is produced by at least one framework - no orphan note', () => {
+    const allPaths = new Set<string>();
+    for (const framework of FRAMEWORKS) {
+      for (const e of planFiles(cfg(framework))) allPaths.add(e.path);
+    }
+
+    for (const key of Object.keys(FILE_NOTES)) {
+      expect(allPaths.has(key), `FILE_NOTES has an orphan entry: ${key}`).toBe(true);
+    }
+  });
+
+  it('the README lists every planned file, for every framework, in tree order', () => {
+    for (const framework of FRAMEWORKS) {
+      const paths = planFiles(cfg(framework))
+        .map((e) => e.path)
+        .filter((p) => p !== 'README.md');
+      const planSet = new Set(paths);
+      const treeOrder = orderedTreePaths(paths).filter((p) => planSet.has(p));
+      const readme = fileMap(framework)['README.md']!;
+
+      let cursor = 0;
+      for (const p of treeOrder) {
+        const base = p.split('/').pop()!;
+        const found = readme.indexOf(base, cursor);
+        expect(found, `${framework}: ${base} (${p}) missing or out of tree order in the README`).toBeGreaterThanOrEqual(0);
+        cursor = found + base.length;
+      }
+    }
+  });
+
+  it("solid's README links to solidjs.com, never react.dev", () => {
+    const solidReadme = fileMap('solid')['README.md']!;
+
+    expect(solidReadme).toContain('solidjs.com');
+    expect(solidReadme).not.toContain('react.dev');
   });
 });

@@ -1,4 +1,4 @@
-# @taujs/cli
+# @taujs/create-taujs
 
 ## 0.8.0
 

@@ -292,6 +292,10 @@ type FileEntry = { path: string; content: string } | { path: string; json: unkno
 export function planFiles(config: ProjectConfig): FileEntry[] {
   const { projectName, packageManager, framework } = config;
 
+  // Every file BUT README.md: the README's own "Project Structure" tree is RENDERED from this
+  // exact plan (see generateReadme/planFilesTree below), so it can never again silently omit a
+  // file the scaffold actually writes - which is how solid's README came to omit renderId.ts and
+  // tsconfig.solid.json. README.md is computed last, from these paths, to avoid the circular call.
   const shared: FileEntry[] = [
     { path: 'package.json', json: generatePackageJson(projectName, framework) },
     { path: 'build.ts', content: generateBuildTs() },
@@ -299,7 +303,6 @@ export function planFiles(config: ProjectConfig): FileEntry[] {
     { path: 'src/server/tsconfig.json', json: generateServerTsConfig() },
     { path: 'taujs.config.ts', content: generateTaujsConfig(framework) },
     { path: '.gitignore', content: generateGitignore() },
-    { path: 'README.md', content: generateReadme(projectName, packageManager, framework) },
     // Agent wiring (P1-04): pinned local-bin MCP config + a short CLAUDE.md pointer whose
     // substance ships in @taujs/mcp.
     { path: '.mcp.json', json: generateMcpJson(packageManager) },
@@ -346,7 +349,18 @@ export function planFiles(config: ProjectConfig): FileEntry[] {
             { path: 'src/client/vite-env.d.ts', content: generateViteEnv() },
           ];
 
-  return [...shared, ...client];
+  const withoutReadme = [...shared, ...client];
+  const readme: FileEntry = {
+    path: 'README.md',
+    content: generateReadme(
+      projectName,
+      packageManager,
+      framework,
+      withoutReadme.map((e) => e.path),
+    ),
+  };
+
+  return [...withoutReadme, readme];
 }
 
 async function generateFiles(targetDir: string, config: ProjectConfig) {
@@ -361,130 +375,115 @@ async function generateFiles(targetDir: string, config: ProjectConfig) {
   }
 }
 
-function generatePackageJson(projectName: string, framework: Framework) {
-  if (framework === 'vue') {
-    return {
-      name: projectName,
-      version: '0.1.0',
-      private: true,
-      // Vite 8 requires this floor; a generated project must declare what it needs.
-      engines: { node: '^20.19.0 || >=22.12.0' },
-      type: 'module',
-      scripts: {
-        dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
-        'build:client': 'cross-env NODE_ENV=production tsx build.ts',
-        'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
-        'build:server':
-          'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
-        build:
-          'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/vue',
-        start: 'cross-env NODE_ENV=production node dist/server/index.js',
-        lint: 'vue-tsc --noEmit',
-      },
-      dependencies: {
-        '@taujs/server': 'latest',
-        '@taujs/vue': 'latest',
-        '@vue/server-renderer': '^3.5.0',
-        fastify: '^5.8.5',
-        vue: '^3.5.0',
-      },
-      devDependencies: {
-        '@taujs/mcp': 'latest',
-        '@types/node': '^22.10.5',
-        '@vitejs/plugin-vue': '^6.0.3',
-        'cross-env': '^7.0.3',
-        // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
-        // of the generated project - it is not inherited from vite's own copy.
-        esbuild: '^0.28.1',
-        tsx: '^4.19.3',
-        typescript: '^5.7.3',
-        vite: '^8.2.1',
-        'vue-tsc': '^2.1.10',
-      },
-    };
-  }
+// Pins shared by every generated project, regardless of framework - one edit changes all three.
+// Values must stay compatible with @taujs/server's own peerDependencies (asserted directly against
+// the workspace manifests in pins.test.ts, so this object cannot drift from them unnoticed again).
+const SHARED_PINS = {
+  fastify: '^5.8.5',
+  vite: '^8.2.1',
+  typescript: '^5.7.3',
+  tsx: '^4.19.3',
+  crossEnv: '^7.0.3',
+  // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency of the
+  // generated project - it is not inherited from vite's own copy.
+  esbuild: '^0.28.1',
+  typesNode: '^22.10.5',
+} as const;
 
-  if (framework === 'solid') {
-    return {
-      name: projectName,
-      version: '0.1.0',
-      private: true,
-      // Vite 8 requires this floor; a generated project must declare what it needs.
-      engines: { node: '^20.19.0 || >=22.12.0' },
-      type: 'module',
-      scripts: {
-        dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
-        'build:client': 'cross-env NODE_ENV=production tsx build.ts',
-        'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
-        'build:server':
-          'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
-        build:
-          'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/solid',
-        start: 'cross-env NODE_ENV=production node dist/server/index.js',
-        lint: 'tsc --noEmit',
-      },
-      dependencies: {
-        '@taujs/server': 'latest',
-        '@taujs/solid': 'latest',
-        fastify: '^5.2.0',
-        'solid-js': '^1.9.0',
-      },
-      devDependencies: {
-        '@taujs/mcp': 'latest',
-        '@types/node': '^22.10.5',
-        'cross-env': '^7.0.3',
-        // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
-        // of the generated project - it is not inherited from vite's own copy.
-        esbuild: '^0.28.1',
-        tsx: '^4.19.3',
-        typescript: '^5.7.3',
-        vite: '^8.2.1',
-        // The managed compiler instantiates this internally with `ssr: true` forced; the app never
-        // adds it to `plugins` itself.
-        'vite-plugin-solid': '^2.11.11',
-      },
-    };
-  }
+// Vite 8 requires this floor; a generated project must declare what it needs.
+const NODE_ENGINE = '^20.19.0 || >=22.12.0';
+
+type FrameworkExtras = {
+  /** The renderer package, e.g. `@taujs/react`. */
+  rendererPackage: string;
+  /** Framework runtime dependency/ies: react+react-dom, vue+@vue/server-renderer, solid-js. */
+  runtimeDeps: Record<string, string>;
+  /** The framework's Vite plugin, as `[name, version]`. */
+  vitePlugin: readonly [name: string, version: string];
+  /** `@types/*` packages the framework needs beyond the shared `@types/node` (react only). */
+  typeDeps?: Record<string, string>;
+  /** devDependencies beyond the vite plugin and type deps (vue's `vue-tsc`). */
+  extraDevDeps?: Record<string, string>;
+  /** The generated `lint` script (vue type-checks SFCs through `vue-tsc`). */
+  lint: string;
+};
+
+// A framework absent from this record is a compile error, not a silently-skipped branch -
+// adding a fourth framework must fill this in before it can ship. generatePackageJson has no
+// per-framework branch: everything framework-specific in a generated package.json comes from here.
+// Guarded by pins.test.ts: runtime pins equal the renderer's own peers, `@types/*` satisfy them.
+export const FRAMEWORK_EXTRAS: Record<Framework, FrameworkExtras> = {
+  react: {
+    rendererPackage: '@taujs/react',
+    runtimeDeps: { react: '^19.0.0', 'react-dom': '^19.0.0' },
+    vitePlugin: ['@vitejs/plugin-react', '^5.2.0'],
+    typeDeps: { '@types/react': '^19.0.2', '@types/react-dom': '^19.0.2' },
+    lint: 'tsc --noEmit',
+  },
+  vue: {
+    rendererPackage: '@taujs/vue',
+    runtimeDeps: { vue: '^3.5.0', '@vue/server-renderer': '^3.5.0' },
+    vitePlugin: ['@vitejs/plugin-vue', '^6.0.3'],
+    extraDevDeps: { 'vue-tsc': '^2.1.10' },
+    lint: 'vue-tsc --noEmit',
+  },
+  solid: {
+    rendererPackage: '@taujs/solid',
+    runtimeDeps: { 'solid-js': '^1.9.0' },
+    // The managed compiler instantiates this internally with `ssr: true` forced; the app never
+    // adds it to `plugins` itself.
+    vitePlugin: ['vite-plugin-solid', '^2.11.11'],
+    lint: 'tsc --noEmit',
+  },
+};
+
+// package.json maps are written in alphabetical key order, which is the order every framework
+// already shipped in - so the derived output stays byte-identical to the hand-written maps.
+const sortedKeys = (o: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(
+    Object.keys(o)
+      .sort()
+      .map((k) => [k, o[k]!]),
+  );
+
+function generatePackageJson(projectName: string, framework: Framework) {
+  const extras = FRAMEWORK_EXTRAS[framework];
+  const [vitePluginName, vitePluginVersion] = extras.vitePlugin;
+  const serverBundle = `esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:${extras.rendererPackage}`;
 
   return {
     name: projectName,
     version: '0.1.0',
     private: true,
-    // Vite 8 requires this floor; a generated project must declare what it needs.
-    engines: { node: '^20.19.0 || >=22.12.0' },
+    engines: { node: NODE_ENGINE },
     type: 'module',
     scripts: {
       dev: 'cross-env NODE_ENV=development tsx watch --ignore vite.config.ts --trace-warnings --tsconfig ./src/server/tsconfig.json ./src/server/index.ts --loglevel verbose',
       'build:client': 'cross-env NODE_ENV=production tsx build.ts',
       'build:entry-server': 'cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts',
-      'build:server':
-        'esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
-      build:
-        'cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && esbuild src/server/index.ts --bundle --platform=node --format=esm --outfile=dist/server/index.js --external:fastify --external:@taujs/server --external:@taujs/react',
+      'build:server': serverBundle,
+      build: `cross-env NODE_ENV=production tsx build.ts && cross-env NODE_ENV=production BUILD_MODE=ssr tsx build.ts && ${serverBundle}`,
       start: 'cross-env NODE_ENV=production node dist/server/index.js',
-      lint: 'tsc --noEmit',
+      lint: extras.lint,
     },
-    dependencies: {
-      '@taujs/react': 'latest',
+    dependencies: sortedKeys({
       '@taujs/server': 'latest',
-      fastify: '^5.8.5',
-      react: '^19.0.0',
-      'react-dom': '^19.0.0',
-    },
-    devDependencies: {
+      [extras.rendererPackage]: 'latest',
+      fastify: SHARED_PINS.fastify,
+      ...extras.runtimeDeps,
+    }),
+    devDependencies: sortedKeys({
       '@taujs/mcp': 'latest',
-      '@types/node': '^22.10.5',
-      '@types/react': '^19.0.2',
-      '@types/react-dom': '^19.0.2',
-      '@vitejs/plugin-react': '^5.2.0',
-      'cross-env': '^7.0.3',
-      // `build:server` invokes the esbuild BINARY directly, so it must be a declared dependency
-      // of the generated project - it is not inherited from vite's own copy.
-      esbuild: '^0.28.1',
-      tsx: '^4.19.3',
-      typescript: '^5.7.3',
-      vite: '^8.2.1',
-    },
+      '@types/node': SHARED_PINS.typesNode,
+      ...extras.typeDeps,
+      [vitePluginName]: vitePluginVersion,
+      'cross-env': SHARED_PINS.crossEnv,
+      esbuild: SHARED_PINS.esbuild,
+      tsx: SHARED_PINS.tsx,
+      typescript: SHARED_PINS.typescript,
+      vite: SHARED_PINS.vite,
+      ...extras.extraDevDeps,
+    }),
   };
 }
 
@@ -655,25 +654,123 @@ coverage
 `;
 }
 
-function generateReadme(projectName: string, packageManager: string, framework: Framework) {
+// The framework-varying bits of the README, in one place so adding a framework is a compile
+// error until this is filled in.
+const FRAMEWORK_META: Record<Framework, { name: string; docsUrl: string; mainUi: string; clientExt: string }> = {
+  react: { name: 'React', docsUrl: 'https://react.dev', mainUi: 'App.tsx', clientExt: 'tsx' },
+  vue: { name: 'Vue', docsUrl: 'https://vuejs.org', mainUi: 'App.vue', clientExt: 'ts' },
+  solid: { name: 'Solid', docsUrl: 'https://www.solidjs.com', mainUi: 'App.tsx', clientExt: 'tsx' },
+};
+
+// One entry per path any framework's planFiles() can produce. Guarded by generate.test.ts in both
+// directions: every planned path must have a note here (nothing reaches the tree undocumented),
+// and every key here must be produced by at least one framework (no note can rot into an orphan).
+// A path used by more than one framework (e.g. App.tsx by react and solid) shares one note when
+// the description is true for both - no per-framework variant is needed unless it stops being true.
+export const FILE_NOTES: Record<string, string> = {
+  'package.json': '',
+  'build.ts': 'Production build entry point',
+  'tsconfig.json': 'TypeScript project config',
+  'src/server/tsconfig.json': 'Server-only TS config (used by tsx watch)',
+  'taujs.config.ts': 'τjs configuration',
+  '.gitignore': 'Git ignore rules',
+  '.mcp.json': 'Pinned MCP server wiring',
+  'CLAUDE.md': 'Agent notes pointer',
+  'src/client/index.html': 'HTML shell',
+  'src/client/styles.css': 'Global styles',
+  'src/client/app-types.ts': 'Types derived from taujs.config.ts',
+  'src/server/index.ts': 'Server entry point',
+  'src/server/services/registry.ts': 'Service registry',
+  'src/server/services/example.service.ts': 'Example service',
+  'src/server/types.d.ts': 'ServiceContext augmentation',
+  'src/client/public/favicon.svg': 'App icon',
+  'tsconfig.solid.json': 'Solid compiler TS config (client TSX only)',
+  'src/client/vite-env.d.ts': 'Vite client types',
+  'src/client/App.tsx': 'Root component',
+  'src/client/entry-client.tsx': 'Client hydration entry',
+  'src/client/entry-server.tsx': 'SSR render entry',
+  'src/client/renderId.ts': 'Shared hydration render ID',
+  'src/client/App.vue': 'Root component (route switch)',
+  'src/client/HomePage.vue': 'SSR route (useSSRData + v-if)',
+  'src/client/StreamingPage.vue': 'Streaming route (await useSSRDataAsync)',
+  'src/client/entry-client.ts': 'Client hydration entry',
+  'src/client/entry-server.ts': 'SSR render entry',
+};
+
+type TreeNode = { children: Map<string, TreeNode>; fullPath: string };
+
+function buildFileTree(paths: string[]): TreeNode {
+  const root: TreeNode = { children: new Map(), fullPath: '' };
+
+  for (const filePath of paths) {
+    let node = root;
+    let acc = '';
+    for (const part of filePath.split('/')) {
+      acc = acc ? `${acc}/${part}` : part;
+      let next = node.children.get(part);
+      if (!next) {
+        next = { children: new Map(), fullPath: acc };
+        node.children.set(part, next);
+      }
+      node = next;
+    }
+  }
+
+  return root;
+}
+
+// Directories before files at every level, each group in first-seen order - a deterministic,
+// readable grouping with no need to hand-sort anything.
+function orderedChildren(node: TreeNode): TreeNode[] {
+  const all = [...node.children.values()];
+  return [...all.filter((n) => n.children.size > 0), ...all.filter((n) => n.children.size === 0)];
+}
+
+/**
+ * The exact order `planFilesTree` renders paths in. Exported so tests can assert the README lists
+ * every planned file in tree order without re-implementing the grouping.
+ */
+export function orderedTreePaths(paths: string[]): string[] {
+  const out: string[] = [];
+  const walk = (node: TreeNode) => {
+    for (const child of orderedChildren(node)) {
+      out.push(child.fullPath);
+      walk(child);
+    }
+  };
+  walk(buildFileTree(paths));
+
+  return out;
+}
+
+/** Renders the box-drawing project tree from the plan's real paths, with notes from FILE_NOTES. */
+function planFilesTree(paths: string[]): string {
+  const lines: Array<{ text: string; note: string }> = [];
+
+  const render = (node: TreeNode, prefix: string) => {
+    const children = orderedChildren(node);
+    children.forEach((child, i) => {
+      const isLast = i === children.length - 1;
+      const isDir = child.children.size > 0;
+      const base = child.fullPath.split('/').pop()!;
+      const name = isDir ? `${base}/` : base;
+      const note = isDir ? '' : (FILE_NOTES[child.fullPath] ?? '');
+
+      lines.push({ text: `${prefix}${isLast ? '└── ' : '├── '}${name}`, note });
+      if (isDir) render(child, prefix + (isLast ? '    ' : '│   '));
+    });
+  };
+
+  render(buildFileTree(paths), '');
+
+  const width = Math.max(0, ...lines.filter((l) => l.note).map((l) => l.text.length));
+
+  return lines.map((l) => (l.note ? `${l.text.padEnd(width + 2)}# ${l.note}` : l.text)).join('\n');
+}
+
+function generateReadme(projectName: string, packageManager: string, framework: Framework, paths: string[]) {
   const pmRun = packageManager === 'npm' ? 'npm run' : packageManager;
-
-  const clientTree =
-    framework === 'vue'
-      ? `│   │   ├── App.vue             # Root component (route switch)
-│   │   ├── HomePage.vue        # SSR route (useSSRData + v-if)
-│   │   ├── StreamingPage.vue   # Streaming route (await useSSRDataAsync)
-│   │   ├── app-types.ts        # Types derived from taujs.config.ts
-│   │   ├── entry-client.ts     # Client hydration entry
-│   │   ├── entry-server.ts     # SSR render entry`
-      : `│   │   ├── App.tsx             # Root component
-│   │   ├── app-types.ts        # Types derived from taujs.config.ts
-│   │   ├── entry-client.tsx    # Client hydration entry
-│   │   ├── entry-server.tsx    # SSR render entry`;
-
-  const mainUi = framework === 'vue' ? 'App.vue' : 'App.tsx';
-  const clientExt = framework === 'vue' ? 'ts' : 'tsx';
-  const frameworkDoc = framework === 'vue' ? '- [Vue Documentation](https://vuejs.org)' : '- [React Documentation](https://react.dev)';
+  const meta = FRAMEWORK_META[framework];
 
   return `# ${projectName}
 
@@ -705,31 +802,15 @@ ${pmRun} start
 
 \`\`\`
 ${projectName}/
-├── src/
-│   ├── client/              
-${clientTree}
-│   │   ├── styles.css          # Global styles
-│   │   ├── vite-env.d.ts       # Vite client types
-│   │   └── public/
-│   │       └── favicon.svg     # App icon
-│   └── server/              
-│       ├── index.ts                # Server entry point
-│       ├── tsconfig.json          # Server-only TS config (used by tsx watch)
-│       ├── types.d.ts          # ServiceContext augmentation
-│       └── services/
-│           ├── registry.ts         # Service registry
-│           └── example.service.ts  # Example service
-├── build.ts                     # Production build entry point
-├── taujs.config.ts              # τjs configuration
-└── package.json
+${planFilesTree(paths)}
 \`\`\`
 
 ## Editing the App
 
-- Main UI: \`src/client/${mainUi}\`
+- Main UI: \`src/client/${meta.mainUi}\`
 - Styles: \`src/client/styles.css\`
-- SSR entry: \`src/client/entry-server.${clientExt}\`
-- Client entry: \`src/client/entry-client.${clientExt}\`
+- SSR entry: \`src/client/entry-server.${meta.clientExt}\`
+- Client entry: \`src/client/entry-client.${meta.clientExt}\`
 - Routes: \`taujs.config.ts\`
 - Services: \`src/server/services/\`
 
@@ -737,7 +818,7 @@ ${clientTree}
 
 - [τjs Documentation](https://taujs.dev)
 - [Fastify Documentation](https://fastify.dev)
-${frameworkDoc}
+- [${meta.name} Documentation](${meta.docsUrl})
 
 ## License
 
