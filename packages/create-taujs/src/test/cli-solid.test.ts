@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 // The package's REAL export - the same entry the shipped CLI calls to plan its output - rather than
 // the individual `generate*()` template functions.
-import { planFiles, type Framework, type ProjectConfig } from '../index.js';
+import { FRAMEWORKS, planFiles, type Framework, type ProjectConfig } from '../index.js';
 
 /**
  * Generation is exercised through the package's real export and the shipped binary's argument
@@ -302,7 +302,7 @@ describe('create-taujs CLI - the frozen non-interactive interface', () => {
 });
 
 describe('scaffolder baseline corrections - asserted for EVERY framework', () => {
-  const frameworks: Framework[] = ['react', 'vue', 'solid'];
+  const frameworks: Framework[] = [...FRAMEWORKS];
 
   for (const framework of frameworks) {
     it(`${framework}: types.d.ts AUGMENTS @taujs/server/config rather than shadowing it`, () => {
@@ -332,7 +332,7 @@ describe('scaffolder baseline corrections - asserted for EVERY framework', () =>
 });
 
 describe('scaffolder baseline - the Vite builds pin NODE_ENV', () => {
-  for (const framework of ['react', 'vue', 'solid'] as Framework[]) {
+  for (const framework of FRAMEWORKS) {
     it(`${framework}: build:client and build:entry-server force NODE_ENV=production`, () => {
       const { read } = generate(framework);
       const scripts = (JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts;
@@ -350,7 +350,7 @@ describe('scaffolder baseline - the Vite builds pin NODE_ENV', () => {
 });
 
 describe('scaffolder baseline - generated code asks the runtime-mode question the way τjs does', () => {
-  for (const framework of ['react', 'vue', 'solid'] as Framework[]) {
+  for (const framework of FRAMEWORKS) {
     it(`${framework}: development is explicit, never "not production"`, () => {
       const { read } = generate(framework);
       const server = read('src/server/index.ts');

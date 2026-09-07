@@ -30,7 +30,7 @@ import { afterAll, describe, expect, it } from 'vitest';
  *
  * React runs the identical stages as a CONTROL, proving the scaffolder-baseline corrections are
  * shared repairs rather than Solid-specific accommodations. Vue joined on 2026-07-30 (derived
- * type-chain work), so the generated chain is compiler-proven for all three frameworks.
+ * type-chain work), so the generated chain is compiler-proven for all four frameworks.
  */
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 const CLI = fileURLToPath(new URL('../../dist/index.js', import.meta.url));
@@ -40,6 +40,7 @@ const PACKABLE: Record<string, string> = {
   '@taujs/solid': path.join(REPO_ROOT, 'packages/solid'),
   '@taujs/react': path.join(REPO_ROOT, 'packages/react'),
   '@taujs/vue': path.join(REPO_ROOT, 'packages/vue'),
+  '@taujs/html': path.join(REPO_ROOT, 'packages/html'),
   '@taujs/mcp': path.join(REPO_ROOT, 'packages/mcp'),
 };
 
@@ -160,7 +161,7 @@ const startServer = (cwd: string, script: string, net: { appPort: number; hmrPor
   return { child, output: () => output };
 };
 
-/** Pack every workspace package once; all three frameworks install identical, user-shaped tarballs. */
+/** Pack every workspace package once; all four frameworks install identical, user-shaped tarballs. */
 let packedCache: Record<string, string> | undefined;
 const packAll = (): Record<string, string> => {
   if (packedCache) return packedCache;
@@ -204,7 +205,7 @@ const runTransaction = async (stages: Stage[]): Promise<string[]> => {
   return completed;
 };
 
-describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s project lifecycle (real CLI, packed tarballs)', (framework) => {
+describe.each(['solid', 'react', 'vue', 'html'] as const)('slice 6 - generated %s project lifecycle (real CLI, packed tarballs)', (framework) => {
   it('generates, installs, typechecks, boots dev, builds, and boots production', { timeout: 900_000 }, async () => {
     if (!existsSync(CLI)) throw new Error(`CLI dist missing at ${CLI} - run \`pnpm build\` first`);
 
@@ -231,7 +232,7 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
         run: () => {
           const read = (rel: string) => readFileSync(path.join(projectDir, rel), 'utf8');
 
-          // Shared scaffolder baseline, asserted for ALL THREE frameworks.
+          // Shared scaffolder baseline, asserted for ALL FOUR frameworks.
           expect(read('src/server/types.d.ts').startsWith("import '@taujs/server/config';")).toBe(true);
           const pkg = JSON.parse(read('package.json')) as { devDependencies: Record<string, string>; scripts: Record<string, string> };
           expect(pkg.devDependencies.esbuild).toBeTruthy();
@@ -251,9 +252,15 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
           } else if (framework === 'react') {
             expect(read('taujs.config.ts')).toContain('reactRenderer({');
             expect(read('src/client/entry-server.tsx')).toContain("import { createRenderer } from '@taujs/react';");
-          } else {
+          } else if (framework === 'vue') {
             expect(read('taujs.config.ts')).toContain('renderer: vueRenderer(),');
             expect(read('src/client/entry-server.ts')).toContain("import { createRenderer } from '@taujs/vue';");
+          } else {
+            expect(read('taujs.config.ts')).toContain('renderer: htmlRenderer(),');
+            expect(read('src/client/entry-server.ts')).toContain("import { createRenderer } from '@taujs/html';");
+            expect(read('src/client/entry-client.ts')).toContain("import { onDataReady } from '@taujs/html/client';");
+            const devDeps = Object.keys(pkg.devDependencies);
+            expect(devDeps.some((dep) => dep.startsWith('@vitejs/') || dep.startsWith('vite-plugin-'))).toBe(false);
           }
         },
       },
@@ -307,6 +314,10 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
             const html = await response.text();
             expect(html).toContain('window.__INITIAL_DATA__');
             if (framework === 'solid') expect(html).toContain('τjs + Solid');
+            if (framework === 'html') {
+              expect(html).toContain('Response provided by a τjs service');
+              expect(html).toContain('card--primary');
+            }
 
             // Proves HMR_PORT was honoured: the allocated HMR port is now bound. A silently
             // ignored env var would leave it free and the hardcode would survive undetected.
@@ -383,6 +394,26 @@ describe.each(['solid', 'react', 'vue'] as const)('slice 6 - generated %s projec
 
             expect(response.status, `production responded ${response.status}\n${output()}`).toBe(200);
             expect(await response.text()).toContain('window.__INITIAL_DATA__');
+
+            // Both generated routes become the lifecycle proof for ordinary HTML streaming: the
+            // shell (with the bootstrap tag) precedes the deferred/init data script.
+            if (framework === 'html') {
+              const streamingResponse = await fetch(`http://127.0.0.1:${appPort}/streaming`);
+              expect(streamingResponse.status, `production /streaming responded ${streamingResponse.status}\n${output()}`).toBe(200);
+              const streamingBody = await streamingResponse.text();
+
+              expect(streamingBody).toContain('Response provided by a τjs service');
+              expect(streamingBody).toContain('card--primary');
+
+              const bootstrapTag = /<script type="module" src="[^"]+" async[^>]*><\/script>/g;
+              const matches = streamingBody.match(bootstrapTag) ?? [];
+              expect(matches, '/streaming bootstrap tag count').toHaveLength(1);
+
+              const bootstrapAt = streamingBody.indexOf(matches[0]!);
+              const dataScriptAt = streamingBody.indexOf('window.__INITIAL_DATA__');
+              expect(bootstrapAt).toBeGreaterThan(-1);
+              expect(bootstrapAt).toBeLessThan(dataScriptAt);
+            }
           } finally {
             await stopServer(child, [appPort]);
           }

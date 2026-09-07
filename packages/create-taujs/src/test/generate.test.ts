@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { FILE_NOTES, orderedTreePaths, planFiles, type Framework, type ProjectConfig } from '../index';
+import { FILE_NOTE_OVERRIDES, FILE_NOTES, FRAMEWORKS, orderedTreePaths, planFiles, type Framework, type ProjectConfig } from '../index';
 
 const cfg = (framework: Framework): ProjectConfig => ({
   projectName: 'demo-app',
@@ -158,8 +158,6 @@ describe('planFiles — Vue template', () => {
 });
 
 describe('README project tree is rendered from planFiles, never hand-curated', () => {
-  const FRAMEWORKS: Framework[] = ['react', 'vue', 'solid'];
-
   it('every path planFiles produces, for every framework, has a FILE_NOTES entry', () => {
     for (const framework of FRAMEWORKS) {
       const paths = planFiles(cfg(framework))
@@ -207,5 +205,13 @@ describe('README project tree is rendered from planFiles, never hand-curated', (
 
     expect(solidReadme).toContain('solidjs.com');
     expect(solidReadme).not.toContain('react.dev');
+  });
+
+  it('every FILE_NOTE_OVERRIDES key also exists in FILE_NOTES', () => {
+    for (const overrides of Object.values(FILE_NOTE_OVERRIDES)) {
+      for (const key of Object.keys(overrides ?? {})) {
+        expect(Object.prototype.hasOwnProperty.call(FILE_NOTES, key), `FILE_NOTE_OVERRIDES key not in FILE_NOTES: ${key}`).toBe(true);
+      }
+    }
   });
 });
