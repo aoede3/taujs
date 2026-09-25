@@ -31,13 +31,15 @@ type BaseServiceContext = {
 type UntypedRegistryCaller = (serviceName: string, methodName: string, args?: JsonObject) => Promise<JsonObject>;
 type RuntimeServiceContext = BaseServiceContext & { call?: UntypedRegistryCaller };
 
-// Augment with app-specific fields only; use TypedServiceContext<typeof serviceRegistry>
-// when you want a registry-aware ctx.call type.
+/**
+ * Base request context passed to service methods. τjs route execution supplies `signal`,
+ * `requestId` and `logger`; caller-owned or augmented fields are not populated automatically.
+ */
 export interface ServiceContext extends BaseServiceContext {}
 
 /**
- * Params and result are JSON object types. Type params with a type alias or an inline object
- * type; an interface without an index signature is not accepted.
+ * A service handler whose params and result are JSON objects. Use a type alias or inline object
+ * for params; an interface without an index signature is not accepted.
  */
 export type ServiceMethod<P extends JsonObject = JsonObject, R extends JsonObject = JsonObject, Ctx extends BaseServiceContext = TypedServiceContext> = (
   params: P,
@@ -75,7 +77,11 @@ export function ensureServiceCaller<R extends ServiceRegistry>(
   if (!ctx.call) (ctx as any).call = createCaller(registry, ctx);
 }
 
-// Helper for userland: combine a parent AbortSignal with a per-call timeout
+/**
+ * Returns `signal` unchanged when `ms` is falsy; otherwise returns a child signal that propagates
+ * later parent aborts with their reason or aborts after `ms` with `Error('DeadlineExceeded')`. An already-aborted
+ * parent is not copied at creation, and consumers must observe the signal to cancel their work.
+ */
 export function withDeadline(signal: AbortSignal | undefined, ms?: number): AbortSignal | undefined {
   if (!ms) return signal;
   const ctrl = new AbortController();
@@ -151,8 +157,8 @@ type ValidateServiceSpec<T extends ServiceSpec> = {
 };
 
 /**
- * Params and result types must be JSON object types (a type alias or inline object type; an
- * interface without an index signature is not accepted - see {@link ServiceMethod}).
+ * Defines and freezes a service method map. Object entries validate params before the handler and
+ * results after it; validation and handler failures propagate to the caller. See {@link ServiceMethod}.
  */
 export function defineService<T extends ServiceSpec>(spec: T & ValidateServiceSpec<T>) {
   const out: Record<string, RuntimeServiceMethod<any, JsonObject>> = {};
@@ -182,6 +188,10 @@ export function defineService<T extends ServiceSpec>(spec: T & ValidateServiceSp
 export const getServiceMethodMetadata = (fn: unknown): ServiceMethodMetadata | undefined =>
   typeof fn === 'function' ? (fn as { [SERVICE_METHOD_METADATA]?: ServiceMethodMetadata })[SERVICE_METHOD_METADATA] : undefined;
 
+/**
+ * Returns a new frozen registry whose service objects are shallow-frozen. Handlers and values
+ * reachable through those objects are not recursively frozen.
+ */
 export const defineServiceRegistry = <R extends ServiceRegistry>(registry: R): R =>
   Object.freeze(Object.fromEntries(Object.entries(registry).map(([k, v]) => [k, Object.freeze(v)]))) as R;
 

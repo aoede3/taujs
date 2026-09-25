@@ -1671,7 +1671,8 @@ function generateExampleService() {
   return `import { defineService } from '@taujs/server/config';
 
 export const exampleService = defineService({
-  async greet(params: { name: string }) {
+  async greet(params: { name: string }, ctx) {
+    // When present, ctx.signal carries request cancellation to operations that honour AbortSignal.
     // Simulate async operation
     await new Promise((resolve) => setTimeout(resolve, 750));
 
