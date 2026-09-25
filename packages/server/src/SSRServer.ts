@@ -252,6 +252,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
         allowedHosts: opts.introspectionAllowedHosts,
         serviceRegistry,
         logger,
+        projectRoot: opts.projectRoot ?? process.cwd(),
       });
     } catch (err) {
       logger.warn({ component: 'introspection', error: (err as Error)?.message ?? String(err) }, 'Episode recording unavailable (non-fatal)');
@@ -264,7 +265,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       try {
         const { registerBootGraphEmission } = await import('./core/introspection/EmitGraph');
 
-        registerBootGraphEmission(scope, opts.taujsConfig, serviceRegistry, logger);
+        registerBootGraphEmission(scope, opts.taujsConfig, serviceRegistry, logger, opts.projectRoot ?? process.cwd());
       } catch (err) {
         logger.warn({ component: 'introspection', error: (err as Error)?.message ?? String(err) }, 'Graph emission unavailable (non-fatal)');
       }

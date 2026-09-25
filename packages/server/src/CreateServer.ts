@@ -282,6 +282,7 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
       source: 'boot',
       emittedAt: new Date().toISOString(),
       serviceRegistry: opts.serviceRegistry,
+      projectRoot: opts.projectRoot ?? process.cwd(),
     });
 
     const policyResult = evaluateRoutePolicy(routePolicy, {

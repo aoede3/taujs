@@ -19,6 +19,7 @@ export { skills } from './skills';
 export type { GraphReadResult, NdjsonReadResult, ObservationsReadResult, StaleReason, SubstrateDiscovery, SubstratePaths } from './SubstrateReader';
 export type {
   DevJson,
+  GraphDefinitionLocation,
   GraphRoute,
   GraphService,
   GraphServiceMethod,

@@ -39,7 +39,9 @@ export type GraphServiceMethod = {
   usedBy: { routeId: string; appId: string; path: string }[];
 };
 
-export type GraphService = { name: string; methods: GraphServiceMethod[] };
+export type GraphDefinitionLocation = { status: 'known'; path: string } | { status: 'unknown' };
+
+export type GraphService = { name: string; definitionLocation?: GraphDefinitionLocation; methods: GraphServiceMethod[] };
 
 export type RequestGraphV2 = {
   schemaVersion: 2;

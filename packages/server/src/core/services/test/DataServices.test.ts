@@ -119,6 +119,21 @@ describe('defineService', () => {
     expect(handler).toHaveBeenCalledWith(params, expect.anything());
     expect(out).toEqual({ echoed: params });
   });
+
+  it('keeps service definition working when a host stack formatter is unsupported', async () => {
+    const S = await importModule();
+    const previous = Error.prepareStackTrace;
+
+    try {
+      Error.prepareStackTrace = () => [] as unknown as NodeJS.CallSite[];
+      const service = S.defineService({ ping: async () => ({ ok: true }) });
+
+      expect(S.getServiceDefinitionLocation(service)).toBeUndefined();
+      await expect(service.ping({}, {} as any)).resolves.toEqual({ ok: true });
+    } finally {
+      Error.prepareStackTrace = previous;
+    }
+  });
 });
 
 describe('defineServiceRegistry', () => {
