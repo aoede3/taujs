@@ -1,8 +1,10 @@
+import path from 'node:path';
+
 import pkg from '../../../package.json';
 import { RENDERTYPE } from '../constants';
 import { extractSecurity } from '../config/Setup';
 import { calculateSpecificity } from '../routes/DataRoutes';
-import { getServiceMethodMetadata } from '../services/DataServices';
+import { getServiceDefinitionLocation, getServiceMethodMetadata } from '../services/DataServices';
 import { getServiceDataMetadata } from '../services/ServiceData';
 
 import type { CoreTaujsConfig } from '../config/types';
@@ -52,7 +54,10 @@ export type GraphUsedBy = { routeId: string; appId: string; path: string };
 
 export type GraphServiceMethod = { name: string; params: GraphSchemaFlag; result: GraphSchemaFlag; usedBy: GraphUsedBy[] };
 
-export type GraphService = { name: string; methods: GraphServiceMethod[] };
+/** Logical runtime module location, bounded lexically to projectRoot; filesystem links are not resolved. */
+export type GraphDefinitionLocation = { status: 'known'; path: string } | { status: 'unknown' };
+
+export type GraphService = { name: string; definitionLocation?: GraphDefinitionLocation; methods: GraphServiceMethod[] };
 
 export type RequestGraph = {
   schemaVersion: 2;
@@ -74,12 +79,25 @@ export type CreateRequestGraphOptions = {
   source: GraphSource;
   emittedAt: string;
   serviceRegistry?: ServiceRegistry;
+  /** Project root used only to turn captured service call sites into lexically bounded relative paths. */
+  projectRoot?: string;
 };
 
 const isMatchAllWildcard = (path: string): boolean => path === '/*' || path === '*';
 
 const isServiceEdge = (edge: GraphRouteData, service: string, method: string): boolean =>
   edge.kind === 'service' && edge.service === service && edge.method === method;
+
+const resolveDefinitionLocation = (definition: unknown, projectRoot: string): GraphDefinitionLocation => {
+  const captured = getServiceDefinitionLocation(definition);
+  if (!captured) return { status: 'unknown' };
+
+  const root = path.resolve(projectRoot);
+  const relative = path.relative(root, path.resolve(captured.file));
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { status: 'unknown' };
+
+  return { status: 'known', path: relative.split(path.sep).join('/') };
+};
 
 // Pure, deterministic, no I/O. Serialises the resolved config into spec 02 schema v2 -
 // nothing here executes data handlers or touches a server instance; declared route → service
@@ -220,6 +238,7 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([serviceName, definition]) => ({
         name: serviceName,
+        ...(options.projectRoot ? { definitionLocation: resolveDefinitionLocation(definition, options.projectRoot) } : {}),
         methods: Object.entries(definition)
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([methodName, method]) => {

@@ -53,6 +53,7 @@ export type IntrospectionEndpointsOptions = {
    */
   allowedHosts?: ReadonlySet<string>;
   logger: Logs;
+  projectRoot?: string;
 };
 
 // Overlay-only endpoints (spec 03 §6), registered exclusively from the structural dev gate.
@@ -103,7 +104,12 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
 
     // Live overlay tier. Spec 02 permits richer disclosure here (MAY); v1 serves the
     // conservative document — richer tiers arrive with the DevTools overlay (Phase 2).
-    const graph = createRequestGraph(taujsConfig, { source: 'boot', emittedAt: new Date().toISOString(), serviceRegistry });
+    const graph = createRequestGraph(taujsConfig, {
+      source: 'boot',
+      emittedAt: new Date().toISOString(),
+      serviceRegistry,
+      projectRoot: options.projectRoot ?? process.cwd(),
+    });
     return reply.send(graph);
   });
 

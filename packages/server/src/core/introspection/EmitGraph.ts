@@ -45,13 +45,14 @@ export const writeTaujsArtifact = async (dir: string, name: string, data: string
 export const emitGraphArtifact = async (
   dir: string,
   config: CoreTaujsConfig,
-  options: { source: GraphSource; logger?: ArtifactLogger; serviceRegistry?: ServiceRegistry },
+  options: { source: GraphSource; logger?: ArtifactLogger; serviceRegistry?: ServiceRegistry; projectRoot?: string },
 ): Promise<boolean> => {
   try {
     const graph = createRequestGraph(config, {
       source: options.source,
       emittedAt: new Date().toISOString(),
       serviceRegistry: options.serviceRegistry,
+      projectRoot: options.projectRoot,
     });
 
     return await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph, null, 2), options.logger);
@@ -70,7 +71,13 @@ export const emitGraphArtifact = async (
 // Registered only from inside the structural dev gate (CreateServer's isDevelopment branch,
 // reached via lazy dynamic import) — in production this module is never even loaded.
 // onListen so emission reflects a server that actually bound, never a boot that failed.
-export const registerBootGraphEmission = (app: FastifyInstance, config: CoreTaujsConfig, serviceRegistry: ServiceRegistry | undefined, logger: Logs): void => {
+export const registerBootGraphEmission = (
+  app: FastifyInstance,
+  config: CoreTaujsConfig,
+  serviceRegistry: ServiceRegistry | undefined,
+  logger: Logs,
+  projectRoot = process.cwd(),
+): void => {
   // Same close barrier as registerDevFiles: listen() resolves before the async onListen hook
   // runner completes (Fastify sequences the hook promises, but the listen caller is not waiting
   // on them), so close can run while this write is in flight — or before the hook has even
@@ -87,6 +94,7 @@ export const registerBootGraphEmission = (app: FastifyInstance, config: CoreTauj
       source: 'boot',
       logger,
       serviceRegistry,
+      projectRoot,
     });
 
     return work.then(() => undefined);

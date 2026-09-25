@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import { AppError } from '../errors/AppError';
 import { resolveLogs } from '../logging/resolve';
 import { resolveAmbient } from '../introspection/HostAttribution';
@@ -125,12 +127,14 @@ type NormalizedServiceSpec<T extends ServiceSpec> = {
 // getServiceMethodMetadata, never the symbol. Mirrors the serviceData() stamping pattern
 // (core/services/ServiceData.ts).
 const SERVICE_METHOD_METADATA = Symbol('taujs.serviceMethod');
+const SERVICE_DEFINITION_LOCATION = Symbol('taujs.serviceDefinitionLocation');
 
 export type ServiceSchemaKind = 'parse' | 'function';
 // `kind` is only what NarrowSchema honestly reveals — an object with `.parse` vs a bare
 // function. We never claim "zod" (spec 02 §Services; decisions.md #1).
 export type ServiceSchemaMetadata = Readonly<{ declared: boolean; kind?: ServiceSchemaKind }>;
 export type ServiceMethodMetadata = Readonly<{ params: ServiceSchemaMetadata; result: ServiceSchemaMetadata }>;
+export type ServiceDefinitionLocation = Readonly<{ file: string }>;
 
 // Same detection runSchema uses at runtime (line 17), so recorded metadata can never
 // disagree with how the schema is actually applied.
@@ -151,6 +155,48 @@ const stampServiceMethodMetadata = (fn: object, metadata: ServiceMethodMetadata)
   Object.defineProperty(fn, SERVICE_METHOD_METADATA, { value: metadata, enumerable: false });
 };
 
+const stackFrameFile = (line: string): string | undefined => {
+  const trimmed = line.trim();
+  const location = trimmed.endsWith(')') && trimmed.includes('(') ? trimmed.slice(trimmed.lastIndexOf('(') + 1, -1) : trimmed.replace(/^at\s+/, '');
+  const match = location.match(/^(.*):\d+:\d+$/);
+  if (!match) return undefined;
+
+  const file = match[1];
+  if (!file) return undefined;
+  try {
+    if (file.startsWith('file:')) return fileURLToPath(file);
+  } catch {
+    return undefined;
+  }
+
+  return file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file) ? file : undefined;
+};
+
+// This captures one stack per defineService call, typically during module initialisation and
+// including in production; normal service dispatch does not capture stacks. The absolute file
+// remains private unless graph creation receives a project root and emits a bounded relative path.
+const captureServiceDefinitionLocation = (): ServiceDefinitionLocation | undefined => {
+  if (typeof Error.captureStackTrace !== 'function') return undefined;
+
+  try {
+    const holder: { stack?: unknown } = {};
+    Error.captureStackTrace(holder, defineService);
+    if (typeof holder.stack !== 'string') return undefined;
+
+    const file = holder.stack
+      .split('\n')
+      .slice(1)
+      .map(stackFrameFile)
+      .find((candidate): candidate is string => candidate !== undefined);
+
+    return file ? Object.freeze({ file }) : undefined;
+  } catch {
+    // Definition provenance is advisory. A host-customised stack formatter or an unsupported
+    // runtime must degrade to unknown, never make service definition fail.
+    return undefined;
+  }
+};
+
 type ServiceParamsOf<M> = M extends (...args: infer A) => any ? (A extends [] ? JsonObject : A[0]) : JsonObject;
 type ValidateServiceSpec<T extends ServiceSpec> = {
   [K in keyof T]: ServiceParamsOf<ExtractServiceMethod<T[K]>> extends JsonObject ? T[K] : { readonly __taujsServiceTypeError: ServiceParamsMessage };
@@ -162,6 +208,7 @@ type ValidateServiceSpec<T extends ServiceSpec> = {
  */
 export function defineService<T extends ServiceSpec>(spec: T & ValidateServiceSpec<T>) {
   const out: Record<string, RuntimeServiceMethod<any, JsonObject>> = {};
+  const definitionLocation = captureServiceDefinitionLocation();
 
   for (const [name, v] of Object.entries(spec)) {
     if (typeof v === 'function') {
@@ -180,6 +227,8 @@ export function defineService<T extends ServiceSpec>(spec: T & ValidateServiceSp
     }
   }
 
+  if (definitionLocation) Object.defineProperty(out, SERVICE_DEFINITION_LOCATION, { value: definitionLocation, enumerable: false });
+
   return Object.freeze(out) as NormalizedServiceSpec<T>;
 }
 
@@ -187,6 +236,14 @@ export function defineService<T extends ServiceSpec>(spec: T & ValidateServiceSp
 // unstamped functions — the caller's honest `kind: 'dynamic'` / gap case.
 export const getServiceMethodMetadata = (fn: unknown): ServiceMethodMetadata | undefined =>
   typeof fn === 'function' ? (fn as { [SERVICE_METHOD_METADATA]?: ServiceMethodMetadata })[SERVICE_METHOD_METADATA] : undefined;
+
+// Internal accessor for introspection. The captured absolute file never crosses the graph
+// boundary directly: createRequestGraph emits it only after lexical project-root containment and
+// relative-path normalisation, otherwise it emits an explicit unknown.
+export const getServiceDefinitionLocation = (definition: unknown): ServiceDefinitionLocation | undefined =>
+  definition && typeof definition === 'object'
+    ? (definition as { [SERVICE_DEFINITION_LOCATION]?: ServiceDefinitionLocation })[SERVICE_DEFINITION_LOCATION]
+    : undefined;
 
 /**
  * Returns a new frozen registry whose service objects are shallow-frozen. Handlers and values

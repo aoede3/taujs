@@ -2,6 +2,7 @@
 import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -26,6 +27,8 @@ import type { DevJson } from '../types';
 import type { ToolResult } from '../toolkit';
 
 vi.mock('../toolkit', { spy: true });
+
+const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 
 const catalog = defineService({
   getProduct: {
@@ -97,7 +100,12 @@ beforeAll(async () => {
   root = await mkdtemp(path.join(scratch, 'tools-'));
   const dir = path.join(root, 'node_modules', '.taujs');
 
-  const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+  const graph = createRequestGraph(config, {
+    source: 'boot',
+    emittedAt: '2026-07-10T10:00:00.000Z',
+    serviceRegistry: registry,
+    projectRoot: REPO_ROOT,
+  });
   await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph, null, 2));
 
   // Observed traffic: one getProduct call recorded through the real assembler.
@@ -234,6 +242,7 @@ describe('structural tools (cold/stale mode)', () => {
     expect(observed.methodCallCount).toBe(1);
     expect(observed.routeCallCount).toBe(1);
     expect(observed.count).toBeUndefined();
+    expect(result.definitionLocation).toEqual({ status: 'known', path: 'packages/mcp/src/test/StructuralTools.test.ts' });
     expect(result.note).toContain('seen in dev traffic');
     // Observations are emitted by a different event than the graph: their own freshness, not the
     // graph's, describes when they were recorded.
@@ -307,6 +316,7 @@ describe('structural tools (cold/stale mode)', () => {
     expect(badMethod.ok).toBe(false);
     expect(badMethod.reason).toBe('unknown_method');
     expect(badMethod.staleness).toContain('2026-07-10T10:00:00.000Z');
+    expect(badMethod.definitionLocation).toEqual({ status: 'known', path: 'packages/mcp/src/test/StructuralTools.test.ts' });
     expect(badMethod.knownMethods.items).toEqual(['about', 'header', 'home']);
 
     // A known method with zero edges is a successful empty query, not an error — agents branch
@@ -319,6 +329,54 @@ describe('structural tools (cold/stale mode)', () => {
     // still cited.
     expect(edgeless.observedStaleness).toContain(observationsDoc.bootId);
     expect(edgeless.observedStaleness).toContain(observationsDoc.updatedAt);
+  });
+
+  it('taujs_who_calls_service forwards only bounded canonical definition locations from graph.json', async () => {
+    const unsafeLocations = [
+      { status: 'known', path: '/tmp/secret.ts' },
+      { status: 'known', path: '../secret.ts' },
+      { status: 'known', path: 'src/../secret.ts' },
+      { status: 'known', path: 'C:\\secret.ts' },
+      { status: 'known' },
+      { status: 'other', path: 'src/services/catalog.ts' },
+    ];
+
+    for (const [index, definitionLocation] of unsafeLocations.entries()) {
+      const unsafeRoot = await mkdtemp(path.join(scratch, `unsafe-definition-${index}-`));
+      const graph = createRequestGraph(config, {
+        source: 'boot',
+        emittedAt: '2026-07-10T10:00:00.000Z',
+        serviceRegistry: registry,
+        projectRoot: REPO_ROOT,
+      });
+      if (!graph.services) throw new Error('services missing from fixture graph');
+      for (const service of graph.services) (service as any).definitionLocation = definitionLocation;
+      await writeTaujsArtifact(path.join(unsafeRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+
+      for (const args of [
+        { service: 'catalog', method: 'getProduct' },
+        { service: 'catalog', method: 'missing' },
+        { service: 'content', method: 'about' },
+      ]) {
+        const result = callAt(unsafeRoot, 'taujs_who_calls_service', args);
+        expect(result.definitionLocation).toBeUndefined();
+      }
+    }
+
+    const unknownRoot = await mkdtemp(path.join(scratch, 'unknown-definition-'));
+    const unknownGraph = createRequestGraph(config, {
+      source: 'boot',
+      emittedAt: '2026-07-10T10:00:00.000Z',
+      serviceRegistry: registry,
+      projectRoot: REPO_ROOT,
+    });
+    const catalogService = unknownGraph.services?.find((service) => service.name === 'catalog');
+    if (!catalogService) throw new Error('catalog service missing from fixture graph');
+    (catalogService as any).definitionLocation = { status: 'unknown', path: '/must-not-leak', extra: 'discard me' };
+    await writeTaujsArtifact(path.join(unknownRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(unknownGraph));
+
+    const unknown = callAt(unknownRoot, 'taujs_who_calls_service', { service: 'catalog', method: 'getProduct' });
+    expect(unknown.definitionLocation).toEqual({ status: 'unknown' });
   });
 
   it('taujs_who_calls_service returns dangling edges on unresolved identifiers instead of hiding them', () => {

@@ -6,7 +6,7 @@ import { UNTRUSTED_NOTE, bounded, defineTool, withGraph } from '../toolkit';
 import { renderStrategyCitation } from './contracts';
 
 import type { GraphContext, ToolDefinition, ToolResult } from '../toolkit';
-import type { GraphRoute, GraphRouteData } from '../types';
+import type { GraphDefinitionLocation, GraphRoute, GraphRouteData } from '../types';
 
 const DEFAULT_LIST_LIMIT = 20;
 const COMPARE_DEFAULT_LIMIT = 50;
@@ -88,6 +88,30 @@ const routeMiss = (ctx: GraphContext): ToolResult => ({
   ),
 });
 
+const definitionLocationForTool = (value: unknown): GraphDefinitionLocation | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+
+  const location = value as { status?: unknown; path?: unknown };
+  if (location.status === 'unknown') return { status: 'unknown' };
+  if (location.status !== 'known' || typeof location.path !== 'string') return undefined;
+
+  // graph.json is application-controlled input. Only forward the emitter's canonical relative
+  // shape; reconstructing the object also prevents unexpected fields from crossing the tool
+  // boundary. Check both separator forms so a graph edited on another platform cannot smuggle an
+  // absolute or parent-relative path through this host's path semantics.
+  if (
+    location.path.length === 0 ||
+    location.path.includes('\\') ||
+    location.path.startsWith('/') ||
+    /^[A-Za-z]:/.test(location.path) ||
+    location.path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
+  ) {
+    return undefined;
+  }
+
+  return { status: 'known', path: location.path };
+};
+
 export const structuralTools = (root: string): ToolDefinition[] => [
   defineTool({
     name: 'taujs_overview',
@@ -167,7 +191,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
   defineTool({
     name: 'taujs_who_calls_service',
     title: 'Who calls a service',
-    description: `Route → service edges for a service (optionally one method). Each edge is labelled declared (from config: a serviceData edge, a deferred entry or a head edge), observed (seen in dev traffic through a τjs page route - absence means "not exercised yet", never "no relationship"), or hostObserved (a Fastify route the application registered itself, seen calling this service through the registry in dev traffic - reported separately so it is never mistaken for a declared edge). A known service with zero edges is a successful empty result, not an error. ${UNTRUSTED_NOTE}`,
+    description: `Definition location and route → service edges for a service (optionally one method). When this graph contains definitionLocation, it is the project-relative file where defineService was evaluated; status unknown means capture was attempted but no bounded path was available. Older graphs may omit the field, and malformed locations are omitted. It is never a guessed source path. Each edge is labelled declared (from config: a serviceData edge, a deferred entry or a head edge), observed (seen in dev traffic through a τjs page route - absence means "not exercised yet", never "no relationship"), or hostObserved (a Fastify route the application registered itself, seen calling this service through the registry in dev traffic - reported separately so it is never mistaken for a declared edge). A known service with zero edges is a successful empty result, not an error. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({
       service: z.string().describe('Service name, e.g. "catalog"'),
       method: z.string().optional().describe('Method name, e.g. "getProduct"'),
@@ -267,12 +291,14 @@ export const structuralTools = (root: string): ToolDefinition[] => [
             };
           }
           if (method && !svc.methods.some((m) => m.name === method)) {
+            const definitionLocation = definitionLocationForTool(svc.definitionLocation);
             return {
               ok: false,
               reason: 'unknown_method',
               ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
               ...observedStaleness,
               message: `Service "${service}" has no method "${method}".`,
+              ...(definitionLocation ? { definitionLocation } : {}),
               knownMethods: bounded(
                 svc.methods.map((m) => m.name),
                 DEFAULT_LIST_LIMIT,
@@ -288,10 +314,12 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           // Registry present and the identifier resolved above: a successful empty result —
           // agents branch hard on `ok`, and this is "the answer is none", not "I asked wrong".
           if (ctx.graph.services) {
+            const definitionLocation = definitionLocationForTool(ctx.graph.services.find((candidate) => candidate.name === service)?.definitionLocation);
             return {
               ok: true,
               ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
               ...observedStaleness,
+              ...(definitionLocation ? { definitionLocation } : {}),
               edges: [],
               hostObserved: [],
               note: emptyNote,
@@ -317,10 +345,12 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           };
         }
 
+        const definitionLocation = definitionLocationForTool(ctx.graph.services?.find((candidate) => candidate.name === service)?.definitionLocation);
         return {
           ok: true,
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
           ...observedStaleness,
+          ...(definitionLocation ? { definitionLocation } : {}),
           note: 'declared = from config (a serviceData edge, a deferred entry or a head edge); observed = seen in dev traffic through a τjs page route, never complete truth; hostObserved = seen in dev traffic through a Fastify route the application registered itself, reported separately so it is never mistaken for a declared edge. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution.',
           edges: [...declared, ...observed],
           hostObserved,
