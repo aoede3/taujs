@@ -1,5 +1,11 @@
 # @taujs/mcp
 
+## 0.10.0
+
+### Minor Changes
+
+- [#175](https://github.com/aoede3/taujs/pull/175) [`84dce5d`](https://github.com/aoede3/taujs/commit/84dce5d85f0424682b00618a65089b08caaa1742) Thanks [@aoede3](https://github.com/aoede3)! - Return service definition provenance from `taujs_who_calls_service` when the installed server graph provides it.
+
 ## 0.9.0
 
 ### Minor Changes
