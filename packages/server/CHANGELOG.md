@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.39.2
+
+### Patch Changes
+
+- [#173](https://github.com/aoede3/taujs/pull/173) [`97fb37e`](https://github.com/aoede3/taujs/commit/97fb37ec4d7fe661188f949476b62872e6459ab7) Thanks [@aoede3](https://github.com/aoede3)! - Document the public service context, deadline helper, service definitions and AppError factories in the packed declarations.
+
 ## 0.39.1
 
 ### Patch Changes
