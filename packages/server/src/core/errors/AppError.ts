@@ -1,3 +1,7 @@
+/**
+ * Stable application-error categories. Their default HTTP statuses are respectively 500, 502,
+ * 404, 400, 403, 499 and 504; an {@link AppError} may explicitly override its status.
+ */
 export type ErrorKind = 'infra' | 'upstream' | 'domain' | 'validation' | 'auth' | 'canceled' | 'timeout';
 
 const HTTP_STATUS: Record<ErrorKind, number> = {
@@ -16,12 +20,17 @@ const HTTP_STATUS: Record<ErrorKind, number> = {
 // (404s) into 500s at the callServiceMethod boundary.
 const APP_ERROR_BRAND = Symbol.for('taujs.AppError');
 
+/**
+ * An error with a stable {@link ErrorKind}, HTTP status and client-safe message. Domain,
+ * validation and auth messages are safe by default; other kinds default to a generic message.
+ */
 export class AppError extends Error {
   readonly kind: ErrorKind;
   readonly httpStatus: number;
   readonly details?: unknown;
   readonly safeMessage: string;
   readonly code?: string;
+  /** Creates an error, optionally overriding its status or safe message and attaching details, a cause or code. */
   constructor(
     message: string,
     kind: ErrorKind,
@@ -99,38 +108,47 @@ export class AppError extends Error {
     };
   }
 
+  /** Creates a `domain` error with HTTP status 404. */
   static notFound(message: string, details?: unknown, code?: string) {
     return new AppError(message, 'domain', { httpStatus: 404, details, code });
   }
 
+  /** Creates an `auth` error with HTTP status 403. */
   static forbidden(message: string, details?: unknown, code?: string) {
     return new AppError(message, 'auth', { httpStatus: 403, details, code });
   }
 
+  /** Creates a `validation` error with HTTP status 400. */
   static badRequest(message: string, details?: unknown, code?: string) {
     return new AppError(message, 'validation', { httpStatus: 400, details, code });
   }
 
+  /** Creates a `validation` error with HTTP status 422. */
   static unprocessable(message: string, details?: unknown, code?: string) {
     return new AppError(message, 'validation', { httpStatus: 422, details, code });
   }
 
+  /** Creates a `timeout` error with HTTP status 504. */
   static timeout(message: string, details?: unknown, code?: string) {
     return new AppError(message, 'timeout', { details, code });
   }
 
+  /** Creates a `canceled` error with HTTP status 499. */
   static canceled(message: string, details?: unknown, code?: string) {
     return new AppError(message, 'canceled', { details, code });
   }
 
+  /** Creates an `infra` error with HTTP status 500 and retains the optional cause. */
   static internal(message: string, cause?: unknown, details?: unknown, code?: string) {
     return new AppError(message, 'infra', { cause, details, code });
   }
 
+  /** Creates an `upstream` error with HTTP status 502 and retains the optional cause. */
   static upstream(message: string, cause?: unknown, details?: unknown, code?: string) {
     return new AppError(message, 'upstream', { cause, details, code });
   }
 
+  /** Creates an `infra` error with HTTP status 503 and retains the optional cause. */
   static serviceUnavailable(message: string, cause?: unknown, details?: unknown, code?: string) {
     return new AppError(message, 'infra', { httpStatus: 503, cause, details, code });
   }
@@ -144,6 +162,7 @@ export class AppError extends Error {
     return value instanceof AppError || (typeof value === 'object' && value !== null && (value as Record<PropertyKey, unknown>)[APP_ERROR_BRAND] === true);
   }
 
+  /** Returns an existing `AppError`, or wraps another value as an `infra` error with that value as its cause. */
   static from(err: unknown, fallback = 'Internal error'): AppError {
     return AppError.isAppError(err) ? err : AppError.internal((err as any)?.message ?? fallback, err);
   }

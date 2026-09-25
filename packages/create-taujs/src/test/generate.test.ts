@@ -39,6 +39,14 @@ describe('planFiles — React golden', () => {
   });
 });
 
+describe('generated service context', () => {
+  it.each(FRAMEWORKS)('%s exposes request cancellation on the example handler context', (framework) => {
+    const service = fileMap(framework)['src/server/services/example.service.ts'];
+    expect(service).toContain('async greet(params: { name: string }, ctx)');
+    expect(service).toContain('When present, ctx.signal carries request cancellation to operations that honour AbortSignal.');
+  });
+});
+
 describe('planFiles — Vue template', () => {
   const vue = fileMap('vue');
   const paths = Object.keys(vue);
