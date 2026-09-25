@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.40.0
+
+### Minor Changes
+
+- [#175](https://github.com/aoede3/taujs/pull/175) [`84dce5d`](https://github.com/aoede3/taujs/commit/84dce5d85f0424682b00618a65089b08caaa1742) Thanks [@aoede3](https://github.com/aoede3)! - Emit an honest project-relative `definitionLocation` for services defined with `defineService`, with explicit unknown provenance when no bounded location is available.
+
 ## 0.39.2
 
 ### Patch Changes
