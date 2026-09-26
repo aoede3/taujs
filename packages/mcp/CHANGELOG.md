@@ -1,5 +1,12 @@
 # @taujs/mcp
 
+## 0.10.1
+
+### Patch Changes
+
+- [#177](https://github.com/aoede3/taujs/pull/177) [`93502c3`](https://github.com/aoede3/taujs/commit/93502c3d10204f94a0f0425c936605d87bd3779e) Thanks [@aoede3](https://github.com/aoede3)! - Recognise `@taujs/html` as a contract owner and report an installed HTML package without contract
+  assets through the existing typed refusal path.
+
 ## 0.10.0
 
 ### Minor Changes

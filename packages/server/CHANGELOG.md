@@ -1,5 +1,13 @@
 # @taujs/server
 
+## 0.40.1
+
+### Patch Changes
+
+- [#177](https://github.com/aoede3/taujs/pull/177) [`93502c3`](https://github.com/aoede3/taujs/commit/93502c3d10204f94a0f0425c936605d87bd3779e) Thanks [@aoede3](https://github.com/aoede3)! - Ship request-identity and render-module contracts, add checked source citations, and correct the
+  request-id error wording to distinguish Fastify's string contract from τjs's defensive runtime
+  handling.
+
 ## 0.40.0
 
 ### Minor Changes
