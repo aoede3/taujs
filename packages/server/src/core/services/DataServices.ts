@@ -272,8 +272,9 @@ export async function callServiceMethod(
 
   const baseLogger = resolveLogs(ctx.logger);
 
-  // SC-09: `reqId` means the CURRENT Fastify request, in its native type, and arrives through the
-  // request-logger lineage - rebinding it here would stringify a numeric host identity and fork
+  // contract: server:request-identity#ruling-8-public-identity-names-use-request-vocabulary
+  // `reqId` means the CURRENT Fastify request, in its native type, and arrives through the
+  // request-logger lineage. Rebinding it here would stringify a numeric host identity and fork
   // the meaning. A logger without that lineage simply carries no request identity; the episode
   // relationship is the recorder's (`serviceCall({ requestId })` below), not this child's.
   const logger = baseLogger.child({

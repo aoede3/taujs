@@ -62,7 +62,7 @@ export const contractTools = (root: string): ToolDefinition[] => [
   defineTool({
     name: 'taujs_find_contract',
     title: 'Find a τjs contract',
-    description: `Version-locked contract lookup from the installed τjs packages. Without an id: a bounded catalogue of available contracts. With an exact id: that contract's body and citation, served only when the installed owner version is coherent with the emitted graph. No topic search - retrieval requires the exact id from the catalogue. ${UNTRUSTED_NOTE}`,
+    description: `Version-locked contract lookup from the installed τjs packages. Without an id: a bounded catalogue of available contracts. With an exact id: that contract's body and citation for the installed owner version. For @taujs/server, retrieval also requires its installed version to match the emitted graph; the graph does not carry renderer-package versions. No topic search - retrieval requires the exact id from the catalogue. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({
       id: z.string().max(200).optional().describe('Exact contract id from the catalogue, e.g. "server:render-strategies"'),
     }),

@@ -209,7 +209,8 @@ export const createDeferredData = <Params extends RouteParams, R extends Service
           if (!snapshot.ok || !isPlainRecord(snapshot.value)) {
             // Operator visibility: payload-free, key only. The episode explains the outcome; this
             // explains why a RESOLVED loader became `failed`. ctx.logger is the request child, so
-            // the canonical `reqId` arrives through its lineage - never rebound here (SC-09).
+            // the canonical `reqId` arrives through its lineage - never rebound here
+            // (contract: server:request-identity#ruling-8-public-identity-names-use-request-vocabulary).
             try {
               ctx.logger?.warn({ key }, 'Deferred data could not cross the hydration boundary');
             } catch {}

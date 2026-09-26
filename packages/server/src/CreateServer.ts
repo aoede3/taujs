@@ -126,7 +126,8 @@ export const createServer = async (opts: CreateServerOptions): Promise<CreateSer
   // `routePolicy` branch after `verifyContracts` below).
   const routePolicy = validateRoutePolicy(opts.config);
 
-  // SC-09 ruling 4: on a τjs-created host, request identity aligns at Fastify construction - the
+  // contract: server:request-identity#ruling-4-created-hosts-validate-header-adoption
+  // on a τjs-created host, request identity aligns at Fastify construction - the
   // one place τjs legitimately owns that policy. A single valid inbound `x-request-id` becomes
   // `req.id`; anything else gets a UUID (repeated headers arrive as an array and fail the string
   // guard). `requestIdHeader` must stay unset: on Fastify 5.10 it short-circuits `genReqId` and

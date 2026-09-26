@@ -38,7 +38,8 @@ const captureLogger = (bindings: Record<string, unknown> = {}): BaseLogger => ({
   },
 });
 
-// SC-09 "supplied host, valid inbound header, host ignores it": this caller's genReqId returns a
+// contract: server:request-identity#ruling-5-caller-owned-hosts-control-header-adoption
+// "Supplied host, valid inbound header, host ignores it": this caller's genReqId returns a
 // fixed value, so the host req.id must be the identity everywhere and the header must not be
 // adopted or echoed on its behalf.
 const inboundHeader = 'fallthrough-inbound-header';

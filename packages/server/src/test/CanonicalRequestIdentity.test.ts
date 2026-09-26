@@ -1,6 +1,8 @@
 // @vitest-environment node
 //
-// SC-09 frozen identity matrix. Fastify `req.id` is the canonical request-correlation identity in
+// contract: server:request-identity#ruling-1-fastify-request-id-is-canonical
+// contract: server:request-identity#ruling-4-created-hosts-validate-header-adoption
+// Fastify `req.id` is the canonical request-correlation identity in
 // both host modes; τjs adopts `String(req.id)` everywhere it names a request and never
 // reinterprets an inbound `x-request-id` after Fastify has created the request. Header adoption is
 // a construction-time decision: τjs's own validating `genReqId` on a created host, the caller's
@@ -83,7 +85,7 @@ afterEach(async () => {
   await closeAll();
 });
 
-describe('SC-09 identity matrix - τjs-created host (τjs genReqId)', () => {
+describe('identity matrix - τjs-created host (τjs genReqId); contract: server:request-identity#ruling-4-created-hosts-validate-header-adoption', () => {
   it('absent header: a generated UUID everywhere, unique per request', async () => {
     const host = await createCreatedHost();
     await host.activate(createServer);
@@ -153,7 +155,7 @@ describe('SC-09 identity matrix - τjs-created host (τjs genReqId)', () => {
   });
 });
 
-describe('SC-09 identity matrix - supplied host (caller policy)', () => {
+describe('identity matrix - supplied host (caller policy); contract: server:request-identity#ruling-5-caller-owned-hosts-control-header-adoption', () => {
   it('absent header: String(req.id) everywhere', async () => {
     const host = await createEmbeddedHost();
     await host.activate(createServer);
@@ -227,7 +229,7 @@ describe('SC-09 identity matrix - supplied host (caller policy)', () => {
     expect(host.logs.some((record) => (record.meta as Record<string, unknown>).reqId === CALLER_REQUEST_ID)).toBe(true);
   });
 
-  it('a numeric req.id keeps its native type in EVERY identity-bearing record, service dispatch included', async () => {
+  it('a runtime numeric req.id after the Fastify type escape keeps its native type in EVERY identity-bearing record, service dispatch included', async () => {
     const host = await createNumericRequestIdHost();
     const baseConfig = taujsConfig();
     const baseApp = baseConfig.apps[0]!;
@@ -254,8 +256,10 @@ describe('SC-09 identity matrix - supplied host (caller policy)', () => {
       clientRoot: host.clientRoot,
       logger: captureLogger(host.logs),
       debug: ['ssr'],
-      // The failure path logs through the service-dispatch child at warn, so a service-call
-      // record reliably reaches the sink regardless of debug admission.
+      // Fastify's public type requires a string; this fixture deliberately escapes that type to
+      // pin τjs's defensive handling of a numeric runtime value. The failure path logs through
+      // the service-dispatch child at warn, so a service-call record reliably reaches the sink
+      // regardless of debug admission.
       serviceRegistry: {
         catalogue: {
           load: async () => {

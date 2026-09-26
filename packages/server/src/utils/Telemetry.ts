@@ -42,16 +42,19 @@ export function createRequestContext<L extends Logs>(
   baseLogger: L,
   deriveLogger?: (bindings: Record<string, unknown>) => L,
 ): RequestContext<L> {
-  // SC-09: Fastify owns request identity. τjs adopts String(req.id) and never reinterprets an
+  // contract: server:request-identity#ruling-1-fastify-request-id-is-canonical
+  // contract: server:request-identity#ruling-3-inbound-headers-are-not-reinterpreted-after-construction
+  // Fastify owns request identity. τjs adopts String(req.id) and never reinterprets an
   // inbound correlation header after Fastify has created the request - header adoption is a
   // construction-time decision (`genReqId`), τjs's own on a created host, the caller's on a
-  // supplied one. Fastify guarantees a request ID, and `genReqId` may legitimately return a
-  // number - an incrementing counter is a common choice - so both primitive shapes are usable
-  // identity. Anything else is a host violating that contract: fail explicitly rather than
-  // silently inventing a parallel identity that could never match the host's own records.
+  // supplied one. Fastify 5.10.0's public type requires a string. Its runtime passes through a
+  // numeric custom-generator result despite that type; τjs tolerates that value defensively and
+  // stringifies it for correlation. Reject other shapes rather than inventing a parallel identity.
   const hostId = (req as { id?: unknown }).id;
   if (typeof hostId !== 'string' && typeof hostId !== 'number') {
-    throw new TypeError(`SC-09: Fastify guarantees a string or number req.id; received ${hostId === null ? 'null' : typeof hostId}`);
+    throw new TypeError(
+      `Fastify req.id must be a string; τjs also accepts a numeric runtime value; received ${hostId === null ? 'null' : typeof hostId} (contract server:request-identity#ruling-1-fastify-request-id-is-canonical)`,
+    );
   }
   const requestId = String(hostId);
 
