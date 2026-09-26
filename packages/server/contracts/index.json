@@ -8,6 +8,20 @@
       "doc": "render-strategies.md",
       "appliesTo": ["route attr.render", "render.defaulted", "streaming.missing_meta"],
       "related": []
+    },
+    {
+      "id": "server:request-identity",
+      "title": "Request identity",
+      "doc": "request-identity.md",
+      "appliesTo": ["x-request-id", "reqId", "genReqId", "episode key"],
+      "related": []
+    },
+    {
+      "id": "server:render-module",
+      "title": "Render module boundary",
+      "doc": "render-module.md",
+      "appliesTo": ["RenderModule", "RenderSSR", "RenderStream", "RenderCallbacks", "RenderStreamHandle"],
+      "related": ["server:render-strategies"]
     }
   ]
 }

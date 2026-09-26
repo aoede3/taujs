@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-export const CONTRACT_OWNERS = ['@taujs/server', '@taujs/react', '@taujs/vue', '@taujs/solid'] as const;
+export const CONTRACT_OWNERS = ['@taujs/server', '@taujs/react', '@taujs/vue', '@taujs/solid', '@taujs/html'] as const;
 export type ContractOwner = (typeof CONTRACT_OWNERS)[number];
 
 // The id prefix an owner's contracts must carry: '@taujs/server' -> 'server:'.

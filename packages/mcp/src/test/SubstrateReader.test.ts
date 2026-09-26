@@ -224,7 +224,7 @@ describe('readEpisodes', () => {
     }
   };
 
-  it('never reads a legacy traces.ndjson: only the episodes artefact is current-boot evidence (SC-09 rename migration)', async () => {
+  it('never reads a legacy traces.ndjson: only episodes are current-boot evidence; contract: server:request-identity#ruling-9-request-observations-use-episode-vocabulary', async () => {
     const root = await mkRoot();
     await emitGraph(root);
     await emitDevJson(root);

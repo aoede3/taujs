@@ -50,7 +50,8 @@ vi.mock('vite', async (importOriginal) => {
   };
 });
 
-// Wrapped, never replaced (same convention as the Vite mock): the SC-09 recorder-key evidence
+// Wrapped, never replaced (same convention as the Vite mock): the recorder-key evidence
+// (`contract: server:request-identity#ruling-2-the-episode-key-is-the-textual-request-id`)
 // needs the LIVE introspection instance a real development boot creates, because the caller-owned
 // scope decoration is not visible from the root app.
 vi.mock('../core/introspection/DevIntrospection', async (importOriginal) => {
@@ -181,7 +182,8 @@ describe('RFC 0010 - caller-owned development host', () => {
       expect(page.status).toBe(200);
       expect(page.body).toContain(OWNER.taujsPage);
 
-      // SC-09 recorder-key evidence, supplied-host leg: the live introspection instance holds an
+      // contract: server:request-identity#ruling-2-the-episode-key-is-the-textual-request-id
+      // Supplied-host leg: the live introspection instance holds an
       // episode keyed by exactly the response's canonical x-request-id.
       const introspection = introspectionInstrument.instances.at(-1) as { findEpisode: (id: string) => { url: { pathname: string } } | undefined };
       expect(introspection).toBeTruthy();
@@ -198,7 +200,7 @@ describe('RFC 0010 - caller-owned development host', () => {
   }, 30_000);
 });
 
-describe('SC-09 - τjs-created development host', () => {
+describe('τjs-created development host; contract: server:request-identity#ruling-2-the-episode-key-is-the-textual-request-id', () => {
   it('adopts a valid inbound x-request-id at construction and keys the recorder episode with it', async () => {
     const { root, clientRoot } = await developmentFixture();
     const cwd = process.cwd();

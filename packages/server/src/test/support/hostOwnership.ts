@@ -225,8 +225,9 @@ type CallerHostShape = {
   adoptInboundRequestId?: boolean;
 };
 
-// SC-09 ruling 5: the documented caller recipe for adopting an inbound correlation header - a
-// validating `genReqId`, never `requestIdHeader` (which would take the header unvalidated).
+// contract: server:request-identity#ruling-5-caller-owned-hosts-control-header-adoption
+// The documented caller recipe for adopting an inbound correlation header is a validating
+// `genReqId`, never `requestIdHeader` (which would take the header unvalidated).
 const adoptingGenReqId = (rawReq: { headers: Record<string, string | string[] | undefined> }): string => {
   const incoming = rawReq.headers['x-request-id'];
 
@@ -306,15 +307,15 @@ export const createStrictHost = (): Promise<CallerHost> => buildCallerHost({ str
 export const createExplicitLoggerHost = (): Promise<CallerHost> => buildCallerHost({ explicitLogger: true });
 
 /**
- * A caller-owned host whose `genReqId` returns a number.
+ * A caller-owned host whose `genReqId` returns a number at runtime, despite Fastify's public
+ * string return type. The cast below keeps this defensive runtime leg in the integration matrix.
  *
- * τjs adopts the host's request identity so both sides' records join on one value. A string-only
- * guard used to fall through to a random UUID here, silently breaking that correlation, which is
- * exactly the case a counter-based `genReqId` produces.
+ * τjs defensively preserves the runtime value so both sides' records join on one value. A
+ * string-only guard used to fall through to a random UUID here, silently breaking that correlation.
  */
 export const createNumericRequestIdHost = (): Promise<CallerHost> => buildCallerHost({ numericRequestId: true, explicitLogger: true });
 
-/** A caller-owned host applying the SC-09 ruling-5 recipe: a validating `genReqId` adopts a single valid inbound `x-request-id`. */
+/** A caller-owned host applying the validating `genReqId` recipe (contract: server:request-identity#ruling-5-caller-owned-hosts-control-header-adoption). */
 export const createAdoptingHost = (): Promise<CallerHost> => buildCallerHost({ adoptInboundRequestId: true });
 
 /**

@@ -2,7 +2,10 @@ import type { Logs } from '../logging/types';
 import type { EpisodeRecorder } from '../introspection/EpisodeRecorder';
 
 export type RequestContext<L extends Logs = Logs> = {
-  /** Canonical request-correlation identity: always `String(req.id)` (SC-09). */
+  /**
+   * Canonical request-correlation identity: always `String(req.id)`.
+   * contract: server:request-identity#ruling-1-fastify-request-id-is-canonical
+   */
   requestId: string;
   logger: L;
   headers?: Record<string, string>;

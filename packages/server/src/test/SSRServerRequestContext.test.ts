@@ -73,7 +73,7 @@ describe('request-context hoist (P0B-01)', () => {
     expect(res.json().requestId).toBe(headerRequestId);
   });
 
-  it('an inbound x-request-id is never reinterpreted after construction: the host req.id echoes (SC-09)', async () => {
+  it('an inbound x-request-id is never reinterpreted after construction: the host req.id echoes (contract: server:request-identity#ruling-3-inbound-headers-are-not-reinterpreted-after-construction)', async () => {
     const app = await buildApp();
 
     const res = await app.inject({ method: 'GET', url: '/page', headers: { 'x-request-id': 'custom-abc-123' } });

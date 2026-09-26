@@ -185,8 +185,10 @@ export type RenderOptions = {
    * API: every promise is already started and already pre-observed by the host, a resolved entry
    * is the host's settlement snapshot (parsed JSON, no identity relationship to the loader's
    * object), and a value that could not be snapshotted arrives as a detail-free rejection. The
-   * renderer projects each named promise onto its native Suspense/resource primitive and starts
-   * nothing.
+   * renderer starts no work: framework renderers adapt each promise to their own framework-native
+   * deferred-data mechanism, while the framework-free HTML renderer observes settlement directly.
+   * See `contract: server:render-module#intentional-renderer-differences` for the renderer boundary
+   * and its intentional differences.
    */
   deferredData?: DeferredDataRegistry;
 };

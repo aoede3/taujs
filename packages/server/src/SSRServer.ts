@@ -74,7 +74,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     templateLoadFailures: maps.templateLoadFailures,
   });
 
-  // Tri-state contract: `undefined` installs the default production registration, explicit
+  // Tri-state rule: `undefined` installs the default production registration, explicit
   // `false` installs no static plugin (CDN-owned assets), and a registration object/array is
   // honoured below. `=== undefined` keeps `false` out of this branch.
   if (!isDevelopment && opts.staticAssets === undefined) {

@@ -268,7 +268,7 @@ describe('overlay endpoint contracts', () => {
     expect(limited.json().bootId).toBe(introspection.bootId);
   });
 
-  it('the legacy /__taujs/traces endpoint is absent - deliberate namespace clearance (SC-09 rename migration)', async () => {
+  it('the legacy /__taujs/traces endpoint is absent - deliberate namespace clearance; contract: server:request-identity#ruling-9-request-observations-use-episode-vocabulary', async () => {
     const { app, introspection } = await buildApp();
     introspection.recorder.requestStart({ requestId: 'ns-1', url: '/x', method: 'GET' });
     introspection.recorder.sent({ requestId: 'ns-1', status: 200, mode: 'ssr' });
@@ -304,7 +304,8 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
 
     expect(introspection.findEpisode('episode-ok-1')!.client).toEqual({ hydrated: true, hydrationMs: 42, error: null });
 
-    // SC-09: the beacon POST is its own Fastify request; the record names the episode it updates
+    // contract: server:request-identity#ruling-8-public-identity-names-use-request-vocabulary
+    // The beacon POST is its own Fastify request; the record names the episode it updates
     // as episodeRequestId and never claims that episode's identity as `reqId`.
     const applied = logger.debug.mock.calls.find(([, message]: [unknown, string]) => message === 'Hydration beacon applied');
     expect(applied).toBeTruthy();
@@ -461,7 +462,7 @@ describe('dev files lifecycle (spec 03 §5)', () => {
     }
   });
 
-  it('removes a stale legacy traces.ndjson at boot and exposes only episodes through dev.json (SC-09 rename migration)', async () => {
+  it('removes a stale legacy traces.ndjson at boot and exposes only episodes through dev.json; contract: server:request-identity#ruling-9-request-observations-use-episode-vocabulary', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-legacy-'));
     const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
 

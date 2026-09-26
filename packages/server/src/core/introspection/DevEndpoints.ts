@@ -181,7 +181,8 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
     if (episode.client) return reply.code(409).send({ error: 'duplicate_beacon' });
 
     introspection.recorder.clientHydration({ requestId, ok, ms, error: typeof error === 'string' ? error.slice(0, BEACON_ERROR_CAP) : undefined });
-    // SC-09: `reqId` means the current Fastify request - here that is the beacon POST, not the
+    // contract: server:request-identity#ruling-8-public-identity-names-use-request-vocabulary
+    // `reqId` means the current Fastify request - here that is the beacon POST, not the
     // page episode this beacon updates. The updated episode is named explicitly instead.
     logger.debug?.({ component: 'introspection', episodeRequestId: requestId }, 'Hydration beacon applied');
 

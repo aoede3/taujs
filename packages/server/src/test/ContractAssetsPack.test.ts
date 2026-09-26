@@ -2,8 +2,8 @@
 //
 // RFC 0015 Phase B V1: the packed proof that contract assets SHIP. `files` alone is a claim;
 // this cell packs @taujs/server for real and asserts the published artefact carries
-// contracts/index.json (parsing, schemaVersion 1, the render-strategies entry) and the document
-// it names. Pack mechanics mirror PackedConfigComposition.test.ts.
+// contracts/index.json (parsing, schemaVersion 1, every current entry) and the documents it
+// names. Pack mechanics mirror PackedConfigComposition.test.ts.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,7 +20,7 @@ afterAll(() => {
 });
 
 describe('published contract assets', () => {
-  it('the packed tarball ships contracts/index.json and the document it names', () => {
+  it('the packed tarball ships contracts/index.json and every document it names', () => {
     const packDest = mkdtempSync(path.join(tmpdir(), 'taujs-contracts-pack-'));
     scratchDirs.push(packDest);
 
@@ -31,13 +31,14 @@ describe('published contract assets', () => {
     const listing = execFileSync('tar', ['-tzf', path.join(packDest, tarball!)], { encoding: 'utf8' });
     expect(listing).toContain('package/contracts/index.json');
     expect(listing).toContain('package/contracts/render-strategies.md');
+    expect(listing).toContain('package/contracts/request-identity.md');
+    expect(listing).toContain('package/contracts/render-module.md');
 
     execFileSync('tar', ['-xzf', path.join(packDest, tarball!), '-C', packDest, 'package/contracts/index.json'], { stdio: 'pipe' });
     const manifest = JSON.parse(readFileSync(path.join(packDest, 'package', 'contracts', 'index.json'), 'utf8'));
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.owner).toBe('@taujs/server');
-    expect(manifest.contracts.map((c: { id: string }) => c.id)).toContain('server:render-strategies');
-    const entry = manifest.contracts.find((c: { id: string }) => c.id === 'server:render-strategies');
-    expect(entry.doc).toBe('render-strategies.md');
+    expect(manifest.contracts.map((c: { id: string }) => c.id)).toEqual(['server:render-strategies', 'server:request-identity', 'server:render-module']);
+    expect(manifest.contracts.map((c: { doc: string }) => c.doc)).toEqual(['render-strategies.md', 'request-identity.md', 'render-module.md']);
   });
 });

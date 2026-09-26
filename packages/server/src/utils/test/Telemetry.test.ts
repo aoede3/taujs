@@ -34,7 +34,7 @@ describe('createRequestContext', () => {
     vi.resetAllMocks();
   });
 
-  it('adopts String(req.id) and never reinterprets an inbound x-request-id (SC-09)', () => {
+  it('adopts String(req.id) and never reinterprets an inbound x-request-id; contract: server:request-identity#ruling-3-inbound-headers-are-not-reinterpreted-after-construction', () => {
     const req: Req = {
       headers: { 'x-request-id': 'abc-123', host: 'localhost' },
       id: 'host-77',
@@ -89,14 +89,16 @@ describe('createRequestContext', () => {
     expect(reply.header).toHaveBeenCalledWith('x-request-id', '7');
   });
 
-  it('fails explicitly when a host violates the Fastify req.id contract - no parallel identity is invented', () => {
+  it('fails explicitly on req.id values outside Fastify string and τjs runtime-tolerated numeric shapes; contract: server:request-identity#ruling-1-fastify-request-id-is-canonical', () => {
     const req: Req = {
       headers: { host: 'example.test' },
       method: 'PUT',
       url: '/gen',
     };
 
-    expect(() => createRequestContext(req as any, reply as any, baseLogger)).toThrow(/SC-09: Fastify guarantees a string or number req\.id/);
+    expect(() => createRequestContext(req as any, reply as any, baseLogger)).toThrow(
+      /Fastify req\.id must be a string; τjs also accepts a numeric runtime value; received undefined \(contract server:request-identity#ruling-1-fastify-request-id-is-canonical\)/,
+    );
     expect(headerSpy).not.toHaveBeenCalled();
   });
 

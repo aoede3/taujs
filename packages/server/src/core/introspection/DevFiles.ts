@@ -80,7 +80,8 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
     const address = this.server.address() as AddressInfo | null;
 
     bootWork = (async () => {
-      // SC-09 episode rename migration: a developer may still hold a legacy traces.ndjson written by
+      // contract: server:request-identity#ruling-9-request-observations-use-episode-vocabulary
+      // A developer may still hold a legacy traces.ndjson written by
       // an earlier boot. A current boot exposes only episodes.ndjson through dev.json, and the
       // obsolete generated file is removed explicitly so a stale legacy artefact can never be
       // mistaken for current-boot evidence. Non-fatal like every other dev-file write.

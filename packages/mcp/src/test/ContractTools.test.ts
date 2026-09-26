@@ -155,6 +155,27 @@ describe('taujs_find_contract - catalogue and exact-id retrieval', () => {
     expect(result).toMatchObject({ ok: false, reason: 'contract_unavailable', owner: '@taujs/server', cause: 'contracts_missing' });
   });
 
+  it('@taujs/html without contracts is named in the catalogue and exact-id lookup refuses', async () => {
+    const root = await mkFixture();
+    const htmlDir = path.join(root, 'node_modules', '@taujs', 'html');
+    await mkdir(htmlDir, { recursive: true });
+    await writeFile(path.join(htmlDir, 'package.json'), JSON.stringify({ name: '@taujs/html', version: '0.1.0' }));
+
+    const exact = call(root, 'taujs_find_contract', { id: 'html:render-module' });
+    expect(exact).toMatchObject({ ok: false, reason: 'contract_unavailable', owner: '@taujs/html', cause: 'contracts_missing' });
+    expect(exact.contract).toBeUndefined();
+
+    const catalogue = call(root, 'taujs_find_contract');
+    expect(catalogue.ok).toBe(true);
+    expect(catalogue.unavailableOwners).toEqual([
+      expect.objectContaining({
+        owner: '@taujs/html',
+        reason: 'contracts_missing',
+        detail: expect.stringContaining('installed @taujs/html@0.1.0 ships no contracts/'),
+      }),
+    ]);
+  });
+
   it('a manifest schema skew refuses contract_unavailable and is named in the catalogue answer', async () => {
     const root = await mkFixture({ manifest: { ...GOOD_MANIFEST, schemaVersion: 2 } });
     const retrieval = call(root, 'taujs_find_contract', { id: 'server:render-strategies' });

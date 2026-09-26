@@ -4,8 +4,9 @@ description: How Fastify dispatch, application contracts, renderers and build-ti
 ---
 
 τjs is an application-response orchestration layer built on Fastify and Vite. It coordinates the
-work needed to turn a declared application route into HTML, then hands framework-specific rendering
-to React, Vue or Solid.
+work needed to turn a declared application route into HTML, then hands rendering to the renderer
+selected by that application. Framework renderers are available for React, Vue and Solid; the
+framework-free `@taujs/html` renderer lets an application provide its own HTML fragments.
 
 Its central boundary is straightforward:
 
@@ -21,7 +22,7 @@ becoming a replacement HTTP server or a client-side application framework.
 | --- | --- | --- |
 | Fastify host | HTTP route dispatch and lifecycle mechanics, listening, shutdown and host routes | Application rendering decisions |
 | τjs application scope | Declared page routes, policy, response-owned data, rendering strategy and response episodes | Caller routes or component-local work |
-| Renderer package | Framework SSR, streaming, hydration and framework-native Suspense integration | Route discovery, service selection or host policy |
+| Renderer package | SSR and streaming; framework renderers also provide framework hydration and native async integration | Route discovery, service selection or host hydration policy |
 | Application UI | Components, client routing, interaction, mutations and UI-local async work | Host routing or τjs response-owned work |
 
 When τjs creates Fastify, its application scope is the root and its defaults can cover the whole
@@ -57,7 +58,7 @@ decodes its parameters; there is no second τjs matcher inside a catch-all handl
 └───────────────────────┘
            │
            ▼
-   React • Vue • Solid
+   React • Vue • Solid • HTML
            │
            ▼
       HTML response
@@ -93,9 +94,10 @@ asked to govern from work the application owns locally.
 | Component or client fetch | Starts from the UI or after hydration | Outside the τjs request contract |
 
 Deferred data preserves the declaration boundary while allowing progressive delivery. The loader is
-known before rendering, starts once per request and reaches the selected framework through its
-native Suspense mechanism. The frameworks differ in their rendering primitives, but the host
-contract remains the same.
+known before rendering and starts once per request. React, Vue and Solid adapt its promise to their
+native async rendering primitives. The framework-free HTML renderer observes settlement directly
+and waits for it or its deadline before finalising the document. The host declaration and outcome
+contract remain the same while delivery follows each renderer's capabilities.
 
 Deferred outcomes are not HTTP statuses. A deferred value may settle after headers have committed,
 so work that must prevent or redirect the response belongs in a pre-commit request phase. See
@@ -142,13 +144,16 @@ application, one renderer root and one request-owned data scope.
 Within that boundary:
 
 - routes choose SSR or streaming and whether to hydrate;
-- the renderer package owns framework compilation and server rendering;
+- the renderer package owns server rendering, with framework compilation where applicable;
 - the application owns its component tree and client router;
 - services and policy can remain renderer-neutral.
 
-Moving a URL area from React to Vue or Solid means moving it to an application that declares that
-renderer. It does not mean switching frameworks halfway through one response. See
-[Incremental Migration](/guides/incremental-migration) for the practical boundary.
+Moving a URL area from React to Vue, Solid or the framework-free HTML renderer means moving it to an
+application that declares that renderer. It does not mean switching renderers halfway through one
+response. See [Incremental Migration](/guides/incremental-migration) for the practical boundary.
+
+The exact versioned host-renderer obligations ship with `@taujs/server` as contract
+`server:render-module`; τjs agent tooling retrieves that contract from the installed package.
 
 ## Build-time multi-app composition
 
@@ -192,7 +197,8 @@ Ownership continues through failure handling:
 
 - Fastify owns malformed requests and host-route failures;
 - τjs owns errors raised while producing a τjs response;
-- renderers own framework rendering and hydration failures;
+- renderers surface server-rendering failures through the renderer boundary; client framework
+  runtimes own their post-hydration failures, where applicable;
 - deferred work is classified once as `complete`, `failed` or `aborted`;
 - response-owned work is released when the response finishes or the client disconnects.
 

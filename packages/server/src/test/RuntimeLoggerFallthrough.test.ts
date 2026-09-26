@@ -50,7 +50,8 @@ describe('runtime logger fallthrough (real development server)', () => {
     const evidence = JSON.parse(line!.slice(RESULT_PREFIX.length));
     expect(evidence).toMatchObject({
       status: 200,
-      // SC-09: the caller's genReqId ignored the inbound header, so the host req.id is the
+      // contract: server:request-identity#ruling-5-caller-owned-hosts-control-header-adoption
+      // the caller's genReqId ignored the inbound header, so the host req.id is the
       // identity everywhere - τjs neither adopts nor echoes the header on the host's behalf.
       responseRequestId: 'fallthrough-fastify-request',
       recordCount: 1,
