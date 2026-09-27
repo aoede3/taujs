@@ -1,5 +1,11 @@
 # @taujs/mcp
 
+## 0.10.2
+
+### Patch Changes
+
+- [#179](https://github.com/aoede3/taujs/pull/179) [`7a71d7b`](https://github.com/aoede3/taujs/commit/7a71d7b0a61c00ba17ecd3d4eee2ea63c68c4486) Thanks [@aoede3](https://github.com/aoede3)! - Point streaming route explanations and full episode answers at the exact server contract sections that govern those facts.
+
 ## 0.10.1
 
 ### Patch Changes
