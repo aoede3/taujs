@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -778,10 +778,21 @@ describe('structural tools (cold/stale mode)', () => {
     expect(result.ok).toBe(true);
     const explanation = result.explanations[0];
     expect(explanation.render.strategy).toBe('streaming');
+    expect(explanation.render.renderModuleContractRef).toBe('server:render-module#streaming-callback-and-terminal-rules');
     expect(explanation.data.schema).toMatchObject({ name: 'getProduct', params: { declared: true, kind: 'parse' } });
     expect(explanation.middleware.auth.declared).toBe(false);
     // head edge, mirrors data (decisions.md 2026-08-27): the route's declared head edge shows.
     expect(explanation.head).toEqual({ data: { kind: 'service', service: 'catalog', method: 'getProduct' } });
+  });
+
+  it('the two automatic contract references name headings that exist', async () => {
+    const [renderModule, requestIdentity] = await Promise.all([
+      readFile(path.join(REPO_ROOT, 'packages/server/contracts/render-module.md'), 'utf8'),
+      readFile(path.join(REPO_ROOT, 'packages/server/contracts/request-identity.md'), 'utf8'),
+    ]);
+
+    expect(renderModule).toContain('## Streaming callback and terminal rules');
+    expect(requestIdentity).toContain('### Ruling 2: The episode key is the textual request ID');
   });
 });
 

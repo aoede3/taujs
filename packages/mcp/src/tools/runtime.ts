@@ -140,7 +140,15 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
               };
         }
 
-        return { ok: true, bootId: discovery.devJson.bootId, membership: 'in_episode_ring', episode };
+        return {
+          ok: true,
+          bootId: discovery.devJson.bootId,
+          membership: 'in_episode_ring',
+          episode: {
+            ...episode,
+            requestIdContractRef: 'server:request-identity#ruling-2-the-episode-key-is-the-textual-request-id',
+          },
+        };
       }),
   }),
   defineTool({
