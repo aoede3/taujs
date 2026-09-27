@@ -465,6 +465,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
                 ...route.render,
                 note: route.render.defaulted ? 'render was not declared; runtime default ssr applies' : undefined,
                 ...(citation ? { contract: citation } : {}),
+                ...(route.render.strategy === 'streaming' ? { renderModuleContractRef: 'server:render-module#streaming-callback-and-terminal-rules' } : {}),
               },
               hydrate: route.hydrate,
               specificity: route.specificity,

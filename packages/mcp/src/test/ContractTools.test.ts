@@ -103,6 +103,12 @@ const call = (root: string, name: string, args: Record<string, unknown> = {}): a
 };
 
 describe('taujs_find_contract - catalogue and exact-id retrieval', () => {
+  it('tells agents to use a returned contract reference without listing the catalogue first', () => {
+    const tool = allTools('/unused').find((candidate) => candidate.name === 'taujs_find_contract');
+
+    expect(tool?.description).toContain('pass the part before # as id directly, without listing the catalogue first');
+  });
+
   it('with no id returns the bounded catalogue with owner versions; retrieval needs the exact id', async () => {
     const root = await mkFixture();
     const result = call(root, 'taujs_find_contract');
