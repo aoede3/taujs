@@ -119,9 +119,9 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
         const episode = read.records.find((t) => t.requestId === requestId);
 
         if (!episode) {
-          // Absence NAMES ITS SCOPE. A bounded ring cannot prove an episode never existed, only
-          // that it is not in the ring - and if any record was unreadable it cannot prove even
-          // that, so the answer becomes unknown rather than not-found.
+          // Absence NAMES ITS OBSERVABLE SCOPE. This tool reads the persisted mirror, so a missing
+          // id may be too new for the next rewrite, evicted, or never recorded. If any record was
+          // unreadable it cannot prove even mirror absence, so the answer becomes unknown.
           return read.malformed > 0
             ? {
                 ok: false,
@@ -135,7 +135,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
                 ok: false,
                 reason: 'episode_not_found',
                 membership: 'not_in_episode_ring',
-                message: `No episode "${requestId}" in this boot's retained episode ring; older episodes may have been evicted.`,
+                message: `No episode "${requestId}" in this boot's persisted episode mirror; it may not have been mirrored yet, may have been evicted, or may never have been recorded.`,
                 bootId: discovery.devJson.bootId,
               };
         }
