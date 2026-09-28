@@ -49,12 +49,25 @@ Run `pnpm dev` once so the full substrate exists, then point your MCP client at 
 | `taujs_who_calls_service` | Route → service edges, labelled `declared`, `observed`, or `hostObserved` |
 | `taujs_explain_route`     | Composed explanation: render, data edge, schema flags, middleware  |
 | `taujs_compare_graphs`    | Diffs a retained baseline graph against the current one, field by field |
+| `taujs_find_contract`     | Version-locked package contract catalogue and exact-id retrieval   |
 | `taujs_get_recent_episodes` | Recent request episodes (live dev boot only)                         |
-| `taujs_get_episode`         | One episode: timeline, service calls, hydration, error               |
+| `taujs_get_episode`         | One persisted episode snapshot: timeline, service calls, hydration, error, contract refs |
 | `taujs_get_episode_logs`    | That episode's log lines, on demand (`warn` and above by default)    |
 | `taujs_doctor`            | Bounded health report: warnings, defaulted renders, failed episodes  |
 
 Three skills also ship as MCP prompts: broken-route diagnosis, hydration-mismatch triage, and add-a-streamed-route.
+
+### Versioned contracts and references
+
+Some tool answers place a `*ContractRef` beside the fact it governs. For example,
+`clientContractRef` on an episode points to the package-owned contract section that defines what
+`client: null` does and does not mean. Pass the part before `#` directly to
+`taujs_find_contract`; no catalogue call is required when a ref already supplies the id.
+
+Contract bodies come from the installed owner package. Server-owned contracts are returned only
+when the installed `@taujs/server` version agrees with the version that emitted the graph. The ref
+does not embed prose in every answer: it provides one checked hop from a governed fact to its
+authoritative section.
 
 ## Semantics You Can Rely On
 
@@ -64,6 +77,7 @@ Three skills also ship as MCP prompts: broken-route diagnosis, hydration-mismatc
 - **Version-skew safe** - a graph emitted by a newer `@taujs/server` degrades with an explicit upgrade message, never a misread
 - **Untrusted by default** - field values in responses are your application's data: capped, never treated as instructions. Episode URLs never include query values
 - **Comparison is declared-fields-only** - `taujs_compare_graphs` diffs a retained baseline against the current graph over declared fields alone (apps, routes, security, fallthrough); metadata, `services`, and `warnings` are never compared, and rows state exact differences, never a verdict
+- **Episode absence is scoped to the persisted mirror** - a missing request may not have reached the next rewrite yet, may have been evicted, or may never have been recorded. The tool states those possibilities instead of choosing one
 
 ### Host-observed rows
 
