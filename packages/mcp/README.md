@@ -50,13 +50,22 @@ Run `pnpm dev` once so the substrate exists, then point your MCP client at the p
 | `taujs_get_route`           | One route's full graph row + its warnings                                                      |
 | `taujs_who_calls_service`   | Route → service edges, labelled `declared` vs `observed`; empty edges = known but unreferenced |
 | `taujs_explain_route`       | Composed explanation: render, data edge, schema flags, middleware                              |
+| `taujs_compare_graphs`      | Declared-field differences between a retained baseline graph and the current graph             |
+| `taujs_find_contract`       | Version-locked package contract catalogue and exact-id retrieval                               |
 | `taujs_get_recent_episodes` | Recent request episodes (live dev boot only)                                                   |
-| `taujs_get_episode`         | One episode: timeline, service calls, hydration, error                                         |
+| `taujs_get_episode`         | One persisted episode snapshot: timeline, service calls, hydration, error, contract refs       |
 | `taujs_get_episode_logs`    | That episode's log lines, on demand (`warn+` default)                                          |
 | `taujs_doctor`              | Bounded graph diagnostics: graph warnings, defaulted renders, failed episodes                  |
 
 Plus three skills as MCP prompts (broken-route diagnosis, hydration-mismatch triage,
 add-a-streamed-route).
+
+### Versioned contracts and references
+
+Some answers place a `*ContractRef` beside the fact it governs. Pass the part before `#`
+directly to `taujs_find_contract`; no catalogue call is required when the ref already supplies
+the id. Contract bodies come from the installed owner package, and server-owned contracts are
+returned only when the installed `@taujs/server` version agrees with the graph emitter version.
 
 ## Semantics you can rely on
 
@@ -74,6 +83,8 @@ add-a-streamed-route).
   rebuild time.
 - **Version-skew safe**: a graph from a newer `@taujs/server` degrades with an explicit
   upgrade message, never a misread.
+- **Episode absence is scoped to the persisted mirror**: a missing request may not have reached
+  the next rewrite yet, may have been evicted, or may never have been recorded.
 - Field values in responses are your application's data - treated as untrusted, capped,
   and never instructions. Episode URLs never include query values.
 - **Results carry `structuredContent`** alongside the JSON text: the server speaks both
