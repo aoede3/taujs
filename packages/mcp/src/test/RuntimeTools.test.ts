@@ -238,7 +238,7 @@ describe('runtime tools (active boot)', () => {
     expect(failed.episodes.items[0].serviceCalls).toEqual(['catalog.getProduct FAILED 3ms']);
   });
 
-  it('taujs_get_episode returns the full record; unknown ids explain the ring', () => {
+  it('taujs_get_episode returns the full record; unknown ids explain the persisted mirror', () => {
     const hit = live('taujs_get_episode', { requestId: 'boom-999' });
 
     expect(hit.ok).toBe(true);
@@ -251,10 +251,13 @@ describe('runtime tools (active boot)', () => {
 
     const miss = live('taujs_get_episode', { requestId: 'gone-1' });
     expect(miss.ok).toBe(false);
-    // Absence names its SCOPE: not in the retained ring, which is not the same claim as "never
-    // existed". A bounded ring cannot make the second one.
+    // Absence names its OBSERVABLE SCOPE. A fresh episode may not have reached the persisted
+    // mirror yet; an older one may have been evicted; a typo may never have been recorded.
     expect(miss.membership).toBe('not_in_episode_ring');
-    expect(miss.message).toContain('retained episode ring');
+    expect(miss.message).toContain('persisted episode mirror');
+    expect(miss.message).toContain('may not have been mirrored yet');
+    expect(miss.message).toContain('may have been evicted');
+    expect(miss.message).toContain('may never have been recorded');
     expect(miss.message).not.toContain('200');
   });
 
