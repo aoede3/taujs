@@ -785,14 +785,16 @@ describe('structural tools (cold/stale mode)', () => {
     expect(explanation.head).toEqual({ data: { kind: 'service', service: 'catalog', method: 'getProduct' } });
   });
 
-  it('the two automatic contract references name headings that exist', async () => {
-    const [renderModule, requestIdentity] = await Promise.all([
+  it('the automatic contract references name headings that exist', async () => {
+    const [renderModule, requestIdentity, clientHydration] = await Promise.all([
       readFile(path.join(REPO_ROOT, 'packages/server/contracts/render-module.md'), 'utf8'),
       readFile(path.join(REPO_ROOT, 'packages/server/contracts/request-identity.md'), 'utf8'),
+      readFile(path.join(REPO_ROOT, 'packages/server/contracts/client-hydration-observation.md'), 'utf8'),
     ]);
 
     expect(renderModule).toContain('## Streaming callback and terminal rules');
     expect(requestIdentity).toContain('### Ruling 2: The episode key is the textual request ID');
+    expect(clientHydration).toContain('## What client null means');
   });
 });
 

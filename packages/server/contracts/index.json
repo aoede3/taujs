@@ -22,6 +22,13 @@
       "doc": "render-module.md",
       "appliesTo": ["RenderModule", "RenderSSR", "RenderStream", "RenderCallbacks", "RenderStreamHandle"],
       "related": ["server:render-strategies"]
+    },
+    {
+      "id": "server:client-hydration-observation",
+      "title": "Client hydration observation",
+      "doc": "client-hydration-observation.md",
+      "appliesTo": ["episode.client", "taujs_get_episode client"],
+      "related": ["server:request-identity"]
     }
   ]
 }
