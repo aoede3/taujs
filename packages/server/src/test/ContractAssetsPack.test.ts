@@ -33,12 +33,23 @@ describe('published contract assets', () => {
     expect(listing).toContain('package/contracts/render-strategies.md');
     expect(listing).toContain('package/contracts/request-identity.md');
     expect(listing).toContain('package/contracts/render-module.md');
+    expect(listing).toContain('package/contracts/client-hydration-observation.md');
 
     execFileSync('tar', ['-xzf', path.join(packDest, tarball!), '-C', packDest, 'package/contracts/index.json'], { stdio: 'pipe' });
     const manifest = JSON.parse(readFileSync(path.join(packDest, 'package', 'contracts', 'index.json'), 'utf8'));
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.owner).toBe('@taujs/server');
-    expect(manifest.contracts.map((c: { id: string }) => c.id)).toEqual(['server:render-strategies', 'server:request-identity', 'server:render-module']);
-    expect(manifest.contracts.map((c: { doc: string }) => c.doc)).toEqual(['render-strategies.md', 'request-identity.md', 'render-module.md']);
+    expect(manifest.contracts.map((c: { id: string }) => c.id)).toEqual([
+      'server:render-strategies',
+      'server:request-identity',
+      'server:render-module',
+      'server:client-hydration-observation',
+    ]);
+    expect(manifest.contracts.map((c: { doc: string }) => c.doc)).toEqual([
+      'render-strategies.md',
+      'request-identity.md',
+      'render-module.md',
+      'client-hydration-observation.md',
+    ]);
   });
 });

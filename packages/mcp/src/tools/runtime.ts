@@ -106,7 +106,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
   defineTool({
     name: 'taujs_get_episode',
     title: 'Get one request episode',
-    description: `The full episode record for one requestId - timeline, service calls, client hydration, error. Logs are fetched separately via taujs_get_episode_logs. ${UNTRUSTED_NOTE}`,
+    description: `The full episode record for one requestId - timeline, service calls, client hydration, error. A null client means this persisted episode snapshot contains no accepted hydration report; a newly accepted report may appear on a later read. Logs are fetched separately via taujs_get_episode_logs. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({
       requestId: z.string().describe('From taujs_get_recent_episodes or an x-request-id response header'),
     }),
@@ -147,6 +147,7 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
           episode: {
             ...episode,
             requestIdContractRef: 'server:request-identity#ruling-2-the-episode-key-is-the-textual-request-id',
+            clientContractRef: 'server:client-hydration-observation#what-client-null-means',
           },
         };
       }),

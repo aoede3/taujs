@@ -243,6 +243,8 @@ describe('runtime tools (active boot)', () => {
 
     expect(hit.ok).toBe(true);
     expect(hit.episode.requestIdContractRef).toBe('server:request-identity#ruling-2-the-episode-key-is-the-textual-request-id');
+    expect(hit.episode.client).toBeNull();
+    expect(hit.episode.clientContractRef).toBe('server:client-hydration-observation#what-client-null-means');
     expect(hit.episode.outcome).toBe('failed');
     expect(hit.episode.error).toEqual({ kind: 'domain', message: 'Product 999 does not exist' });
     expect(hit.episode.url).toEqual({ pathname: '/product/999', queryKeys: ['ref'], queryValuesRedacted: true });
