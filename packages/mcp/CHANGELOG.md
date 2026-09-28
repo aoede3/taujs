@@ -1,5 +1,11 @@
 # @taujs/mcp
 
+## 0.10.3
+
+### Patch Changes
+
+- [#181](https://github.com/aoede3/taujs/pull/181) [`503f2ae`](https://github.com/aoede3/taujs/commit/503f2ae0087097e37cb57745a5ef88bba6d17ff4) Thanks [@aoede3](https://github.com/aoede3)! - Point episode `client` observations at the governing hydration contract and state the persisted-snapshot meaning of `null`.
+
 ## 0.10.2
 
 ### Patch Changes

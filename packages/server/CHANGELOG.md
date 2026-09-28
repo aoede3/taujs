@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.40.2
+
+### Patch Changes
+
+- [#181](https://github.com/aoede3/taujs/pull/181) [`503f2ae`](https://github.com/aoede3/taujs/commit/503f2ae0087097e37cb57745a5ef88bba6d17ff4) Thanks [@aoede3](https://github.com/aoede3)! - Ship the client hydration observation contract covering report production, late episode amendment and the meaning of `client: null`.
+
 ## 0.40.1
 
 ### Patch Changes
