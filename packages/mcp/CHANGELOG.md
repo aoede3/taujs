@@ -1,5 +1,11 @@
 # @taujs/mcp
 
+## 0.10.4
+
+### Patch Changes
+
+- [#183](https://github.com/aoede3/taujs/pull/183) [`424e535`](https://github.com/aoede3/taujs/commit/424e5351862e2d8a06c6d6f516500735fbddd38d) Thanks [@aoede3](https://github.com/aoede3)! - Explain that an episode missing from the persisted mirror may be too new for the next rewrite, evicted or never recorded.
+
 ## 0.10.3
 
 ### Patch Changes
