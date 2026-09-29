@@ -22,8 +22,8 @@ You can introduce this boundary one route at a time.
 
 ## A current request contract
 
-The route record can describe rendering, hydration, policy, head data, critical data and deferred
-data together. This example assumes `serviceData` was created for the application's typed service
+The route record can describe rendering, hydration, policy, initial route data and deferred data
+together. This example assumes `serviceData` was created for the application's typed service
 registry:
 
 ```ts
@@ -34,10 +34,6 @@ export const productRoute = {
     hydrate: true,
     meta: { title: "Product" },
     middleware: { auth: {} },
-    head: {
-      data: serviceData("catalogue", "getProductHead", ({ id }) => ({ id })),
-      optional: true,
-    },
     data: serviceData("catalogue", "getProduct", ({ id }) => ({ id })),
     deferred: {
       reviews: serviceData("reviews", "forProduct", ({ id }) => ({ id })),
@@ -50,24 +46,39 @@ For a request to `/products/42`:
 
 1. Fastify selects the concrete route and decodes `id`.
 2. τjs applies the declared auth and CSP policy.
-3. Head and route-data work starts at the request boundary.
-4. The renderer receives the critical initial-data channel and the already-started named deferred
-   registry.
+3. τjs starts the declared deferred entries once for this streaming response.
+4. The renderer receives the route-data loader through its native streaming integration and the
+   already-started named deferred registry.
 5. In development, the response episode records what actually happened.
 
 There is no second τjs route matcher and the renderer does not rediscover the route contract from
 the component tree.
 
-## Four data ownership choices
+## Response data ownership
 
-The route fields describe different timing and ownership, not four spellings for the same work.
+The route fields describe different timing and ownership. They are not interchangeable spellings
+for the same work, and declaring a route does not make all of its loaders start together.
 
 | Work | Owner | Timing and purpose |
 | --- | --- | --- |
-| `attr.head` | Request | Resolves before rendering so dynamic head values are available before the shell. |
-| `attr.data` | Request | Supplies the required initial snapshot. SSR resolves it before rendering; streaming can project it through the renderer's native streaming path. |
+| `attr.data` | Request | Supplies the initial route snapshot when declared. SSR resolves it before rendering; streaming passes the loader through the renderer's native streaming path. |
 | `attr.deferred` | Request | Starts named work before rendering without awaiting it first. Available on streaming routes only. |
+| `attr.head` | Request | A specialised server-head loader. τjs awaits it before starting the renderer; its result is available only to `headContent` as `headData`. |
 | Component or client fetch | Application | Starts from the UI or after hydration and remains outside the τjs response contract. |
+
+`attr.head` is not another general page-data channel and it does not provide client-side head
+management. It exists for dynamic values that must be in the initial document head on a streaming
+route. React and Vue can construct the streamed head before `attr.data` has settled, so a declared
+head loader gives τjs a specific dependency to await before it starts the renderer. The result is
+not added to `__INITIAL_DATA__` or exposed as body data.
+
+On SSR routes, τjs resolves `attr.data` first and then `attr.head` before rendering. Because resolved
+route data is already available to `headContent` during SSR, a separate head loader is normally
+unnecessary there. On streaming routes, declared deferred entries start first, then τjs awaits
+`attr.head`, and only then can the renderer start. A head loader therefore delays the streaming
+shell and should be small. Do not duplicate the route-data query merely to populate the head; use
+static `attr.meta` where possible and declare `attr.head` only when dynamic streamed-head data
+requires it.
 
 `attr.deferred` is declarative response-owned work. Each entry starts once, shares the request
 cancellation lifecycle, appears in the request graph, records a `complete`, `failed` or `aborted`
@@ -104,7 +115,7 @@ The distinction is intentional:
   response terminal that occurred for one real request.
 
 The generated request graph and live development episodes therefore answer different questions. The graph says
-what the system declares and can do. A episode says what one request did. The
+what the system declares and can do. An episode says what one request did. The
 [MCP server](/reference/mcp) reads both forms of evidence rather than inferring them from component
 source.
 
