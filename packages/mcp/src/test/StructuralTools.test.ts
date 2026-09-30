@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
 // Fixture via the real emitters (files are the contract) — mirrors the playground shape.
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
+import { now } from '../../../server/src/core/telemetry/Telemetry';
 import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitGraph';
 import { createRequestGraph } from '../../../server/src/core/introspection/RequestGraph';
 import { createServiceData } from '../../../server/src/core/services/ServiceData';
@@ -112,7 +113,7 @@ beforeAll(async () => {
   const dev = createDevIntrospection();
   dev.recorder.requestStart({ requestId: 'obs-1', url: '/product/7', method: 'GET' });
   dev.recorder.routeMatched({ requestId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
-  dev.recorder.serviceCall({ requestId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
+  dev.recorder.serviceCall({ requestId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true, startedAt: now() });
   dev.recorder.sent({ requestId: 'obs-1', status: 200, mode: 'streaming' });
   observationsDoc = dev.getObservations();
   await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(observationsDoc, null, 2));
@@ -489,7 +490,7 @@ describe('structural tools (cold/stale mode)', () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'host-who-1', url: '/api/products/7', method: 'GET' });
     dev.recorder.routeMatched({ requestId: 'host-who-1', path: '/api/products/:id', method: 'GET', kind: 'host' });
-    dev.recorder.serviceCall({ requestId: 'host-who-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true });
+    dev.recorder.serviceCall({ requestId: 'host-who-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true, startedAt: now() });
     dev.recorder.sent({ requestId: 'host-who-1', status: 200, kind: 'host' });
     await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
 
@@ -513,7 +514,7 @@ describe('structural tools (cold/stale mode)', () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'host-explain-1', url: '/api/products/7', method: 'POST' });
     dev.recorder.routeMatched({ requestId: 'host-explain-1', path: '/api/products/:id', method: 'POST', kind: 'host' });
-    dev.recorder.serviceCall({ requestId: 'host-explain-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true });
+    dev.recorder.serviceCall({ requestId: 'host-explain-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true, startedAt: now() });
     dev.recorder.sent({ requestId: 'host-explain-1', status: 200, kind: 'host' });
     await writeTaujsArtifact(
       dir,
@@ -753,7 +754,7 @@ describe('structural tools (cold/stale mode)', () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'obs-active-1', url: '/product/9', method: 'GET' });
     dev.recorder.routeMatched({ requestId: 'obs-active-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
-    dev.recorder.serviceCall({ requestId: 'obs-active-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
+    dev.recorder.serviceCall({ requestId: 'obs-active-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true, startedAt: now() });
     dev.recorder.sent({ requestId: 'obs-active-1', status: 200, mode: 'streaming' });
     await writeTaujsArtifact(
       activeDir,

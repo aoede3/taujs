@@ -76,7 +76,11 @@ export type EpisodeRecord = {
   status: number | null;
   url: { pathname: string; queryKeys: string[]; queryValuesRedacted: true };
   timeline: Partial<Record<'matched' | 'dataStart' | 'dataEnd' | 'head' | 'shellReady' | 'allReady', number>>;
-  serviceCalls: { service: string; method: string; ms: number; ok: boolean }[];
+  /**
+   * `startMs` is the call's start offset relative to the episode's own `t0`. Optional: episodes
+   * persisted before this field existed lack it, and no value is guessed for them.
+   */
+  serviceCalls: { service: string; method: string; ms: number; ok: boolean; startMs?: number }[];
   /**
    * RFC 0007 (R5): per-key deferred outcomes, in arrival order. Additive-optional and ABSENT for an
    * episode with no deferred events, which is why a reader that never declared it still worked -

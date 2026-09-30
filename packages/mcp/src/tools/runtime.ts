@@ -32,6 +32,34 @@ const withActiveBoot = (root: string, fn: (discovery: Extract<SubstrateDiscovery
   return fn(discovery);
 };
 
+// Item 2 (docs/followups/live/omp-hydrogen-session-residue.md): peak concurrency across an
+// episode's serviceCalls, derived only when every call carries a numeric `startMs` (older
+// episodes predate the field and get no guess). A half-open window `[startMs, startMs + ms)` per
+// call; at identical timestamps an END is processed before a START, so a call that begins exactly
+// when the previous one ends does not overlap it - strictly sequential calls give peakConcurrent 1.
+export const computeServiceConcurrency = (calls: { ms: number; startMs?: number }[]): { totalCalls: number; peakConcurrent: number } | undefined => {
+  if (calls.length === 0) return undefined;
+  if (!calls.every((c) => typeof c.startMs === 'number')) return undefined;
+
+  const events: { t: number; delta: 1 | -1 }[] = [];
+  for (const c of calls) {
+    const start = c.startMs as number;
+    events.push({ t: start, delta: 1 });
+    events.push({ t: start + c.ms, delta: -1 });
+  }
+  // Ties: ends before starts, so `delta` ascending (-1 before +1) sorts correctly on its own.
+  events.sort((a, b) => a.t - b.t || a.delta - b.delta);
+
+  let running = 0;
+  let peakConcurrent = 0;
+  for (const e of events) {
+    running += e.delta;
+    if (running > peakConcurrent) peakConcurrent = running;
+  }
+
+  return { totalCalls: calls.length, peakConcurrent };
+};
+
 // Episode rows lead with identifiers and outcomes; logs are NEVER embedded - the intended
 // flow is get_recent_episodes → get_episode → only then get_episode_logs.
 const episodeSummary = (t: EpisodeRecord) => ({
@@ -140,6 +168,8 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
               };
         }
 
+        const concurrency = computeServiceConcurrency(episode.serviceCalls);
+
         return {
           ok: true,
           bootId: discovery.devJson.bootId,
@@ -148,6 +178,12 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
             ...episode,
             requestIdContractRef: 'server:request-identity#ruling-2-the-episode-key-is-the-textual-request-id',
             clientContractRef: 'server:client-hydration-observation#what-client-null-means',
+            ...(concurrency
+              ? {
+                  serviceConcurrency: concurrency,
+                  serviceConcurrencyNote: `Peak concurrency was ${concurrency.peakConcurrent} across ${concurrency.totalCalls} recorded service calls.`,
+                }
+              : {}),
           },
         };
       }),

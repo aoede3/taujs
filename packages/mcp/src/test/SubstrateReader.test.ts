@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 // (dev.json is assembled to DevFiles.ts's exact field set: its emission needs a live
 // fastify listen, verified in the server package's own suite.)
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
+import { now } from '../../../server/src/core/telemetry/Telemetry';
 import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitGraph';
 import { createRequestGraph } from '../../../server/src/core/introspection/RequestGraph';
 
@@ -329,7 +330,7 @@ describe('readObservations', () => {
     await emitEpisodes(root, (dev) => {
       dev.recorder.requestStart({ requestId: 't-obs', url: '/p', method: 'GET' });
       dev.recorder.routeMatched({ requestId: 't-obs', path: '/p', appId: 'web', render: 'ssr', kind: 'page' });
-      dev.recorder.serviceCall({ requestId: 't-obs', service: 'catalog', method: 'getProduct', ms: 5, ok: true });
+      dev.recorder.serviceCall({ requestId: 't-obs', service: 'catalog', method: 'getProduct', ms: 5, ok: true, startedAt: now() });
       dev.recorder.sent({ requestId: 't-obs', status: 200, mode: 'ssr' });
     });
 
