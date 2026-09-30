@@ -112,39 +112,78 @@ const definitionLocationForTool = (value: unknown): GraphDefinitionLocation | un
   return { status: 'known', path: location.path };
 };
 
+// Item 3 (docs/followups/live/omp-hydrogen-session-residue.md): scoped to attr.data only. A
+// dynamic (closure) attr.data contributes no statically declared body-data service edge, but the
+// same route can still declare head or deferred service edges, which already count in
+// withDeclaredEdges (RequestGraph.ts usedBy derivation) - the note says so rather than implying
+// the route explains nothing.
+const routeDataNote = (routeData: { service: number; dynamic: number; none: number }): string | undefined => {
+  if (routeData.dynamic === 0) return undefined;
+  const total = routeData.service + routeData.dynamic + routeData.none;
+
+  return (
+    `${routeData.dynamic} of ${total} routes resolve \`attr.data\` in a closure loader (\`kind: dynamic\`), which contributes no ` +
+    'statically declared body-data service edge. Declared head or deferred edges may still exist and are counted in ' +
+    '`withDeclaredEdges`. Service calls made by a closure may appear as observed edges (`taujs_who_calls_service`) after that ' +
+    'route has run in this boot.'
+  );
+};
+
+// Per-route counterpart to routeDataNote, for taujs_explain_route: same scope (attr.data only),
+// same "may appear once run" caveat, worded for one route instead of the whole graph.
+const ROUTE_DYNAMIC_DATA_NOTE =
+  'This route resolves `attr.data` in a closure loader (`kind: dynamic`), which τjs does not analyse. Declared head or deferred ' +
+  'service edges on this route, if any, are unaffected. Service calls made by the closure become visible as observed edges ' +
+  '(`taujs_who_calls_service`) once this route has run in this boot.';
+
 export const structuralTools = (root: string): ToolDefinition[] => [
   defineTool({
     name: 'taujs_overview',
     title: 'τjs app overview',
-    description: `One-screen summary of the request graph: the graph's boundary, apps, route/service counts with declared-edge coverage, graph warnings, fallthrough posture, freshness. Start here. ${UNTRUSTED_NOTE}`,
+    description: `One-screen summary of the request graph: the graph's boundary, apps, route/service counts with declared-edge coverage, per-route data-kind breakdown, graph warnings, fallthrough posture, freshness. Start here. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({}),
     handler: () =>
-      withGraph(root, ({ discovery, graph, stalenessLine }) => ({
-        ok: true,
-        mode: discovery.mode,
-        ...(stalenessLine ? { staleness: stalenessLine } : {}),
-        scope: GRAPH_SCOPE,
-        taujsServer: graph.taujs.server,
-        source: graph.source,
-        emittedAt: graph.emittedAt,
-        episodesAvailable: discovery.mode === 'active',
-        ...(discovery.mode === 'active' ? {} : { episodesNote: NO_ACTIVE_BOOT_REFUSAL.message }),
-        apps: graph.apps,
-        routeCount: graph.routes.length,
-        services:
-          graph.services === null
-            ? 'unavailable (registry not present in this graph — declared edges still on routes)'
-            : graph.services.map((s) => ({
-                name: s.name,
-                methodCount: s.methods.length,
-                // usedBy already includes deferred edges (RFC 0007 R5) — the one number that says
-                // how much of this service the graph explains.
-                withDeclaredEdges: s.methods.filter((m) => m.usedBy.length > 0).length,
-                methods: s.methods.map((m) => m.name),
-              })),
-        graphWarningCounts: graph.warnings.reduce<Record<string, number>>((acc, w) => ({ ...acc, [w.severity]: (acc[w.severity] ?? 0) + 1 }), {}),
-        fallthrough: graph.fallthrough,
-      })),
+      withGraph(root, ({ discovery, graph, stalenessLine }) => {
+        // Counted by known kind only: the graph is typed, not runtime-validated, so a kind this
+        // reader does not know must not turn a cited count into NaN.
+        const routeData = graph.routes.reduce(
+          (acc, r) => {
+            if (r.data.kind in acc) acc[r.data.kind] += 1;
+            return acc;
+          },
+          { service: 0, dynamic: 0, none: 0 },
+        );
+        const note = routeDataNote(routeData);
+
+        return {
+          ok: true,
+          mode: discovery.mode,
+          ...(stalenessLine ? { staleness: stalenessLine } : {}),
+          scope: GRAPH_SCOPE,
+          taujsServer: graph.taujs.server,
+          source: graph.source,
+          emittedAt: graph.emittedAt,
+          episodesAvailable: discovery.mode === 'active',
+          ...(discovery.mode === 'active' ? {} : { episodesNote: NO_ACTIVE_BOOT_REFUSAL.message }),
+          apps: graph.apps,
+          routeCount: graph.routes.length,
+          services:
+            graph.services === null
+              ? 'unavailable (registry not present in this graph — declared edges still on routes)'
+              : graph.services.map((s) => ({
+                  name: s.name,
+                  methodCount: s.methods.length,
+                  // usedBy already includes deferred edges (RFC 0007 R5) — the one number that says
+                  // how much of this service the graph explains.
+                  withDeclaredEdges: s.methods.filter((m) => m.usedBy.length > 0).length,
+                  methods: s.methods.map((m) => m.name),
+                })),
+          routeData,
+          ...(note ? { routeDataNote: note } : {}),
+          graphWarningCounts: graph.warnings.reduce<Record<string, number>>((acc, w) => ({ ...acc, [w.severity]: (acc[w.severity] ?? 0) + 1 }), {}),
+          fallthrough: graph.fallthrough,
+        };
+      }),
   }),
   defineTool({
     name: 'taujs_list_routes',
@@ -471,6 +510,9 @@ export const structuralTools = (root: string): ToolDefinition[] => [
               specificity: route.specificity,
               middleware: route.middleware,
               data: dataEdge,
+              // Item 3 (docs/followups/live/omp-hydrogen-session-residue.md): explain the closure
+              // boundary at the point of use, scoped to attr.data only - absent for 'none'/'service'.
+              ...(data.kind === 'dynamic' ? { dataNote: ROUTE_DYNAMIC_DATA_NOTE } : {}),
               // head edge, mirrors data (decisions.md 2026-08-27): projected field, absent unless declared.
               ...(route.head ? { head: route.head } : {}),
               warnings: ctx.graph.warnings.filter((w) => w.routeId === route.id),

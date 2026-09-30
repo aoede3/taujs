@@ -19,7 +19,16 @@ export type ToolDefinition<S extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.
   handler(args: z.infer<S>): ToolResult;
 };
 
-export const defineTool = <S extends z.ZodObject<z.ZodRawShape>>(tool: ToolDefinition<S>): ToolDefinition<S> => tool;
+// Strict centrally, not per schema: an unrecognised argument key is refused by the SDK's own
+// validation path (same path that already refuses a bad enum), with a message naming the key,
+// rather than silently stripped by Zod's default object behaviour. A future tool that forgets to
+// mark its own schema strict still gets this for free. `z.infer<S>` is unaffected - `.strict()`
+// changes only unknown-key handling at parse time, never the shape's own inferred properties - so
+// the cast preserves the caller's declared generic type without widening what handlers see.
+export const defineTool = <S extends z.ZodObject<z.ZodRawShape>>(tool: ToolDefinition<S>): ToolDefinition<S> => ({
+  ...tool,
+  inputSchema: tool.inputSchema.strict() as S,
+});
 
 export type GraphContext = {
   discovery: Exclude<SubstrateDiscovery, { mode: 'none' }>;
