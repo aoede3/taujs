@@ -1,5 +1,12 @@
 # rfc-0014-recipe
 
+## 0.0.20
+
+### Patch Changes
+
+- Updated dependencies [[`65ccb1e`](https://github.com/aoede3/taujs/commit/65ccb1e2845cf3fba93b06a977dedc8129fdfbe6)]:
+  - @taujs/server@0.41.0
+
 ## 0.0.19
 
 ### Patch Changes

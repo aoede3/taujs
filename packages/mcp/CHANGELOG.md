@@ -1,5 +1,13 @@
 # @taujs/mcp
 
+## 0.11.0
+
+### Minor Changes
+
+- [#187](https://github.com/aoede3/taujs/pull/187) [`940d922`](https://github.com/aoede3/taujs/commit/940d922fed6f6ece0a8ae981a76f84e96573440d) Thanks [@aoede3](https://github.com/aoede3)! - Refuse unknown tool argument keys instead of stripping them, and explain closure-loader route data in taujs_overview and taujs_explain_route.
+
+- [#187](https://github.com/aoede3/taujs/pull/187) [`65ccb1e`](https://github.com/aoede3/taujs/commit/65ccb1e2845cf3fba93b06a977dedc8129fdfbe6) Thanks [@aoede3](https://github.com/aoede3)! - taujs_get_episode derives serviceConcurrency (totalCalls, peakConcurrent) from per-call start offsets when every call carries one.
+
 ## 0.10.4
 
 ### Patch Changes
