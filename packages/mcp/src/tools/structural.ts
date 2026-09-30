@@ -117,9 +117,8 @@ const definitionLocationForTool = (value: unknown): GraphDefinitionLocation | un
 // same route can still declare head or deferred service edges, which already count in
 // withDeclaredEdges (RequestGraph.ts usedBy derivation) - the note says so rather than implying
 // the route explains nothing.
-const routeDataNote = (routeData: { service: number; dynamic: number; none: number }): string | undefined => {
+const routeDataNote = (routeData: { service: number; dynamic: number; none: number }, total: number): string | undefined => {
   if (routeData.dynamic === 0) return undefined;
-  const total = routeData.service + routeData.dynamic + routeData.none;
 
   return (
     `${routeData.dynamic} of ${total} routes resolve \`attr.data\` in a closure loader (\`kind: dynamic\`), which contributes no ` +
@@ -144,16 +143,25 @@ export const structuralTools = (root: string): ToolDefinition[] => [
     inputSchema: z.object({}),
     handler: () =>
       withGraph(root, ({ discovery, graph, stalenessLine }) => {
-        // Counted by known kind only: the graph is typed, not runtime-validated, so a kind this
-        // reader does not know must not turn a cited count into NaN.
-        const routeData = graph.routes.reduce(
-          (acc, r) => {
-            if (r.data.kind in acc) acc[r.data.kind] += 1;
-            return acc;
-          },
-          { service: 0, dynamic: 0, none: 0 },
-        );
-        const note = routeDataNote(routeData);
+        // Counted by known kind only, by explicit case: the graph is typed, not runtime-validated,
+        // so a kind this reader does not know must not turn a cited count into NaN (an `in` check
+        // would admit prototype names such as `constructor`). The sentence's denominator is the
+        // route count, not the sum of known kinds, so an ignored kind cannot inflate the ratio.
+        const routeData = { service: 0, dynamic: 0, none: 0 };
+        for (const r of graph.routes) {
+          switch (r.data.kind) {
+            case 'service':
+              routeData.service += 1;
+              break;
+            case 'dynamic':
+              routeData.dynamic += 1;
+              break;
+            case 'none':
+              routeData.none += 1;
+              break;
+          }
+        }
+        const note = routeDataNote(routeData, graph.routes.length);
 
         return {
           ok: true,

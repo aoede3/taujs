@@ -202,6 +202,33 @@ describe('structural tools (cold/stale mode)', () => {
     expect(result.routeDataNote).toBeUndefined();
   });
 
+  it('taujs_overview ignores a route data kind it does not know, including a prototype name, and keeps routeCount as the denominator', async () => {
+    const config: CoreTaujsConfig = {
+      apps: [
+        {
+          appId: 'unknown-kind-app',
+          entryPoint: '',
+          routes: [
+            { path: '/', attr: { render: 'ssr', data: async () => ({}) } },
+            { path: '/plain', attr: { render: 'ssr' } },
+          ],
+        },
+      ],
+    };
+    const root = await mkdtemp(path.join(scratch, 'unknown-kind-'));
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry }) as any;
+    // A future emitter kind this reader does not know; `constructor` is the case an `in` check would admit.
+    graph.routes.find((r: any) => r.path === '/plain').data = { kind: 'constructor' };
+    await writeTaujsArtifact(path.join(root, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+
+    const result = new Map(allTools(root).map((t) => [t.name, t.handler])).get('taujs_overview')!({}) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.routeCount).toBe(2);
+    expect(result.routeData).toEqual({ service: 0, dynamic: 1, none: 0 });
+    expect(result.routeDataNote).toContain('1 of 2 routes');
+  });
+
   it('taujs_list_routes bounds output and filters by app', () => {
     const result = call('taujs_list_routes', { limit: 2 });
 

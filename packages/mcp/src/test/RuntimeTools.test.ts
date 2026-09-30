@@ -353,6 +353,16 @@ describe('computeServiceConcurrency (docs/followups/live/omp-hydrogen-session-re
   it('zero calls yields no result', () => {
     expect(computeServiceConcurrency([])).toBeUndefined();
   });
+
+  it('a call whose ms rounded to 0 has a collapsed window and yields no result, never "peak 0 across 1 call"', () => {
+    expect(computeServiceConcurrency([{ ms: 0, startMs: 3 }])).toBeUndefined();
+    expect(
+      computeServiceConcurrency([
+        { ms: 10, startMs: 0 },
+        { ms: 0, startMs: 2 },
+      ]),
+    ).toBeUndefined();
+  });
 });
 
 describe('taujs_get_episode: serviceConcurrency (end-to-end through the real recorder and substrate reader)', () => {

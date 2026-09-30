@@ -37,9 +37,12 @@ const withActiveBoot = (root: string, fn: (discovery: Extract<SubstrateDiscovery
 // episodes predate the field and get no guess). A half-open window `[startMs, startMs + ms)` per
 // call; at identical timestamps an END is processed before a START, so a call that begins exactly
 // when the previous one ends does not overlap it - strictly sequential calls give peakConcurrent 1.
+// A call whose `ms` rounded to 0 has an empty window and would count nowhere, which could report
+// "peak 0 across 1 call" - so a collapsed window omits the fact rather than misstating it, exactly
+// as a missing `startMs` does.
 export const computeServiceConcurrency = (calls: { ms: number; startMs?: number }[]): { totalCalls: number; peakConcurrent: number } | undefined => {
   if (calls.length === 0) return undefined;
-  if (!calls.every((c) => typeof c.startMs === 'number')) return undefined;
+  if (!calls.every((c) => typeof c.startMs === 'number' && c.ms > 0)) return undefined;
 
   const events: { t: number; delta: 1 | -1 }[] = [];
   for (const c of calls) {
