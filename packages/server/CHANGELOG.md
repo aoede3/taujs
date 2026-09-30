@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.41.0
+
+### Minor Changes
+
+- [#187](https://github.com/aoede3/taujs/pull/187) [`65ccb1e`](https://github.com/aoede3/taujs/commit/65ccb1e2845cf3fba93b06a977dedc8129fdfbe6) Thanks [@aoede3](https://github.com/aoede3)! - Record a per-call startMs on episode serviceCalls, relative to the episode start, and measure ms from method invocation rather than from before attribution.
+
 ## 0.40.2
 
 ### Patch Changes
