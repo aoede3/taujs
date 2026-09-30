@@ -28,6 +28,7 @@ const ServiceCallSchema = z.looseObject({
   method: z.string(),
   ms: z.number(),
   ok: z.boolean(),
+  startMs: z.number().optional(),
 });
 
 const UrlSchema = z.looseObject({

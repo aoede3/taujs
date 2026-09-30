@@ -283,8 +283,6 @@ export async function callServiceMethod(
     method: methodName,
   });
 
-  const t0 = now();
-
   // RFC 0018 (Design step 2): consulted once, only when the explicit context supplied no
   // recorder - explicit precedence is unconditional. `recorder`/`requestId` below feed the exact
   // same two-value guard the explicit path already used; the ambient branch only ever fills a ctx
@@ -293,6 +291,12 @@ export async function callServiceMethod(
   const ambient = ctx.recorder ? undefined : resolveAmbient(registry);
   const recorder = ctx.recorder ?? ambient?.recorder;
   const requestId = ctx.recorder ? ctx.requestId : ambient?.requestId;
+
+  // Started only now, after attribution is resolved: `ms` (and the recorded `startedAt`) measure
+  // service-method execution, never attribution overhead. A lazy host episode open (HostAttribution's
+  // `openHostEpisode`) happens inside `resolveAmbient` above, so timing it here rather than before
+  // keeps the first host-attributed call's `ms` honest instead of inflated by that one-time open.
+  const t0 = now();
 
   try {
     // No automatic deadlines here; handlers can use ctx.signal or withDeadline(ctx.signal, ms)
@@ -304,7 +308,7 @@ export async function callServiceMethod(
 
     const ms = +(now() - t0).toFixed(1);
     logger.debug({ ms }, 'Service method ok');
-    if (recorder && requestId) recorder.serviceCall({ requestId, service: serviceName, method: methodName, ms, ok: true });
+    if (recorder && requestId) recorder.serviceCall({ requestId, service: serviceName, method: methodName, ms, ok: true, startedAt: t0 });
 
     return result;
   } catch (err) {
@@ -316,7 +320,7 @@ export async function callServiceMethod(
       },
       'Service method failed',
     );
-    if (recorder && requestId) recorder.serviceCall({ requestId, service: serviceName, method: methodName, ms, ok: false });
+    if (recorder && requestId) recorder.serviceCall({ requestId, service: serviceName, method: methodName, ms, ok: false, startedAt: t0 });
 
     // Brand check, not instanceof: the thrown error may come from another copy
     // of AppError (e.g. the @taujs/server/config entry) and must keep its

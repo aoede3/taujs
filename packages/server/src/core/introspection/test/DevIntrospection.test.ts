@@ -7,6 +7,7 @@ import fastify from 'fastify';
 import { describe, it, expect, vi } from 'vitest';
 
 import { defineService, defineServiceRegistry, callServiceMethod } from '../../services/DataServices';
+import { now } from '../../telemetry/Telemetry';
 import { createDevIntrospection } from '../DevIntrospection';
 import { registerDevFiles } from '../DevFiles';
 import { createSafeRecorder, noopEpisodeRecorder } from '../EpisodeRecorder';
@@ -24,7 +25,7 @@ describe('episode assembly - event sequences (spec 03 §1-2)', () => {
     start(dev);
     dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr', kind: 'page' });
     dev.recorder.dataFetch({ requestId: T, ms: 12.5, ok: true });
-    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 11.2, ok: true });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 11.2, ok: true, startedAt: now() });
     dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
 
     const [episode] = dev.getEpisodes();
@@ -116,6 +117,24 @@ describe('episode assembly - event sequences (spec 03 §1-2)', () => {
     expect(episodes).toHaveLength(200);
     expect(episodes[0]!.requestId).toBe('t-5');
     expect(dev.getEpisodes(10)).toHaveLength(10);
+  });
+});
+
+describe('service call start offsets (docs/followups/live/omp-hydrogen-session-residue.md item 2)', () => {
+  it('a page episode with two service calls records startMs values that are >= 0 and consistent with the timeline', () => {
+    const dev = createDevIntrospection();
+    start(dev);
+    dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr', kind: 'page' });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 5, ok: true, startedAt: now() });
+    dev.recorder.serviceCall({ requestId: T, service: 'reviews', method: 'list', ms: 3, ok: true, startedAt: now() });
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
+
+    const [episode] = dev.getEpisodes();
+    const [first, second] = episode!.serviceCalls;
+    expect(first!.startMs).toBeGreaterThanOrEqual(0);
+    expect(second!.startMs).toBeGreaterThanOrEqual(0);
+    // Recorded in call order, off the same clock as the episode's own t0.
+    expect(second!.startMs).toBeGreaterThanOrEqual(first!.startMs);
   });
 });
 
@@ -224,8 +243,8 @@ describe('observations derivation (spec 03 §4)', () => {
     const dev = createDevIntrospection();
     start(dev);
     dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr', kind: 'page' });
-    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 10, ok: true });
-    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 12, ok: true });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 10, ok: true, startedAt: now() });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 12, ok: true, startedAt: now() });
 
     const obs = dev.getObservations();
     expect(obs.schemaVersion).toBe(2);
@@ -245,17 +264,17 @@ describe('observations derivation (spec 03 §4)', () => {
     const dev = createDevIntrospection();
     start(dev);
     dev.recorder.routeMatched({ requestId: T, path: '/product/:id', appId: 'storefront', render: 'ssr', kind: 'page' });
-    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 10, ok: true });
-    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 12, ok: true });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 10, ok: true, startedAt: now() });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 12, ok: true, startedAt: now() });
 
     // A second episode on a DIFFERENT route reaching the same method.
     start(dev, '/all', 'episode-2');
     dev.recorder.routeMatched({ requestId: 'episode-2', path: '/all', appId: 'storefront', render: 'ssr', kind: 'page' });
-    dev.recorder.serviceCall({ requestId: 'episode-2', service: 'catalog', method: 'getProduct', ms: 5, ok: true });
+    dev.recorder.serviceCall({ requestId: 'episode-2', service: 'catalog', method: 'getProduct', ms: 5, ok: true, startedAt: now() });
 
     // And a call with NO route attribution: the method-wide total moves, route counts do not.
     start(dev, '/x', 'episode-3');
-    dev.recorder.serviceCall({ requestId: 'episode-3', service: 'catalog', method: 'getProduct', ms: 3, ok: true });
+    dev.recorder.serviceCall({ requestId: 'episode-3', service: 'catalog', method: 'getProduct', ms: 3, ok: true, startedAt: now() });
 
     const edge = dev.getObservations().edges[0]!;
     expect(edge.count).toBe(4);
@@ -266,7 +285,7 @@ describe('observations derivation (spec 03 §4)', () => {
 
     // The document is a copy: later traffic never mutates a held snapshot.
     const held = dev.getObservations();
-    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 1, ok: true });
+    dev.recorder.serviceCall({ requestId: T, service: 'catalog', method: 'getProduct', ms: 1, ok: true, startedAt: now() });
     expect(held.edges[0]!.routes[0]!.count).toBe(2);
     expect(dev.getObservations().edges[0]!.routes[0]!.count).toBe(3);
   });
@@ -422,7 +441,7 @@ describe('recorder isolation (spec 03 invariant 2)', () => {
       safe.requestStart({ requestId: T, url: '/x', method: 'GET' });
       safe.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr', kind: 'page' });
       safe.dataFetch({ requestId: T, ms: 1, ok: true });
-      safe.serviceCall({ requestId: T, service: 's', method: 'm', ms: 1, ok: true });
+      safe.serviceCall({ requestId: T, service: 's', method: 'm', ms: 1, ok: true, startedAt: now() });
       safe.streamPhase({ requestId: T, phase: 'head' });
       safe.sent({ requestId: T, status: 200, mode: 'ssr' });
       safe.aborted({ requestId: T });

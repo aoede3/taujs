@@ -19,7 +19,12 @@ export interface EpisodeRecorder {
    * values, error message or stack - the graph supplies the declared key -> service relation.
    */
   deferredData(e: { requestId: string; key: string; ms: number; outcome: 'complete' | 'failed' | 'aborted' }): void;
-  serviceCall(e: { requestId: string; service: string; method: string; ms: number; ok: boolean }): void;
+  /**
+   * `startedAt` is a monotonic timestamp from the shared telemetry `now()` clock, the same clock
+   * the episode's own `t0` is drawn from. Internal - it is never persisted as-is; the assembler
+   * converts it into a `t0`-relative `startMs` before it reaches a persisted episode.
+   */
+  serviceCall(e: { requestId: string; service: string; method: string; ms: number; ok: boolean; startedAt: number }): void;
   streamPhase(e: { requestId: string; phase: 'head' | 'shellReady' | 'allReady' }): void;
   /**
    * RFC 0018 (Host terminal contract): discriminated by `kind`. The page arm is unchanged; the host

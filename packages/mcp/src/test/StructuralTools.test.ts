@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
 // Fixture via the real emitters (files are the contract) — mirrors the playground shape.
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
+import { now } from '../../../server/src/core/telemetry/Telemetry';
 import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitGraph';
 import { createRequestGraph } from '../../../server/src/core/introspection/RequestGraph';
 import { createServiceData } from '../../../server/src/core/services/ServiceData';
@@ -112,7 +113,7 @@ beforeAll(async () => {
   const dev = createDevIntrospection();
   dev.recorder.requestStart({ requestId: 'obs-1', url: '/product/7', method: 'GET' });
   dev.recorder.routeMatched({ requestId: 'obs-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
-  dev.recorder.serviceCall({ requestId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
+  dev.recorder.serviceCall({ requestId: 'obs-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true, startedAt: now() });
   dev.recorder.sent({ requestId: 'obs-1', status: 200, mode: 'streaming' });
   observationsDoc = dev.getObservations();
   await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(observationsDoc, null, 2));
@@ -167,6 +168,65 @@ describe('structural tools (cold/stale mode)', () => {
     // fixture's unconfigured security.csp (csp.dev_directives).
     expect(result.graphWarningCounts).toEqual({ warn: 1 });
     expect(result.warningCounts).toBeUndefined();
+    // Item 3 (docs/followups/live/omp-hydrogen-session-residue.md): a graph-level breakdown of
+    // attr.data kinds, plus the closure-loader note when at least one route is dynamic. Of the 8
+    // fixture routes: / , /product/:id, /ghosted, /gone declare a service edge (4); /legacy is a
+    // plain closure (1 dynamic); /quote, /head-only, /admin declare no attr.data at all (3 none).
+    expect(result.routeData).toEqual({ service: 4, dynamic: 1, none: 3 });
+    expect(result.routeDataNote).toContain('1 of 8 routes resolve `attr.data` in a closure loader');
+    expect(result.routeDataNote).toContain('Declared head or deferred edges may still exist and are counted in `withDeclaredEdges`');
+    expect(result.routeDataNote).toContain('after that route has run in this boot');
+  });
+
+  it('taujs_overview omits routeDataNote entirely when no route is dynamic', async () => {
+    const noDynamicConfig: CoreTaujsConfig = {
+      apps: [
+        {
+          appId: 'no-dynamic-app',
+          entryPoint: '',
+          routes: [
+            { path: '/', attr: { render: 'ssr', data: serviceData('content', 'home') } },
+            { path: '/plain', attr: { render: 'ssr' } },
+          ],
+        },
+      ],
+    };
+    const noDynamicRoot = await mkdtemp(path.join(scratch, 'no-dynamic-'));
+    const graph = createRequestGraph(noDynamicConfig, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    await writeTaujsArtifact(path.join(noDynamicRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+
+    const result = new Map(allTools(noDynamicRoot).map((t) => [t.name, t.handler])).get('taujs_overview')!({}) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.routeData).toEqual({ service: 1, dynamic: 0, none: 1 });
+    expect(result.routeDataNote).toBeUndefined();
+  });
+
+  it('taujs_overview ignores a route data kind it does not know, including a prototype name, and keeps routeCount as the denominator', async () => {
+    const config: CoreTaujsConfig = {
+      apps: [
+        {
+          appId: 'unknown-kind-app',
+          entryPoint: '',
+          routes: [
+            { path: '/', attr: { render: 'ssr', data: async () => ({}) } },
+            { path: '/plain', attr: { render: 'ssr' } },
+          ],
+        },
+      ],
+    };
+    const root = await mkdtemp(path.join(scratch, 'unknown-kind-'));
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry }) as any;
+    // A future emitter kind this reader does not know; `constructor` is the case an `in` check would admit.
+    graph.routes.find((r: any) => r.path === '/plain').data = { kind: 'constructor' };
+    await writeTaujsArtifact(path.join(root, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+
+    const result = new Map(allTools(root).map((t) => [t.name, t.handler])).get('taujs_overview')!({}) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.routeCount).toBe(2);
+    expect(result.routeData).toEqual({ service: 0, dynamic: 1, none: 0 });
+    expect(result.routeDataNote).toContain('1 of 2 routes');
   });
 
   it('taujs_list_routes bounds output and filters by app', () => {
@@ -457,7 +517,7 @@ describe('structural tools (cold/stale mode)', () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'host-who-1', url: '/api/products/7', method: 'GET' });
     dev.recorder.routeMatched({ requestId: 'host-who-1', path: '/api/products/:id', method: 'GET', kind: 'host' });
-    dev.recorder.serviceCall({ requestId: 'host-who-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true });
+    dev.recorder.serviceCall({ requestId: 'host-who-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true, startedAt: now() });
     dev.recorder.sent({ requestId: 'host-who-1', status: 200, kind: 'host' });
     await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
 
@@ -481,7 +541,7 @@ describe('structural tools (cold/stale mode)', () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'host-explain-1', url: '/api/products/7', method: 'POST' });
     dev.recorder.routeMatched({ requestId: 'host-explain-1', path: '/api/products/:id', method: 'POST', kind: 'host' });
-    dev.recorder.serviceCall({ requestId: 'host-explain-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true });
+    dev.recorder.serviceCall({ requestId: 'host-explain-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true, startedAt: now() });
     dev.recorder.sent({ requestId: 'host-explain-1', status: 200, kind: 'host' });
     await writeTaujsArtifact(
       dir,
@@ -721,7 +781,7 @@ describe('structural tools (cold/stale mode)', () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'obs-active-1', url: '/product/9', method: 'GET' });
     dev.recorder.routeMatched({ requestId: 'obs-active-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
-    dev.recorder.serviceCall({ requestId: 'obs-active-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true });
+    dev.recorder.serviceCall({ requestId: 'obs-active-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true, startedAt: now() });
     dev.recorder.sent({ requestId: 'obs-active-1', status: 200, mode: 'streaming' });
     await writeTaujsArtifact(
       activeDir,
@@ -783,6 +843,25 @@ describe('structural tools (cold/stale mode)', () => {
     expect(explanation.middleware.auth.declared).toBe(false);
     // head edge, mirrors data (decisions.md 2026-08-27): the route's declared head edge shows.
     expect(explanation.head).toEqual({ data: { kind: 'service', service: 'catalog', method: 'getProduct' } });
+    // Item 3: a declared service edge carries no dataNote - the note is scoped to `kind: dynamic`.
+    expect(explanation.dataNote).toBeUndefined();
+  });
+
+  it('taujs_explain_route: a dynamic (closure) attr.data route carries a dataNote; a declared route does not', () => {
+    const dynamicResult = call('taujs_explain_route', { routeId: 'playground-react:/legacy' });
+
+    expect(dynamicResult.ok).toBe(true);
+    const dynamicExplanation = dynamicResult.explanations[0];
+    expect(dynamicExplanation.data).toEqual({ kind: 'dynamic' });
+    expect(dynamicExplanation.dataNote).toContain('closure loader');
+    expect(dynamicExplanation.dataNote).toContain('τjs does not analyse');
+    expect(dynamicExplanation.dataNote).toContain('once this route has run in this boot');
+
+    // Control: a route with no attr.data at all (`kind: none`) also carries no dataNote - the
+    // field is scoped to `kind: dynamic` only, not "anything other than a declared service edge".
+    const noneResult = call('taujs_explain_route', { routeId: 'playground-react:/admin' });
+    expect(noneResult.explanations[0].data).toEqual({ kind: 'none' });
+    expect(noneResult.explanations[0].dataNote).toBeUndefined();
   });
 
   it('the automatic contract references name headings that exist', async () => {
@@ -877,6 +956,61 @@ describe('MCP server end-to-end (InMemory transport)', () => {
 
     await client.close();
     await server.close();
+  });
+
+  // Item 1 (docs/followups/live/omp-hydrogen-session-residue.md): an unrecognised argument KEY
+  // used to be stripped by Zod's default object behaviour and reach the handler in silence - the
+  // observed case was `taujs_get_episode_logs { level: "info" }` instead of the documented
+  // `minLevel`, which the handler defaulted to `warn` and echoed back as if the call had been
+  // well-formed. This goes through the same SDK validation path as the test above (not `runTool`,
+  // which assumes validation already happened), so it proves the refusal an agent would actually
+  // see, not just that the schema object is configured strict in isolation.
+  it('Item 1: an unrecognised argument key is refused by the SDK and the refusal names the key, not silently stripped', async () => {
+    const server = createTaujsMcpServer(root);
+    const client = new Client({ name: 'strict-args-client', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    // taujs_list_routes { bogus: "x" } - every field on this tool is optional, so before this
+    // change the SDK answered ok:true with the full route list and no mention of `bogus`.
+    const bogusKey = await client.callTool({ name: 'taujs_list_routes', arguments: { bogus: 'x' } });
+    expect(bogusKey.isError).toBe(true);
+    expect(bogusKey.structuredContent).toBeUndefined();
+    expect((bogusKey.content as { text: string }[])[0]!.text).toContain('"bogus"');
+
+    // taujs_get_episode_logs { requestId, minLevel: "bogus" } - a wrong VALUE was always refused
+    // by the enum, naming the parameter. Unchanged by strictness; kept here as the paired control.
+    const badEnumValue = await client.callTool({ name: 'taujs_get_episode_logs', arguments: { requestId: 'r-1', minLevel: 'bogus' } });
+    expect(badEnumValue.isError).toBe(true);
+    expect((badEnumValue.content as { text: string }[])[0]!.text).toContain('minLevel');
+
+    // taujs_get_episode_logs { requestId, level: "info" } - the exact call the entry reproduced.
+    // `level` is not a declared parameter (the schema names it `minLevel`); it must now be refused
+    // naming `level`, instead of being stripped and defaulted to `warn` in silence.
+    const wrongKeyName = await client.callTool({ name: 'taujs_get_episode_logs', arguments: { requestId: 'r-1', level: 'info' } });
+    expect(wrongKeyName.isError).toBe(true);
+    expect(wrongKeyName.structuredContent).toBeUndefined();
+    expect((wrongKeyName.content as { text: string }[])[0]!.text).toContain('"level"');
+
+    await client.close();
+    await server.close();
+  });
+
+  // The three calls above prove the refusal for two tools; this proves the general claim - every
+  // tool in the registered list rejects an unrecognised key, not just the ones named in the entry.
+  // Checked against the exact schema objects `allTools` hands to `server.registerTool` (the SDK
+  // parses arguments with this same object via the Standard Schema protocol), so a tool that
+  // forgot to route through `defineTool` would fail this even though no live server is involved.
+  it('Item 1: every registered tool has a strict input schema', () => {
+    const tools = allTools(root);
+    expect(tools.length).toBeGreaterThan(0);
+
+    for (const tool of tools) {
+      const result = tool.inputSchema.safeParse({ __proving_unknown_key__: 'x' });
+      expect(result.success, `${tool.name} accepted an unrecognised key`).toBe(false);
+      const codes = result.success ? [] : result.error.issues.map((issue) => issue.code);
+      expect(codes, `${tool.name} did not refuse the unrecognised key itself (unrecognized_keys)`).toContain('unrecognized_keys');
+    }
   });
 });
 

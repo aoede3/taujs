@@ -40,12 +40,20 @@ export type EpisodeRecord = {
   status: number | null;
   url: { pathname: string; queryKeys: string[]; queryValuesRedacted: true };
   timeline: EpisodeTimeline;
-  serviceCalls: { service: string; method: string; ms: number; ok: boolean }[];
+  /**
+   * `startMs` is the call's start offset relative to this episode's own `t0` (never negative, by
+   * construction: attribution and the host episode's lazy open both resolve before the timer in
+   * `callServiceMethod` starts). Optional-shaped only at the reader (`@taujs/mcp`), for episodes
+   * persisted before this field existed - the emitter always writes it.
+   */
+  serviceCalls: { service: string; method: string; ms: number; ok: boolean; startMs: number }[];
   /**
    * RFC 0007 (R5): per-key deferred outcomes, in arrival order. ADDITIVE-OPTIONAL and ABSENT for
    * any episode with no deferred events, so existing episode bytes and older readers are unaffected.
-   * Bounded by construction - one entry per DECLARED key per request, and declared keys are static
-   * configuration - so it carries no cap of its own, exactly like `serviceCalls`.
+   * Bounded by construction on its own terms: one entry per DECLARED key per request, and declared
+   * keys are static configuration, so the array can never grow past the route's own declared count.
+   * `serviceCalls` is NOT bounded this way - closure loaders and host routes can call services
+   * repeatedly - so the two fields share no cap.
    */
   deferredData?: { key: string; outcome: 'complete' | 'failed' | 'aborted'; ms: number }[];
   client: { hydrated: boolean; hydrationMs: number | null; error: string | null } | null;
@@ -283,7 +291,10 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
 
     serviceCall(e) {
       const episode = pending.get(e.requestId);
-      if (episode) episode.serviceCalls.push({ service: e.service, method: e.method, ms: e.ms, ok: e.ok });
+      if (episode) {
+        const startMs = +(e.startedAt - episode.t0).toFixed(1);
+        episode.serviceCalls.push({ service: e.service, method: e.method, ms: e.ms, ok: e.ok, startMs });
+      }
 
       // Observed edge upsert — evidence lives beside the graph, never merged into it.
       const key = `${e.service}\u0000${e.method}`;

@@ -6,12 +6,14 @@ import path from 'node:path';
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 
 import { createDevIntrospection } from '../../../server/src/core/introspection/DevIntrospection';
+import { now } from '../../../server/src/core/telemetry/Telemetry';
 import { writeTaujsArtifact } from '../../../server/src/core/introspection/EmitGraph';
 import { createRequestGraph } from '../../../server/src/core/introspection/RequestGraph';
 import { defineService, defineServiceRegistry } from '../../../server/src/core/services/DataServices';
 
 import { NO_ACTIVE_BOOT_REFUSAL, STALE_REASON_MESSAGE } from '../SubstrateReader';
 import { allTools } from '../server';
+import { computeServiceConcurrency } from '../tools/runtime';
 
 import type { CoreTaujsConfig } from '../../../server/src/core/config/types';
 import type { Logs } from '../../../server/src/core/logging/types';
@@ -36,12 +38,12 @@ const seed = async (root: string) => {
 
   dev.recorder.requestStart({ requestId: 'ok-1', url: '/product/123', method: 'GET' });
   dev.recorder.routeMatched({ requestId: 'ok-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
-  dev.recorder.serviceCall({ requestId: 'ok-1', service: 'catalog', method: 'getProduct', ms: 8, ok: true });
+  dev.recorder.serviceCall({ requestId: 'ok-1', service: 'catalog', method: 'getProduct', ms: 8, ok: true, startedAt: now() });
   dev.recorder.sent({ requestId: 'ok-1', status: 200, mode: 'streaming' });
 
   dev.recorder.requestStart({ requestId: 'boom-999', url: '/product/999?ref=demo', method: 'GET' });
   dev.recorder.routeMatched({ requestId: 'boom-999', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
-  dev.recorder.serviceCall({ requestId: 'boom-999', service: 'catalog', method: 'getProduct', ms: 3, ok: false });
+  dev.recorder.serviceCall({ requestId: 'boom-999', service: 'catalog', method: 'getProduct', ms: 3, ok: false, startedAt: now() });
   dev.recorder.failed({ requestId: 'boom-999', status: 404, error: { kind: 'domain', message: 'Product 999 does not exist' } });
 
   dev.recorder.requestStart({ requestId: 'spa-1', url: '/spa/x', method: 'GET' });
@@ -317,5 +319,144 @@ describe('runtime tools (active boot)', () => {
     expect(result.fallthrough.reachable).toBe(false);
     expect(result.fallthrough.note).toBe('A wildcard route makes fallthrough unreachable.');
     expect(result.fallthrough.note).not.toContain('app-shell');
+  });
+});
+
+describe('computeServiceConcurrency (docs/followups/live/omp-hydrogen-session-residue.md item 2)', () => {
+  it('five fully overlapping calls give peakConcurrent 5', () => {
+    const calls = Array.from({ length: 5 }, () => ({ ms: 10, startMs: 0 }));
+    expect(computeServiceConcurrency(calls)).toEqual({ totalCalls: 5, peakConcurrent: 5 });
+  });
+
+  it('three strictly sequential calls (each starting exactly when the previous ends) give peakConcurrent 1', () => {
+    const calls = [
+      { ms: 10, startMs: 0 },
+      { ms: 10, startMs: 10 },
+      { ms: 10, startMs: 20 },
+    ];
+    expect(computeServiceConcurrency(calls)).toEqual({ totalCalls: 3, peakConcurrent: 1 });
+  });
+
+  it('a chained pairwise overlap (A overlaps B, B overlaps C, A and C disjoint) gives peakConcurrent 2, not 3', () => {
+    const calls = [
+      { ms: 10, startMs: 0 }, // A: [0, 10)
+      { ms: 10, startMs: 5 }, // B: [5, 15) - overlaps A and C
+      { ms: 8, startMs: 12 }, // C: [12, 20) - disjoint from A
+    ];
+    expect(computeServiceConcurrency(calls)).toEqual({ totalCalls: 3, peakConcurrent: 2 });
+  });
+
+  it('a call missing startMs yields no result - no guess for a mixed-vintage episode', () => {
+    expect(computeServiceConcurrency([{ ms: 10, startMs: 0 }, { ms: 5 }])).toBeUndefined();
+  });
+
+  it('zero calls yields no result', () => {
+    expect(computeServiceConcurrency([])).toBeUndefined();
+  });
+
+  it('a call whose ms rounded to 0 has a collapsed window and yields no result, never "peak 0 across 1 call"', () => {
+    expect(computeServiceConcurrency([{ ms: 0, startMs: 3 }])).toBeUndefined();
+    expect(
+      computeServiceConcurrency([
+        { ms: 10, startMs: 0 },
+        { ms: 0, startMs: 2 },
+      ]),
+    ).toBeUndefined();
+  });
+});
+
+describe('taujs_get_episode: serviceConcurrency (end-to-end through the real recorder and substrate reader)', () => {
+  const writeFixture = async (dirSuffix: string, dev: ReturnType<typeof createDevIntrospection>) => {
+    const root = await mkdtemp(path.join(scratch, dirSuffix));
+    const dir = path.join(root, 'node_modules', '.taujs');
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z' })));
+    await writeTaujsArtifact(
+      dir,
+      'episodes.ndjson',
+      dev
+        .getEpisodes()
+        .map((t) => JSON.stringify(t))
+        .join('\n') + '\n',
+    );
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
+    const devJson: DevJson = {
+      bootId: dev.bootId,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T11:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+    return root;
+  };
+
+  it('derives serviceConcurrency and its sentence when every recorded call carries startMs', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: 'conc-1', url: '/product/1', method: 'GET' });
+    dev.recorder.routeMatched({ requestId: 'conc-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
+    const t = now();
+    for (let i = 0; i < 5; i++) {
+      dev.recorder.serviceCall({ requestId: 'conc-1', service: 'shopify', method: `call${i}`, ms: 50, ok: true, startedAt: t });
+    }
+    dev.recorder.sent({ requestId: 'conc-1', status: 200, mode: 'streaming' });
+
+    const root = await writeFixture('concurrency-', dev);
+    const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
+    const result = tools.get('taujs_get_episode')!({ requestId: 'conc-1' }) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.episode.serviceConcurrency).toEqual({ totalCalls: 5, peakConcurrent: 5 });
+    expect(result.episode.serviceConcurrencyNote).toBe('Peak concurrency was 5 across 5 recorded service calls.');
+  });
+
+  it('omits serviceConcurrency for a pre-field episode whose serviceCalls lack startMs', async () => {
+    const dev = createDevIntrospection();
+    const root = await writeFixture('concurrency-legacy-', dev);
+    const dir = path.join(root, 'node_modules', '.taujs');
+
+    // A hand-written legacy episode: the on-disk shape from before this field existed.
+    const legacy = {
+      requestId: 'legacy-1',
+      bootId: dev.bootId,
+      at: '2026-07-10T11:00:00.000Z',
+      kind: 'page',
+      route: '/product/:id',
+      method: null,
+      appId: 'playground-react',
+      mode: 'streaming',
+      outcome: 'complete',
+      status: 200,
+      url: { pathname: '/product/1', queryKeys: [], queryValuesRedacted: true },
+      timeline: {},
+      serviceCalls: [{ service: 'catalog', method: 'getProduct', ms: 5, ok: true }],
+      client: null,
+      error: null,
+    };
+    await writeTaujsArtifact(dir, 'episodes.ndjson', JSON.stringify(legacy) + '\n');
+
+    const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
+    const result = tools.get('taujs_get_episode')!({ requestId: 'legacy-1' }) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.episode.serviceConcurrency).toBeUndefined();
+    expect(result.episode.serviceConcurrencyNote).toBeUndefined();
+  });
+
+  it('omits serviceConcurrency for an episode with zero service calls', async () => {
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: 'empty-1', url: '/spa/x', method: 'GET' });
+    dev.recorder.sent({ requestId: 'empty-1', status: 200, mode: 'fallthrough' });
+
+    const root = await writeFixture('concurrency-empty-', dev);
+    const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
+    const result = tools.get('taujs_get_episode')!({ requestId: 'empty-1' }) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.episode.serviceConcurrency).toBeUndefined();
   });
 });

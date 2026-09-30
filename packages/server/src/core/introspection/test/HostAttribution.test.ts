@@ -12,6 +12,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { defineService, defineServiceRegistry, callServiceMethod } from '../../services/DataServices';
 import { fastifyConfigForRoute } from '../../routes/FastifyRoutes';
 import { createRequestContext } from '../../../utils/Telemetry';
+import { now } from '../../telemetry/Telemetry';
 import { createDevIntrospection } from '../DevIntrospection';
 import { acquire, release, acquisitionCountForTests } from '../HostAttribution';
 import { createServer } from '../../../CreateServer';
@@ -166,7 +167,39 @@ describe('the motivating shape: a host route registered before the introspecting
     const episodes = dev.getEpisodes();
     expect(episodes).toHaveLength(1);
     expect(episodes[0]).toMatchObject({ kind: 'host', route: '/api/child/:x', method: 'POST', outcome: 'complete', status: 200 });
-    expect(episodes[0]!.serviceCalls).toEqual([{ service: 'demo', method: 'ok', ms: expect.any(Number), ok: true }]);
+    expect(episodes[0]!.serviceCalls).toEqual([{ service: 'demo', method: 'ok', ms: expect.any(Number), ok: true, startMs: expect.any(Number) }]);
+    expect(episodes[0]!.serviceCalls[0]!.startMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('service call start offsets (docs/followups/live/omp-hydrogen-session-residue.md item 2)', () => {
+  it("a HOST-attributed episode's FIRST service call has startMs >= 0 - the case the old timer-before-attribution ordering broke", async () => {
+    const { app, dev, registry } = buildHarness({ installPageHook: false });
+
+    app.post('/host-start-offset', async () => callServiceMethod(registry, 'demo', 'ok', {}, {}));
+
+    const res = await app.inject({ method: 'POST', url: '/host-start-offset' });
+    expect(res.statusCode).toBe(200);
+
+    const episodes = dev.getEpisodes();
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]!.kind).toBe('host');
+    const [first] = episodes[0]!.serviceCalls;
+    expect(first!.startMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('an unknown method reached through the ambient path throws and creates no host episode', async () => {
+    const { app, dev, registry } = buildHarness({ installPageHook: false });
+
+    app.post('/unknown-method', async () => {
+      await callServiceMethod(registry, 'demo', 'doesNotExist', {}, {});
+      return { unreachable: true };
+    });
+
+    const res = await app.inject({ method: 'POST', url: '/unknown-method' });
+    expect(res.statusCode).toBe(500);
+    expect(dev.getEpisodes()).toHaveLength(0);
+    expect(dev.getObservations().edges).toHaveLength(0);
   });
 });
 
@@ -731,7 +764,7 @@ describe('observations.json for a page-only run', () => {
     const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'pg-1', url: '/p', method: 'GET' });
     dev.recorder.routeMatched({ requestId: 'pg-1', path: '/p', appId: 'demo-app', render: 'ssr', kind: 'page' });
-    dev.recorder.serviceCall({ requestId: 'pg-1', service: 'demo', method: 'ok', ms: 1, ok: true });
+    dev.recorder.serviceCall({ requestId: 'pg-1', service: 'demo', method: 'ok', ms: 1, ok: true, startedAt: now() });
     dev.recorder.sent({ requestId: 'pg-1', status: 200, mode: 'ssr' });
 
     const obs = dev.getObservations();
