@@ -166,6 +166,14 @@ export const structuralTools = (root: string): ToolDefinition[] => [
         return {
           ok: true,
           mode: discovery.mode,
+          // Per-boot directories (rev 3.1): the active folder's own bootId, so the first call of a
+          // session can name which boot it is talking to. Stale/none modes carry no single active
+          // folder to name here - the staleness line itself says "boot <id>" or "build" instead.
+          ...(discovery.mode === 'active' ? { bootId: discovery.devJson.bootId } : {}),
+          // Finding 3 (rev 3.1): folders whose own dev.json disagreed with their folder name were
+          // ignored for selection (never evidence) - named here so the first call of a session can
+          // see them, rather than silently answering as if they did not exist.
+          ...(discovery.ignoredFolders ? { ignoredFolders: discovery.ignoredFolders } : {}),
           ...(stalenessLine ? { staleness: stalenessLine } : {}),
           scope: GRAPH_SCOPE,
           taujsServer: graph.taujs.server,

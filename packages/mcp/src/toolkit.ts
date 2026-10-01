@@ -1,4 +1,4 @@
-import { discoverSubstrate, readGraph } from './SubstrateReader';
+import { discoverSubstrate, multipleActiveBootsRefusal, readGraph, substrateInconsistentRefusal } from './SubstrateReader';
 
 import type { z } from 'zod';
 import type { GraphReadResult, SubstrateDiscovery } from './SubstrateReader';
@@ -31,7 +31,7 @@ export const defineTool = <S extends z.ZodObject<z.ZodRawShape>>(tool: ToolDefin
 });
 
 export type GraphContext = {
-  discovery: Exclude<SubstrateDiscovery, { mode: 'none' }>;
+  discovery: Exclude<SubstrateDiscovery, { mode: 'none' } | { mode: 'multiple_active_boots' } | { mode: 'substrate_inconsistent' }>;
   graph: RequestGraphV2;
   stalenessLine: string | null;
 };
@@ -41,9 +41,15 @@ export type GraphContext = {
 // `cap` forwards to readGraph (default capped). A tool reading uncapped gets ONE snapshot for
 // everything — staleness, metadata and comparison alike; a second read could race a graph rewrite
 // into an internally inconsistent response — and owns capping every string it emits.
+// Several live dev boots (per-boot directories, rev 3.1): there is no "the graph" when two boots
+// are live, so every structural tool refuses here, before readGraph, the same typed way runtime
+// tools do via withActiveBoot. A folder whose own dev.json disagrees with its folder name is the
+// same kind of refusal (finding 3, discovery-side): there is no "the graph" to read either.
 export const withGraph = (root: string, fn: (ctx: GraphContext) => ToolResult, opts?: { cap?: boolean }): ToolResult => {
   const discovery = discoverSubstrate(root);
   if (discovery.mode === 'none') return { ok: false, reason: 'nothing_emitted', message: discovery.message };
+  if (discovery.mode === 'multiple_active_boots') return multipleActiveBootsRefusal(discovery.boots);
+  if (discovery.mode === 'substrate_inconsistent') return substrateInconsistentRefusal(discovery.folders);
 
   const result: GraphReadResult = readGraph(discovery, opts);
   if (!result.ok) return { ok: false, reason: result.reason, message: result.message };

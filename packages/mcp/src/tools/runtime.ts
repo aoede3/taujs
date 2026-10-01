@@ -1,6 +1,15 @@
 import { z } from 'zod';
 
-import { NO_ACTIVE_BOOT_REFUSAL, STALE_REASON_MESSAGE, discoverSubstrate, readGraph, readLogs, readEpisodes } from '../SubstrateReader';
+import {
+  NO_ACTIVE_BOOT_REFUSAL,
+  STALE_REASON_MESSAGE,
+  discoverSubstrate,
+  multipleActiveBootsRefusal,
+  readGraph,
+  readLogs,
+  readEpisodes,
+  substrateInconsistentRefusal,
+} from '../SubstrateReader';
 import { UNTRUSTED_NOTE, bounded, defineTool } from '../toolkit';
 import { renderStrategyCitation } from './contracts';
 
@@ -20,6 +29,12 @@ const DOCTOR_FAILED_LIMIT = 5;
 // refusal contract verbatim (structural tools keep working — the refusal says so).
 const withActiveBoot = (root: string, fn: (discovery: Extract<SubstrateDiscovery, { mode: 'active' }>) => ToolResult): ToolResult => {
   const discovery = discoverSubstrate(root);
+  // Several live dev boots (per-boot directories, rev 3.1): refuse by name, never guess which
+  // boot's traffic was meant.
+  if (discovery.mode === 'multiple_active_boots') return multipleActiveBootsRefusal(discovery.boots);
+  // Finding 3 (reviewer, 2026-10-01): a folder whose own dev.json disagrees with its folder name
+  // is never evidence of anything - refuse the same typed way, never guess which id is right.
+  if (discovery.mode === 'substrate_inconsistent') return substrateInconsistentRefusal(discovery.folders);
   // The refusal now says WHY there is no active boot. "No live boot" and "the boot stopped
   // answering" call for different actions from whoever reads this, and a single message for both
   // is the same conflation these tools exist to avoid.
@@ -270,6 +285,12 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
       const discovery = discoverSubstrate(root);
       if (discovery.mode === 'none')
         return { ok: false, reason: 'nothing_emitted', message: 'Nothing to diagnose — run `pnpm dev` once to emit the request graph.' };
+      // Several live dev boots (per-boot directories, rev 3.1): the doctor's hybrid structural +
+      // runtime report has no single boot to diagnose either.
+      if (discovery.mode === 'multiple_active_boots') return multipleActiveBootsRefusal(discovery.boots);
+      // Finding 3: nor is a folder whose own dev.json disagrees with its folder name - refuse the
+      // same typed way.
+      if (discovery.mode === 'substrate_inconsistent') return substrateInconsistentRefusal(discovery.folders);
 
       const graphResult = readGraph(discovery);
       if (!graphResult.ok) return { ok: false, reason: graphResult.reason, message: graphResult.message };

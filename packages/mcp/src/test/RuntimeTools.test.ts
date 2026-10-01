@@ -30,11 +30,15 @@ const config: CoreTaujsConfig = {
   ],
 };
 
+// Per-boot directories (rev 3.1): every boot's own artefacts live under
+// node_modules/.taujs/boots/<bootId>/.
+const bootDir = (root: string, bootId: string) => path.join(root, 'node_modules', '.taujs', 'boots', bootId);
+
 // Live boot: dev.json with OUR pid. Traffic seeded through the real assembler, including
 // the killer-demo failure and a foreign-boot record that must be filtered out.
 const seed = async (root: string) => {
-  const dir = path.join(root, 'node_modules', '.taujs');
   const dev = createDevIntrospection();
+  const dir = bootDir(root, dev.bootId);
 
   dev.recorder.requestStart({ requestId: 'ok-1', url: '/product/123', method: 'GET' });
   dev.recorder.routeMatched({ requestId: 'ok-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
@@ -57,7 +61,11 @@ const seed = async (root: string) => {
 
   const foreign = { ...dev.getEpisodes()[0]!, requestId: 'foreign-1', bootId: 'other-boot' };
 
-  await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z' })));
+  await writeTaujsArtifact(
+    dir,
+    'graph.json',
+    JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z', bootId: dev.bootId })),
+  );
   await writeTaujsArtifact(dir, 'episodes.ndjson', [...dev.getEpisodes(), foreign].map((t) => JSON.stringify(t)).join('\n') + '\n');
   await writeTaujsArtifact(
     dir,
@@ -80,6 +88,7 @@ const seed = async (root: string) => {
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
   };
   await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -100,7 +109,9 @@ beforeAll(async () => {
   liveRoot = await mkdtemp(path.join(scratch, 'live-'));
   coldRoot = await mkdtemp(path.join(scratch, 'cold-'));
   bootId = await seed(liveRoot);
-  // Cold root: graph only, no dev.json — runtime tools must refuse.
+  // Cold root: an older-emitter-shaped fixture - graph only at the ROOT node_modules/.taujs, no
+  // boots/ directory and no dev.json at all - runtime tools must refuse. This is also this file's
+  // retained root-compat cell: an older substrate still reads.
   await writeTaujsArtifact(
     path.join(coldRoot, 'node_modules', '.taujs'),
     'graph.json',
@@ -118,7 +129,7 @@ afterAll(async () => {
 // question - so a slow run could age it past the window mid-suite and turn every live cell stale.
 // The real server touches dev.json on its poll tick; this stands in for that tick.
 beforeEach(async () => {
-  const devJsonPath = path.join(liveRoot, 'node_modules', '.taujs', 'dev.json');
+  const devJsonPath = path.join(bootDir(liveRoot, bootId), 'dev.json');
   const now = new Date();
   await utimes(devJsonPath, now, now);
 });
@@ -148,12 +159,85 @@ describe('cold-mode refusal contract (every runtime tool)', () => {
   });
 });
 
+describe('multiple_active_boots (per-boot directories, rev 3.1)', () => {
+  it('every runtime tool refuses with multiple_active_boots, naming both boots, when two folders are live at once', async () => {
+    const root = await mkdtemp(path.join(scratch, 'multi-'));
+    const devJsonFor = (bootIdValue: string, overrides: Partial<DevJson> = {}): DevJson => {
+      const dir = bootDir(root, bootIdValue);
+      return {
+        bootId: bootIdValue,
+        token: 'tok',
+        pid: process.pid,
+        startedAt: '2026-07-10T11:00:00.000Z',
+        host: '127.0.0.1',
+        port: 5173,
+        graph: path.join(dir, 'graph.json'),
+        episodes: path.join(dir, 'episodes.ndjson'),
+        logs: path.join(dir, 'logs.ndjson'),
+        observations: path.join(dir, 'observations.json'),
+        state: 'active',
+        ...overrides,
+      };
+    };
+    await writeTaujsArtifact(bootDir(root, 'boot-a'), 'dev.json', JSON.stringify(devJsonFor('boot-a', { startedAt: '2026-07-10T11:00:00.000Z', port: 5173 })));
+    await writeTaujsArtifact(bootDir(root, 'boot-b'), 'dev.json', JSON.stringify(devJsonFor('boot-b', { startedAt: '2026-07-10T11:05:00.000Z', port: 5174 })));
+
+    const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
+    const result = tools.get('taujs_get_recent_episodes')!({}) as any;
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'multiple_active_boots',
+      boots: [
+        { bootId: 'boot-a', pid: process.pid, host: '127.0.0.1', port: 5173, startedAt: '2026-07-10T11:00:00.000Z' },
+        { bootId: 'boot-b', pid: process.pid, host: '127.0.0.1', port: 5174, startedAt: '2026-07-10T11:05:00.000Z' },
+      ],
+    });
+    expect(result.message).toContain('boot-a');
+    expect(result.message).toContain('boot-b');
+
+    // taujs_doctor's hybrid behaviour: the same refusal, not a partial structural answer.
+    expect(tools.get('taujs_doctor')!({})).toMatchObject({ ok: false, reason: 'multiple_active_boots' });
+  });
+});
+
+describe('substrate_inconsistent (per-boot directories, rev 3.1, finding 3)', () => {
+  it('every runtime tool, and taujs_doctor, refuse with substrate_inconsistent when the one live folder disagrees with its own dev.json bootId', async () => {
+    const root = await mkdtemp(path.join(scratch, 'inconsistent-'));
+    const dir = bootDir(root, 'boot-folder');
+    const devJson: DevJson = {
+      bootId: 'boot-dev-json', // disagrees with the folder name 'boot-folder'
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T11:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+      state: 'active',
+    };
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+
+    const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
+    const result = tools.get('taujs_get_recent_episodes')!({}) as any;
+
+    expect(result).toMatchObject({ ok: false, reason: 'substrate_inconsistent' });
+    expect(result.message).toContain('boot-folder');
+    expect(result.message).toContain('boot-dev-json');
+
+    expect(tools.get('taujs_doctor')!({})).toMatchObject({ ok: false, reason: 'substrate_inconsistent' });
+  });
+});
+
 describe('runtime tools (active boot)', () => {
   it('taujs_overview reports episode availability explicitly from the live boot', () => {
     const result = live('taujs_overview');
 
     expect(result.ok).toBe(true);
     expect(result.mode).toBe('active');
+    expect(result.bootId).toBe(bootId);
     expect(result.episodesAvailable).toBe(true);
     expect(result.episodesNote).toBeUndefined();
   });
@@ -165,11 +249,11 @@ describe('runtime tools (active boot)', () => {
     const registry = defineServiceRegistry({ catalog });
     const obsConfig: CoreTaujsConfig = { apps: [{ appId: 'obs-app', entryPoint: '', routes: [{ path: '/p', attr: { render: 'ssr' } }] }] };
     const root = await mkdtemp(path.join(scratch, 'foreignobs-'));
-    const dir = path.join(root, 'node_modules', '.taujs');
+    const dir = bootDir(root, 'live-boot');
     await writeTaujsArtifact(
       dir,
       'graph.json',
-      JSON.stringify(createRequestGraph(obsConfig, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z', serviceRegistry: registry })),
+      JSON.stringify(createRequestGraph(obsConfig, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z', serviceRegistry: registry, bootId: 'live-boot' })),
     );
     const foreign = {
       schemaVersion: 2,
@@ -199,6 +283,7 @@ describe('runtime tools (active boot)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -293,9 +378,13 @@ describe('runtime tools (active boot)', () => {
       apps: [{ appId: 'wildcard-app', entryPoint: '', routes: [{ path: '/*', attr: { render: 'ssr', meta: {} } }] }],
     };
     const root = await mkdtemp(path.join(scratch, 'wildcard-'));
-    const dir = path.join(root, 'node_modules', '.taujs');
     const dev = createDevIntrospection();
-    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(createRequestGraph(wildcardConfig, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z' })));
+    const dir = bootDir(root, dev.bootId);
+    await writeTaujsArtifact(
+      dir,
+      'graph.json',
+      JSON.stringify(createRequestGraph(wildcardConfig, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z', bootId: dev.bootId })),
+    );
     await writeTaujsArtifact(dir, 'episodes.ndjson', '\n');
     await writeTaujsArtifact(dir, 'logs.ndjson', '\n');
     await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
@@ -310,6 +399,7 @@ describe('runtime tools (active boot)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -368,8 +458,12 @@ describe('computeServiceConcurrency (docs/followups/live/omp-hydrogen-session-re
 describe('taujs_get_episode: serviceConcurrency (end-to-end through the real recorder and substrate reader)', () => {
   const writeFixture = async (dirSuffix: string, dev: ReturnType<typeof createDevIntrospection>) => {
     const root = await mkdtemp(path.join(scratch, dirSuffix));
-    const dir = path.join(root, 'node_modules', '.taujs');
-    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z' })));
+    const dir = bootDir(root, dev.bootId);
+    await writeTaujsArtifact(
+      dir,
+      'graph.json',
+      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T11:00:00.000Z', bootId: dev.bootId })),
+    );
     await writeTaujsArtifact(
       dir,
       'episodes.ndjson',
@@ -390,6 +484,7 @@ describe('taujs_get_episode: serviceConcurrency (end-to-end through the real rec
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
     return root;
@@ -417,7 +512,7 @@ describe('taujs_get_episode: serviceConcurrency (end-to-end through the real rec
   it('omits serviceConcurrency for a pre-field episode whose serviceCalls lack startMs', async () => {
     const dev = createDevIntrospection();
     const root = await writeFixture('concurrency-legacy-', dev);
-    const dir = path.join(root, 'node_modules', '.taujs');
+    const dir = bootDir(root, dev.bootId);
 
     // A hand-written legacy episode: the on-disk shape from before this field existed.
     const legacy = {

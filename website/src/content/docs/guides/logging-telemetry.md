@@ -291,10 +291,11 @@ In development, τjs records a bounded episode for each τjs-owned response. An 
 - client hydration evidence when reported
 - a bounded, redacted error summary
 
-The in-memory rings are mirrored under `node_modules/.taujs/`:
+The in-memory rings are mirrored under `node_modules/.taujs/boots/<bootId>/` - each development boot
+owns its own folder and never writes into another boot's:
 
 ```text
-node_modules/.taujs/
+node_modules/.taujs/boots/<bootId>/
 ├── dev.json
 ├── graph.json
 ├── episodes.ndjson
@@ -302,10 +303,14 @@ node_modules/.taujs/
 └── observations.json
 ```
 
-`dev.json` describes the current live process and is removed on graceful close. Episode and log mirrors
-remain, with `bootId` distinguishing stale data. Late deferred outcomes advance the episode revision and
-are written to `episodes.ndjson`, so MCP reads do not lose results that settle after the main episode
-terminal.
+`dev.json` is the first file a boot writes, with `state: "active"`, and the last file it writes on
+graceful close, rewritten with `state: "closed"` - it is never removed. On start, a boot sweeps its
+siblings under `boots/`, removing those marked closed or belonging to a process that no longer exists,
+while keeping the newest such folder so an "as of the last dev boot" read still has somewhere to look.
+Episode and log mirrors remain in their own folder, with `bootId` distinguishing stale data. Late
+deferred outcomes advance the episode revision and are written to `episodes.ndjson`, so MCP reads do not
+lose results that settle after the main episode terminal. A production build still writes a single
+`dist/.taujs/graph.json`, unrelated to any boot folder.
 
 These artefacts are development evidence, not a production telemetry exporter. See
 [MCP Reference](/reference/mcp/) for the tools that read them.

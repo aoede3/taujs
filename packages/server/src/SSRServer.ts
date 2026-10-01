@@ -8,6 +8,8 @@
  * including CSR, SSR, streaming, and middleware composition.
  */
 
+import path from 'node:path';
+
 import fp from 'fastify-plugin';
 
 import { TEMPLATE } from './constants';
@@ -67,6 +69,11 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
   const processedConfigs = processConfigs(configs, clientRoot, TEMPLATE);
   let viteDevServer: ViteDevServer | undefined;
   let introspection: DevIntrospection | undefined;
+  // Per-boot directories (docs/followups/live/concurrent-boots-share-one-substrate.md, rev
+  // 3.1): set alongside `introspection` below, once its bootId exists. Stays undefined when
+  // introspection itself is unavailable, which is this boot's only signal that no dev files or
+  // boot graph can be written - there is no bootId to own a folder with.
+  let bootDir: string | undefined;
 
   await loadAssets(processedConfigs, clientRoot, maps.bootstrapModules, maps.cssLinks, maps.manifests, maps.preloadLinks, maps.renderModules, maps.templates, {
     logger,
@@ -222,6 +229,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
 
       const redaction = opts.taujsConfig?.introspection?.redaction;
       introspection = createDevIntrospection({ logger, denyKeys: redaction?.denyKeys, replaceDefaultDenyKeys: redaction?.replaceDefaultDenyKeys });
+      bootDir = path.resolve(process.cwd(), 'node_modules', '.taujs', 'boots', introspection.bootId);
 
       scope.decorate('taujsIntrospection', introspection);
 
@@ -245,7 +253,7 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
       opts.onHostAttributionAcquired?.(disposeHostAttribution);
       scope.addHook('onClose', async () => disposeHostAttribution());
 
-      registerDevFiles(scope, introspection, logger);
+      registerDevFiles(scope, introspection, logger, bootDir);
       registerIntrospectionEndpoints(scope, {
         introspection,
         taujsConfig: opts.taujsConfig,
@@ -261,14 +269,22 @@ const installOwnedScope = async (scope: FastifyInstance, opts: SSRServerOptions,
     // RFC 0010: boot-graph emission belongs to whichever scope τjs owns, so it has the same owner
     // as the dev files and recorder above rather than a second site in `createServer`. The hook is
     // `onListen`, which fires for an encapsulated child when the host binds. Non-fatal.
-    if (opts.taujsConfig) {
+    //
+    // A boot graph is written into THIS boot's own folder (per-boot directories, rev 3.1), named
+    // from introspection's bootId above - so without introspection there is no bootId, and
+    // therefore no folder to own. Rather than fall back to a shared location, emission is simply
+    // skipped: no boot graph, no dev files, one warning (the introspection catch above already
+    // explains why).
+    if (opts.taujsConfig && bootDir) {
       try {
         const { registerBootGraphEmission } = await import('./core/introspection/EmitGraph');
 
-        registerBootGraphEmission(scope, opts.taujsConfig, serviceRegistry, logger, opts.projectRoot ?? process.cwd());
+        registerBootGraphEmission(scope, opts.taujsConfig, serviceRegistry, logger, bootDir, opts.projectRoot ?? process.cwd());
       } catch (err) {
         logger.warn({ component: 'introspection', error: (err as Error)?.message ?? String(err) }, 'Graph emission unavailable (non-fatal)');
       }
+    } else if (opts.taujsConfig) {
+      logger.warn({ component: 'introspection' }, 'Boot graph emission unavailable: no bootId (introspection unavailable, non-fatal)');
     }
   }
   // Request context first, deliberately before auth: every request - rendered, fallthrough,

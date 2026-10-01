@@ -9,7 +9,18 @@ import { allTools } from '../server';
 import { OBSERVATIONS_SCHEMA_VERSION, discoverSubstrate, readEpisodes, readGraph, readLogs } from '../SubstrateReader';
 
 import type { ChildProcess } from 'node:child_process';
+import type { SubstrateDiscovery } from '../SubstrateReader';
 import type { DevJson, EpisodeRecord } from '../types';
+
+// None of these cells produce more than one live boot folder, or a folder whose own dev.json
+// disagrees with its folder name - this wrapper narrows both branches away so a discovery can be
+// passed straight into readGraph/readEpisodes/readLogs.
+const discover = (root: string): Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' } | { mode: 'substrate_inconsistent' }> => {
+  const d = discoverSubstrate(root);
+  if (d.mode === 'multiple_active_boots') throw new Error('test fixture produced multiple_active_boots unexpectedly');
+  if (d.mode === 'substrate_inconsistent') throw new Error('test fixture produced substrate_inconsistent unexpectedly');
+  return d;
+};
 
 // A full, schema-valid episode record - used where a cell needs SOME record in the ring
 // without exercising the malformed-record machinery (that is EvidenceIntegrity.test.ts's job).
@@ -38,14 +49,20 @@ const fullEpisode = (overrides: Partial<EpisodeRecord> = {}): EpisodeRecord => (
 // mocked `isPidAlive`, because the defect is precisely that the pid tells the truth about a process
 // and nothing about the boot.
 
+// Per-boot directories (rev 3.1): every boot's own artefacts live under
+// node_modules/.taujs/boots/<bootId>/. `devDirFor` is kept for the ONE retained root-compat cell
+// below - an older emitter that never created boots/ at all.
 const devDirFor = (root: string) => path.join(root, 'node_modules', '.taujs');
+const bootDirFor = (root: string, bootId: string) => path.join(devDirFor(root), 'boots', bootId);
 
-const seedDevJson = async (root: string, overrides: Partial<DevJson> = {}): Promise<string> => {
-  const dir = devDirFor(root);
+const DEFAULT_BOOT_ID = 'boot-current';
+
+const seedDevJson = async (root: string, overrides: Partial<DevJson> = {}, bootId: string = DEFAULT_BOOT_ID): Promise<string> => {
+  const dir = bootDirFor(root, bootId);
   await mkdir(dir, { recursive: true });
 
   const devJson: DevJson = {
-    bootId: 'boot-current',
+    bootId,
     token: 'tok',
     pid: process.pid,
     startedAt: '2026-08-26T10:00:00.000Z',
@@ -55,6 +72,7 @@ const seedDevJson = async (root: string, overrides: Partial<DevJson> = {}): Prom
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
     ...overrides,
   };
 
@@ -113,7 +131,31 @@ describe('boot liveness (@taujs/mcp)', () => {
     const root = await mkdtemp(path.join(scratch, 'live-'));
     await seedDevJson(root);
 
-    expect(discoverSubstrate(root)).toMatchObject({ mode: 'active' });
+    expect(discoverSubstrate(root)).toMatchObject({ mode: 'active', bootFolder: DEFAULT_BOOT_ID });
+  });
+
+  it('root compat (older emitter, no boots/): is active while dev.json is fresh and its pid is alive, read exactly as before', async () => {
+    const root = await mkdtemp(path.join(scratch, 'live-root-compat-'));
+    const dir = devDirFor(root);
+    await mkdir(dir, { recursive: true });
+    const devJson: DevJson = {
+      bootId: 'boot-root',
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-08-26T10:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeFile(path.join(dir, 'dev.json'), JSON.stringify(devJson), 'utf8');
+    await writeFile(path.join(dir, 'graph.json'), '{}', 'utf8');
+
+    const discovery = discover(root);
+    expect(discovery).toMatchObject({ mode: 'active' });
+    expect((discovery as { bootFolder?: string }).bootFolder).toBeUndefined();
   });
 
   it('is stale with reason dead_pid once the recorded process is gone', async () => {
@@ -126,7 +168,7 @@ describe('boot liveness (@taujs/mcp)', () => {
     // Fresh heartbeat, dead process: liveness must not rest on the file's age alone either.
     await utimes(devJsonPath, new Date(), new Date());
 
-    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'dead_pid' });
+    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'dead_pid', bootFolder: DEFAULT_BOOT_ID });
   });
 
   it('is stale with reason heartbeat_expired when a LIVE pid is not this boot - the recycled-pid case', async () => {
@@ -138,23 +180,30 @@ describe('boot liveness (@taujs/mcp)', () => {
     const devJsonPath = await seedDevJson(root, { pid });
     await ageDevJson(devJsonPath, 60_000);
 
-    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'heartbeat_expired' });
+    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'heartbeat_expired', bootFolder: DEFAULT_BOOT_ID });
   });
 
-  it('is stale with reason no_dev_json when nothing recorded a boot', async () => {
-    const root = await mkdtemp(path.join(scratch, 'nodev-'));
-    const dir = devDirFor(root);
-    await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, 'graph.json'), '{}', 'utf8');
+  it('is stale with reason closed once the boot marks its own folder closed on graceful close, even though its pid stays alive', async () => {
+    const root = await mkdtemp(path.join(scratch, 'closed-'));
+    // This process (the test runner) is unquestionably alive - the point is that `closed` wins
+    // over that fact, because two servers can share one process.
+    await seedDevJson(root, { state: 'closed', pid: process.pid });
 
-    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'no_dev_json' });
+    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'closed', bootFolder: DEFAULT_BOOT_ID });
+  });
+
+  it('is stale with reason no_dev_json when the boots/ directory exists but holds nothing', async () => {
+    const root = await mkdtemp(path.join(scratch, 'nodev-'));
+    await mkdir(path.join(devDirFor(root), 'boots'), { recursive: true });
+
+    expect(discoverSubstrate(root)).toMatchObject({ mode: 'none' });
   });
 });
 
 describe('dev.json validation (@taujs/mcp)', () => {
   it('an invalid dev.json ({ pid }) reads as stale, and never lets an old boot answer as current', async () => {
     const root = await mkdtemp(path.join(scratch, 'invalid-devjson-'));
-    const dir = devDirFor(root);
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
     await mkdir(dir, { recursive: true });
     // A live pid and nothing else: this passed liveness under a cast and, with bootId undefined,
     // readEpisodes's bootId filter used to be SKIPPED entirely - an old boot's episode then read
@@ -175,12 +224,12 @@ describe('dev.json validation (@taujs/mcp)', () => {
 
   it('a dev.json that is not JSON reads as stale, with no devJson carried on the result', async () => {
     const root = await mkdtemp(path.join(scratch, 'notjson-'));
-    const dir = devDirFor(root);
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, 'dev.json'), 'not json', 'utf8');
     await writeFile(path.join(dir, 'graph.json'), '{}', 'utf8');
 
-    const discovery = discoverSubstrate(root);
+    const discovery = discover(root);
 
     expect(discovery).toMatchObject({ mode: 'stale', reason: 'dev_json_invalid' });
     expect((discovery as { devJson?: unknown }).devJson).toBeUndefined();
@@ -199,10 +248,14 @@ describe('dev.json validation (@taujs/mcp)', () => {
   it('an EMPTY bootId is invalid, and never bypasses the boot filter', async () => {
     const root = await mkdtemp(path.join(scratch, 'empty-bootid-'));
     const devJsonPath = await seedDevJson(root, { bootId: '' });
-    await writeFile(path.join(devDirFor(root), 'episodes.ndjson'), `${JSON.stringify(fullEpisode({ requestId: 'old-req', bootId: 'old-boot' }))}\n`, 'utf8');
+    await writeFile(
+      path.join(bootDirFor(root, DEFAULT_BOOT_ID), 'episodes.ndjson'),
+      `${JSON.stringify(fullEpisode({ requestId: 'old-req', bootId: 'old-boot' }))}\n`,
+      'utf8',
+    );
 
     // Schema-valid in every other field and freshly written: only the empty bootId makes it invalid.
-    const discovery = discoverSubstrate(root);
+    const discovery = discover(root);
     expect(discovery).toMatchObject({ mode: 'stale', reason: 'dev_json_invalid' });
 
     const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
@@ -213,6 +266,7 @@ describe('dev.json validation (@taujs/mcp)', () => {
     // The filter itself keys on presence, not truthiness: an empty bootId matches nothing.
     await writeFile(devJsonPath, JSON.stringify({ ...JSON.parse(await readFile(devJsonPath, 'utf8')), bootId: 'boot-current' }), 'utf8');
     const live = discoverSubstrate(root);
+    if (live.mode === 'none' || live.mode === 'multiple_active_boots' || live.mode === 'substrate_inconsistent') throw new Error('unexpected discovery mode');
     expect(readEpisodes(live, { bootId: '' })).toMatchObject({ ok: true, records: [] });
     expect(readLogs(live, { requestId: 'old-req', bootId: '' })).toMatchObject({ ok: true, anyLevelCount: 0 });
   });
@@ -220,7 +274,7 @@ describe('dev.json validation (@taujs/mcp)', () => {
   it('an invalid dev.json ALONE - no other artefact - still reads stale with its reason, not none', async () => {
     for (const body of [JSON.stringify({ pid: process.pid }), 'not json']) {
       const root = await mkdtemp(path.join(scratch, 'invalid-alone-'));
-      const dir = devDirFor(root);
+      const dir = bootDirFor(root, DEFAULT_BOOT_ID);
       await mkdir(dir, { recursive: true });
       await writeFile(path.join(dir, 'dev.json'), body, 'utf8');
 
@@ -229,6 +283,57 @@ describe('dev.json validation (@taujs/mcp)', () => {
       const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
       expect(tools.get('taujs_get_recent_episodes')!({})).toMatchObject({ ok: false, staleReason: 'dev_json_invalid' });
     }
+  });
+
+  // Finding 2 (reviewer, 2026-10-01): DevJsonSchema keeps `state` optional for the root
+  // compatibility path, but inside boots/ a marker with no state, or a state other than 'active'
+  // or 'closed', must read as dev_json_invalid - not fall through to liveness and answer `active`.
+  it('a boot-folder dev.json with NO state field is invalid, not live - state is required inside boots/, unlike the root-compat path', async () => {
+    const root = await mkdtemp(path.join(scratch, 'no-state-'));
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
+    await mkdir(dir, { recursive: true });
+    const devJson: Omit<DevJson, 'state'> = {
+      bootId: DEFAULT_BOOT_ID,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-08-26T10:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeFile(path.join(dir, 'dev.json'), JSON.stringify(devJson), 'utf8');
+    await writeFile(path.join(dir, 'graph.json'), '{}', 'utf8');
+
+    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'dev_json_invalid' });
+  });
+
+  it('a boot-folder dev.json with state: "weird" is invalid, not live - state must be exactly active or closed', async () => {
+    const root = await mkdtemp(path.join(scratch, 'weird-state-'));
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, 'dev.json'),
+      JSON.stringify({
+        bootId: DEFAULT_BOOT_ID,
+        token: 'tok',
+        pid: process.pid,
+        startedAt: '2026-08-26T10:00:00.000Z',
+        host: '127.0.0.1',
+        port: 5173,
+        graph: path.join(dir, 'graph.json'),
+        episodes: path.join(dir, 'episodes.ndjson'),
+        logs: path.join(dir, 'logs.ndjson'),
+        observations: path.join(dir, 'observations.json'),
+        state: 'weird',
+      }),
+      'utf8',
+    );
+    await writeFile(path.join(dir, 'graph.json'), '{}', 'utf8');
+
+    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'dev_json_invalid' });
   });
 });
 
@@ -239,11 +344,11 @@ describe('dev.json path containment (@taujs/mcp)', () => {
     await writeFile(outside, `${JSON.stringify({ requestId: 'r1', bootId: 'boot-current', at: 'x', level: 'error', msg: 'FROM OUTSIDE' })}\n`, 'utf8');
     await seedDevJson(root, { logs: outside });
 
-    const discovery = discoverSubstrate(root);
+    const discovery = discover(root);
 
     expect(discovery.mode).toBe('active');
     // The derived path (empty) is used; the declared outside file is never opened.
-    expect(discovery.mode === 'active' ? discovery.paths.logs : undefined).toBe(path.join(devDirFor(root), 'logs.ndjson'));
+    expect(discovery.mode === 'active' ? discovery.paths.logs : undefined).toBe(path.join(bootDirFor(root, DEFAULT_BOOT_ID), 'logs.ndjson'));
     expect(readLogs(discovery, { requestId: 'r1', minLevel: 'info' })).toMatchObject({ ok: true, records: [] });
   });
 
@@ -252,14 +357,14 @@ describe('dev.json path containment (@taujs/mcp)', () => {
     const outside = path.join(root, 'elsewhere.ndjson');
     await writeFile(outside, `${JSON.stringify({ requestId: 'r1', bootId: 'boot-current', at: 'x', level: 'error', msg: 'FROM OUTSIDE' })}\n`, 'utf8');
 
-    const dir = devDirFor(root);
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
     await mkdir(dir, { recursive: true });
     const link = path.join(dir, 'logs-link.ndjson');
     await symlink(outside, link);
     await seedDevJson(root, { logs: link });
 
     // The case a lexical prefix check passes: the declared path IS inside .taujs, and still escapes.
-    const discovery = discoverSubstrate(root);
+    const discovery = discover(root);
 
     expect(discovery.mode).toBe('active');
     expect(discovery.mode === 'active' ? discovery.paths.logs : undefined).toBe(path.join(dir, 'logs.ndjson'));
@@ -269,9 +374,9 @@ describe('dev.json path containment (@taujs/mcp)', () => {
   it('accepts the emitter’s own declared paths', async () => {
     const root = await mkdtemp(path.join(scratch, 'ok-'));
     await seedDevJson(root);
-    const discovery = discoverSubstrate(root);
+    const discovery = discover(root);
 
-    expect(discovery.mode === 'active' ? discovery.paths.episodes : undefined).toBe(path.join(devDirFor(root), 'episodes.ndjson'));
+    expect(discovery.mode === 'active' ? discovery.paths.episodes : undefined).toBe(path.join(bootDirFor(root, DEFAULT_BOOT_ID), 'episodes.ndjson'));
   });
 
   it('refuses the conventional logs.ndjson when it is itself a symlink out', async () => {
@@ -280,12 +385,12 @@ describe('dev.json path containment (@taujs/mcp)', () => {
     await writeFile(outside, `${JSON.stringify({ requestId: 'r1', bootId: 'boot-current', at: 'x', level: 'error', msg: 'FROM OUTSIDE' })}\n`, 'utf8');
 
     await seedDevJson(root);
-    const dir = devDirFor(root);
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
     const conventionalLogs = path.join(dir, 'logs.ndjson');
     await rm(conventionalLogs, { force: true });
     await symlink(outside, conventionalLogs);
 
-    const discovery = discoverSubstrate(root);
+    const discovery = discover(root);
     expect(discovery.mode).toBe('active');
     expect(discovery.mode === 'active' ? discovery.paths.logs : 'defined').toBeUndefined();
 
@@ -304,12 +409,12 @@ describe('dev.json path containment (@taujs/mcp)', () => {
     await writeFile(outside, `${JSON.stringify(fullEpisode({ requestId: 'from-outside', bootId: 'boot-current' }))}\n`, 'utf8');
 
     await seedDevJson(root);
-    const dir = devDirFor(root);
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
     const conventionalEpisodes = path.join(dir, 'episodes.ndjson');
     await rm(conventionalEpisodes, { force: true });
     await symlink(outside, conventionalEpisodes);
 
-    const discovery = discoverSubstrate(root);
+    const discovery = discover(root);
     expect(discovery.mode).toBe('active');
     expect(discovery.mode === 'active' ? discovery.paths.episodes : 'defined').toBeUndefined();
 
@@ -337,17 +442,20 @@ describe('dev.json path containment (@taujs/mcp)', () => {
       'utf8',
     );
 
-    const dir = devDirFor(root);
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
     await mkdir(dir, { recursive: true });
     await symlink(outside, path.join(dir, 'graph.json'));
     // Some other artefact must be real, or discovery degrades all the way to 'none' rather than
     // 'stale' - this cell is about containment on a path within a stale discovery, not emptiness.
+    // No dev.json at all: classifyBootFolder reads it as dev_json_unreadable (ENOENT), the same
+    // "unknown, not closed" bucket the emitter's own sweep rule treats a brand-new folder as.
     await writeFile(path.join(dir, 'episodes.ndjson'), '', 'utf8');
 
-    const discovery = discoverSubstrate(root);
+    const discovery = discover(root);
     expect(discovery.mode).toBe('stale');
     expect(discovery.mode === 'stale' ? discovery.paths.graph : 'defined').toBeUndefined();
 
+    if (discovery.mode !== 'stale') throw new Error('expected stale');
     const result = readGraph(discovery);
     expect(result).toMatchObject({ ok: false, reason: 'not_found' });
     expect(JSON.stringify(result)).not.toContain('FROM OUTSIDE');
@@ -363,9 +471,9 @@ describe('readLogs bootId filter (@taujs/mcp)', () => {
       { requestId: 'r1', bootId: 'boot-previous', at: 'a', level: 'error', msg: 'OLD BOOT' },
       { requestId: 'r1', bootId: 'boot-current', at: 'b', level: 'error', msg: 'THIS BOOT' },
     ];
-    await writeFile(path.join(devDirFor(root), 'logs.ndjson'), `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`, 'utf8');
+    await writeFile(path.join(bootDirFor(root, DEFAULT_BOOT_ID), 'logs.ndjson'), `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`, 'utf8');
 
-    const discovery = discoverSubstrate(root);
+    const discovery = discover(root);
     const withFilter = readLogs(discovery, { requestId: 'r1', bootId: 'boot-current' });
 
     expect(withFilter.ok && withFilter.records.map((l) => l.msg)).toEqual(['THIS BOOT']);

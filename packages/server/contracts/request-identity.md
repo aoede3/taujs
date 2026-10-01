@@ -110,8 +110,8 @@ Legacy trace-named request-observation surfaces are removed. At boot, τjs remov
 legacy file as current-boot evidence. The legacy `/__taujs/traces` endpoint and old MCP trace tools
 are absent. Historical changelogs and tests that prove legacy rejection may retain the old names.
 
-Evidence: [stale-file removal](../src/core/introspection/DevFiles.ts#L83),
-[endpoint cells](../src/core/introspection/test/DevEndpointsFiles.test.ts#L271), and the
+Evidence: [stale-file removal](../src/core/introspection/DevFiles.ts#L99),
+[endpoint cells](../src/core/introspection/test/DevEndpointsFiles.test.ts#L276), and the
 [MCP legacy-file cell](../../mcp/src/test/SubstrateReader.test.ts#L227).
 
 ## Identity invariant

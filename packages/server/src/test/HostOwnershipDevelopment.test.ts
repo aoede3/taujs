@@ -161,9 +161,18 @@ describe('RFC 0010 - caller-owned development host', () => {
 
       expect(graphInstrument.registrations - registrationsBefore).toBe(1);
 
-      const graphPath = path.resolve(root, 'node_modules', '.taujs', 'graph.json');
+      // Per-boot directories (docs/followups/live/concurrent-boots-share-one-substrate.md, rev
+      // 3.1): the graph lands under this boot's own folder, named by its bootId - never at the
+      // node_modules/.taujs root.
+      const introspection = introspectionInstrument.instances.at(-1) as {
+        bootId: string;
+        findEpisode: (id: string) => { url: { pathname: string } } | undefined;
+      };
+      expect(introspection).toBeTruthy();
+
+      const graphPath = path.resolve(root, 'node_modules', '.taujs', 'boots', introspection.bootId, 'graph.json');
       expect(existsSync(graphPath)).toBe(true);
-      expect(JSON.parse(await readFile(graphPath, 'utf8'))).toMatchObject({ source: 'boot' });
+      expect(JSON.parse(await readFile(graphPath, 'utf8'))).toMatchObject({ source: 'boot', bootId: introspection.bootId });
 
       // Gate 3a: the single caller-root hook reaches a URL Fastify routed nowhere, and Vite answers
       // with its actual client module rather than merely a 200.
@@ -185,8 +194,6 @@ describe('RFC 0010 - caller-owned development host', () => {
       // contract: server:request-identity#ruling-2-the-episode-key-is-the-textual-request-id
       // Supplied-host leg: the live introspection instance holds an
       // episode keyed by exactly the response's canonical x-request-id.
-      const introspection = introspectionInstrument.instances.at(-1) as { findEpisode: (id: string) => { url: { pathname: string } } | undefined };
-      expect(introspection).toBeTruthy();
       const episode = introspection.findEpisode(page.requestId!);
       expect(episode).toBeTruthy();
       expect(episode!.url.pathname).toBe(PATHS.taujsPage);

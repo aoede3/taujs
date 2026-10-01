@@ -90,22 +90,29 @@ const config: CoreTaujsConfig = {
   ],
 };
 
+// Per-boot directories (rev 3.1): every boot's own artefacts live under
+// node_modules/.taujs/boots/<bootId>/.
+const bootDir = (root: string, bootId: string) => path.join(root, 'node_modules', '.taujs', 'boots', bootId);
+
 // One parent for every fixture root this file creates, removed whole in afterAll.
 let scratch: string;
 let root: string;
 let toolByName: Map<string, (args: any) => ToolResult>;
 let observationsDoc: ObservationsDocument;
 
+const MAIN_BOOT_ID = 'boot-main';
+
 beforeAll(async () => {
   scratch = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-structural-'));
   root = await mkdtemp(path.join(scratch, 'tools-'));
-  const dir = path.join(root, 'node_modules', '.taujs');
+  const dir = bootDir(root, MAIN_BOOT_ID);
 
   const graph = createRequestGraph(config, {
     source: 'boot',
     emittedAt: '2026-07-10T10:00:00.000Z',
     serviceRegistry: registry,
     projectRoot: REPO_ROOT,
+    bootId: MAIN_BOOT_ID,
   });
   await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph, null, 2));
 
@@ -192,8 +199,13 @@ describe('structural tools (cold/stale mode)', () => {
       ],
     };
     const noDynamicRoot = await mkdtemp(path.join(scratch, 'no-dynamic-'));
-    const graph = createRequestGraph(noDynamicConfig, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
-    await writeTaujsArtifact(path.join(noDynamicRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+    const graph = createRequestGraph(noDynamicConfig, {
+      source: 'boot',
+      emittedAt: '2026-07-10T10:00:00.000Z',
+      serviceRegistry: registry,
+      bootId: 'boot-no-dynamic',
+    });
+    await writeTaujsArtifact(bootDir(noDynamicRoot, 'boot-no-dynamic'), 'graph.json', JSON.stringify(graph));
 
     const result = new Map(allTools(noDynamicRoot).map((t) => [t.name, t.handler])).get('taujs_overview')!({}) as any;
 
@@ -216,10 +228,15 @@ describe('structural tools (cold/stale mode)', () => {
       ],
     };
     const root = await mkdtemp(path.join(scratch, 'unknown-kind-'));
-    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry }) as any;
+    const graph = createRequestGraph(config, {
+      source: 'boot',
+      emittedAt: '2026-07-10T10:00:00.000Z',
+      serviceRegistry: registry,
+      bootId: 'boot-unknown-kind',
+    }) as any;
     // A future emitter kind this reader does not know; `constructor` is the case an `in` check would admit.
     graph.routes.find((r: any) => r.path === '/plain').data = { kind: 'constructor' };
-    await writeTaujsArtifact(path.join(root, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+    await writeTaujsArtifact(bootDir(root, 'boot-unknown-kind'), 'graph.json', JSON.stringify(graph));
 
     const result = new Map(allTools(root).map((t) => [t.name, t.handler])).get('taujs_overview')!({}) as any;
 
@@ -336,8 +353,8 @@ describe('structural tools (cold/stale mode)', () => {
     };
     // No serviceRegistry: services is null, so existence cannot be checked and the discovery
     // list is what the caller gets instead.
-    const graph = createRequestGraph(headOnlyConfig, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z' });
-    await writeTaujsArtifact(path.join(headOnlyRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+    const graph = createRequestGraph(headOnlyConfig, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', bootId: 'boot-head-noreg' });
+    await writeTaujsArtifact(bootDir(headOnlyRoot, 'boot-head-noreg'), 'graph.json', JSON.stringify(graph));
     const tools = new Map(allTools(headOnlyRoot).map((t) => [t.name, t.handler]));
 
     const result = tools.get('taujs_who_calls_service')!({ service: 'nothing' } as never) as any;
@@ -403,15 +420,17 @@ describe('structural tools (cold/stale mode)', () => {
 
     for (const [index, definitionLocation] of unsafeLocations.entries()) {
       const unsafeRoot = await mkdtemp(path.join(scratch, `unsafe-definition-${index}-`));
+      const unsafeBootId = `boot-unsafe-${index}`;
       const graph = createRequestGraph(config, {
         source: 'boot',
         emittedAt: '2026-07-10T10:00:00.000Z',
         serviceRegistry: registry,
         projectRoot: REPO_ROOT,
+        bootId: unsafeBootId,
       });
       if (!graph.services) throw new Error('services missing from fixture graph');
       for (const service of graph.services) (service as any).definitionLocation = definitionLocation;
-      await writeTaujsArtifact(path.join(unsafeRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+      await writeTaujsArtifact(bootDir(unsafeRoot, unsafeBootId), 'graph.json', JSON.stringify(graph));
 
       for (const args of [
         { service: 'catalog', method: 'getProduct' },
@@ -429,11 +448,12 @@ describe('structural tools (cold/stale mode)', () => {
       emittedAt: '2026-07-10T10:00:00.000Z',
       serviceRegistry: registry,
       projectRoot: REPO_ROOT,
+      bootId: 'boot-unknown-def',
     });
     const catalogService = unknownGraph.services?.find((service) => service.name === 'catalog');
     if (!catalogService) throw new Error('catalog service missing from fixture graph');
     (catalogService as any).definitionLocation = { status: 'unknown', path: '/must-not-leak', extra: 'discard me' };
-    await writeTaujsArtifact(path.join(unknownRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(unknownGraph));
+    await writeTaujsArtifact(bootDir(unknownRoot, 'boot-unknown-def'), 'graph.json', JSON.stringify(unknownGraph));
 
     const unknown = callAt(unknownRoot, 'taujs_who_calls_service', { service: 'catalog', method: 'getProduct' });
     expect(unknown.definitionLocation).toEqual({ status: 'unknown' });
@@ -473,7 +493,10 @@ describe('structural tools (cold/stale mode)', () => {
     expect(gone.danglingEdges[0]).toMatchObject({ source: 'declared', routeId: 'playground-react:/gone', method: 'gone' });
   });
 
-  it('observed edges cite the observations document, not the graph', async () => {
+  // Root compat (older emitter, no boots/): this file's one retained cell proving an older
+  // root-only substrate still reads exactly as before - no dev.json, a plain graph.json at the
+  // root (never boots/<bootId>/), read through the compatibility path in discoverSubstrate.
+  it('root compat: observed edges cite the observations document, not the graph', async () => {
     const t1Root = await mkdtemp(path.join(scratch, 't1-'));
     const dir = path.join(t1Root, 'node_modules', '.taujs');
     const graph = createRequestGraph(config, { source: 'build', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
@@ -508,8 +531,8 @@ describe('structural tools (cold/stale mode)', () => {
 
   it('RFC 0018: taujs_who_calls_service lists a host-observed caller separately, never merged into declared or observed', async () => {
     const hostRoot = await mkdtemp(path.join(scratch, 'host-who-'));
-    const dir = path.join(hostRoot, 'node_modules', '.taujs');
-    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    const dir = bootDir(hostRoot, 'boot-host-who');
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry, bootId: 'boot-host-who' });
     await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
 
     // A Fastify route the application registered itself, observed calling catalog.getProduct
@@ -534,11 +557,11 @@ describe('structural tools (cold/stale mode)', () => {
 
   it('RFC 0018: taujs_explain_route answers for a host path from episodes, labelled apart from a declared explanation', async () => {
     const hostRoot = await mkdtemp(path.join(scratch, 'host-explain-'));
-    const dir = path.join(hostRoot, 'node_modules', '.taujs');
-    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    const dev = createDevIntrospection();
+    const dir = bootDir(hostRoot, dev.bootId);
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry, bootId: dev.bootId });
     await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
 
-    const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'host-explain-1', url: '/api/products/7', method: 'POST' });
     dev.recorder.routeMatched({ requestId: 'host-explain-1', path: '/api/products/:id', method: 'POST', kind: 'host' });
     dev.recorder.serviceCall({ requestId: 'host-explain-1', service: 'catalog', method: 'getProduct', ms: 3, ok: true, startedAt: now() });
@@ -564,6 +587,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -578,11 +602,11 @@ describe('structural tools (cold/stale mode)', () => {
 
   it('RFC 0018: taujs_explain_route with a live boot but no matching host episode says "no observation", never that no request occurred', async () => {
     const hostRoot = await mkdtemp(path.join(scratch, 'host-explain-empty-'));
-    const dir = path.join(hostRoot, 'node_modules', '.taujs');
-    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    const dev = createDevIntrospection();
+    const dir = bootDir(hostRoot, dev.bootId);
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry, bootId: dev.bootId });
     await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
 
-    const dev = createDevIntrospection();
     await writeTaujsArtifact(dir, 'episodes.ndjson', '');
     await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
     const devJson: DevJson = {
@@ -596,6 +620,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -608,11 +633,11 @@ describe('structural tools (cold/stale mode)', () => {
 
   it('RFC 0018: a stale (expired) dev.json with a matching host episode never answers hostObserved - liveness is `mode`, not devJson presence', async () => {
     const hostRoot = await mkdtemp(path.join(scratch, 'host-explain-stale-'));
-    const dir = path.join(hostRoot, 'node_modules', '.taujs');
-    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    const dev = createDevIntrospection();
+    const dir = bootDir(hostRoot, dev.bootId);
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry, bootId: dev.bootId });
     await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
 
-    const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'host-stale-1', url: '/api/products/7', method: 'POST' });
     dev.recorder.routeMatched({ requestId: 'host-stale-1', path: '/api/products/:id', method: 'POST', kind: 'host' });
     dev.recorder.sent({ requestId: 'host-stale-1', status: 200, kind: 'host' });
@@ -636,6 +661,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     const devJsonPath = path.join(dir, 'dev.json');
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
@@ -670,11 +696,11 @@ describe('structural tools (cold/stale mode)', () => {
   // the caller this refusal exists to warn.
   const liveHostFixture = async (name: string) => {
     const hostRoot = await mkdtemp(path.join(scratch, name));
-    const dir = path.join(hostRoot, 'node_modules', '.taujs');
-    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
+    const dev = createDevIntrospection();
+    const dir = bootDir(hostRoot, dev.bootId);
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry, bootId: dev.bootId });
     await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
 
-    const dev = createDevIntrospection();
     dev.recorder.requestStart({ requestId: 'host-refusal-1', url: '/api/products/7', method: 'POST' });
     dev.recorder.routeMatched({ requestId: 'host-refusal-1', path: '/api/products/:id', method: 'POST', kind: 'host' });
     dev.recorder.sent({ requestId: 'host-refusal-1', status: 200, kind: 'host' });
@@ -697,6 +723,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -741,9 +768,11 @@ describe('structural tools (cold/stale mode)', () => {
 
   it('taujs_list_routes bypasses the overview but still carries the declared-topology qualification, via the shared staleness line', async () => {
     const t2Root = await mkdtemp(path.join(scratch, 't2-'));
-    const dir = path.join(t2Root, 'node_modules', '.taujs');
+    // A build graph belongs at dist/.taujs/graph.json, never inside a boot folder (finding 3b):
+    // a 'build'-sourced graph placed under boots/<id>/ is refused as substrate_inconsistent.
+    const distDir = path.join(t2Root, 'dist', '.taujs');
     const graph = createRequestGraph(config, { source: 'build', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
-    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+    await writeTaujsArtifact(distDir, 'graph.json', JSON.stringify(graph));
 
     const result = callAt(t2Root, 'taujs_list_routes', {});
 
@@ -755,20 +784,20 @@ describe('structural tools (cold/stale mode)', () => {
     // Missing observations.json: readObservations fails, so there is no document to cite.
     const noObsRoot = await mkdtemp(path.join(scratch, 'noobs-'));
     await writeTaujsArtifact(
-      path.join(noObsRoot, 'node_modules', '.taujs'),
+      bootDir(noObsRoot, 'boot-noobs'),
       'graph.json',
-      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry })),
+      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry, bootId: 'boot-noobs' })),
     );
     const noObsResult = callAt(noObsRoot, 'taujs_who_calls_service', { service: 'catalog' });
     expect(noObsResult.observedStaleness).toBeUndefined();
 
     // Unreadable observations.json: readObservations fails, so there is still no document to cite.
     const badObsRoot = await mkdtemp(path.join(scratch, 'badobs-'));
-    const badObsDir = path.join(badObsRoot, 'node_modules', '.taujs');
+    const badObsDir = bootDir(badObsRoot, 'boot-badobs');
     await writeTaujsArtifact(
       badObsDir,
       'graph.json',
-      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry })),
+      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry, bootId: 'boot-badobs' })),
     );
     await writeTaujsArtifact(badObsDir, 'observations.json', 'not json');
     const badObsResult = callAt(badObsRoot, 'taujs_who_calls_service', { service: 'catalog' });
@@ -777,8 +806,8 @@ describe('structural tools (cold/stale mode)', () => {
     // An active boot: observations are readable, but the graph itself is not stale, so neither
     // staleness citation applies.
     const activeRoot = await mkdtemp(path.join(scratch, 'active-'));
-    const activeDir = path.join(activeRoot, 'node_modules', '.taujs');
     const dev = createDevIntrospection();
+    const activeDir = bootDir(activeRoot, dev.bootId);
     dev.recorder.requestStart({ requestId: 'obs-active-1', url: '/product/9', method: 'GET' });
     dev.recorder.routeMatched({ requestId: 'obs-active-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
     dev.recorder.serviceCall({ requestId: 'obs-active-1', service: 'catalog', method: 'getProduct', ms: 4, ok: true, startedAt: now() });
@@ -786,7 +815,7 @@ describe('structural tools (cold/stale mode)', () => {
     await writeTaujsArtifact(
       activeDir,
       'graph.json',
-      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry })),
+      JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry, bootId: dev.bootId })),
     );
     // Same bootId as dev.json: readObservations must not mask it as a foreign boot.
     await writeTaujsArtifact(activeDir, 'observations.json', JSON.stringify(dev.getObservations()));
@@ -801,6 +830,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(activeDir, 'episodes.ndjson'),
       logs: path.join(activeDir, 'logs.ndjson'),
       observations: path.join(activeDir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(activeDir, 'dev.json', JSON.stringify(devJson));
     const activeResult = callAt(activeRoot, 'taujs_who_calls_service', { service: 'catalog' });
@@ -816,9 +846,9 @@ describe('structural tools (cold/stale mode)', () => {
       security: { csp: { directives: { defaultSrc: ["'self'"] } } },
     };
     const cleanRoot = await mkdtemp(path.join(scratch, 'clean-'));
-    const graph = createRequestGraph(cleanConfig, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z' });
+    const graph = createRequestGraph(cleanConfig, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', bootId: 'boot-clean' });
     expect(graph.warnings).toEqual([]);
-    await writeTaujsArtifact(path.join(cleanRoot, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph));
+    await writeTaujsArtifact(bootDir(cleanRoot, 'boot-clean'), 'graph.json', JSON.stringify(graph));
 
     const result = new Map(allTools(cleanRoot).map((t) => [t.name, t.handler])).get('taujs_doctor')!({}) as any;
 
@@ -874,6 +904,90 @@ describe('structural tools (cold/stale mode)', () => {
     expect(renderModule).toContain('## Streaming callback and terminal rules');
     expect(requestIdentity).toContain('### Ruling 2: The episode key is the textual request ID');
     expect(clientHydration).toContain('## What client null means');
+  });
+});
+
+describe('per-boot directories (rev 3.1): taujs_overview', () => {
+  const devJsonFor = (dir: string, bootId: string, overrides: Partial<DevJson> = {}): DevJson => ({
+    bootId,
+    token: 'tok',
+    pid: process.pid,
+    startedAt: '2026-07-10T11:00:00.000Z',
+    host: '127.0.0.1',
+    port: 5173,
+    graph: path.join(dir, 'graph.json'),
+    episodes: path.join(dir, 'episodes.ndjson'),
+    logs: path.join(dir, 'logs.ndjson'),
+    observations: path.join(dir, 'observations.json'),
+    state: 'active',
+    ...overrides,
+  });
+
+  it('carries the active folder’s bootId', async () => {
+    const liveRoot = await mkdtemp(path.join(scratch, 'overview-active-'));
+    const dir = bootDir(liveRoot, 'boot-overview');
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', bootId: 'boot-overview' });
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJsonFor(dir, 'boot-overview')));
+
+    const result = callAt(liveRoot, 'taujs_overview');
+
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe('active');
+    expect(result.bootId).toBe('boot-overview');
+  });
+
+  it('refuses with multiple_active_boots, naming both, when two folders are live at once', async () => {
+    const multiRoot = await mkdtemp(path.join(scratch, 'overview-multi-'));
+    const dirA = bootDir(multiRoot, 'boot-x');
+    const dirB = bootDir(multiRoot, 'boot-y');
+    await writeTaujsArtifact(dirA, 'dev.json', JSON.stringify(devJsonFor(dirA, 'boot-x', { startedAt: '2026-07-10T11:00:00.000Z', port: 5173 })));
+    await writeTaujsArtifact(dirB, 'dev.json', JSON.stringify(devJsonFor(dirB, 'boot-y', { startedAt: '2026-07-10T11:05:00.000Z', port: 5174 })));
+
+    const result = callAt(multiRoot, 'taujs_overview');
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'multiple_active_boots',
+      boots: [
+        { bootId: 'boot-x', startedAt: '2026-07-10T11:00:00.000Z', port: 5173 },
+        { bootId: 'boot-y', startedAt: '2026-07-10T11:05:00.000Z', port: 5174 },
+      ],
+    });
+    expect(result.message).toContain('boot-x');
+    expect(result.message).toContain('boot-y');
+
+    // Every other structural tool refuses the same way - there is no "the graph" to list routes from.
+    expect(callAt(multiRoot, 'taujs_list_routes')).toMatchObject({ ok: false, reason: 'multiple_active_boots' });
+  });
+
+  it('refuses with substrate_inconsistent, alone, when the one live folder disagrees with its own dev.json bootId (finding 3)', async () => {
+    const root = await mkdtemp(path.join(scratch, 'overview-inconsistent-'));
+    const dir = bootDir(root, 'boot-folder');
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJsonFor(dir, 'boot-dev-json'))); // folder is 'boot-folder', dev.json says 'boot-dev-json'
+
+    const result = callAt(root, 'taujs_overview');
+
+    expect(result).toMatchObject({ ok: false, reason: 'substrate_inconsistent' });
+    expect(result.message).toContain('boot-folder');
+    expect(result.message).toContain('boot-dev-json');
+
+    // Every other structural tool refuses the same way.
+    expect(callAt(root, 'taujs_list_routes')).toMatchObject({ ok: false, reason: 'substrate_inconsistent' });
+  });
+
+  it('an inconsistent folder beside a valid live one: the valid folder answers, and overview reports ignoredFolders', async () => {
+    const root = await mkdtemp(path.join(scratch, 'overview-ignored-'));
+    const goodDir = bootDir(root, 'boot-good');
+    const badDir = bootDir(root, 'boot-bad');
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', bootId: 'boot-good' });
+    await writeTaujsArtifact(goodDir, 'graph.json', JSON.stringify(graph));
+    await writeTaujsArtifact(goodDir, 'dev.json', JSON.stringify(devJsonFor(goodDir, 'boot-good')));
+    await writeTaujsArtifact(badDir, 'dev.json', JSON.stringify(devJsonFor(badDir, 'boot-bad-devjson'))); // folder is 'boot-bad'
+
+    const result = callAt(root, 'taujs_overview');
+
+    expect(result).toMatchObject({ ok: true, mode: 'active', bootId: 'boot-good', ignoredFolders: 1 });
   });
 });
 

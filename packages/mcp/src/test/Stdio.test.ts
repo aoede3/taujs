@@ -71,9 +71,11 @@ beforeAll(async () => {
   if (!existsSync(BIN)) throw new Error('dist/bin.js not found - run pnpm --filter @taujs/mcp build first');
 
   root = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-stdio-'));
-  const dir = path.join(root, 'node_modules', '.taujs');
+  // Per-boot directories (rev 3.1): the dev boot's own artefacts live under
+  // node_modules/.taujs/boots/<bootId>/.
+  const dir = path.join(root, 'node_modules', '.taujs', 'boots', 'boot-stdio');
 
-  const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-08-28T10:00:00.000Z', serviceRegistry: registry });
+  const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-08-28T10:00:00.000Z', serviceRegistry: registry, bootId: 'boot-stdio' });
   await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph, null, 2));
 
   // Written via the real emitter, exactly as StructuralTools.test.ts does - no dev.json, so

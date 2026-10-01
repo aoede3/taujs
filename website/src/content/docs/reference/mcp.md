@@ -7,7 +7,7 @@ description: Give AI agents ground truth about your routes, services, and live r
 
 ## What It Is
 
-A filesystem-only stdio MCP adapter. A τjs dev boot emits an introspection substrate under `node_modules/.taujs/`:
+A filesystem-only stdio MCP adapter. A τjs dev boot emits an introspection substrate under its own `node_modules/.taujs/boots/<bootId>/` folder:
 
 - **Request graph** - every route's contract: render strategy, data dependencies, schema flags, middleware
 - **Request episodes** - per-request records with timings, service calls, and outcomes
@@ -78,6 +78,7 @@ authoritative section.
 - **Untrusted by default** - field values in responses are your application's data: capped, never treated as instructions. Episode URLs never include query values
 - **Comparison is declared-fields-only** - `taujs_compare_graphs` diffs a retained baseline against the current graph over declared fields alone (apps, routes, security, fallthrough); metadata, `services`, and `warnings` are never compared, and rows state exact differences, never a verdict
 - **Episode absence is scoped to the persisted mirror** - a missing request may not have reached the next rewrite yet, may have been evicted, or may never have been recorded. The tool states those possibilities instead of choosing one
+- **One boot per folder** - each dev boot writes its own `node_modules/.taujs/boots/<bootId>/` and the reader never joins artefacts from two boots; several live boots refuse with `multiple_active_boots` naming each, a cleanly closed boot reads as `closed`, a folder whose ids disagree is refused as `substrate_inconsistent`
 
 ### Host-observed rows
 

@@ -68,34 +68,30 @@ describe('dev episode retention of deferred outcomes (RFC 0007 R5)', () => {
 
   it('a late outcome reaches the on-disk episodes.ndjson through the ordinary bounded rewrite', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-deferred-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
-    try {
-      const dev = createDevIntrospection();
-      const app = fastify();
-      registerDevFiles(app, dev, mkLogger());
+    const dev = createDevIntrospection();
+    const bootDir = path.join(dir, 'node_modules', '.taujs', 'boots', dev.bootId);
+    const app = fastify();
+    registerDevFiles(app, dev, mkLogger(), bootDir);
 
-      dev.recorder.requestStart({ requestId: 'late-disk', url: '/product/42', method: 'GET' });
-      dev.recorder.sent({ requestId: 'late-disk', status: 200, mode: 'streaming' });
+    dev.recorder.requestStart({ requestId: 'late-disk', url: '/product/42', method: 'GET' });
+    dev.recorder.sent({ requestId: 'late-disk', status: 200, mode: 'streaming' });
 
-      await app.listen({ port: 0, host: '127.0.0.1' });
+    await app.listen({ port: 0, host: '127.0.0.1' });
 
-      const episodesPath = path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson');
-      await vi.waitFor(async () => {
-        await stat(episodesPath);
-        expect(await readFile(episodesPath, 'utf8')).toContain('late-disk');
-      });
-      expect(await readFile(episodesPath, 'utf8')).not.toContain('deferredData');
+    const episodesPath = path.join(bootDir, 'episodes.ndjson');
+    await vi.waitFor(async () => {
+      await stat(episodesPath);
+      expect(await readFile(episodesPath, 'utf8')).toContain('late-disk');
+    });
+    expect(await readFile(episodesPath, 'utf8')).not.toContain('deferredData');
 
-      // The outcome arrives AFTER the episode was finalised and persisted.
-      dev.recorder.deferredData({ requestId: 'late-disk', key: 'reviews', ms: 7, outcome: 'aborted' });
+    // The outcome arrives AFTER the episode was finalised and persisted.
+    dev.recorder.deferredData({ requestId: 'late-disk', key: 'reviews', ms: 7, outcome: 'aborted' });
 
-      await vi.waitFor(async () => {
-        expect(await readFile(episodesPath, 'utf8')).toContain('"deferredData":[{"key":"reviews","outcome":"aborted","ms":7}]');
-      });
+    await vi.waitFor(async () => {
+      expect(await readFile(episodesPath, 'utf8')).toContain('"deferredData":[{"key":"reviews","outcome":"aborted","ms":7}]');
+    });
 
-      await app.close();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    await app.close();
   });
 });

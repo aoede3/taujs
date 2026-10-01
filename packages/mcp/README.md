@@ -7,7 +7,7 @@
 ## What it is
 
 A filesystem-only stdio MCP adapter. A τjs dev boot emits an introspection substrate under
-`node_modules/.taujs/` - the **request graph** (every declared route's contract), **request
+`node_modules/.taujs/boots/<bootId>/` - the **request graph** (every declared route's contract), **request
 episodes** (per-request records with timings, service calls, and outcomes), a redacted logs
 annex, and observed route → service edges. `taujs-mcp` reads those files and serves them
 as query-shaped MCP tools. It opens no network connections and loads no config.

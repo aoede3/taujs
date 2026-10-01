@@ -42,9 +42,13 @@ const EPISODE = {
   error: null,
 };
 
+// Per-boot directories (rev 3.1): every boot's own artefacts live under
+// node_modules/.taujs/boots/<bootId>/.
+const bootDir = (root: string, bootId: string) => path.join(root, 'node_modules', '.taujs', 'boots', bootId);
+
 const seed = async (files: Record<string, string>): Promise<string> => {
   const root = await mkdtemp(path.join(scratch, 'evidence-'));
-  const dir = path.join(root, 'node_modules', '.taujs');
+  const dir = bootDir(root, 'boot-1');
   await mkdir(dir, { recursive: true });
 
   const devJson: DevJson = {
@@ -58,13 +62,15 @@ const seed = async (files: Record<string, string>): Promise<string> => {
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
   };
 
   const defaults: Record<string, string> = {
     'dev.json': JSON.stringify(devJson),
     'graph.json': JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 3,
       source: 'boot',
+      bootId: 'boot-1',
       emittedAt: '2026-08-26T09:00:00.000Z',
       routes: [],
       services: [],
@@ -166,7 +172,7 @@ describe('malformed record accounting (@taujs/mcp)', () => {
 
   it('reports a directory at the episodes path as missing, not as an empty boot', async () => {
     const root = await seed({});
-    const dir = path.join(root, 'node_modules', '.taujs');
+    const dir = bootDir(root, 'boot-1');
     await writeFile(path.join(dir, 'episodes.ndjson'), '', 'utf8');
     await mkdir(path.join(dir, 'episodes-dir-marker'), { recursive: true });
     // Point dev.json's episodes at a DIRECTORY through the conventional name by replacing the file.
@@ -181,14 +187,16 @@ describe('malformed record accounting (@taujs/mcp)', () => {
 });
 
 describe('doctor shape (@taujs/mcp)', () => {
-  it('does not label an UNAVAILABLE section as observed', async () => {
+  // Root compat (older emitter, no boots/): this file's one retained cell proving taujs_doctor
+  // still answers cold against a plain root-only graph.json, never a boots/<bootId>/ folder.
+  it('root compat: does not label an UNAVAILABLE section as observed', async () => {
     const root = await mkdtemp(path.join(scratch, 'doctor-cold-'));
     const dir = path.join(root, 'node_modules', '.taujs');
     await mkdir(dir, { recursive: true });
     await writeFile(
       path.join(dir, 'graph.json'),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         source: 'boot',
         emittedAt: '2026-08-26T09:00:00.000Z',
         routes: [],

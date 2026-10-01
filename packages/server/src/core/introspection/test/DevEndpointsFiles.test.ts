@@ -14,6 +14,10 @@ const writeGate = vi.hoisted(() => ({
   armedFor: null as string | null,
   held: Promise.resolve() as Promise<void>,
   heldStarts: 0,
+  // The exact tmp path the gate caught, captured BEFORE the hold - the real write (and its
+  // rename to the final name) only happens after release, so this is the only window a test can
+  // observe the temp filename writeTaujsArtifact actually used (rule 6: pid plus bootId).
+  lastHeldTarget: null as string | null,
 }));
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -25,6 +29,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       if (writeGate.armedFor && target.includes('.taujs') && target.includes(writeGate.armedFor)) {
         writeGate.armedFor = null;
         writeGate.heldStarts += 1;
+        writeGate.lastHeldTarget = target;
         await writeGate.held;
       }
       return actual.writeFile(...args);
@@ -233,14 +238,16 @@ describe('declared host admissions (post-freeze ruling 2026-08-08)', () => {
 });
 
 describe('overlay endpoint contracts', () => {
-  it('GET /__taujs/graph serves a conservative schema v2 graph', async () => {
+  it('GET /__taujs/graph serves a conservative schema v3 graph', async () => {
     const { app, introspection } = await buildApp();
 
     const res = await app.inject({ method: 'GET', url: '/__taujs/graph', ...authed(introspection) });
 
     const graph = res.json();
-    expect(graph.schemaVersion).toBe(2);
+    expect(graph.schemaVersion).toBe(3);
     expect(graph.source).toBe('boot');
+    // Per-boot directories (rev 3.1): a boot-sourced graph always names its boot.
+    expect(graph.bootId).toBe(introspection.bootId);
     expect(graph.disclosure).toBe('conservative');
   });
 
@@ -364,355 +371,351 @@ describe('beacon rejection matrix (spec 03 §8 #5)', () => {
   });
 });
 
-describe('dev files lifecycle (spec 03 §5)', () => {
+describe('dev files lifecycle (spec 03 §5; per-boot directories rev 3.1)', () => {
+  // This boot's own folder, computed exactly as SSRServer.ts computes it: the caller resolves
+  // node_modules/.taujs/boots/<bootId>, never DevFiles.ts itself.
+  const bootDirFor = (root: string, bootId: string) => path.join(root, 'node_modules', '.taujs', 'boots', bootId);
+
   it('advances dev.json mtime on every poll tick, so a reader can tell a running boot from a crashed one', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-heartbeat-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const introspection = createDevIntrospection();
+    const bootDir = bootDirFor(dir, introspection.bootId);
+    const app = fastify();
+    // A short tick so the cell measures the MECHANISM rather than the production interval.
+    registerDevFiles(app, introspection, mkLogger(), bootDir, { pollMs: 20 });
 
-    try {
-      const introspection = createDevIntrospection();
-      const app = fastify();
-      // A short tick so the cell measures the MECHANISM rather than the production interval.
-      registerDevFiles(app, introspection, mkLogger(), { pollMs: 20 });
+    await app.listen({ port: 0, host: '127.0.0.1' });
 
-      await app.listen({ port: 0, host: '127.0.0.1' });
+    const devJsonPath = path.join(bootDir, 'dev.json');
+    await vi.waitFor(async () => {
+      await stat(devJsonPath);
+    });
 
-      const devJsonPath = path.join(dir, 'node_modules', '.taujs', 'dev.json');
-      await vi.waitFor(async () => {
-        await stat(devJsonPath);
-      });
+    // No traffic at all: a boot serving nothing is still a live boot, and the heartbeat has to
+    // advance anyway. The ring mirrors deliberately do NOT rewrite when unchanged, so this is
+    // exactly the case a change-gated write would miss.
+    const first = (await stat(devJsonPath)).mtimeMs;
+    await vi.waitFor(
+      async () => {
+        expect((await stat(devJsonPath)).mtimeMs).toBeGreaterThan(first);
+      },
+      { timeout: 2_000 },
+    );
 
-      // No traffic at all: a boot serving nothing is still a live boot, and the heartbeat has to
-      // advance anyway. The ring mirrors deliberately do NOT rewrite when unchanged, so this is
-      // exactly the case a change-gated write would miss.
-      const first = (await stat(devJsonPath)).mtimeMs;
-      await vi.waitFor(
-        async () => {
-          expect((await stat(devJsonPath)).mtimeMs).toBeGreaterThan(first);
-        },
-        { timeout: 2_000 },
-      );
+    const beforeClose = (await stat(devJsonPath)).mtimeMs;
+    await app.close();
 
-      const beforeClose = (await stat(devJsonPath)).mtimeMs;
-      await app.close();
-
-      // The close barrier runs a final flush - which now touches dev.json - and THEN removes it.
-      // A heartbeat that outlived the removal would resurrect a dead boot's marker.
-      await expect(stat(devJsonPath)).rejects.toMatchObject({ code: 'ENOENT' });
-      expect(beforeClose).toBeGreaterThan(0);
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    // The close barrier runs a final flush - which touches dev.json - and THEN rewrites it with
+    // state 'closed' (rule 3). It is never removed: a heartbeat that outlived close would have
+    // resurrected a dead boot's marker, but there is no marker left to resurrect into - the
+    // closed rewrite is the last write, full stop.
+    const after = JSON.parse(await readFile(devJsonPath, 'utf8'));
+    expect(after.state).toBe('closed');
+    expect(after.bootId).toBe(introspection.bootId);
+    expect(beforeClose).toBeGreaterThan(0);
   });
 
-  it('writes dev.json from the actual bound socket, mirrors rings, removes dev.json on close', async () => {
+  it('writes dev.json FIRST with state active, from the actual bound socket; mirrors rings; rewrites dev.json LAST with state closed (never removed)', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const introspection = createDevIntrospection();
+    const bootDir = bootDirFor(dir, introspection.bootId);
+    const app = fastify();
+    registerDevFiles(app, introspection, mkLogger(), bootDir);
 
-    try {
-      const introspection = createDevIntrospection();
-      const app = fastify();
-      registerDevFiles(app, introspection, mkLogger());
+    introspection.recorder.requestStart({ requestId: 'file-t1', url: '/reset?token=abc&ref=x', method: 'GET' });
+    introspection.recorder.sent({ requestId: 'file-t1', status: 200, mode: 'fallthrough' });
 
-      introspection.recorder.requestStart({ requestId: 'file-t1', url: '/reset?token=abc&ref=x', method: 'GET' });
-      introspection.recorder.sent({ requestId: 'file-t1', status: 200, mode: 'fallthrough' });
+    await app.listen({ port: 0, host: '127.0.0.1' });
 
-      await app.listen({ port: 0, host: '127.0.0.1' });
+    // onListen hooks are not awaited by listen() — the write lands just after.
+    const devJsonPath = path.join(bootDir, 'dev.json');
+    await vi.waitFor(async () => {
+      await stat(devJsonPath);
+    });
+    const devJson = JSON.parse(await readFile(devJsonPath, 'utf8'));
+    expect(devJson).toMatchObject({
+      bootId: introspection.bootId,
+      token: introspection.token,
+      pid: process.pid,
+      host: '127.0.0.1',
+      state: 'active',
+    });
+    expect(devJson.port).toBeGreaterThan(0);
+    expect(devJson.episodes.endsWith('episodes.ndjson')).toBe(true);
+    expect(devJson.graph).toBe(path.join(bootDir, 'graph.json'));
 
-      // onListen hooks are not awaited by listen() — the write lands just after.
-      const devJsonPath = path.join(dir, 'node_modules', '.taujs', 'dev.json');
-      await vi.waitFor(async () => {
-        await stat(devJsonPath);
-      });
-      const devJson = JSON.parse(await readFile(devJsonPath, 'utf8'));
-      expect(devJson).toMatchObject({
-        bootId: introspection.bootId,
-        token: introspection.token,
-        pid: process.pid,
-        host: '127.0.0.1',
-      });
-      expect(devJson.port).toBeGreaterThan(0);
-      expect(devJson.episodes.endsWith('episodes.ndjson')).toBe(true);
+    // Ring mirror lands within a poll tick; query hygiene holds on disk (acceptance #4).
+    // Wait for CONTENT, not existence: the boot reset writes the file empty at listen, so
+    // existence alone no longer proves the poller has mirrored the ring.
+    await vi.waitFor(async () => {
+      expect(await readFile(path.join(bootDir, 'episodes.ndjson'), 'utf8')).toContain('file-t1');
+    });
+    const ndjson = await readFile(path.join(bootDir, 'episodes.ndjson'), 'utf8');
 
-      // Ring mirror lands within a poll tick; query hygiene holds on disk (acceptance #4).
-      // Wait for CONTENT, not existence: the boot reset writes the file empty at listen, so
-      // existence alone no longer proves the poller has mirrored the ring.
-      await vi.waitFor(async () => {
-        expect(await readFile(path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson'), 'utf8')).toContain('file-t1');
-      });
-      const ndjson = await readFile(path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson'), 'utf8');
+    // Assert the STRUCTURE the recorder guarantees, not the absence of a substring. The system
+    // performs no value sweep: `sanitiseUrl` stores a pathname, the surviving query key names
+    // and a flag, so the value never enters the buffer in the first place. A sweep across the
+    // whole serialised document was a weaker proxy that also read every random identifier in
+    // it - a UUID containing `abc` failed while redaction was working perfectly.
+    const record = JSON.parse(
+      ndjson
+        .split('\n')
+        .filter(Boolean)
+        .find((line) => line.includes('file-t1'))!,
+    );
+    expect(record.url).toEqual({ pathname: '/reset', queryKeys: ['ref'], queryValuesRedacted: true });
 
-      // Assert the STRUCTURE the recorder guarantees, not the absence of a substring. The system
-      // performs no value sweep: `sanitiseUrl` stores a pathname, the surviving query key names
-      // and a flag, so the value never enters the buffer in the first place. A sweep across the
-      // whole serialised document was a weaker proxy that also read every random identifier in
-      // it - a UUID containing `abc` failed while redaction was working perfectly.
-      const record = JSON.parse(
-        ndjson
-          .split('\n')
-          .filter(Boolean)
-          .find((line) => line.includes('file-t1'))!,
-      );
-      expect(record.url).toEqual({ pathname: '/reset', queryKeys: ['ref'], queryValuesRedacted: true });
+    await app.close();
 
-      await app.close();
-      await expect(stat(devJsonPath)).rejects.toThrow();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    // Rule 3: the SAME document, state flipped to 'closed', never removed. Every other field is
+    // unchanged (the closed rewrite reuses the body captured at listen).
+    const closedDevJson = JSON.parse(await readFile(devJsonPath, 'utf8'));
+    expect(closedDevJson).toEqual({ ...devJson, state: 'closed' });
   });
 
   it('removes a stale legacy traces.ndjson at boot and exposes only episodes through dev.json; contract: server:request-identity#ruling-9-request-observations-use-episode-vocabulary', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-legacy-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const introspection = createDevIntrospection();
+    const bootDir = bootDirFor(dir, introspection.bootId);
+    await mkdir(bootDir, { recursive: true });
+    const legacyPath = path.join(bootDir, 'traces.ndjson');
+    await writeFile(legacyPath, '{"requestId":"stale-legacy-episode"}\n');
 
-    try {
-      const taujsDir = path.join(dir, 'node_modules', '.taujs');
-      await mkdir(taujsDir, { recursive: true });
-      const legacyPath = path.join(taujsDir, 'traces.ndjson');
-      await writeFile(legacyPath, '{"requestId":"stale-legacy-episode"}\n');
+    const app = fastify();
+    registerDevFiles(app, introspection, mkLogger(), bootDir);
 
-      const introspection = createDevIntrospection();
-      const app = fastify();
-      registerDevFiles(app, introspection, mkLogger());
+    await app.listen({ port: 0, host: '127.0.0.1' });
 
-      await app.listen({ port: 0, host: '127.0.0.1' });
+    const devJsonPath = path.join(bootDir, 'dev.json');
+    await vi.waitFor(async () => {
+      await stat(devJsonPath);
+    });
+    const devJson = JSON.parse(await readFile(devJsonPath, 'utf8'));
 
-      const devJsonPath = path.join(taujsDir, 'dev.json');
-      await vi.waitFor(async () => {
-        await stat(devJsonPath);
-      });
-      const devJson = JSON.parse(await readFile(devJsonPath, 'utf8'));
+    // A current boot exposes only the episode artefact; the legacy path never appears.
+    expect(devJson.episodes.endsWith('episodes.ndjson')).toBe(true);
+    expect(devJson.traces).toBeUndefined();
+    // The obsolete generated file is removed explicitly, so a stale legacy artefact cannot be
+    // mistaken for current-boot evidence.
+    await expect(stat(legacyPath)).rejects.toThrow();
 
-      // A current boot exposes only the episode artefact; the legacy path never appears.
-      expect(devJson.episodes.endsWith('episodes.ndjson')).toBe(true);
-      expect(devJson.traces).toBeUndefined();
-      // The obsolete generated file is removed explicitly, so a stale legacy artefact cannot be
-      // mistaken for current-boot evidence.
-      await expect(stat(legacyPath)).rejects.toThrow();
-
-      await app.close();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    await app.close();
   });
 
   it('resets the mutable ring mirrors at boot so a previous boot never serves as current (spec 03 §5 amendment, 2026-08-20)', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-reset-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const introspection = createDevIntrospection();
+    const bootDir = bootDirFor(dir, introspection.bootId);
 
-    try {
-      // Pre-seed all three mutable files as a dead previous boot would leave them: the poller
-      // only rewrites on change, so without the boot reset an early reader would be served these.
-      const taujsDir = path.join(dir, 'node_modules', '.taujs');
-      await mkdir(taujsDir, { recursive: true });
-      await writeFile(path.join(taujsDir, 'episodes.ndjson'), '{"requestId":"old-boot-episode"}\n');
-      await writeFile(path.join(taujsDir, 'logs.ndjson'), '{"requestId":"old-boot-log"}\n');
-      await writeFile(
-        path.join(taujsDir, 'observations.json'),
-        JSON.stringify({
-          schemaVersion: 1,
-          bootId: 'previous-boot',
-          updatedAt: '2026-01-01T00:00:00.000Z',
-          edges: [{ service: 'ghost', method: 'gone', routes: [], count: 9, lastObservedAt: '2026-01-01T00:00:00.000Z', sampleRequestIds: [] }],
-          shapes: [],
-        }),
-      );
+    // Pre-seed all three mutable files as a dead previous boot would leave them: the poller
+    // only rewrites on change, so without the boot reset an early reader would be served these.
+    await mkdir(bootDir, { recursive: true });
+    await writeFile(path.join(bootDir, 'episodes.ndjson'), '{"requestId":"old-boot-episode"}\n');
+    await writeFile(path.join(bootDir, 'logs.ndjson'), '{"requestId":"old-boot-log"}\n');
+    await writeFile(
+      path.join(bootDir, 'observations.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        bootId: 'previous-boot',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        edges: [{ service: 'ghost', method: 'gone', routes: [], count: 9, lastObservedAt: '2026-01-01T00:00:00.000Z', sampleRequestIds: [] }],
+        shapes: [],
+      }),
+    );
 
-      const introspection = createDevIntrospection();
-      const app = fastify();
-      registerDevFiles(app, introspection, mkLogger());
+    const app = fastify();
+    registerDevFiles(app, introspection, mkLogger(), bootDir);
 
-      await app.listen({ port: 0, host: '127.0.0.1' });
+    await app.listen({ port: 0, host: '127.0.0.1' });
 
-      await vi.waitFor(async () => {
-        const obs = JSON.parse(await readFile(path.join(taujsDir, 'observations.json'), 'utf8'));
-        expect(obs.bootId).toBe(introspection.bootId);
-      });
-      const obs = JSON.parse(await readFile(path.join(taujsDir, 'observations.json'), 'utf8'));
-      expect(obs.edges).toEqual([]);
-      expect(await readFile(path.join(taujsDir, 'episodes.ndjson'), 'utf8')).toBe('');
-      expect(await readFile(path.join(taujsDir, 'logs.ndjson'), 'utf8')).toBe('');
+    await vi.waitFor(async () => {
+      const obs = JSON.parse(await readFile(path.join(bootDir, 'observations.json'), 'utf8'));
+      expect(obs.bootId).toBe(introspection.bootId);
+    });
+    const obs = JSON.parse(await readFile(path.join(bootDir, 'observations.json'), 'utf8'));
+    expect(obs.edges).toEqual([]);
+    expect(await readFile(path.join(bootDir, 'episodes.ndjson'), 'utf8')).toBe('');
+    expect(await readFile(path.join(bootDir, 'logs.ndjson'), 'utf8')).toBe('');
 
-      await app.close();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    await app.close();
+  });
+
+  it('a boot write carries its bootId alongside pid in the temp name (rule 6)', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-tmpname-'));
+    const introspection = createDevIntrospection();
+    const bootDir = bootDirFor(dir, introspection.bootId);
+    const app = fastify();
+    registerDevFiles(app, introspection, mkLogger(), bootDir);
+
+    let release!: () => void;
+    writeGate.held = new Promise<void>((resolve) => (release = resolve));
+    const heldBefore = writeGate.heldStarts;
+    writeGate.armedFor = 'dev.json';
+
+    const listening = app.listen({ port: 0, host: '127.0.0.1' });
+    await vi.waitFor(() => {
+      expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
+    });
+
+    expect(writeGate.lastHeldTarget).toBe(path.join(bootDir, `.dev.json.${process.pid}.${introspection.bootId}.tmp`));
+
+    release();
+    await listening;
+    await app.close();
   });
 
   it('close awaits the in-flight BOOT writes - listen() resolves before the hook runner completes, so the timer must not start after close (CI ENOTEMPTY regression)', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-close-boot-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const introspection = createDevIntrospection();
+    const bootDir = bootDirFor(dir, introspection.bootId);
+    const app = fastify();
+    registerDevFiles(app, introspection, mkLogger(), bootDir, { pollMs: 1 });
 
-    try {
-      const taujsDir = path.join(dir, 'node_modules', '.taujs');
-      const introspection = createDevIntrospection();
-      const app = fastify();
-      registerDevFiles(app, introspection, mkLogger(), { pollMs: 1 });
+    // Arm BEFORE listen resolves its hook work: listen() returns while onListen still runs, so
+    // the FIRST boot write blocks on the gate - deterministically the fast boot-then-close shape
+    // the CI tests hit, where close ran mid-boot, cleared a timer that did not exist yet, and
+    // the poller then started AFTER close and wrote into a directory being removed.
+    let release!: () => void;
+    writeGate.held = new Promise<void>((resolve) => (release = resolve));
+    const heldBefore = writeGate.heldStarts;
+    writeGate.armedFor = 'dev.json';
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    await vi.waitFor(() => {
+      expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
+    });
 
-      // Arm BEFORE listen resolves its hook work: listen() returns while onListen still runs, so
-      // the FIRST boot write blocks on the gate - deterministically the fast boot-then-close shape
-      // the CI tests hit, where close ran mid-boot, cleared a timer that did not exist yet, and
-      // the poller then started AFTER close and wrote into a directory being removed.
-      let release!: () => void;
-      writeGate.held = new Promise<void>((resolve) => (release = resolve));
-      const heldBefore = writeGate.heldStarts;
-      writeGate.armedFor = 'episodes.ndjson';
-      await app.listen({ port: 0, host: '127.0.0.1' });
-      await vi.waitFor(() => {
-        expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
-      });
+    let closed = false;
+    const closing = app.close().then(() => {
+      closed = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(closed).toBe(false);
 
-      let closed = false;
-      const closing = app.close().then(() => {
-        closed = true;
-      });
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(closed).toBe(false);
+    release();
+    await closing;
 
-      release();
-      await closing;
-
-      // With close resolved, removal succeeds first try and nothing recreates the directory -
-      // in particular the poller never started, so no 1ms tick can land afterwards.
-      await rm(taujsDir, { recursive: true });
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      await expect(stat(taujsDir)).rejects.toThrow();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    // With close resolved, removal succeeds first try and nothing recreates the folder - in
+    // particular the poller never started, so no 1ms tick can land afterwards.
+    await rm(bootDir, { recursive: true });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await expect(stat(bootDir)).rejects.toThrow();
   });
 
   it('close awaits an in-flight POLLED write via the shared flush chain (CI ENOTEMPTY regression, tick variant)', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-close-tick-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const introspection = createDevIntrospection();
+    const bootDir = bootDirFor(dir, introspection.bootId);
+    const app = fastify();
+    registerDevFiles(app, introspection, mkLogger(), bootDir, { pollMs: 1 });
+    await app.listen({ port: 0, host: '127.0.0.1' });
 
-    try {
-      const taujsDir = path.join(dir, 'node_modules', '.taujs');
-      const introspection = createDevIntrospection();
-      const app = fastify();
-      registerDevFiles(app, introspection, mkLogger(), { pollMs: 1 });
-      await app.listen({ port: 0, host: '127.0.0.1' });
+    // Boot work completes first (dev.json on disk), so the held write below is a TICK's.
+    await vi.waitFor(async () => {
+      await stat(path.join(bootDir, 'dev.json'));
+    });
 
-      // Boot work completes first (dev.json on disk), so the held write below is a TICK's.
-      await vi.waitFor(async () => {
-        await stat(path.join(taujsDir, 'dev.json'));
-      });
+    // Traffic so the next tick has something to write, then arm: that write starts and BLOCKS -
+    // deterministically the state the real 500ms poller reaches by chance beside close.
+    introspection.recorder.requestStart({ requestId: 'race-1', url: '/race', method: 'GET' });
+    introspection.recorder.sent({ requestId: 'race-1', status: 200, mode: 'fallthrough' });
+    let release!: () => void;
+    writeGate.held = new Promise<void>((resolve) => (release = resolve));
+    const heldBefore = writeGate.heldStarts;
+    writeGate.armedFor = 'episodes.ndjson';
+    await vi.waitFor(() => {
+      expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
+    });
 
-      // Traffic so the next tick has something to write, then arm: that write starts and BLOCKS -
-      // deterministically the state the real 500ms poller reaches by chance beside close.
-      introspection.recorder.requestStart({ requestId: 'race-1', url: '/race', method: 'GET' });
-      introspection.recorder.sent({ requestId: 'race-1', status: 200, mode: 'fallthrough' });
-      let release!: () => void;
-      writeGate.held = new Promise<void>((resolve) => (release = resolve));
-      const heldBefore = writeGate.heldStarts;
-      writeGate.armedFor = 'episodes.ndjson';
-      await vi.waitFor(() => {
-        expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
-      });
+    // The defect was close RESOLVING while that write was still in flight - the straggler then
+    // landed during the caller's teardown and its mkdir(recursive) recreated the folder mid-removal.
+    let closed = false;
+    const closing = app.close().then(() => {
+      closed = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(closed).toBe(false);
 
-      // The defect was close RESOLVING while that write was still in flight - the straggler then
-      // landed during the caller's teardown and its mkdir(recursive) recreated .taujs mid-removal.
-      let closed = false;
-      const closing = app.close().then(() => {
-        closed = true;
-      });
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(closed).toBe(false);
+    release();
+    await closing;
 
-      release();
-      await closing;
-
-      await rm(taujsDir, { recursive: true });
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      await expect(stat(taujsDir)).rejects.toThrow();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    await rm(bootDir, { recursive: true });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await expect(stat(bootDir)).rejects.toThrow();
   });
 
   it('close awaits an in-flight GRAPH write - the second onListen writer sits inside the barrier too (CI ENOTEMPTY regression, composed wiring)', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-close-graph-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const introspection = createDevIntrospection();
+    const bootDir = bootDirFor(dir, introspection.bootId);
+    const app = fastify();
+    // Production wiring order (SSRServer): dev files first, then boot-graph emission, both
+    // pointed at the SAME per-boot folder.
+    registerDevFiles(app, introspection, mkLogger(), bootDir, { pollMs: 1 });
+    registerBootGraphEmission(app, config, undefined, mkLogger(), bootDir);
 
-    try {
-      const taujsDir = path.join(dir, 'node_modules', '.taujs');
-      const introspection = createDevIntrospection();
-      const app = fastify();
-      // Production wiring order (SSRServer): dev files first, then boot-graph emission.
-      registerDevFiles(app, introspection, mkLogger(), { pollMs: 1 });
-      registerBootGraphEmission(app, config, undefined, mkLogger());
+    // Hold graph.json specifically: the dev-file boot writes pass, then the runner reaches the
+    // graph hook and its write BLOCKS - the untracked-writer gap, deterministically in flight.
+    let release!: () => void;
+    writeGate.held = new Promise<void>((resolve) => (release = resolve));
+    writeGate.armedFor = 'graph.json';
+    const heldBefore = writeGate.heldStarts;
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    await vi.waitFor(() => {
+      expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
+    });
 
-      // Hold graph.json specifically: the dev-file boot writes pass, then the runner reaches the
-      // graph hook and its write BLOCKS - the untracked-writer gap, deterministically in flight.
-      let release!: () => void;
-      writeGate.held = new Promise<void>((resolve) => (release = resolve));
-      writeGate.armedFor = 'graph.json';
-      const heldBefore = writeGate.heldStarts;
-      await app.listen({ port: 0, host: '127.0.0.1' });
-      await vi.waitFor(() => {
-        expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
-      });
+    let closed = false;
+    const closing = app.close().then(() => {
+      closed = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(closed).toBe(false);
 
-      let closed = false;
-      const closing = app.close().then(() => {
-        closed = true;
-      });
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(closed).toBe(false);
+    release();
+    await closing;
 
-      release();
-      await closing;
-
-      // The graph write completed BEFORE close resolved; teardown is immediately safe.
-      expect(JSON.parse(await readFile(path.join(taujsDir, 'graph.json'), 'utf8')).schemaVersion).toBe(2);
-      await rm(taujsDir, { recursive: true });
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      await expect(stat(taujsDir)).rejects.toThrow();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    // The graph write completed BEFORE close resolved; teardown is immediately safe.
+    const graph = JSON.parse(await readFile(path.join(bootDir, 'graph.json'), 'utf8'));
+    expect(graph.schemaVersion).toBe(3);
+    expect(graph.bootId).toBe(introspection.bootId);
+    await rm(bootDir, { recursive: true });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await expect(stat(bootDir)).rejects.toThrow();
   });
 
   it('a close that overtakes the boot leaves teardown clean under the full composed wiring', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-devfiles-close-overtake-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const introspection = createDevIntrospection();
+    const bootDir = bootDirFor(dir, introspection.bootId);
+    const app = fastify();
+    registerDevFiles(app, introspection, mkLogger(), bootDir, { pollMs: 1 });
+    registerBootGraphEmission(app, config, undefined, mkLogger(), bootDir);
 
-    try {
-      const taujsDir = path.join(dir, 'node_modules', '.taujs');
-      const introspection = createDevIntrospection();
-      const app = fastify();
-      registerDevFiles(app, introspection, mkLogger(), { pollMs: 1 });
-      registerBootGraphEmission(app, config, undefined, mkLogger());
+    // Hold the FIRST boot write, so close begins while the hook runner is still inside the
+    // dev-files hook and has not reached the graph hook at all. Whichever interleaving follows
+    // release (graph skipped by its closed guard, or written-then-awaited), the invariant is
+    // the same: nothing lands after close resolves.
+    let release!: () => void;
+    writeGate.held = new Promise<void>((resolve) => (release = resolve));
+    const heldBefore = writeGate.heldStarts;
+    writeGate.armedFor = 'dev.json';
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    await vi.waitFor(() => {
+      expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
+    });
 
-      // Hold the FIRST boot write, so close begins while the hook runner is still inside the
-      // dev-files hook and has not reached the graph hook at all. Whichever interleaving follows
-      // release (graph skipped by its closed guard, or written-then-awaited), the invariant is
-      // the same: nothing lands after close resolves.
-      let release!: () => void;
-      writeGate.held = new Promise<void>((resolve) => (release = resolve));
-      const heldBefore = writeGate.heldStarts;
-      writeGate.armedFor = 'episodes.ndjson';
-      await app.listen({ port: 0, host: '127.0.0.1' });
-      await vi.waitFor(() => {
-        expect(writeGate.heldStarts).toBeGreaterThan(heldBefore);
-      });
+    let closed = false;
+    const closing = app.close().then(() => {
+      closed = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(closed).toBe(false);
 
-      let closed = false;
-      const closing = app.close().then(() => {
-        closed = true;
-      });
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(closed).toBe(false);
+    release();
+    await closing;
 
-      release();
-      await closing;
-
-      await rm(taujsDir, { recursive: true });
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      await expect(stat(taujsDir)).rejects.toThrow();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    await rm(bootDir, { recursive: true });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await expect(stat(bootDir)).rejects.toThrow();
   });
 });

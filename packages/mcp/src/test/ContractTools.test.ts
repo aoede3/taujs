@@ -59,6 +59,11 @@ type FixtureOptions = {
   symlinkOwner?: boolean; // install the owner via a symlink, pnpm-style
 };
 
+// Per-boot directories (rev 3.1): every boot's own artefacts live under
+// node_modules/.taujs/boots/<bootId>/.
+const bootDir = (root: string, bootId: string) => path.join(root, 'node_modules', '.taujs', 'boots', bootId);
+const FIXTURE_BOOT_ID = 'boot-contracts';
+
 const mkFixture = async (opts: FixtureOptions = {}): Promise<string> => {
   const root = await mkdtemp(path.join(scratch, 'root-'));
   const installedVersion = opts.installedVersion === undefined ? '1.2.3' : opts.installedVersion;
@@ -80,18 +85,18 @@ const mkFixture = async (opts: FixtureOptions = {}): Promise<string> => {
   }
 
   if (opts.graphRaw !== undefined) {
-    await writeTaujsArtifact(path.join(root, 'node_modules', '.taujs'), 'graph.json', opts.graphRaw);
+    await writeTaujsArtifact(bootDir(root, FIXTURE_BOOT_ID), 'graph.json', opts.graphRaw);
     return root;
   }
   const graphVersion = opts.graphServerVersion === undefined ? installedVersion : opts.graphServerVersion;
   if (graphVersion !== null) {
-    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-09-01T10:00:00.000Z' });
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-09-01T10:00:00.000Z', bootId: FIXTURE_BOOT_ID });
     const patched = {
       ...graph,
       taujs: { ...graph.taujs, server: graphVersion },
       ...(opts.graphSchemaVersion !== undefined ? { schemaVersion: opts.graphSchemaVersion } : {}),
     };
-    await writeTaujsArtifact(path.join(root, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(patched, null, 2));
+    await writeTaujsArtifact(bootDir(root, FIXTURE_BOOT_ID), 'graph.json', JSON.stringify(patched, null, 2));
   }
   return root;
 };
@@ -170,6 +175,8 @@ describe('taujs_find_contract - catalogue and exact-id retrieval', () => {
     const exact = call(root, 'taujs_find_contract', { id: 'html:render-module' });
     expect(exact).toMatchObject({ ok: false, reason: 'contract_unavailable', owner: '@taujs/html', cause: 'contracts_missing' });
     expect(exact.contract).toBeUndefined();
+    // A renderer that ships no contracts still has a specified boundary: the refusal says where.
+    expect(exact.detail).toContain('server:render-module#intentional-renderer-differences');
 
     const catalogue = call(root, 'taujs_find_contract');
     expect(catalogue.ok).toBe(true);
@@ -180,6 +187,16 @@ describe('taujs_find_contract - catalogue and exact-id retrieval', () => {
         detail: expect.stringContaining('installed @taujs/html@0.1.0 ships no contracts/'),
       }),
     ]);
+    expect(catalogue.unavailableOwners[0].detail).toContain('server:render-module#intentional-renderer-differences');
+  });
+
+  it('the render-module pointer is for renderer owners only: @taujs/server without contracts gets none', async () => {
+    const root = await mkFixture();
+    await rm(path.join(root, 'node_modules', '@taujs', 'server', 'contracts'), { recursive: true, force: true });
+
+    const exact = call(root, 'taujs_find_contract', { id: 'server:render-module' });
+    expect(exact).toMatchObject({ ok: false, reason: 'contract_unavailable', owner: '@taujs/server', cause: 'contracts_missing' });
+    expect(exact.detail).not.toContain('server:render-module#');
   });
 
   it('a manifest schema skew refuses contract_unavailable and is named in the catalogue answer', async () => {
@@ -276,9 +293,10 @@ describe('bounded reads and manifest identity', () => {
     expect(result).toMatchObject({ ok: false, reason: 'contract_unavailable', cause: 'manifest_identity_mismatch' });
   });
 
-  it('a schema-v2 graph WITHOUT a usable taujs.server is graph_unusable, never served-as-absent', async () => {
-    // Passes readGraph (parse + schemaVersion are its only checks) yet carries no emitter version.
-    const root = await mkFixture({ graphRaw: '{"schemaVersion":2}' });
+  it('a schema-v3 graph WITHOUT a usable taujs.server is graph_unusable, never served-as-absent', async () => {
+    // Passes readGraph (parse, schemaVersion, and - inside a boot folder - the source/bootId
+    // identity checks) yet carries no emitter version.
+    const root = await mkFixture({ graphRaw: `{"schemaVersion":3,"source":"boot","bootId":"${FIXTURE_BOOT_ID}"}` });
     const result = call(root, 'taujs_find_contract', { id: 'server:render-strategies' });
     expect(result).toMatchObject({ ok: false, reason: 'graph_unusable', cause: 'missing_emitter_version' });
     expect(result.contract).toBeUndefined();
@@ -335,5 +353,31 @@ describe('render-strategy citations - enrichment only, never a gate on existing 
       expect(doctor.defaultedRenders.routeIds).toEqual([]);
       expect(doctor.defaultedRenders.contract).toBeUndefined();
     }
+  });
+
+  // Root compat (older emitter, no boots/): this file's one retained cell proving contract
+  // retrieval and citation still work against a plain root-only graph.json, never a
+  // boots/<bootId>/ folder.
+  it('root compat: contract retrieval and the explain_route citation both work from a root-only graph.json', async () => {
+    const root = await mkdtemp(path.join(scratch, 'root-compat-'));
+    const realDir = path.join(root, 'node_modules', '@taujs', 'server');
+    await mkdir(realDir, { recursive: true });
+    await writeFile(path.join(realDir, 'package.json'), JSON.stringify({ name: '@taujs/server', version: '1.2.3' }));
+    const contractsDir = path.join(realDir, 'contracts');
+    await mkdir(contractsDir, { recursive: true });
+    await writeFile(path.join(contractsDir, 'index.json'), JSON.stringify(GOOD_MANIFEST));
+    await writeFile(path.join(contractsDir, 'render-strategies.md'), GOOD_DOC);
+
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-09-01T10:00:00.000Z' });
+    const patched = { ...graph, taujs: { ...graph.taujs, server: '1.2.3' } };
+    await writeTaujsArtifact(path.join(root, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(patched, null, 2));
+
+    const found = call(root, 'taujs_find_contract', { id: 'server:render-strategies' });
+    expect(found.ok).toBe(true);
+    expect(found.contract.body).toContain('client-only navigation exists by omission');
+
+    const explained = call(root, 'taujs_explain_route', { path: '/' });
+    expect(explained.ok).toBe(true);
+    expect(explained.explanations[0].render.contract).toEqual({ contractId: 'server:render-strategies', owner: '@taujs/server', ownerVersion: '1.2.3' });
   });
 });

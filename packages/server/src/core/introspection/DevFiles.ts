@@ -1,6 +1,7 @@
 import { rm, utimes } from 'node:fs/promises';
 import path from 'node:path';
 
+import { sweepBootFolders } from './BootSweep';
 import { writeTaujsArtifact } from './EmitGraph';
 
 import type { FastifyInstance } from 'fastify';
@@ -10,13 +11,18 @@ import type { DevIntrospection } from './DevIntrospection';
 
 const POLL_MS = 500;
 
-// Emits the dev files under node_modules/.taujs/ (spec 03 §5): dev.json on listen (actual
-// bound socket, removed on graceful close) and ring mirrors of the in-memory buffers —
-// full atomic rewrite on change, debounced by a polling interval. Correctness over
-// cleverness: the rings are already size-capped in memory, so a rewrite is bounded work.
-// All writes are non-fatal (invariant 3) via writeTaujsArtifact.
-export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrospection, logger: Logs, options?: { pollMs?: number }): void => {
-  const dir = path.resolve(process.cwd(), 'node_modules', '.taujs');
+// Emits the dev files under node_modules/.taujs/boots/<bootId>/ (per-boot directories,
+// docs/followups/live/concurrent-boots-share-one-substrate.md rev 3.1): dev.json first with
+// state 'active' on listen, rewritten last with state 'closed' on graceful close (never
+// removed), and ring mirrors of the in-memory buffers - full atomic rewrite on change, debounced
+// by a polling interval. Correctness over cleverness: the rings are already size-capped in
+// memory, so a rewrite is bounded work. All writes are non-fatal (invariant 3) via
+// writeTaujsArtifact, and this boot never reads or writes outside its own folder except the
+// start-of-boot sweep, which only ever removes a SIBLING folder that is closed or dead-pid.
+export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrospection, logger: Logs, bootDir: string, options?: { pollMs?: number }): void => {
+  const dir = bootDir;
+  const bootId = introspection.bootId;
+  const bootsDir = path.dirname(dir);
   const filePath = (name: string) => path.join(dir, name);
   const pollMs = options?.pollMs ?? POLL_MS;
 
@@ -25,16 +31,16 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
 
   // Every flush - polled or final - joins ONE chain, and close awaits it. A polled tick was
   // previously fired unawaited: one still in flight when onClose ran could land its write
-  // AFTER close resolved, and writeTaujsArtifact's mkdir(recursive) would recreate
-  // node_modules/.taujs while a caller's teardown was removing it (the CI ENOTEMPTY flake).
+  // AFTER close resolved, and writeTaujsArtifact's mkdir(recursive) would recreate this boot's
+  // own folder while a caller's teardown was removing it (the CI ENOTEMPTY flake).
   let inFlight: Promise<void> = Promise.resolve();
 
   // A reader cannot tell a running boot from a crashed one by its pid: pids are recycled, and a
-  // crashed boot's dev.json survives because it is removed only on graceful close below. So the
-  // boot proves it is alive by ADVANCING dev.json's mtime on this tick. Touching mtime is the whole
-  // mechanism - no new field, no negotiation, and a reader with no dependency on this package can
-  // observe it with one stat. Non-fatal like every other dev-file write; an unwritable dev.json
-  // simply reads as expired, which is the honest answer.
+  // crashed boot's dev.json survives because it is rewritten, never removed, on graceful close
+  // below (rule 3). So the boot proves it is alive by ADVANCING dev.json's mtime on this tick.
+  // Touching mtime is the whole mechanism - no new field, no negotiation, and a reader with no
+  // dependency on this package can observe it with one stat. Non-fatal like every other dev-file
+  // write; an unwritable dev.json simply reads as expired, which is the honest answer.
   const heartbeat = async (): Promise<void> => {
     const now = new Date();
     await utimes(filePath('dev.json'), now, now).catch(() => undefined);
@@ -52,14 +58,14 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
     // on-disk artefact through this same bounded rewrite rather than lagging until the next request.
     if (stats.episodesRevision !== last.episodesRevision) {
       const lines = introspection.getEpisodes().map((t) => JSON.stringify(t));
-      await writeTaujsArtifact(dir, 'episodes.ndjson', lines.length ? `${lines.join('\n')}\n` : '', logger);
+      await writeTaujsArtifact(dir, 'episodes.ndjson', lines.length ? `${lines.join('\n')}\n` : '', logger, bootId);
     }
     if (stats.logs !== last.logs) {
       const lines = introspection.getLogs().map((l) => JSON.stringify(l));
-      await writeTaujsArtifact(dir, 'logs.ndjson', lines.length ? `${lines.join('\n')}\n` : '', logger);
+      await writeTaujsArtifact(dir, 'logs.ndjson', lines.length ? `${lines.join('\n')}\n` : '', logger, bootId);
     }
     if (stats.observationsUpdatedAt !== last.observationsUpdatedAt) {
-      await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(introspection.getObservations(), null, 2), logger);
+      await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(introspection.getObservations(), null, 2), logger, bootId);
     }
     last = stats;
   };
@@ -76,29 +82,28 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
   let closed = false;
   let bootWork: Promise<void> = Promise.resolve();
 
+  // dev.json's body minus `state`, captured once at listen so the onClose rewrite (rule 3) is
+  // the SAME document with only `state` flipped - never reconstructed from scratch.
+  let devJsonBody: Record<string, unknown> | undefined;
+
   app.addHook('onListen', function emitDevJson() {
     const address = this.server.address() as AddressInfo | null;
 
     bootWork = (async () => {
+      // Sweep before any write of our own (rule 4): remove sibling folders whose dev.json says
+      // closed, or whose recorded pid is dead, keeping the newest of those; anything unknown
+      // (no readable/parseable dev.json yet), live-and-not-closed, or heartbeat-expired is left
+      // untouched. Non-fatal and warns at most once per process.
+      await sweepBootFolders(bootsDir, bootId, { logger });
+
+      // A developer may still hold a legacy traces.ndjson from an earlier boot that reused this
+      // exact folder name - practically impossible now that each boot owns a freshly generated
+      // bootId, but harmless to keep.
       // contract: server:request-identity#ruling-9-request-observations-use-episode-vocabulary
-      // A developer may still hold a legacy traces.ndjson written by
-      // an earlier boot. A current boot exposes only episodes.ndjson through dev.json, and the
-      // obsolete generated file is removed explicitly so a stale legacy artefact can never be
-      // mistaken for current-boot evidence. Non-fatal like every other dev-file write.
       await rm(filePath('traces.ndjson'), { force: true }).catch(() => undefined);
 
-      // Same principle for the mutable ring mirrors (spec 03 §5 amendment, decisions.md
-      // 2026-08-20): the poller below only rewrites on change, so until the first current-boot
-      // event each file on disk is still the PREVIOUS boot's - an early reader could serve old
-      // edges as "seen this boot". Reset all three at listen: previous-boot content is
-      // legitimately read only while no boot runs (stale mode, freshness-cited), and ceases to
-      // be applicable exactly now (episode reads are bootId-filtered; runtime tools need this boot).
-      await writeTaujsArtifact(dir, 'episodes.ndjson', '', logger);
-      await writeTaujsArtifact(dir, 'logs.ndjson', '', logger);
-      await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(introspection.getObservations(), null, 2), logger);
-
-      const devJson = {
-        bootId: introspection.bootId,
+      devJsonBody = {
+        bootId,
         token: introspection.token,
         pid: process.pid,
         startedAt: new Date().toISOString(),
@@ -110,7 +115,18 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
         observations: filePath('observations.json'),
       };
 
-      await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson, null, 2), logger);
+      // dev.json is the FIRST write in this boot's folder (rule 1), with state: 'active'. Only
+      // after it do the ring mirrors reset below, and the graph (a separate onListen hook
+      // registered after this one - Fastify sequences onListen hook promises in series).
+      await writeTaujsArtifact(dir, 'dev.json', JSON.stringify({ ...devJsonBody, state: 'active' }, null, 2), logger, bootId);
+
+      // Ring mirrors: the poller below only rewrites on change, so until the first current-boot
+      // event each file on disk would otherwise be stale for an early reader. Reset all three at
+      // listen (spec 03 §5 amendment, decisions.md 2026-08-20): episode reads are
+      // bootId-filtered, and runtime tools need THIS boot's own evidence from the first tick.
+      await writeTaujsArtifact(dir, 'episodes.ndjson', '', logger, bootId);
+      await writeTaujsArtifact(dir, 'logs.ndjson', '', logger, bootId);
+      await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(introspection.getObservations(), null, 2), logger, bootId);
 
       // Ring mirrors: poll-on-change; unref'd so the timer never holds the process open.
       if (!closed) {
@@ -129,7 +145,12 @@ export const registerDevFiles = (app: FastifyInstance, introspection: DevIntrosp
     await bootWork.catch(() => undefined);
     if (timer) clearInterval(timer);
     await scheduleFlush();
-    // Removing dev.json marks the boot dead; episode files stay (bootId detects staleness).
-    await rm(filePath('dev.json'), { force: true }).catch(() => undefined);
+
+    // Closed LAST (rule 3): the same document, `state` flipped to 'closed', via the ordinary
+    // tmp+rename path - never removed. A sweep by a later boot is the only thing that ever
+    // deletes it.
+    if (devJsonBody) {
+      await writeTaujsArtifact(dir, 'dev.json', JSON.stringify({ ...devJsonBody, state: 'closed' }, null, 2), logger, bootId);
+    }
   });
 };

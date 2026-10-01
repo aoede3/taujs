@@ -38,11 +38,15 @@ afterAll(async () => {
 // One parent for the fixture root this file creates, removed whole in afterAll.
 let scratch: string;
 
+// Per-boot directories (rev 3.1): every boot's own artefacts live under
+// node_modules/.taujs/boots/<bootId>/.
+const bootDir = (root: string, bootId: string) => path.join(root, 'node_modules', '.taujs', 'boots', bootId);
+
 beforeAll(async () => {
   scratch = await mkdtemp(path.join(tmpdir(), 'taujs-mcp-deferred-'));
   const root = await mkdtemp(path.join(scratch, 'root-'));
-  const dir = path.join(root, 'node_modules', '.taujs');
   const dev = createDevIntrospection();
+  const dir = bootDir(root, dev.bootId);
 
   // One streaming request whose declared deferred entries settle three different ways.
   dev.recorder.requestStart({ requestId: 'deferred-1', url: '/product/42', method: 'GET' });
@@ -52,7 +56,11 @@ beforeAll(async () => {
   dev.recorder.deferredData({ requestId: 'deferred-1', key: 'stock', ms: 120, outcome: 'aborted' });
   dev.recorder.sent({ requestId: 'deferred-1', status: 200, mode: 'streaming' });
 
-  await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-28T11:00:00.000Z' })));
+  await writeTaujsArtifact(
+    dir,
+    'graph.json',
+    JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-28T11:00:00.000Z', bootId: dev.bootId })),
+  );
   await writeTaujsArtifact(
     dir,
     'episodes.ndjson',
@@ -75,6 +83,7 @@ beforeAll(async () => {
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
   };
   await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -100,5 +109,47 @@ describe('MCP surfaces RFC 0007 deferred outcomes with no new tool', () => {
 
     expect(result.ok).toBe(true);
     expect(result.routes[0].deferred).toEqual([{ key: 'reviews', data: { kind: 'dynamic' } }]);
+  });
+
+  // Root compat (older emitter, no boots/): the same deferred-outcome read, against a substrate
+  // laid out the pre-rev-3.1 way, still answers.
+  it('root compat: taujs_get_episode reads deferredData from an older, root-only substrate', async () => {
+    const root = await mkdtemp(path.join(scratch, 'root-compat-'));
+    const dir = path.join(root, 'node_modules', '.taujs');
+    const dev = createDevIntrospection();
+    dev.recorder.requestStart({ requestId: 'deferred-compat-1', url: '/product/9', method: 'GET' });
+    dev.recorder.routeMatched({ requestId: 'deferred-compat-1', path: '/product/:id', appId: 'playground-react', render: 'streaming', kind: 'page' });
+    dev.recorder.deferredData({ requestId: 'deferred-compat-1', key: 'reviews', ms: 10, outcome: 'complete' });
+    dev.recorder.sent({ requestId: 'deferred-compat-1', status: 200, mode: 'streaming' });
+
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-28T11:00:00.000Z' })));
+    await writeTaujsArtifact(
+      dir,
+      'episodes.ndjson',
+      dev
+        .getEpisodes()
+        .map((t) => JSON.stringify(t))
+        .join('\n') + '\n',
+    );
+    await writeTaujsArtifact(dir, 'observations.json', JSON.stringify(dev.getObservations()));
+    const devJson: DevJson = {
+      bootId: dev.bootId,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-28T11:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+
+    const compatTools = new Map(allTools(root).map((t) => [t.name, t.handler]));
+    const result = compatTools.get('taujs_get_episode')!({ requestId: 'deferred-compat-1' }) as { ok: boolean; episode: EpisodeRecord };
+
+    expect(result.ok).toBe(true);
+    expect(result.episode.deferredData).toEqual([{ key: 'reviews', outcome: 'complete', ms: 10 }]);
   });
 });

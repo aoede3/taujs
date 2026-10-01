@@ -44,10 +44,17 @@ export type GraphDefinitionLocation = { status: 'known'; path: string } | { stat
 export type GraphService = { name: string; definitionLocation?: GraphDefinitionLocation; methods: GraphServiceMethod[] };
 
 export type RequestGraphV2 = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   taujs: { server: string };
   source: GraphSource;
   emittedAt: string;
+  /**
+   * Per-boot directories (docs/followups/live/concurrent-boots-share-one-substrate.md, rev 3.1):
+   * the emitting boot's folder name under node_modules/.taujs/boots/. Required on a boot graph,
+   * absent on a build graph; absent also on a graph from an older emitter (version skew) - this
+   * type bump alone does not discover that split, which is reader work for a later unit.
+   */
+  bootId?: string;
   disclosure: 'conservative';
   apps: { appId: string; entryPoint: string; routeCount: number }[];
   routes: GraphRoute[];
@@ -137,4 +144,10 @@ export type DevJson = {
   episodes: string;
   logs: string;
   observations: string;
+  /**
+   * Per-boot directories (docs/followups/live/concurrent-boots-share-one-substrate.md, rev 3.1):
+   * 'active' from the first write on listen, rewritten to 'closed' as the last write on graceful
+   * close (never removed). Optional for an older emitter's dev.json, which carries neither value.
+   */
+  state?: 'active' | 'closed';
 };
