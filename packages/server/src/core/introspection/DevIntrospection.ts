@@ -19,7 +19,15 @@ const LOGS_RING_CAP = 2000;
 const SAMPLE_REQUEST_ID_CAP = 5;
 const PENDING_CAP = 500; // safety valve for episodes that never reach a terminal event
 
-export type EpisodeTimeline = { matched?: number; dataStart?: number; dataEnd?: number; head?: number; shellReady?: number; allReady?: number };
+export type EpisodeTimeline = {
+  matched?: number;
+  devAssetsReady?: number;
+  dataStart?: number;
+  dataEnd?: number;
+  head?: number;
+  shellReady?: number;
+  allReady?: number;
+};
 
 export type EpisodeRecord = {
   requestId: string;
@@ -266,6 +274,12 @@ export const createDevIntrospection = (options?: { logger?: Logs; denyKeys?: str
         episode.mode = e.render ?? null;
         episode.timeline.matched = +(now() - episode.t0).toFixed(1);
       }
+    },
+
+    devAssetsReady(e) {
+      const episode = pending.get(e.requestId);
+      if (!episode) return;
+      episode.timeline.devAssetsReady = +(now() - episode.t0).toFixed(1);
     },
 
     dataFetch(e) {

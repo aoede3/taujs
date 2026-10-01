@@ -258,6 +258,7 @@ export const handleRender = async (
         if (AppError.isAppError(error)) throw error;
         throw AppError.internal('Failed to load dev assets', error, { clientRoot, entryServer, url });
       }
+      recorder?.devAssetsReady({ requestId });
     } else {
       renderModule = maps.renderModules.get(clientRoot) as RenderModule;
       if (!renderModule) throw AppError.internal(`Render module not found for clientRoot: ${clientRoot}. Module should have been preloaded.`);

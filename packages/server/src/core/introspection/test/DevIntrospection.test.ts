@@ -46,6 +46,28 @@ describe('episode assembly - event sequences (spec 03 §1-2)', () => {
     expect(episode!.timeline.dataEnd).toBeTypeOf('number');
   });
 
+  it('devAssetsReady lands in the timeline at or after matched', () => {
+    const dev = createDevIntrospection();
+    start(dev);
+    dev.recorder.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr', kind: 'page' });
+    dev.recorder.devAssetsReady({ requestId: T });
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
+
+    const [episode] = dev.getEpisodes();
+    expect(episode!.timeline.devAssetsReady).toBeTypeOf('number');
+    expect(episode!.timeline.devAssetsReady!).toBeGreaterThanOrEqual(episode!.timeline.matched!);
+  });
+
+  it('an episode with no devAssetsReady event carries no devAssetsReady mark', () => {
+    const dev = createDevIntrospection();
+    start(dev);
+    dev.recorder.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr', kind: 'page' });
+    dev.recorder.sent({ requestId: T, status: 200, mode: 'ssr' });
+
+    const [episode] = dev.getEpisodes();
+    expect(episode!.timeline).not.toHaveProperty('devAssetsReady');
+  });
+
   it('rendered streaming: streamPhase events land in the timeline', () => {
     const dev = createDevIntrospection();
     start(dev);
@@ -403,6 +425,9 @@ describe('recorder isolation (spec 03 invariant 2)', () => {
     routeMatched() {
       throw new Error('hostile');
     },
+    devAssetsReady() {
+      throw new Error('hostile');
+    },
     dataFetch() {
       throw new Error('hostile');
     },
@@ -436,6 +461,7 @@ describe('recorder isolation (spec 03 invariant 2)', () => {
     expect(() => {
       safe.requestStart({ requestId: T, url: '/x', method: 'GET' });
       safe.routeMatched({ requestId: T, path: '/p', appId: 'a', render: 'ssr', kind: 'page' });
+      safe.devAssetsReady({ requestId: T });
       safe.dataFetch({ requestId: T, ms: 1, ok: true });
       safe.serviceCall({ requestId: T, service: 's', method: 'm', ms: 1, ok: true, startedAt: now() });
       safe.streamPhase({ requestId: T, phase: 'head' });
