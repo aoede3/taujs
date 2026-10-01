@@ -116,7 +116,15 @@ export const resolveOwner = (root: string, owner: ContractOwner): OwnerResolutio
 
   const contractsDir = path.join(pkgDir, 'contracts');
   const manifestPath = path.join(contractsDir, 'index.json');
-  if (!fs.existsSync(manifestPath)) return { ok: false, owner, reason: 'contracts_missing', detail: `installed ${owner}@${version} ships no contracts/` };
+  if (!fs.existsSync(manifestPath)) {
+    // A renderer package that ships no contracts still has a specified boundary: the server's
+    // render-module contract, including the differences between renderers it records as
+    // intentional. Say where, so the refusal is somewhere to read rather than a dead end. The
+    // server owner gets no pointer - it would point at the very thing that is missing.
+    const pointer = owner === '@taujs/server' ? '' : '; renderer behaviour is specified by server:render-module#intentional-renderer-differences';
+
+    return { ok: false, owner, reason: 'contracts_missing', detail: `installed ${owner}@${version} ships no contracts/${pointer}` };
+  }
 
   let parsed: z.infer<typeof manifestSchema>;
   try {

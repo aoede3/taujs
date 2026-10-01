@@ -175,6 +175,8 @@ describe('taujs_find_contract - catalogue and exact-id retrieval', () => {
     const exact = call(root, 'taujs_find_contract', { id: 'html:render-module' });
     expect(exact).toMatchObject({ ok: false, reason: 'contract_unavailable', owner: '@taujs/html', cause: 'contracts_missing' });
     expect(exact.contract).toBeUndefined();
+    // A renderer that ships no contracts still has a specified boundary: the refusal says where.
+    expect(exact.detail).toContain('server:render-module#intentional-renderer-differences');
 
     const catalogue = call(root, 'taujs_find_contract');
     expect(catalogue.ok).toBe(true);
@@ -185,6 +187,16 @@ describe('taujs_find_contract - catalogue and exact-id retrieval', () => {
         detail: expect.stringContaining('installed @taujs/html@0.1.0 ships no contracts/'),
       }),
     ]);
+    expect(catalogue.unavailableOwners[0].detail).toContain('server:render-module#intentional-renderer-differences');
+  });
+
+  it('the render-module pointer is for renderer owners only: @taujs/server without contracts gets none', async () => {
+    const root = await mkFixture();
+    await rm(path.join(root, 'node_modules', '@taujs', 'server', 'contracts'), { recursive: true, force: true });
+
+    const exact = call(root, 'taujs_find_contract', { id: 'server:render-module' });
+    expect(exact).toMatchObject({ ok: false, reason: 'contract_unavailable', owner: '@taujs/server', cause: 'contracts_missing' });
+    expect(exact.detail).not.toContain('server:render-module#');
   });
 
   it('a manifest schema skew refuses contract_unavailable and is named in the catalogue answer', async () => {
