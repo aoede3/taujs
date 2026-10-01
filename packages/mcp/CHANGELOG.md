@@ -1,5 +1,15 @@
 # @taujs/mcp
 
+## 0.12.0
+
+### Minor Changes
+
+- [#189](https://github.com/aoede3/taujs/pull/189) [`088960f`](https://github.com/aoede3/taujs/commit/088960fe316afde2f87072157bd4eb602b315bcd) Thanks [@aoede3](https://github.com/aoede3)! - Discover each dev boot's own node_modules/.taujs/boots/<bootId>/ folder; one live boot answers as before, several live boots refuse with multiple_active_boots naming each, a cleanly closed boot reads as closed, and a folder whose ids disagree is refused as substrate_inconsistent. A boot-folder marker without a state is invalid. An older root-only substrate still reads.
+
+### Patch Changes
+
+- [#189](https://github.com/aoede3/taujs/pull/189) [`1d52b5a`](https://github.com/aoede3/taujs/commit/1d52b5a29877e26828d9603ffffd7e80eaee8b91) Thanks [@aoede3](https://github.com/aoede3)! - When a renderer package ships no contracts, taujs_find_contract's refusal names the server render-module contract that specifies renderer behaviour.
+
 ## 0.11.0
 
 ### Minor Changes
