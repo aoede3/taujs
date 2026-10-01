@@ -299,6 +299,9 @@ describe('runtime tools (active boot)', () => {
     expect(seen.ok).toBe(true);
     expect(seen.edges).toHaveLength(1);
     expect(seen.edges[0]).toMatchObject({ source: 'observed', methodCallCount: 7 });
+    // The row's timestamp is the method's, and the note says so beside the count's own caveat.
+    expect(seen.edges[0].lastObservedAt).toBe('2026-07-10T10:59:00.000Z');
+    expect(seen.note).toContain('lastObservedAt is also method-wide');
   });
 
   it('taujs_who_calls_service without a registry says existence cannot be checked instead of guessing', () => {

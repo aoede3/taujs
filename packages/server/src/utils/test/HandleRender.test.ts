@@ -1121,6 +1121,77 @@ describe('handleRender', () => {
       expect(Templates.addNonceToInlineScripts).toHaveBeenCalled();
     });
 
+    it('dev + ssr: records devAssetsReady once, after the Vite work and before the loader', async () => {
+      vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
+      const devAssetsReady = vi.fn();
+      vi.mocked(Telemetry.createRequestContext).mockReturnValue({
+        requestId: 'episode-1',
+        logger: mockLogger,
+        headers: { host: 'localhost' },
+        recorder: { ...noopEpisodeRecorder, devAssetsReady },
+      } as any);
+
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr' });
+
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+
+      mockViteDevServer.ssrLoadModule.mockResolvedValue(
+        brandedRenderModule('test', { renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }) }),
+      );
+      mockViteDevServer.transformIndexHtml.mockResolvedValue('<html><head></head><body></body></html>');
+      vi.mocked(Templates.collectStyle).mockResolvedValue('');
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html/>');
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps, {
+        viteDevServer: mockViteDevServer,
+      });
+
+      expect(devAssetsReady).toHaveBeenCalledTimes(1);
+      expect(devAssetsReady).toHaveBeenCalledWith({ requestId: 'episode-1' });
+      const marked = devAssetsReady.mock.invocationCallOrder[0]!;
+      expect(marked).toBeGreaterThan(mockViteDevServer.ssrLoadModule.mock.invocationCallOrder[0]!);
+      expect(marked).toBeGreaterThan(vi.mocked(Templates.collectStyle).mock.invocationCallOrder[0]!);
+      expect(marked).toBeGreaterThan(mockViteDevServer.transformIndexHtml.mock.invocationCallOrder[0]!);
+      expect(marked).toBeLessThan(vi.mocked(DataRoutes.fetchInitialData).mock.invocationCallOrder[0]!);
+    });
+
+    it('without a Vite dev server: devAssetsReady is never recorded', async () => {
+      const devAssetsReady = vi.fn();
+      vi.mocked(Telemetry.createRequestContext).mockReturnValue({
+        requestId: 'episode-1',
+        logger: mockLogger,
+        headers: { host: 'localhost' },
+        recorder: { ...noopEpisodeRecorder, devAssetsReady },
+      } as any);
+
+      mockSelectedRoute = createMockRouteMatch({ render: 'ssr' });
+
+      vi.mocked(Templates.requireTemplate).mockReturnValue('<html><head></head><body><!--ssr-html--></body></html>');
+      vi.mocked(Templates.processTemplate).mockReturnValue({
+        beforeHead: '<html><head>',
+        afterHead: '</head>',
+        beforeBody: '<body>',
+        afterBody: '</body></html>',
+      });
+      mockMaps.renderModules.set('/test/client', {
+        renderSSR: vi.fn().mockResolvedValue({ headContent: '', appHtml: '' }),
+      });
+      vi.mocked(DataRoutes.fetchInitialData).mockResolvedValue({});
+      vi.mocked(Templates.rebuildTemplate).mockReturnValue('<html/>');
+
+      await handleRender(mockReq, mockReply, mockSelectedRoute, mockProcessedConfigs, mockServiceRegistry, mockMaps);
+
+      expect(DataRoutes.fetchInitialData).toHaveBeenCalled();
+      expect(devAssetsReady).not.toHaveBeenCalled();
+    });
+
     it('dev + ssr: does not call addNonceToInlineScripts when nonce is empty', async () => {
       vi.spyOn(System, 'isDevelopment', 'get').mockReturnValue(true);
       (mockReq as any).cspNonce = '';

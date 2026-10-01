@@ -82,7 +82,7 @@ export type EpisodeRecord = {
   outcome: 'complete' | 'failed' | 'aborted';
   status: number | null;
   url: { pathname: string; queryKeys: string[]; queryValuesRedacted: true };
-  timeline: Partial<Record<'matched' | 'dataStart' | 'dataEnd' | 'head' | 'shellReady' | 'allReady', number>>;
+  timeline: Partial<Record<'matched' | 'devAssetsReady' | 'dataStart' | 'dataEnd' | 'head' | 'shellReady' | 'allReady', number>>;
   /**
    * `startMs` is the call's start offset relative to the episode's own `t0`. Optional: episodes
    * persisted before this field existed lack it, and no value is guessed for them.

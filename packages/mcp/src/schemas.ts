@@ -42,6 +42,7 @@ const UrlSchema = z.looseObject({
 
 const TimelineSchema = z.looseObject({
   matched: z.number().optional(),
+  devAssetsReady: z.number().optional(),
   dataStart: z.number().optional(),
   dataEnd: z.number().optional(),
   head: z.number().optional(),

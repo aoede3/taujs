@@ -12,6 +12,12 @@ export interface EpisodeRecorder {
    * `request.method`, never a route's declared method (RFC 0018 Limits).
    */
   routeMatched(e: { requestId: string; path: string; method?: string; appId?: string; render?: 'ssr' | 'streaming'; kind: 'page' | 'host' }): void;
+  /**
+   * Development only: Vite has finished this request's own preparation - the render module is
+   * loaded and the template transformed. Closes the span between `routeMatched` and the loader,
+   * which is otherwise unaccounted for and is longest on a boot's first request to an app.
+   */
+  devAssetsReady(e: { requestId: string }): void;
   dataFetch(e: { requestId: string; ms: number; ok: boolean }): void;
   /**
    * RFC 0007 (R5): fired exactly ONCE per declared `attr.deferred` key per request. `ms` measures
@@ -45,6 +51,7 @@ export interface EpisodeRecorder {
 export const noopEpisodeRecorder: EpisodeRecorder = {
   requestStart() {},
   routeMatched() {},
+  devAssetsReady() {},
   dataFetch() {},
   deferredData() {},
   serviceCall() {},
@@ -74,6 +81,7 @@ export const createSafeRecorder = (impl: EpisodeRecorder, onFirstError?: (err: u
   return {
     requestStart: guard(impl.requestStart),
     routeMatched: guard(impl.routeMatched),
+    devAssetsReady: guard(impl.devAssetsReady),
     dataFetch: guard(impl.dataFetch),
     deferredData: guard(impl.deferredData),
     serviceCall: guard(impl.serviceCall),

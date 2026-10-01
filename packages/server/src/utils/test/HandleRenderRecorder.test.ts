@@ -653,6 +653,9 @@ describe('throwing-recorder isolation through the real render path', () => {
       routeMatched() {
         throw new Error('hostile');
       },
+      devAssetsReady() {
+        throw new Error('hostile');
+      },
       dataFetch() {
         throw new Error('hostile');
       },
