@@ -40,12 +40,22 @@ afterAll(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
+// Per-boot directories (rev 3.1): every boot's own artefacts live under
+// node_modules/.taujs/boots/<bootId>/.
+const bootDir = (root: string, bootId: string) => path.join(root, 'node_modules', '.taujs', 'boots', bootId);
+const PROJECT_BOOT_ID = 'boot-project';
+
 // A fresh project root with a "current" graph already on disk (cold/stale mode, no dev.json -
 // StructuralTools.test.ts's own convention: structural tools must work without a live boot).
 const mkProject = async (config: CoreTaujsConfig, opts?: { emittedAt?: string; source?: 'boot' | 'build' }) => {
   const root = await mkdtemp(path.join(scratch, 'root-'));
-  const graph = createRequestGraph(config, { source: opts?.source ?? 'boot', emittedAt: opts?.emittedAt ?? '2026-09-01T10:00:00.000Z' });
-  await writeTaujsArtifact(path.join(root, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph, null, 2));
+  const source = opts?.source ?? 'boot';
+  const graph = createRequestGraph(config, {
+    source,
+    emittedAt: opts?.emittedAt ?? '2026-09-01T10:00:00.000Z',
+    ...(source === 'boot' ? { bootId: PROJECT_BOOT_ID } : {}),
+  });
+  await writeTaujsArtifact(bootDir(root, PROJECT_BOOT_ID), 'graph.json', JSON.stringify(graph, null, 2));
   const handler = allTools(root).find((t) => t.name === 'taujs_compare_graphs')!.handler as (a: Record<string, unknown>) => ToolResult;
   return { root, graph, call: (args: Record<string, unknown>): any => handler(args) };
 };
@@ -180,7 +190,7 @@ describe('taujs_compare_graphs — sanity and envelope shape', () => {
   it('baseline path equal to the current graph’s own file: identical true, full metadata reported on both sides', async () => {
     const { call, root, graph } = await mkProject(smallConfig, { emittedAt: '2026-09-01T11:00:00.000Z' });
 
-    const result = call({ baselinePath: 'node_modules/.taujs/graph.json' });
+    const result = call({ baselinePath: 'node_modules/.taujs/boots/boot-project/graph.json' });
 
     expect(result).toMatchObject({
       ok: true,
@@ -189,7 +199,7 @@ describe('taujs_compare_graphs — sanity and envelope shape', () => {
       changes: { items: [], total: 0, truncated: false },
     });
     expect(result.baseline).toEqual({
-      path: 'node_modules/.taujs/graph.json',
+      path: 'node_modules/.taujs/boots/boot-project/graph.json',
       source: graph.source,
       emittedAt: graph.emittedAt,
       taujsServer: graph.taujs.server,
@@ -218,7 +228,9 @@ describe('taujs_compare_graphs — sanity and envelope shape', () => {
 });
 
 describe('taujs_compare_graphs — tool registration and protocol output', () => {
-  it('is registered in allTools and answers a real call through the MCP protocol with structuredContent', async () => {
+  // Root compat (older emitter, no boots/): this file's one retained cell proving the tool still
+  // answers against a plain root-only graph.json, never a boots/<bootId>/ folder.
+  it('root compat: is registered in allTools and answers a real call through the MCP protocol with structuredContent', async () => {
     const root = await mkdtemp(path.join(scratch, 'proto-'));
     const graph = createRequestGraph(smallConfig, { source: 'boot', emittedAt: '2026-09-01T12:00:00.000Z' });
     await writeTaujsArtifact(path.join(root, 'node_modules', '.taujs'), 'graph.json', JSON.stringify(graph, null, 2));

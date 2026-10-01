@@ -20,6 +20,11 @@ type GraphState = { kind: 'version'; server: string } | { kind: 'none' } | { kin
 const graphState = (root: string): GraphState => {
   const discovery = discoverSubstrate(root);
   if (discovery.mode === 'none') return { kind: 'none' };
+  // Several live dev boots: there is no single graph to cite a contract against (per-boot
+  // directories, rev 3.1). Enrichment-only, so this degrades the same way an unreadable or
+  // schema-skewed graph does - omitted, never a hard failure for the caller.
+  if (discovery.mode === 'multiple_active_boots')
+    return { kind: 'unusable', cause: 'multiple_active_boots', message: 'Multiple dev boots are live; no single graph to cite a contract against.' };
   const result = readGraph(discovery);
   if (!result.ok) return { kind: 'unusable', cause: result.reason, message: result.message };
   // A graph that EXISTS but carries no usable emitter version cannot participate in the version

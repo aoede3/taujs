@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { DevJsonSchema, EpisodeRecordSchema, LogAnnexRecordSchema } from './schemas';
@@ -67,10 +67,11 @@ const isPidAlive = (pid: number): boolean => {
 // too old to heartbeat is exactly the case that should read stale.
 const HEARTBEAT_STALE_MS = 10_000;
 
-export type StaleReason = 'no_dev_json' | 'dead_pid' | 'heartbeat_expired' | 'dev_json_unreadable' | 'dev_json_invalid';
+export type StaleReason = 'no_dev_json' | 'closed' | 'dead_pid' | 'heartbeat_expired' | 'dev_json_unreadable' | 'dev_json_invalid';
 
 export const STALE_REASON_MESSAGE: Record<StaleReason, string> = {
-  no_dev_json: 'No dev boot has recorded itself (node_modules/.taujs/dev.json is absent).',
+  no_dev_json: 'No dev boot has recorded itself (no dev.json under node_modules/.taujs/boots/).',
+  closed: 'The last dev boot closed cleanly; its artefacts remain and describe a finished boot.',
   dead_pid: "The last dev boot's process is gone; its artefacts remain but describe a finished boot.",
   heartbeat_expired:
     'A dev.json exists with a live pid, but the boot has not touched it within the freshness window. It may have crashed and had its pid recycled, or @taujs/server may be older than @taujs/mcp and not heartbeat at all - upgrade @taujs/server to match.',
@@ -78,6 +79,24 @@ export const STALE_REASON_MESSAGE: Record<StaleReason, string> = {
   dev_json_invalid:
     'A dev.json exists but does not parse, or lacks fields a boot always writes. Restart the dev server, or upgrade @taujs/server to match @taujs/mcp.',
 };
+
+// Per-boot directories (docs/followups/live/concurrent-boots-share-one-substrate.md, rev 3.1,
+// "Reader, four rules" #3): the typed refusal every tool answers with when more than one boot
+// folder is live at once. There is no selector in this unit - naming every live boot and saying
+// to stop the ones not wanted is the whole answer.
+export type ActiveBootSummary = { bootId: string; pid: number; host: string | null; port: number | null; startedAt: string };
+
+export const multipleActiveBootsRefusal = (
+  boots: ActiveBootSummary[],
+): { ok: false; reason: 'multiple_active_boots'; boots: ActiveBootSummary[]; message: string } => ({
+  ok: false,
+  reason: 'multiple_active_boots',
+  boots,
+  message:
+    `${boots.length} dev boots are live in this project: ` +
+    boots.map((b) => `${b.bootId} (pid ${b.pid}${b.host !== null && b.port !== null ? `, ${b.host}:${b.port}` : ''})`).join(', ') +
+    '. There is no selector and no two boots are ever joined - stop the boots you do not want, leaving exactly one live, then try again.',
+});
 
 const realDirOf = (dir: string): string | undefined => {
   try {
@@ -164,15 +183,60 @@ export type SubstratePaths = {
 
 export type SubstrateDiscovery =
   | { mode: 'none'; message: string }
-  | { mode: 'active'; devJson: DevJson; paths: SubstratePaths }
-  | { mode: 'stale'; reason: StaleReason; devJson?: DevJson; paths: SubstratePaths };
+  // `bootFolder` is the boot's own folder name under node_modules/.taujs/boots/ (per-boot
+  // directories only — absent on the older root-only compatibility path, which has no such
+  // folder to name). readGraph uses it, alongside devJson and the graph's own bootId, for the
+  // three-way consistency check below; it is never read from dev.json, so it cannot itself be
+  // part of a disagreement it is meant to catch.
+  | { mode: 'active'; devJson: DevJson; paths: SubstratePaths; bootFolder?: string }
+  | { mode: 'multiple_active_boots'; boots: ActiveBootSummary[] }
+  | { mode: 'stale'; reason: StaleReason; devJson?: DevJson; paths: SubstratePaths; bootFolder?: string };
+
+type FolderClassification = { kind: 'live'; devJson: DevJson } | { kind: 'stale'; reason: StaleReason; devJson?: DevJson };
+
+// Reader, four rules #1 (rev 3.1): classify one boot folder by its own dev.json, keeping every
+// state the reader had before per-boot directories plus one — `closed`, checked first: a closed
+// marker is closed even when its pid is still alive, because two servers can share one process
+// (sweepBootFolders applies the identical priority on the emitter side).
+const classifyBootFolder = (folderDir: string): FolderClassification => {
+  const read = readDevJson(path.join(folderDir, 'dev.json'));
+  if (!read.ok) return { kind: 'stale', reason: read.reason };
+
+  const devJson = read.devJson;
+  if (devJson.state === 'closed') return { kind: 'stale', reason: 'closed', devJson };
+
+  const failure = livenessFailure(devJson, path.join(folderDir, 'dev.json'));
+  if (failure) return { kind: 'stale', reason: failure, devJson };
+
+  return { kind: 'live', devJson };
+};
+
+const emittedAtOf = (graphPath: string | undefined): string | undefined => {
+  if (!graphPath) return undefined;
+  const raw = readJson<{ emittedAt?: unknown }>(graphPath);
+  return typeof raw?.emittedAt === 'string' ? raw.emittedAt : undefined;
+};
 
 // Freshness modes (phase-1-notes): 'active' = a valid dev.json with a live pid and a fresh
 // heartbeat; 'stale' = artifacts exist but no live boot (answer structurally, cite emittedAt), with
-// the reason carried; 'none' = nothing emitted yet. Monorepos: one adapter per project root — the
-// MCP client launches at root.
+// the reason carried; 'none' = nothing emitted yet; 'multiple_active_boots' = more than one live
+// boot folder (per-boot directories, rev 3.1) — every tool refuses rather than guess which one was
+// meant. Monorepos: one adapter per project root — the MCP client launches at root.
 export const discoverSubstrate = (root: string = process.cwd()): SubstrateDiscovery => {
-  const devDir = path.join(root, 'node_modules', '.taujs');
+  const devRoot = path.join(root, 'node_modules', '.taujs');
+  const bootsDir = path.join(devRoot, 'boots');
+
+  // Per-boot directories (rev 3.1) only when the newer emitter has made the boots/ folder at
+  // least once. An older emitter that never writes it is read exactly as before — "an older
+  // root-only substrate still reads" — by falling straight through to the pre-rev-3.1 logic.
+  if (existsSync(bootsDir)) return discoverPerBootSubstrate(root, bootsDir);
+
+  return discoverRootSubstrate(root, devRoot);
+};
+
+// Pre-rev-3.1 behaviour, unchanged: a single node_modules/.taujs directory shared by every boot.
+// Kept verbatim as the compatibility path for an older @taujs/server.
+const discoverRootSubstrate = (root: string, devDir: string): SubstrateDiscovery => {
   const devJsonPath = path.join(devDir, 'dev.json');
   const paths = containedPaths(devDir);
 
@@ -211,24 +275,117 @@ export const discoverSubstrate = (root: string = process.cwd()): SubstrateDiscov
   return { mode: 'none', message: NOTHING_EMITTED_MESSAGE };
 };
 
+// Reader, four rules #2-#4 (rev 3.1): list node_modules/.taujs/boots/, classify every folder by
+// its own dev.json, and answer from exactly one live folder, several (refused, naming each), or
+// none (the newest stale folder, compared by emittedAt against a build graph).
+const discoverPerBootSubstrate = (root: string, bootsDir: string): SubstrateDiscovery => {
+  let entryNames: string[] = [];
+  try {
+    entryNames = readdirSync(bootsDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    entryNames = [];
+  }
+
+  const folders = entryNames.map((name) => ({ name, dir: path.join(bootsDir, name), classification: classifyBootFolder(path.join(bootsDir, name)) }));
+
+  const live = folders.filter(
+    (f): f is (typeof folders)[number] & { classification: Extract<FolderClassification, { kind: 'live' }> } => f.classification.kind === 'live',
+  );
+
+  if (live.length === 1) {
+    const f = live[0]!;
+    return { mode: 'active', devJson: f.classification.devJson, paths: containedPaths(f.dir), bootFolder: f.name };
+  }
+
+  if (live.length > 1) {
+    const boots: ActiveBootSummary[] = live
+      .map((f) => {
+        const { bootId, pid, host, port, startedAt } = f.classification.devJson;
+        return { bootId, pid, host, port, startedAt };
+      })
+      .sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0));
+
+    return { mode: 'multiple_active_boots', boots };
+  }
+
+  // No live folder: every entry is a stale candidate. Pick the newest by its dev.json startedAt;
+  // a folder whose dev.json is unreadable/invalid falls back to its own graph's emittedAt, so one
+  // unreadable marker does not blank out an otherwise-datable folder.
+  const staleFolders = folders as ((typeof folders)[number] & { classification: Extract<FolderClassification, { kind: 'stale' }> })[];
+
+  let newest: (typeof staleFolders)[number] | undefined;
+  let newestKey: string | undefined;
+  for (const f of staleFolders) {
+    const key = f.classification.devJson?.startedAt ?? emittedAtOf(containedFile(path.join(f.dir, 'graph.json'), realDirOf(f.dir)));
+    if (newest === undefined || (key !== undefined && (newestKey === undefined || key > newestKey))) {
+      newest = f;
+      newestKey = key;
+    }
+  }
+
+  const buildDir = path.join(root, 'dist', '.taujs');
+  const buildGraphPath = containedFile(path.join(buildDir, 'graph.json'), realDirOf(buildDir));
+
+  if (!newest) {
+    // boots/ exists but is empty.
+    if (buildGraphPath) return { mode: 'stale', reason: 'no_dev_json', paths: { graph: buildGraphPath } };
+    return { mode: 'none', message: NOTHING_EMITTED_MESSAGE };
+  }
+
+  const reason = newest.classification.reason;
+  const devJson = newest.classification.devJson;
+  const newestPaths = containedPaths(newest.dir);
+
+  // Choose the newer of the newest boot folder's own graph and the build graph, by emittedAt —
+  // a long-stale dev boot must not shadow a fresher build. A missing or unreadable emittedAt on
+  // either side loses the comparison to a present one.
+  const bootEmittedAt = emittedAtOf(newestPaths.graph);
+  const buildEmittedAt = emittedAtOf(buildGraphPath);
+  const buildWins =
+    buildGraphPath !== undefined &&
+    (newestPaths.graph === undefined || (buildEmittedAt !== undefined && (bootEmittedAt === undefined || buildEmittedAt > bootEmittedAt)));
+
+  if (buildWins) return { mode: 'stale', reason, devJson, paths: { graph: buildGraphPath! } };
+
+  if (newestPaths.graph || newestPaths.episodes || newestPaths.logs || newestPaths.observations)
+    return { mode: 'stale', reason, devJson, paths: newestPaths, bootFolder: newest.name };
+
+  if (buildGraphPath) return { mode: 'stale', reason, devJson, paths: { graph: buildGraphPath } };
+
+  // Nothing at all was readable from the newest folder and no build graph exists either: the
+  // folder's own classification reason is still a fact worth preserving, exactly as the root path
+  // preserves a dev.json's failure reason over a lost one.
+  if (reason !== 'no_dev_json') return { mode: 'stale', reason, devJson, paths: newestPaths, bootFolder: newest.name };
+
+  return { mode: 'none', message: NOTHING_EMITTED_MESSAGE };
+};
+
 export type GraphReadResult =
-  { ok: true; graph: RequestGraphV2; stalenessLine: string | null } | { ok: false; reason: 'not_found' | 'unreadable' | 'schema_skew'; message: string };
+  | { ok: true; graph: RequestGraphV2; stalenessLine: string | null }
+  | { ok: false; reason: 'not_found' | 'unreadable' | 'schema_skew' | 'substrate_inconsistent'; message: string };
 
 // Staleness is stated, never hidden (conventions rule 6): every non-active answer carries
 // a citation line consumers must surface.
-export const stalenessLineFor = (graph: Pick<RequestGraphV2, 'source' | 'emittedAt'>, mode: SubstrateDiscovery['mode']): string | null => {
+export const stalenessLineFor = (graph: Pick<RequestGraphV2, 'source' | 'emittedAt' | 'bootId'>, mode: SubstrateDiscovery['mode']): string | null => {
   if (mode === 'active') return null;
   if (graph.source === 'build') {
     return `As of the last build at ${graph.emittedAt}, which is when the topology graph was emitted, not when every referenced application bundle was rebuilt — no active dev server; data may be stale.`;
   }
-  return `As of the last dev boot at ${graph.emittedAt} — no active dev server; data may be stale.`;
+  // Per-boot directories (rev 3.1): a boot graph at schemaVersion 3 always carries its own
+  // bootId (readGraph refuses one that does not) - name it, rather than the generic "the last
+  // dev boot", so a stale answer says exactly which boot it is as of.
+  return graph.bootId
+    ? `As of boot ${graph.bootId} at ${graph.emittedAt} — no active dev server; data may be stale.`
+    : `As of the last dev boot at ${graph.emittedAt} — no active dev server; data may be stale.`;
 };
 
 // `cap` defaults to true: every tool that presents graph values reads them display-capped. The
 // comparison tool alone reads uncapped (cap: false) - two strings sharing their first 500
 // characters must still compare as different - and applies the cap itself at its response
 // boundary instead.
-export const readGraph = (discovery: SubstrateDiscovery, opts?: { cap?: boolean }): GraphReadResult => {
+export const readGraph = (discovery: Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' }>, opts?: { cap?: boolean }): GraphReadResult => {
   if (discovery.mode === 'none') return { ok: false, reason: 'not_found', message: NOTHING_EMITTED_MESSAGE };
 
   const graphPath = discovery.paths.graph;
@@ -244,6 +401,34 @@ export const readGraph = (discovery: SubstrateDiscovery, opts?: { cap?: boolean 
       reason: 'schema_skew',
       message: `Request graph is schema v${String(raw.schemaVersion)}; this adapter understands v${GRAPH_SCHEMA_VERSION} — upgrade @taujs/mcp.`,
     };
+  }
+
+  // Per-boot directories (rev 3.1), both checks scoped to `bootFolder` so an older root-only
+  // substrate - which never named a folder after a bootId - reads exactly as before.
+  if (discovery.bootFolder !== undefined && raw.source === 'boot') {
+    if (raw.bootId === undefined) {
+      return {
+        ok: false,
+        reason: 'unreadable',
+        message: `${graphPath} is a schema v${GRAPH_SCHEMA_VERSION} boot graph with no bootId, which is malformed under per-boot directories.`,
+      };
+    }
+
+    // The three-way check: folder name, dev.json's bootId and the graph's own bootId must all
+    // agree. A folder with no graph yet never reaches here (graphPath/raw already answered "not
+    // present" or "unreadable" above), so this only ever fires once a graph exists to disagree.
+    if (discovery.devJson !== undefined) {
+      const folderName = discovery.bootFolder;
+      const devBootId = discovery.devJson.bootId;
+      const graphBootId = raw.bootId;
+      if (folderName !== devBootId || folderName !== graphBootId || devBootId !== graphBootId) {
+        return {
+          ok: false,
+          reason: 'substrate_inconsistent',
+          message: `Boot folder "${folderName}", its dev.json bootId "${devBootId}" and its graph.json bootId "${graphBootId}" disagree - refusing rather than guessing which is right.`,
+        };
+      }
+    }
   }
 
   const graph = opts?.cap === false ? raw : capStrings(raw);
@@ -301,7 +486,7 @@ const readNdjson = <T>(filePath: string | undefined, schema: z.ZodType<T>, artef
 // this reader cannot even inspect can never be confirmed a compatible pairing.
 type ObservationsVersionProbe = { kind: 'version'; version: number } | { kind: 'absent' };
 
-const probeObservationsSchemaVersion = (discovery: SubstrateDiscovery): ObservationsVersionProbe => {
+const probeObservationsSchemaVersion = (discovery: Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' }>): ObservationsVersionProbe => {
   if (discovery.mode === 'none') return { kind: 'absent' };
   const obsPath = discovery.paths.observations;
   if (!obsPath) return { kind: 'absent' };
@@ -312,7 +497,10 @@ const probeObservationsSchemaVersion = (discovery: SubstrateDiscovery): Observat
 
 // Newest-last; bootId-filtered so stale-boot records never masquerade as current
 // (also covers crashed-server port reuse).
-export const readEpisodes = (discovery: SubstrateDiscovery, options?: { bootId?: string; limit?: number }): NdjsonReadResult<EpisodeRecord> => {
+export const readEpisodes = (
+  discovery: Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' }>,
+  options?: { bootId?: string; limit?: number },
+): NdjsonReadResult<EpisodeRecord> => {
   if (discovery.mode === 'none') return { ok: false, reason: 'not_found', message: NOTHING_EMITTED_MESSAGE };
 
   // episodes.ndjson itself being absent is its own, more specific answer than a pairing refusal -
@@ -358,7 +546,7 @@ const LEVEL_ORDER: Record<LogLevel, number> = { info: 0, warn: 1, error: 2 };
 // Per-episode, level-filtered, warn+ default - logs are fetched on demand, never embedded.
 // bootId-filtered for the same reason readEpisodes is: the logs ring outlives a boot on disk.
 export const readLogs = (
-  discovery: SubstrateDiscovery,
+  discovery: Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' }>,
   options: { requestId: string; minLevel?: LogLevel; bootId?: string },
 ): NdjsonReadResult<LogAnnexRecord> & { anyLevelCount?: number } => {
   if (discovery.mode === 'none') return { ok: false, reason: 'not_found', message: NOTHING_EMITTED_MESSAGE };
@@ -471,7 +659,7 @@ export const readBaselineGraph = (root: string, baselinePath: string): BaselineG
 export type ObservationsReadResult =
   { ok: true; observations: ObservationsDocument } | { ok: false; reason: 'not_found' | 'unreadable' | 'schema_skew' | 'foreign_boot'; message: string };
 
-export const readObservations = (discovery: SubstrateDiscovery): ObservationsReadResult => {
+export const readObservations = (discovery: Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' }>): ObservationsReadResult => {
   if (discovery.mode === 'none')
     return { ok: false, reason: 'not_found', message: 'No observations emitted yet — not observed means "not exercised", never "no relationship".' };
 

@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
-import { NO_ACTIVE_BOOT_REFUSAL, STALE_REASON_MESSAGE, discoverSubstrate, readGraph, readLogs, readEpisodes } from '../SubstrateReader';
+import {
+  NO_ACTIVE_BOOT_REFUSAL,
+  STALE_REASON_MESSAGE,
+  discoverSubstrate,
+  multipleActiveBootsRefusal,
+  readGraph,
+  readLogs,
+  readEpisodes,
+} from '../SubstrateReader';
 import { UNTRUSTED_NOTE, bounded, defineTool } from '../toolkit';
 import { renderStrategyCitation } from './contracts';
 
@@ -20,6 +28,9 @@ const DOCTOR_FAILED_LIMIT = 5;
 // refusal contract verbatim (structural tools keep working — the refusal says so).
 const withActiveBoot = (root: string, fn: (discovery: Extract<SubstrateDiscovery, { mode: 'active' }>) => ToolResult): ToolResult => {
   const discovery = discoverSubstrate(root);
+  // Several live dev boots (per-boot directories, rev 3.1): refuse by name, never guess which
+  // boot's traffic was meant.
+  if (discovery.mode === 'multiple_active_boots') return multipleActiveBootsRefusal(discovery.boots);
   // The refusal now says WHY there is no active boot. "No live boot" and "the boot stopped
   // answering" call for different actions from whoever reads this, and a single message for both
   // is the same conflation these tools exist to avoid.
@@ -270,6 +281,9 @@ export const runtimeTools = (root: string): ToolDefinition[] => [
       const discovery = discoverSubstrate(root);
       if (discovery.mode === 'none')
         return { ok: false, reason: 'nothing_emitted', message: 'Nothing to diagnose — run `pnpm dev` once to emit the request graph.' };
+      // Several live dev boots (per-boot directories, rev 3.1): the doctor's hybrid structural +
+      // runtime report has no single boot to diagnose either.
+      if (discovery.mode === 'multiple_active_boots') return multipleActiveBootsRefusal(discovery.boots);
 
       const graphResult = readGraph(discovery);
       if (!graphResult.ok) return { ok: false, reason: graphResult.reason, message: graphResult.message };
