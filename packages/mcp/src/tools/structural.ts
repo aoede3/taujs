@@ -309,6 +309,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           // present since the spec 03 §4 additive field (2026-08-20).
           methodCallCount: e.count,
           ...(typeof r.count === 'number' ? { routeCallCount: r.count } : {}),
+          // Method-wide too: the substrate keeps one timestamp per service.method.
           lastObservedAt: e.lastObservedAt,
         });
         const observed = observedRows.flatMap((e) => e.routes.filter((r) => r.appId !== null).map((r) => toRow('observed')(e, r)));
@@ -406,7 +407,7 @@ export const structuralTools = (root: string): ToolDefinition[] => [
           ...(ctx.stalenessLine ? { staleness: ctx.stalenessLine } : {}),
           ...observedStaleness,
           ...(definitionLocation ? { definitionLocation } : {}),
-          note: 'declared = from config (a serviceData edge, a deferred entry or a head edge); observed = seen in dev traffic through a τjs page route, never complete truth; hostObserved = seen in dev traffic through a Fastify route the application registered itself, reported separately so it is never mistaken for a declared edge. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution.',
+          note: 'declared = from config (a serviceData edge, a deferred entry or a head edge); observed = seen in dev traffic through a τjs page route, never complete truth; hostObserved = seen in dev traffic through a Fastify route the application registered itself, reported separately so it is never mistaken for a declared edge. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution. lastObservedAt is also method-wide: the last time any route called this method, not the last time this route did.',
           edges: [...declared, ...observed],
           hostObserved,
         };
