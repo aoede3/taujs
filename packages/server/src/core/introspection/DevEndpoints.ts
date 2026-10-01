@@ -104,11 +104,14 @@ export const registerIntrospectionEndpoints = (app: FastifyInstance, options: In
 
     // Live overlay tier. Spec 02 permits richer disclosure here (MAY); v1 serves the
     // conservative document — richer tiers arrive with the DevTools overlay (Phase 2).
+    // Per-boot directories (rev 3.1): a boot-sourced graph carries this boot's id, the same
+    // value the on-disk graph in this boot's folder carries, so the two can never disagree.
     const graph = createRequestGraph(taujsConfig, {
       source: 'boot',
       emittedAt: new Date().toISOString(),
       serviceRegistry,
       projectRoot: options.projectRoot ?? process.cwd(),
+      bootId: introspection.bootId,
     });
     return reply.send(graph);
   });

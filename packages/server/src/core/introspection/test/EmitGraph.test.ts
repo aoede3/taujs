@@ -77,8 +77,24 @@ describe('emitGraphArtifact', () => {
     expect(ok).toBe(true);
     expect(graph.source).toBe('build');
     expect(graph.services).toBeNull();
-    expect(graph.schemaVersion).toBe(2);
+    expect(graph.schemaVersion).toBe(3);
     expect(new Date(graph.emittedAt).toISOString()).toBe(graph.emittedAt);
+    // Per-boot directories (rev 3.1): a build graph carries no bootId - there is no boot folder.
+    expect(graph.bootId).toBeUndefined();
+  });
+
+  it('a boot graph carries the supplied bootId; its temp name carries bootId alongside pid (rev 3.1)', async () => {
+    const { emitGraphArtifact } = await importFresh();
+    const target = path.join(dir, 'node_modules', '.taujs', 'boots', 'boot-abc123');
+
+    const ok = await emitGraphArtifact(target, config, { source: 'boot', bootId: 'boot-abc123' });
+    const graph = JSON.parse(await readFile(path.join(target, 'graph.json'), 'utf8'));
+
+    expect(ok).toBe(true);
+    expect(graph.source).toBe('boot');
+    expect(graph.bootId).toBe('boot-abc123');
+    expect(graph.schemaVersion).toBe(3);
+    expect(await readdir(target)).toEqual(['graph.json']); // no leftover .graph.json.<pid>.<bootId>.tmp
   });
 
   it('never throws when graph composition fails — warns once, returns false', async () => {
@@ -94,30 +110,28 @@ describe('emitGraphArtifact', () => {
 });
 
 describe('registerBootGraphEmission', () => {
-  it('registers an onListen writer and its onClose barrier; the write lands as node_modules/.taujs/graph.json (source: boot)', async () => {
+  it('registers an onListen writer and its onClose barrier; the write lands as <bootDir>/graph.json (source: boot), bootId equal to the folder name', async () => {
     const { registerBootGraphEmission } = await importFresh();
     const addHook = vi.fn();
     const app = { addHook } as any;
     const logger = { ...mkWarnLogger(), info: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn(), isDebugEnabled: vi.fn() } as any;
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const bootDir = path.join(dir, 'node_modules', '.taujs', 'boots', 'boot-snap-1');
 
-    try {
-      registerBootGraphEmission(app, config, undefined, logger);
+    registerBootGraphEmission(app, config, undefined, logger, bootDir);
 
-      // Two hooks since the close barrier: the onListen writer and the onClose that awaits it
-      // (close must never resolve with the graph write still in flight).
-      expect(addHook.mock.calls.map((c) => c[0])).toEqual(['onListen', 'onClose']);
-      const hookFn = addHook.mock.calls[0]![1];
+    // Two hooks since the close barrier: the onListen writer and the onClose that awaits it
+    // (close must never resolve with the graph write still in flight).
+    expect(addHook.mock.calls.map((c) => c[0])).toEqual(['onListen', 'onClose']);
+    const hookFn = addHook.mock.calls[0]![1];
 
-      await hookFn();
+    await hookFn();
 
-      const graph = JSON.parse(await readFile(path.join(dir, 'node_modules', '.taujs', 'graph.json'), 'utf8'));
-      expect(graph.source).toBe('boot');
+    const graph = JSON.parse(await readFile(path.join(bootDir, 'graph.json'), 'utf8'));
+    expect(graph.source).toBe('boot');
+    // Rev 3.1: the graph's bootId is simply the folder's own basename - can never disagree.
+    expect(graph.bootId).toBe('boot-snap-1');
 
-      // Committed shape check, modulo the only timestamp in the document.
-      expect({ ...graph, emittedAt: '<emittedAt>', taujs: { server: '<version>' } }).toMatchSnapshot();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    // Committed shape check, modulo the only timestamp in the document.
+    expect({ ...graph, emittedAt: '<emittedAt>', taujs: { server: '<version>' } }).toMatchSnapshot();
   });
 });

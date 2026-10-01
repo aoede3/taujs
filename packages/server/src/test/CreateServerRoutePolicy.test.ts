@@ -48,7 +48,7 @@ const baseConfig: TaujsConfig = {
 // A minimal but schema-complete graph the mocked `createRequestGraph` returns - just enough for
 // `evaluateRoutePolicy` (the real, unmocked function) to read.
 const graphFor = (routes: RequestGraph['routes']): RequestGraph => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   taujs: { server: 'test' },
   source: 'boot',
   emittedAt: '2026-01-01T00:00:00.000Z',

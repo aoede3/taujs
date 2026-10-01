@@ -57,5 +57,5 @@ observation, not necessarily a success; read its `hydrated` and `error` fields f
 `taujs_get_episode` reads the `episodes.ndjson` mirror rather than the in-memory ring. By default,
 the server rewrites that mirror on a 500 ms polling interval when the episode revision changes, so
 an accepted report can first appear on a later read
-([mirror implementation](../src/core/introspection/DevFiles.ts#L11) and
+([mirror implementation](../src/core/introspection/DevFiles.ts#L12) and
 [MCP reader](../../mcp/src/SubstrateReader.ts#L311)).

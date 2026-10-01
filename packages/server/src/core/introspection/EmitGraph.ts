@@ -21,12 +21,14 @@ const warnOnce = (logger: ArtifactLogger | undefined, meta: Record<string, unkno
   logger?.warn({ component: 'introspection', ...meta }, message);
 };
 
-export const writeTaujsArtifact = async (dir: string, name: string, data: string, logger?: ArtifactLogger): Promise<boolean> => {
+export const writeTaujsArtifact = async (dir: string, name: string, data: string, logger?: ArtifactLogger, bootId?: string): Promise<boolean> => {
   try {
     await mkdir(dir, { recursive: true });
 
-    // tmp + rename: a crash mid-write can never leave a torn artifact for consumers
-    const tmp = path.join(dir, `.${name}.${process.pid}.tmp`);
+    // tmp + rename: a crash mid-write can never leave a torn artifact for consumers. A known
+    // bootId (per-boot directories, rev 3.1) rides the temp name alongside the pid; a build
+    // writer, which has no bootId, keeps today's pid-only form.
+    const tmp = path.join(dir, bootId ? `.${name}.${process.pid}.${bootId}.tmp` : `.${name}.${process.pid}.tmp`);
     await writeFile(tmp, data, 'utf8');
     await rename(tmp, path.join(dir, name));
 
@@ -45,7 +47,7 @@ export const writeTaujsArtifact = async (dir: string, name: string, data: string
 export const emitGraphArtifact = async (
   dir: string,
   config: CoreTaujsConfig,
-  options: { source: GraphSource; logger?: ArtifactLogger; serviceRegistry?: ServiceRegistry; projectRoot?: string },
+  options: { source: GraphSource; logger?: ArtifactLogger; serviceRegistry?: ServiceRegistry; projectRoot?: string; bootId?: string },
 ): Promise<boolean> => {
   try {
     const graph = createRequestGraph(config, {
@@ -53,9 +55,10 @@ export const emitGraphArtifact = async (
       emittedAt: new Date().toISOString(),
       serviceRegistry: options.serviceRegistry,
       projectRoot: options.projectRoot,
+      bootId: options.bootId,
     });
 
-    return await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph, null, 2), options.logger);
+    return await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph, null, 2), options.logger, options.bootId);
   } catch (err) {
     // Graph composition failed — same non-fatal contract as the write path.
     warnOnce(
@@ -71,18 +74,24 @@ export const emitGraphArtifact = async (
 // Registered only from inside the structural dev gate (CreateServer's isDevelopment branch,
 // reached via lazy dynamic import) — in production this module is never even loaded.
 // onListen so emission reflects a server that actually bound, never a boot that failed.
+//
+// Per-boot directories (docs/followups/live/concurrent-boots-share-one-substrate.md, rev 3.1):
+// `bootDir` is this boot's own folder under node_modules/.taujs/boots/, supplied by the caller
+// (SSRServer.ts) rather than resolved here, and the emitted graph's `bootId` is simply that
+// folder's basename - so the graph can never disagree with the folder it lives in.
 export const registerBootGraphEmission = (
   app: FastifyInstance,
   config: CoreTaujsConfig,
   serviceRegistry: ServiceRegistry | undefined,
   logger: Logs,
+  bootDir: string,
   projectRoot = process.cwd(),
 ): void => {
   // Same close barrier as registerDevFiles: listen() resolves before the async onListen hook
   // runner completes (Fastify sequences the hook promises, but the listen caller is not waiting
   // on them), so close can run while this write is in flight — or before the hook has even
   // started. onClose awaits the tracked work, and a boot that close has overtaken never starts
-  // the write at all; otherwise a slow graph.json write could recreate node_modules/.taujs
+  // the write at all; otherwise a slow graph.json write could recreate the boot's own folder
   // during a caller's teardown removal.
   let closed = false;
   let work: Promise<unknown> = Promise.resolve();
@@ -90,11 +99,12 @@ export const registerBootGraphEmission = (
   app.addHook('onListen', function emitBootGraph() {
     if (closed) return;
 
-    work = emitGraphArtifact(path.resolve(process.cwd(), 'node_modules', '.taujs'), config, {
+    work = emitGraphArtifact(bootDir, config, {
       source: 'boot',
       logger,
       serviceRegistry,
       projectRoot,
+      bootId: path.basename(bootDir),
     });
 
     return work.then(() => undefined);

@@ -206,35 +206,31 @@ describe('clientHydration beacon application', () => {
       return l;
     };
     const dir = await mkdtemp(path.join(tmpdir(), 'taujs-beacon-'));
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
-    try {
-      const dev = createDevIntrospection();
-      const app = fastify();
-      registerDevFiles(app, dev, mkLogger());
+    const dev = createDevIntrospection();
+    const bootDir = path.join(dir, 'node_modules', '.taujs', 'boots', dev.bootId);
+    const app = fastify();
+    registerDevFiles(app, dev, mkLogger(), bootDir);
 
-      dev.recorder.requestStart({ requestId: 'beacon-disk', url: '/', method: 'GET' });
-      dev.recorder.sent({ requestId: 'beacon-disk', status: 200, mode: 'ssr' });
+    dev.recorder.requestStart({ requestId: 'beacon-disk', url: '/', method: 'GET' });
+    dev.recorder.sent({ requestId: 'beacon-disk', status: 200, mode: 'ssr' });
 
-      await app.listen({ port: 0, host: '127.0.0.1' });
+    await app.listen({ port: 0, host: '127.0.0.1' });
 
-      const episodesPath = path.join(dir, 'node_modules', '.taujs', 'episodes.ndjson');
-      await vi.waitFor(async () => {
-        await stat(episodesPath);
-        expect(await readFile(episodesPath, 'utf8')).toContain('beacon-disk');
-      });
-      expect(await readFile(episodesPath, 'utf8')).toContain('"client":null');
+    const episodesPath = path.join(bootDir, 'episodes.ndjson');
+    await vi.waitFor(async () => {
+      await stat(episodesPath);
+      expect(await readFile(episodesPath, 'utf8')).toContain('beacon-disk');
+    });
+    expect(await readFile(episodesPath, 'utf8')).toContain('"client":null');
 
-      // The beacon arrives AFTER the episode was finalised and persisted - the ordinary case.
-      dev.recorder.clientHydration({ requestId: 'beacon-disk', ok: false, ms: 18, error: 'boom' });
+    // The beacon arrives AFTER the episode was finalised and persisted - the ordinary case.
+    dev.recorder.clientHydration({ requestId: 'beacon-disk', ok: false, ms: 18, error: 'boom' });
 
-      await vi.waitFor(async () => {
-        expect(await readFile(episodesPath, 'utf8')).toContain('"client":{"hydrated":false,"hydrationMs":18,"error":"boom"}');
-      });
+    await vi.waitFor(async () => {
+      expect(await readFile(episodesPath, 'utf8')).toContain('"client":{"hydrated":false,"hydrationMs":18,"error":"boom"}');
+    });
 
-      await app.close();
-    } finally {
-      cwdSpy.mockRestore();
-    }
+    await app.close();
   });
 });
 

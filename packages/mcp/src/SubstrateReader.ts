@@ -13,11 +13,13 @@ import type { DevJson, LogAnnexRecord, LogLevel, ObservationsDocument, RequestGr
 // stdio server answers one tool call at a time.
 
 // The request graph and the observations document are versioned independently: the graph
-// carries breaking config-shape changes (schemaVersion 2, decisions.md). RFC 0018 bumps the
-// observations version to 2 for its own kind/method additions, the status-carrying `failed`
-// event and `sent`'s discriminated page/host shape - and episodes.ndjson is gated on this SAME
-// version, read below, since episode records carry no version field of their own.
-export const GRAPH_SCHEMA_VERSION = 2;
+// carries breaking config-shape changes (schemaVersion 3: per-boot directories, rev 3.1 of
+// docs/followups/live/concurrent-boots-share-one-substrate.md, adds the graph's `bootId`
+// header). RFC 0018 bumps the observations version to 2 for its own kind/method additions, the
+// status-carrying `failed` event and `sent`'s discriminated page/host shape - and
+// episodes.ndjson is gated on this SAME version, read below, since episode records carry no
+// version field of their own.
+export const GRAPH_SCHEMA_VERSION = 3;
 export const OBSERVATIONS_SCHEMA_VERSION = 2;
 
 // Refusal contract (phase-1-notes, verbatim): every runtime tool returns this when there

@@ -208,14 +208,14 @@ describe('createRequestGraph — contract assertions', () => {
     expect(graph.source).toBe('build');
     expect(graph.emittedAt).toBe('2000-01-01T00:00:00.000Z');
     expect(graph.taujs.server).toBe(pkg.version);
-    expect(graph.schemaVersion).toBe(2);
+    expect(graph.schemaVersion).toBe(3);
     expect(graph.disclosure).toBe('conservative');
   });
 
-  it('the emitted graph carries schemaVersion 2 and no cspDefaultMode', () => {
+  it('the emitted graph carries schemaVersion 3 and no cspDefaultMode', () => {
     const graph = createRequestGraph(fixtureMultiApp, { ...OPTS, serviceRegistry: registry });
 
-    expect(graph.schemaVersion).toBe(2);
+    expect(graph.schemaVersion).toBe(3);
     expect(graph.security).toEqual({ reporting: true });
     expect('cspDefaultMode' in graph.security).toBe(false);
   });

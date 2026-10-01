@@ -44,7 +44,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (a) mini
       "specificity": 0,
     },
   ],
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "security": {
     "reporting": false,
   },
@@ -242,7 +242,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (b) mult
       "specificity": 10.1,
     },
   ],
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "security": {
     "reporting": true,
   },
@@ -482,7 +482,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (b) with
       "specificity": 10.1,
     },
   ],
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "security": {
     "reporting": true,
   },
@@ -564,7 +564,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (c) term
       "specificity": 0,
     },
   ],
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "security": {
     "reporting": false,
   },
@@ -734,7 +734,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (d) ever
       "specificity": 10.1,
     },
   ],
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "security": {
     "reporting": false,
   },
@@ -936,7 +936,7 @@ exports[`createRequestGraph — fixture snapshots (spec 02 schema v2) > (e) play
       "specificity": 0,
     },
   ],
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "security": {
     "reporting": false,
   },

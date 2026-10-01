@@ -21,6 +21,9 @@ export const DevJsonSchema: z.ZodType<DevJson> = z.looseObject({
   episodes: z.string(),
   logs: z.string(),
   observations: z.string(),
+  // Per-boot directories (docs/followups/live/concurrent-boots-share-one-substrate.md, rev 3.1):
+  // optional so an older emitter's dev.json, which carries neither value, still validates.
+  state: z.enum(['active', 'closed']).optional(),
 });
 
 const ServiceCallSchema = z.looseObject({

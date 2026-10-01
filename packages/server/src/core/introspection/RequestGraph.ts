@@ -60,10 +60,16 @@ export type GraphDefinitionLocation = { status: 'known'; path: string } | { stat
 export type GraphService = { name: string; definitionLocation?: GraphDefinitionLocation; methods: GraphServiceMethod[] };
 
 export type RequestGraph = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   taujs: { server: string };
   source: GraphSource;
   emittedAt: string;
+  /**
+   * Per-boot directories (docs/followups/live/concurrent-boots-share-one-substrate.md, rev 3.1):
+   * the folder name under node_modules/.taujs/boots/ that emitted this graph. REQUIRED when
+   * `source` is 'boot'; ABSENT when `source` is 'build' (a build has no boot folder).
+   */
+  bootId?: string;
   disclosure: 'conservative';
   apps: { appId: string; entryPoint: string; routeCount: number }[];
   routes: GraphRoute[];
@@ -81,6 +87,8 @@ export type CreateRequestGraphOptions = {
   serviceRegistry?: ServiceRegistry;
   /** Project root used only to turn captured service call sites into lexically bounded relative paths. */
   projectRoot?: string;
+  /** REQUIRED when `source` is 'boot' (the folder name under node_modules/.taujs/boots/); omitted for a build. */
+  bootId?: string;
 };
 
 const isMatchAllWildcard = (path: string): boolean => path === '/*' || path === '*';
@@ -300,10 +308,11 @@ export function createRequestGraph(config: CoreTaujsConfig, options: CreateReque
   warnings.sort((a, b) => a.code.localeCompare(b.code) || (a.routeId ?? '').localeCompare(b.routeId ?? '') || (a.message ?? '').localeCompare(b.message ?? ''));
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     taujs: { server: pkg.version },
     source: options.source,
     emittedAt: options.emittedAt,
+    ...(options.bootId ? { bootId: options.bootId } : {}),
     disclosure: 'conservative',
     apps,
     routes,

@@ -202,7 +202,7 @@ describe('readGraph', () => {
     expect(result).toEqual({
       ok: false,
       reason: 'schema_skew',
-      message: 'Request graph is schema v1; this adapter understands v2 — upgrade @taujs/mcp.',
+      message: 'Request graph is schema v1; this adapter understands v3 — upgrade @taujs/mcp.',
     });
   });
 

@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`registerBootGraphEmission > registers an onListen writer and its onClose barrier; the write lands as node_modules/.taujs/graph.json (source: boot) 1`] = `
+exports[`registerBootGraphEmission > registers an onListen writer and its onClose barrier; the write lands as <bootDir>/graph.json (source: boot), bootId equal to the folder name 1`] = `
 {
   "apps": [
     {
@@ -9,6 +9,7 @@ exports[`registerBootGraphEmission > registers an onListen writer and its onClos
       "routeCount": 1,
     },
   ],
+  "bootId": "boot-snap-1",
   "disclosure": "conservative",
   "emittedAt": "<emittedAt>",
   "fallthrough": {
@@ -44,7 +45,7 @@ exports[`registerBootGraphEmission > registers an onListen writer and its onClos
       "specificity": 0,
     },
   ],
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "security": {
     "reporting": false,
   },
