@@ -282,8 +282,9 @@ describe('bounded reads and manifest identity', () => {
   });
 
   it('a schema-v3 graph WITHOUT a usable taujs.server is graph_unusable, never served-as-absent', async () => {
-    // Passes readGraph (parse + schemaVersion are its only checks) yet carries no emitter version.
-    const root = await mkFixture({ graphRaw: '{"schemaVersion":3}' });
+    // Passes readGraph (parse, schemaVersion, and - inside a boot folder - the source/bootId
+    // identity checks) yet carries no emitter version.
+    const root = await mkFixture({ graphRaw: `{"schemaVersion":3,"source":"boot","bootId":"${FIXTURE_BOOT_ID}"}` });
     const result = call(root, 'taujs_find_contract', { id: 'server:render-strategies' });
     expect(result).toMatchObject({ ok: false, reason: 'graph_unusable', cause: 'missing_emitter_version' });
     expect(result.contract).toBeUndefined();

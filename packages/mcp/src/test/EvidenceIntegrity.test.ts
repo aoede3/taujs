@@ -62,6 +62,7 @@ const seed = async (files: Record<string, string>): Promise<string> => {
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
   };
 
   const defaults: Record<string, string> = {

@@ -88,6 +88,7 @@ const seed = async (root: string) => {
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
   };
   await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -174,6 +175,7 @@ describe('multiple_active_boots (per-boot directories, rev 3.1)', () => {
         episodes: path.join(dir, 'episodes.ndjson'),
         logs: path.join(dir, 'logs.ndjson'),
         observations: path.join(dir, 'observations.json'),
+        state: 'active',
         ...overrides,
       };
     };
@@ -196,6 +198,36 @@ describe('multiple_active_boots (per-boot directories, rev 3.1)', () => {
 
     // taujs_doctor's hybrid behaviour: the same refusal, not a partial structural answer.
     expect(tools.get('taujs_doctor')!({})).toMatchObject({ ok: false, reason: 'multiple_active_boots' });
+  });
+});
+
+describe('substrate_inconsistent (per-boot directories, rev 3.1, finding 3)', () => {
+  it('every runtime tool, and taujs_doctor, refuse with substrate_inconsistent when the one live folder disagrees with its own dev.json bootId', async () => {
+    const root = await mkdtemp(path.join(scratch, 'inconsistent-'));
+    const dir = bootDir(root, 'boot-folder');
+    const devJson: DevJson = {
+      bootId: 'boot-dev-json', // disagrees with the folder name 'boot-folder'
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-07-10T11:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+      state: 'active',
+    };
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
+
+    const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
+    const result = tools.get('taujs_get_recent_episodes')!({}) as any;
+
+    expect(result).toMatchObject({ ok: false, reason: 'substrate_inconsistent' });
+    expect(result.message).toContain('boot-folder');
+    expect(result.message).toContain('boot-dev-json');
+
+    expect(tools.get('taujs_doctor')!({})).toMatchObject({ ok: false, reason: 'substrate_inconsistent' });
   });
 });
 
@@ -251,6 +283,7 @@ describe('runtime tools (active boot)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -366,6 +399,7 @@ describe('runtime tools (active boot)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -450,6 +484,7 @@ describe('taujs_get_episode: serviceConcurrency (end-to-end through the real rec
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
     return root;

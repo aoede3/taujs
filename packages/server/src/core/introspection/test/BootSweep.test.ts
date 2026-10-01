@@ -40,15 +40,19 @@ const mkDeps = (files: Record<string, string | Error>, opts: { isPidAlive?: (pid
   return { rm, readdir, readFile, logger, isPidAlive: opts.isPidAlive ?? (() => true) };
 };
 
-const devJson = (fields: Record<string, unknown>) => JSON.stringify({ bootId: 'x', token: 't', pid: 111, startedAt: '2026-01-01T00:00:00.000Z', ...fields });
+// `bootId` defaults to the folder's own name - a valid marker (rule 1) requires it to equal the
+// folder it sits in, so every fixture below names itself correctly unless a cell is deliberately
+// constructing a mismatch (finding 1's third malformed-marker cell).
+const devJson = (folderName: string, fields: Record<string, unknown> = {}) =>
+  JSON.stringify({ bootId: folderName, token: 't', pid: 111, startedAt: '2026-01-01T00:00:00.000Z', ...fields });
 
 describe('sweepBootFolders', () => {
   it('a single removable folder is kept, not removed - it is the only "last dev boot" record and the newest of a set of one', async () => {
-    const closed = mkDeps({ 'boot-closed': devJson({ state: 'closed', pid: 222 }) }, { isPidAlive: () => true });
+    const closed = mkDeps({ 'boot-closed': devJson('boot-closed', { state: 'closed', pid: 222 }) }, { isPidAlive: () => true });
     await sweepBootFolders('/boots', 'boot-own', closed);
     expect(closed.rm).not.toHaveBeenCalled();
 
-    const dead = mkDeps({ 'boot-dead': devJson({ state: 'active', pid: 333 }) }, { isPidAlive: () => false });
+    const dead = mkDeps({ 'boot-dead': devJson('boot-dead', { state: 'active', pid: 333 }) }, { isPidAlive: () => false });
     await sweepBootFolders('/boots', 'boot-own', dead);
     expect(dead.rm).not.toHaveBeenCalled();
   });
@@ -56,8 +60,8 @@ describe('sweepBootFolders', () => {
   it('a closed folder is swept once a newer removable sibling exists - closed wins over a live pid, it is not protected by it', async () => {
     const deps = mkDeps(
       {
-        'boot-closed-live': devJson({ state: 'closed', pid: 222, startedAt: '2026-01-01T00:00:00.000Z' }),
-        'boot-newer-dead': devJson({ state: 'active', pid: 333, startedAt: '2026-01-02T00:00:00.000Z' }),
+        'boot-closed-live': devJson('boot-closed-live', { state: 'closed', pid: 222, startedAt: '2026-01-01T00:00:00.000Z' }),
+        'boot-newer-dead': devJson('boot-newer-dead', { state: 'active', pid: 333, startedAt: '2026-01-02T00:00:00.000Z' }),
       },
       { isPidAlive: (pid) => pid === 222 }, // the closed folder's pid is still alive; the newer one's is not
     );
@@ -71,8 +75,8 @@ describe('sweepBootFolders', () => {
   it('a dead-pid folder is swept once a newer removable (closed) sibling exists', async () => {
     const deps = mkDeps(
       {
-        'boot-dead': devJson({ state: 'active', pid: 333, startedAt: '2026-01-01T00:00:00.000Z' }),
-        'boot-newer-closed': devJson({ state: 'closed', pid: 444, startedAt: '2026-01-02T00:00:00.000Z' }),
+        'boot-dead': devJson('boot-dead', { state: 'active', pid: 333, startedAt: '2026-01-01T00:00:00.000Z' }),
+        'boot-newer-closed': devJson('boot-newer-closed', { state: 'closed', pid: 444, startedAt: '2026-01-02T00:00:00.000Z' }),
       },
       { isPidAlive: (pid) => pid !== 333 }, // 333 is dead; 444 doesn't matter, it's closed either way
     );
@@ -85,9 +89,9 @@ describe('sweepBootFolders', () => {
 
   it('keeps the newest removable folder among several, removing only the rest', async () => {
     const deps = mkDeps({
-      'boot-old': devJson({ state: 'closed', pid: 1, startedAt: '2026-01-01T00:00:00.000Z' }),
-      'boot-mid': devJson({ state: 'closed', pid: 2, startedAt: '2026-01-02T00:00:00.000Z' }),
-      'boot-new': devJson({ state: 'closed', pid: 3, startedAt: '2026-01-03T00:00:00.000Z' }),
+      'boot-old': devJson('boot-old', { state: 'closed', pid: 1, startedAt: '2026-01-01T00:00:00.000Z' }),
+      'boot-mid': devJson('boot-mid', { state: 'closed', pid: 2, startedAt: '2026-01-02T00:00:00.000Z' }),
+      'boot-new': devJson('boot-new', { state: 'closed', pid: 3, startedAt: '2026-01-03T00:00:00.000Z' }),
     });
 
     await sweepBootFolders('/boots', 'boot-own', deps);
@@ -95,6 +99,75 @@ describe('sweepBootFolders', () => {
     const removed = deps.rm.mock.calls.map((c) => c[0]);
     expect(removed.sort()).toEqual([path.join('/boots', 'boot-mid'), path.join('/boots', 'boot-old')].sort());
     expect(removed).not.toContain(path.join('/boots', 'boot-new'));
+  });
+
+  // Finding 1 (reviewer, 2026-10-01): "invalid means unknown" must cover SHAPE, not only syntax.
+  // Each of these parses as JSON but fails the lifecycle-marker shape (rule 1: state is exactly
+  // 'active' or 'closed'; bootId is a non-empty string equal to the folder name; pid is a positive
+  // integer; startedAt is a non-empty string) - so each must survive untouched, same as unparseable
+  // JSON does. A valid removable pair (`boot-old` older, `boot-new` newer) rides beside every cell
+  // so the assertion is unambiguous: if the malformed folder were wrongly treated as removable it
+  // would show up in `removed` or change which of the pair is kept; the control proves it does not.
+  describe('a parseable but shape-invalid marker is left alone - invalid means unknown, not only unparseable', () => {
+    const withControlPair = (malformed: Record<string, string>) => ({
+      ...malformed,
+      'boot-old': devJson('boot-old', { state: 'closed', startedAt: '2026-01-01T00:00:00.000Z' }),
+      'boot-new': devJson('boot-new', { state: 'closed', startedAt: '2026-01-02T00:00:00.000Z' }),
+    });
+
+    const expectOnlyControlPairSwept = (deps: ReturnType<typeof mkDeps>) => {
+      const removed = deps.rm.mock.calls.map((c) => c[0]);
+      expect(removed).toEqual([path.join('/boots', 'boot-old')]);
+    };
+
+    it('`{ "state": "closed" }` alone, with no identity fields at all', async () => {
+      const deps = mkDeps(withControlPair({ 'boot-bare-closed': JSON.stringify({ state: 'closed' }) }));
+
+      await sweepBootFolders('/boots', 'boot-own', deps);
+
+      expectOnlyControlPairSwept(deps);
+    });
+
+    it('a dead numeric pid with no state', async () => {
+      const deps = mkDeps(
+        withControlPair({
+          'boot-dead-no-state': JSON.stringify({ bootId: 'boot-dead-no-state', token: 't', pid: 999, startedAt: '2026-01-01T00:00:00.000Z' }),
+        }),
+        { isPidAlive: (pid) => pid !== 999 },
+      );
+
+      await sweepBootFolders('/boots', 'boot-own', deps);
+
+      expectOnlyControlPairSwept(deps);
+    });
+
+    it('a valid-looking marker whose bootId does not match its folder name', async () => {
+      const deps = mkDeps(withControlPair({ 'boot-mismatch': devJson('some-other-boot-id', { state: 'closed' }) }));
+
+      await sweepBootFolders('/boots', 'boot-own', deps);
+
+      expectOnlyControlPairSwept(deps);
+    });
+
+    it('`state: "closed"` with `pid: 0` - pid must be a positive integer', async () => {
+      const deps = mkDeps(withControlPair({ 'boot-pid-zero': devJson('boot-pid-zero', { state: 'closed', pid: 0 }) }));
+
+      await sweepBootFolders('/boots', 'boot-own', deps);
+
+      expectOnlyControlPairSwept(deps);
+    });
+
+    it('`state: "closed"` with no `startedAt`', async () => {
+      const deps = mkDeps(
+        withControlPair({
+          'boot-no-started': JSON.stringify({ bootId: 'boot-no-started', token: 't', pid: 111, state: 'closed' }),
+        }),
+      );
+
+      await sweepBootFolders('/boots', 'boot-own', deps);
+
+      expectOnlyControlPairSwept(deps);
+    });
   });
 
   it('never touches a folder with no readable dev.json - missing is unknown, not closed', async () => {
@@ -122,7 +195,10 @@ describe('sweepBootFolders', () => {
   });
 
   it('never touches a live, not-closed folder - including one whose heartbeat would read as expired (that call belongs to the reader, not this sweep)', async () => {
-    const deps = mkDeps({ 'boot-stale-heartbeat': devJson({ state: 'active', pid: 444, startedAt: '2020-01-01T00:00:00.000Z' }) }, { isPidAlive: () => true });
+    const deps = mkDeps(
+      { 'boot-stale-heartbeat': devJson('boot-stale-heartbeat', { state: 'active', pid: 444, startedAt: '2020-01-01T00:00:00.000Z' }) },
+      { isPidAlive: () => true },
+    );
 
     await sweepBootFolders('/boots', 'boot-own', deps);
 
@@ -130,7 +206,7 @@ describe('sweepBootFolders', () => {
   });
 
   it('never touches its own folder, even if it were somehow listed', async () => {
-    const deps = mkDeps({ 'boot-own': devJson({ state: 'closed', pid: 555 }) });
+    const deps = mkDeps({ 'boot-own': devJson('boot-own', { state: 'closed', pid: 555 }) });
 
     await sweepBootFolders('/boots', 'boot-own', deps);
 

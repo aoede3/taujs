@@ -48,7 +48,26 @@ export type SweepDeps = {
   logger?: ArtifactLogger;
 };
 
-type DevJsonProbe = { state?: unknown; pid?: unknown; startedAt?: unknown };
+type DevJsonProbe = { state?: unknown; bootId?: unknown; pid?: unknown; startedAt?: unknown };
+
+type ValidMarker = { state: 'active' | 'closed'; bootId: string; pid: number; startedAt: string };
+
+// Finding 1 (reviewer, 2026-10-01): "invalid means unknown" must cover SHAPE, not only syntax -
+// `{ "state": "closed" }` with no identity, or `{ "pid": <dead> }` with nothing else, both parse
+// as JSON but are not a lifecycle marker a boot ever wrote, and must be left alone exactly as
+// unparseable JSON is. A folder is removable only once its dev.json validates as a marker: state
+// is exactly 'active' or 'closed', bootId is a non-empty string equal to the folder it sits in,
+// pid is a positive integer, and startedAt is a non-empty string.
+const isValidMarker = (probe: DevJsonProbe, folderName: string): probe is ValidMarker =>
+  (probe.state === 'active' || probe.state === 'closed') &&
+  typeof probe.bootId === 'string' &&
+  probe.bootId.length > 0 &&
+  probe.bootId === folderName &&
+  typeof probe.pid === 'number' &&
+  Number.isInteger(probe.pid) &&
+  probe.pid > 0 &&
+  typeof probe.startedAt === 'string' &&
+  probe.startedAt.length > 0;
 
 // Rev 3.1 (RULED GO 2026-10-01): remove sibling boot folders whose dev.json says `closed` -
 // closed wins even over a live pid, because two servers can share one process - or whose
@@ -92,12 +111,15 @@ export const sweepBootFolders = async (bootsDir: string, ownBootId: string, deps
       }
       if (!parsed || typeof parsed !== 'object') continue;
 
-      const { state, pid, startedAt } = parsed as DevJsonProbe;
+      const probe = parsed as DevJsonProbe;
+      if (!isValidMarker(probe, entry.name)) continue; // shape-invalid: unknown, never touched
+
+      const { state, pid, startedAt } = probe;
       const closed = state === 'closed';
-      const deadPid = typeof pid === 'number' && !isPidAlive(pid);
+      const deadPid = !isPidAlive(pid);
 
       // Live and not closed - including a stale heartbeat - is never touched here.
-      if (closed || deadPid) removable.push({ name: entry.name, startedAt: typeof startedAt === 'string' ? startedAt : '' });
+      if (closed || deadPid) removable.push({ name: entry.name, startedAt });
     }
 
     if (removable.length === 0) return;

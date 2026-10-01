@@ -12,11 +12,13 @@ import type { ChildProcess } from 'node:child_process';
 import type { SubstrateDiscovery } from '../SubstrateReader';
 import type { DevJson, EpisodeRecord } from '../types';
 
-// None of these cells produce more than one live boot folder - this wrapper narrows that branch
-// away so a discovery can be passed straight into readGraph/readEpisodes/readLogs.
-const discover = (root: string): Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' }> => {
+// None of these cells produce more than one live boot folder, or a folder whose own dev.json
+// disagrees with its folder name - this wrapper narrows both branches away so a discovery can be
+// passed straight into readGraph/readEpisodes/readLogs.
+const discover = (root: string): Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' } | { mode: 'substrate_inconsistent' }> => {
   const d = discoverSubstrate(root);
   if (d.mode === 'multiple_active_boots') throw new Error('test fixture produced multiple_active_boots unexpectedly');
+  if (d.mode === 'substrate_inconsistent') throw new Error('test fixture produced substrate_inconsistent unexpectedly');
   return d;
 };
 
@@ -70,6 +72,7 @@ const seedDevJson = async (root: string, overrides: Partial<DevJson> = {}, bootI
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
     ...overrides,
   };
 
@@ -263,7 +266,7 @@ describe('dev.json validation (@taujs/mcp)', () => {
     // The filter itself keys on presence, not truthiness: an empty bootId matches nothing.
     await writeFile(devJsonPath, JSON.stringify({ ...JSON.parse(await readFile(devJsonPath, 'utf8')), bootId: 'boot-current' }), 'utf8');
     const live = discoverSubstrate(root);
-    if (live.mode === 'none' || live.mode === 'multiple_active_boots') throw new Error('unexpected discovery mode');
+    if (live.mode === 'none' || live.mode === 'multiple_active_boots' || live.mode === 'substrate_inconsistent') throw new Error('unexpected discovery mode');
     expect(readEpisodes(live, { bootId: '' })).toMatchObject({ ok: true, records: [] });
     expect(readLogs(live, { requestId: 'old-req', bootId: '' })).toMatchObject({ ok: true, anyLevelCount: 0 });
   });
@@ -280,6 +283,57 @@ describe('dev.json validation (@taujs/mcp)', () => {
       const tools = new Map(allTools(root).map((t) => [t.name, t.handler]));
       expect(tools.get('taujs_get_recent_episodes')!({})).toMatchObject({ ok: false, staleReason: 'dev_json_invalid' });
     }
+  });
+
+  // Finding 2 (reviewer, 2026-10-01): DevJsonSchema keeps `state` optional for the root
+  // compatibility path, but inside boots/ a marker with no state, or a state other than 'active'
+  // or 'closed', must read as dev_json_invalid - not fall through to liveness and answer `active`.
+  it('a boot-folder dev.json with NO state field is invalid, not live - state is required inside boots/, unlike the root-compat path', async () => {
+    const root = await mkdtemp(path.join(scratch, 'no-state-'));
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
+    await mkdir(dir, { recursive: true });
+    const devJson: Omit<DevJson, 'state'> = {
+      bootId: DEFAULT_BOOT_ID,
+      token: 'tok',
+      pid: process.pid,
+      startedAt: '2026-08-26T10:00:00.000Z',
+      host: '127.0.0.1',
+      port: 5173,
+      graph: path.join(dir, 'graph.json'),
+      episodes: path.join(dir, 'episodes.ndjson'),
+      logs: path.join(dir, 'logs.ndjson'),
+      observations: path.join(dir, 'observations.json'),
+    };
+    await writeFile(path.join(dir, 'dev.json'), JSON.stringify(devJson), 'utf8');
+    await writeFile(path.join(dir, 'graph.json'), '{}', 'utf8');
+
+    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'dev_json_invalid' });
+  });
+
+  it('a boot-folder dev.json with state: "weird" is invalid, not live - state must be exactly active or closed', async () => {
+    const root = await mkdtemp(path.join(scratch, 'weird-state-'));
+    const dir = bootDirFor(root, DEFAULT_BOOT_ID);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, 'dev.json'),
+      JSON.stringify({
+        bootId: DEFAULT_BOOT_ID,
+        token: 'tok',
+        pid: process.pid,
+        startedAt: '2026-08-26T10:00:00.000Z',
+        host: '127.0.0.1',
+        port: 5173,
+        graph: path.join(dir, 'graph.json'),
+        episodes: path.join(dir, 'episodes.ndjson'),
+        logs: path.join(dir, 'logs.ndjson'),
+        observations: path.join(dir, 'observations.json'),
+        state: 'weird',
+      }),
+      'utf8',
+    );
+    await writeFile(path.join(dir, 'graph.json'), '{}', 'utf8');
+
+    expect(discoverSubstrate(root)).toMatchObject({ mode: 'stale', reason: 'dev_json_invalid' });
   });
 });
 

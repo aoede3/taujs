@@ -83,6 +83,7 @@ beforeAll(async () => {
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
   };
   await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 

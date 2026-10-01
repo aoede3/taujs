@@ -32,13 +32,15 @@ import type { Logs } from '../../../server/src/core/logging/types';
 import type { SubstrateDiscovery } from '../SubstrateReader';
 import type { DevJson } from '../types';
 
-// None of these fixtures produce more than one live boot folder except the dedicated
-// multiple_active_boots cells below (which call discoverSubstrate directly and never feed the
-// result into a read* function) - this wrapper narrows that branch away so every other cell can
-// pass its discovery straight into readGraph/readEpisodes/readLogs/readObservations.
-const discover = (root: string): Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' }> => {
+// None of these fixtures produce more than one live boot folder, or a folder whose own dev.json
+// disagrees with its folder name, except the dedicated multiple_active_boots and
+// substrate_inconsistent (discovery) cells below (which call discoverSubstrate directly and never
+// feed the result into a read* function) - this wrapper narrows both branches away so every other
+// cell can pass its discovery straight into readGraph/readEpisodes/readLogs/readObservations.
+const discover = (root: string): Exclude<SubstrateDiscovery, { mode: 'multiple_active_boots' } | { mode: 'substrate_inconsistent' }> => {
   const d = discoverSubstrate(root);
   if (d.mode === 'multiple_active_boots') throw new Error('test fixture produced multiple_active_boots unexpectedly');
+  if (d.mode === 'substrate_inconsistent') throw new Error('test fixture produced substrate_inconsistent unexpectedly');
   return d;
 };
 
@@ -89,6 +91,7 @@ const emitDevJson = async (root: string, overrides?: Partial<DevJson>, bootId: s
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
     ...overrides,
   };
   await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson, null, 2));
@@ -412,10 +415,15 @@ describe('readGraph', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('substrate_inconsistent: folder name, dev.json bootId and graph.json bootId disagree', async () => {
+  // Finding 3 (reviewer, 2026-10-01): the three-way identity check is split across two owners now.
+  // Discovery (classifyBootFolder) catches a dev.json bootId that disagrees with its own folder -
+  // that folder is never live and never a stale candidate (below, and the 'discoverSubstrate —
+  // freshness matrix' describe above). readGraph catches a GRAPH bootId that disagrees with the
+  // folder, regardless of whether dev.json itself validated - the "agreeing-ids cell unchanged"
+  // cells above (active mode / stale mode, per-boot layout) prove the matching case still reads.
+
+  it('substrate_inconsistent (readGraph): the folder name and the graph.json bootId disagree, even though dev.json agrees with the folder', async () => {
     const root = await mkRoot();
-    // The folder is named 'boot-folder', dev.json says its own bootId is 'boot-dev-json', and the
-    // graph inside it says 'boot-graph' — three different stories about the same boot.
     await emitGraph(
       root,
       (g) => {
@@ -423,7 +431,7 @@ describe('readGraph', () => {
       },
       'boot-folder',
     );
-    await emitDevJson(root, { bootId: 'boot-dev-json' }, 'boot-folder');
+    await emitDevJson(root, {}, 'boot-folder'); // dev.json's own bootId is 'boot-folder' - it agrees
 
     const discovery = discover(root);
     expect(discovery.mode).toBe('active');
@@ -434,19 +442,102 @@ describe('readGraph', () => {
     if (!result.ok) {
       expect(result.reason).toBe('substrate_inconsistent');
       expect(result.message).toContain('boot-folder');
-      expect(result.message).toContain('boot-dev-json');
       expect(result.message).toContain('boot-graph');
     }
   });
 
-  it('a folder with no graph yet is simply "graph not present", never substrate_inconsistent', async () => {
+  it('substrate_inconsistent (readGraph): still refused when dev.json itself is invalid - the dev-side check now belongs to discovery, not readGraph', async () => {
     const root = await mkRoot();
-    await emitDevJson(root, { bootId: 'mismatched-but-irrelevant' }, 'boot-no-graph');
+    await emitGraph(
+      root,
+      (g) => {
+        g.bootId = 'boot-graph';
+      },
+      'boot-folder',
+    );
+    const dir = bootDir(root, 'boot-folder');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'dev.json'), JSON.stringify({ pid: process.pid }), 'utf8'); // invalid
+
+    const discovery = discover(root);
+    expect(discovery).toMatchObject({ mode: 'stale', reason: 'dev_json_invalid', bootFolder: 'boot-folder' });
+
+    const result = readGraph(discovery);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('substrate_inconsistent');
+  });
+
+  it("substrate_inconsistent (readGraph): a source: 'build' graph placed inside a boot folder is refused, never silently read as a boot graph", async () => {
+    const root = await mkRoot();
+    const dir = bootDir(root, 'boot-folder');
+    const buildGraph = createRequestGraph(config, { source: 'build', emittedAt: OPTS.emittedAt });
+    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(buildGraph));
+    await emitDevJson(root, {}, 'boot-folder');
+
+    const discovery = discover(root);
+    expect(discovery.mode).toBe('active');
+
+    const result = readGraph(discovery);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('substrate_inconsistent');
+  });
+
+  it('substrate_inconsistent (discovery): dev.json bootId disagrees with its own folder name, alone - never live, never a stale candidate', async () => {
+    const root = await mkRoot();
+    await emitGraph(root, undefined, 'boot-folder');
+    await emitDevJson(root, { bootId: 'boot-dev-json' }, 'boot-folder');
+
+    const d = discoverSubstrate(root);
+
+    expect(d.mode).toBe('substrate_inconsistent');
+    if (d.mode === 'substrate_inconsistent') {
+      expect(d.folders).toEqual([{ folder: 'boot-folder', devBootId: 'boot-dev-json' }]);
+      expect(d.message).toContain('boot-folder');
+      expect(d.message).toContain('boot-dev-json');
+    }
+  });
+
+  it('substrate_inconsistent (discovery): a CLOSED folder with mismatched ids, alone, still refuses rather than answering stale', async () => {
+    const root = await mkRoot();
+    await emitGraph(root, undefined, 'boot-folder');
+    await emitDevJson(root, { state: 'closed', bootId: 'boot-dev-json' }, 'boot-folder');
+
+    const d = discoverSubstrate(root);
+
+    expect(d.mode).toBe('substrate_inconsistent');
+  });
+
+  it('substrate_inconsistent (discovery): ignored for selection once a valid live folder exists, but counted as ignoredFolders', async () => {
+    const root = await mkRoot();
+    await emitGraph(root, undefined, 'boot-good');
+    await emitDevJson(root, {}, 'boot-good');
+    await emitGraph(root, undefined, 'boot-bad');
+    await emitDevJson(root, { bootId: 'boot-bad-devjson' }, 'boot-bad');
+
+    const d = discoverSubstrate(root);
+
+    expect(d).toMatchObject({ mode: 'active', bootFolder: 'boot-good', ignoredFolders: 1 });
+  });
+
+  it('a folder with no graph yet, whose dev.json agrees with its folder name, is simply "graph not present"', async () => {
+    const root = await mkRoot();
+    await emitDevJson(root, {}, 'boot-no-graph'); // bootId defaults to the folder name, 'boot-no-graph'
 
     const discovery = discover(root);
     const result = readGraph(discovery);
 
     expect(result).toMatchObject({ ok: false, reason: 'not_found' });
+  });
+
+  it('a folder with no graph yet, whose dev.json DISAGREES with its folder name, is substrate_inconsistent at discovery - before any graph is involved (finding 3a)', async () => {
+    const root = await mkRoot();
+    await emitDevJson(root, { bootId: 'mismatched' }, 'boot-no-graph');
+
+    const d = discoverSubstrate(root);
+
+    expect(d.mode).toBe('substrate_inconsistent');
   });
 });
 
@@ -479,7 +570,10 @@ describe('readEpisodes', () => {
   it('reads records newest-last, filters by bootId, and honours limit from the end', async () => {
     const root = await mkRoot();
     const dev = await emitEpisodes(root, seedThree);
-    await emitDevJson(root, { bootId: dev.bootId });
+    // dev.json's own bootId is the FOLDER's name (BOOT_ID, the default) - the episode records'
+    // bootId field is `dev.bootId` (a separate, recorder-assigned id), filtered below via the
+    // explicit `options.bootId`, independent of dev.json's identity.
+    await emitDevJson(root);
 
     const discovery = discover(root);
     const all = readEpisodes(discovery);

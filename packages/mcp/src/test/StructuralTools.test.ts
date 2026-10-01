@@ -587,6 +587,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -619,6 +620,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -659,6 +661,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     const devJsonPath = path.join(dir, 'dev.json');
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
@@ -720,6 +723,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(dir, 'episodes.ndjson'),
       logs: path.join(dir, 'logs.ndjson'),
       observations: path.join(dir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJson));
 
@@ -764,9 +768,11 @@ describe('structural tools (cold/stale mode)', () => {
 
   it('taujs_list_routes bypasses the overview but still carries the declared-topology qualification, via the shared staleness line', async () => {
     const t2Root = await mkdtemp(path.join(scratch, 't2-'));
-    const dir = bootDir(t2Root, 'boot-t2');
+    // A build graph belongs at dist/.taujs/graph.json, never inside a boot folder (finding 3b):
+    // a 'build'-sourced graph placed under boots/<id>/ is refused as substrate_inconsistent.
+    const distDir = path.join(t2Root, 'dist', '.taujs');
     const graph = createRequestGraph(config, { source: 'build', emittedAt: '2026-07-10T10:00:00.000Z', serviceRegistry: registry });
-    await writeTaujsArtifact(dir, 'graph.json', JSON.stringify(graph));
+    await writeTaujsArtifact(distDir, 'graph.json', JSON.stringify(graph));
 
     const result = callAt(t2Root, 'taujs_list_routes', {});
 
@@ -824,6 +830,7 @@ describe('structural tools (cold/stale mode)', () => {
       episodes: path.join(activeDir, 'episodes.ndjson'),
       logs: path.join(activeDir, 'logs.ndjson'),
       observations: path.join(activeDir, 'observations.json'),
+      state: 'active',
     };
     await writeTaujsArtifact(activeDir, 'dev.json', JSON.stringify(devJson));
     const activeResult = callAt(activeRoot, 'taujs_who_calls_service', { service: 'catalog' });
@@ -912,6 +919,7 @@ describe('per-boot directories (rev 3.1): taujs_overview', () => {
     episodes: path.join(dir, 'episodes.ndjson'),
     logs: path.join(dir, 'logs.ndjson'),
     observations: path.join(dir, 'observations.json'),
+    state: 'active',
     ...overrides,
   });
 
@@ -951,6 +959,35 @@ describe('per-boot directories (rev 3.1): taujs_overview', () => {
 
     // Every other structural tool refuses the same way - there is no "the graph" to list routes from.
     expect(callAt(multiRoot, 'taujs_list_routes')).toMatchObject({ ok: false, reason: 'multiple_active_boots' });
+  });
+
+  it('refuses with substrate_inconsistent, alone, when the one live folder disagrees with its own dev.json bootId (finding 3)', async () => {
+    const root = await mkdtemp(path.join(scratch, 'overview-inconsistent-'));
+    const dir = bootDir(root, 'boot-folder');
+    await writeTaujsArtifact(dir, 'dev.json', JSON.stringify(devJsonFor(dir, 'boot-dev-json'))); // folder is 'boot-folder', dev.json says 'boot-dev-json'
+
+    const result = callAt(root, 'taujs_overview');
+
+    expect(result).toMatchObject({ ok: false, reason: 'substrate_inconsistent' });
+    expect(result.message).toContain('boot-folder');
+    expect(result.message).toContain('boot-dev-json');
+
+    // Every other structural tool refuses the same way.
+    expect(callAt(root, 'taujs_list_routes')).toMatchObject({ ok: false, reason: 'substrate_inconsistent' });
+  });
+
+  it('an inconsistent folder beside a valid live one: the valid folder answers, and overview reports ignoredFolders', async () => {
+    const root = await mkdtemp(path.join(scratch, 'overview-ignored-'));
+    const goodDir = bootDir(root, 'boot-good');
+    const badDir = bootDir(root, 'boot-bad');
+    const graph = createRequestGraph(config, { source: 'boot', emittedAt: '2026-07-10T10:00:00.000Z', bootId: 'boot-good' });
+    await writeTaujsArtifact(goodDir, 'graph.json', JSON.stringify(graph));
+    await writeTaujsArtifact(goodDir, 'dev.json', JSON.stringify(devJsonFor(goodDir, 'boot-good')));
+    await writeTaujsArtifact(badDir, 'dev.json', JSON.stringify(devJsonFor(badDir, 'boot-bad-devjson'))); // folder is 'boot-bad'
+
+    const result = callAt(root, 'taujs_overview');
+
+    expect(result).toMatchObject({ ok: true, mode: 'active', bootId: 'boot-good', ignoredFolders: 1 });
   });
 });
 

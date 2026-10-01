@@ -25,6 +25,9 @@ const graphState = (root: string): GraphState => {
   // schema-skewed graph does - omitted, never a hard failure for the caller.
   if (discovery.mode === 'multiple_active_boots')
     return { kind: 'unusable', cause: 'multiple_active_boots', message: 'Multiple dev boots are live; no single graph to cite a contract against.' };
+  // Finding 3: a folder whose own dev.json disagrees with its folder name is the same kind of
+  // degradation - omitted, never a hard failure, exactly like multiple_active_boots above.
+  if (discovery.mode === 'substrate_inconsistent') return { kind: 'unusable', cause: 'substrate_inconsistent', message: discovery.message };
   const result = readGraph(discovery);
   if (!result.ok) return { kind: 'unusable', cause: result.reason, message: result.message };
   // A graph that EXISTS but carries no usable emitter version cannot participate in the version
