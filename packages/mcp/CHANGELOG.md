@@ -1,5 +1,13 @@
 # @taujs/mcp
 
+## 0.12.1
+
+### Patch Changes
+
+- [#191](https://github.com/aoede3/taujs/pull/191) [`75e42c8`](https://github.com/aoede3/taujs/commit/75e42c845e6f59b2274a06eb3f027c74f95ee36e) Thanks [@aoede3](https://github.com/aoede3)! - Development episodes carry a `devAssetsReady` timeline mark, recorded when Vite has loaded the render module and transformed the template for the request. The time between `matched` and `dataStart` is now attributable: on a boot's first request to an app it is mostly Vite's cold module load, not the route's loader. `EpisodeRecorder` gains the matching `devAssetsReady` method, and the MCP episode type and schema name the mark.
+
+- [#191](https://github.com/aoede3/taujs/pull/191) [`3237b20`](https://github.com/aoede3/taujs/commit/3237b20e38f0e90b350e8f900629f3e18d097660) Thanks [@aoede3](https://github.com/aoede3)! - `taujs_who_calls_service` says in its note that `lastObservedAt` on an observed row is method-wide, like `methodCallCount`: the last time any route called the method, not the last time that route did.
+
 ## 0.12.0
 
 ### Minor Changes
