@@ -1,5 +1,11 @@
 # @taujs/server
 
+## 0.42.0
+
+### Minor Changes
+
+- [#189](https://github.com/aoede3/taujs/pull/189) [`0c8cc70`](https://github.com/aoede3/taujs/commit/0c8cc70dcbe3c7575eaa3a2c1da03ddcc3a7ab74) Thanks [@aoede3](https://github.com/aoede3)! - Each development boot writes its introspection substrate under node_modules/.taujs/boots/<bootId>/ and never touches another boot's folder; dev.json is written first with state active and last with state closed; closed or dead-pid sibling folders are swept on start, and only a valid lifecycle marker makes a folder sweepable; boot graphs carry bootId under schema version 3.
+
 ## 0.41.0
 
 ### Minor Changes
