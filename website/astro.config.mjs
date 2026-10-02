@@ -39,6 +39,10 @@ export default defineConfig({
           ],
         },
         {
+          label: "Inspect & Diagnose",
+          items: [{ label: "MCP Server", slug: "reference/mcp" }],
+        },
+        {
           label: "Core Features",
           items: [
             { label: "Data Loading", slug: "guides/data-loading" },
@@ -104,7 +108,6 @@ export default defineConfig({
           label: "Reference",
           items: [
             { label: "τjs Configuration", slug: "reference/taujs-config" },
-            { label: "MCP Server", slug: "reference/mcp" },
             // { label: "Platformatic Watt", slug: "reference/platformatic-watt" },
           ],
         },

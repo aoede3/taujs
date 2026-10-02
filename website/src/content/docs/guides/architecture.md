@@ -3,18 +3,20 @@ title: τjs Architecture
 description: How Fastify dispatch, application contracts, renderers and build-time composition fit together.
 ---
 
-τjs is an application-response orchestration layer built on Fastify and Vite. It coordinates the
-work needed to turn a declared application route into HTML, then hands rendering to the renderer
-selected by that application. Framework renderers are available for React, Vue and Solid; the
-framework-free `@taujs/html` renderer lets an application provide its own HTML fragments.
+τjs is the runtime between an HTTP request and your renderer, built on Fastify and Vite. It turns a
+declared application route into one executable contract - data, policy, rendering strategy - and
+hands rendering to the renderer that application selected. Framework renderers are available for
+React, Vue and Solid; the framework-free `@taujs/html` renderer lets an application provide its own
+HTML fragments.
 
 Its central boundary is straightforward:
 
 > Fastify owns HTTP dispatch and the host lifecycle. τjs owns the declared application response
 > after Fastify selects a τjs route.
 
-That boundary is what lets τjs add data orchestration, policy, rendering and introspection without
-becoming a replacement HTTP server or a client-side application framework.
+That boundary is what lets τjs own data orchestration, policy, rendering and the record of declared
+and observed execution - the request graph and development episodes - without becoming a
+replacement HTTP server or a client-side application framework.
 
 ## The ownership layers
 
