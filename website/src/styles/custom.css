@@ -56,7 +56,7 @@ h1 {
   flex-wrap: wrap;
   gap: 2rem;
   justify-content: space-evenly;
-  margin: 2em 0;
+  margin: 0 0 8.75rem; /* matches the measured gap between hero content and the strip */
 }
 
 .container__logos a {
