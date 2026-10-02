@@ -1,5 +1,12 @@
 # playground
 
+## 0.0.64
+
+### Patch Changes
+
+- Updated dependencies [[`dc6184b`](https://github.com/aoede3/taujs/commit/dc6184b623ccf45b95b35a279e900e486622a67d)]:
+  - @taujs/react@0.10.0
+
 ## 0.0.63
 
 ### Patch Changes
