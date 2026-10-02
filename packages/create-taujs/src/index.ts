@@ -402,8 +402,8 @@ export const SHARED_PINS = {
   typesNode: '^22.10.5',
 } as const;
 
-// Vite 8 requires this floor; a generated project must declare what it needs.
-const NODE_ENGINE = '^20.19.0 || >=22.12.0';
+// Node 22.12.0 is Vite 8's floor on the supported lines; a generated project must declare what it needs.
+const NODE_ENGINE = '>=22.12.0';
 
 type FrameworkExtras = {
   /** The renderer package, e.g. `@taujs/react`. */

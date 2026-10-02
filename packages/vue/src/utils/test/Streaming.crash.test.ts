@@ -19,8 +19,8 @@ import { createStreamController } from '../Streaming';
 //
 // The child runs the REAL `Streaming.ts`, transpiled to plain JS at test time (via the
 // TypeScript compiler, a devDependency) and executed with `node --input-type=module -e`. This
-// keeps the guard portable to EVERY supported Node (`engines.node` is `>=20.11`, `.nvmrc` is
-// `22.17.0`) instead of relying on native `.ts` execution (Node >= 22.18 only) — while still
+// keeps the guard portable to EVERY supported Node (`engines.node` is `>=22.12.0`, `.nvmrc` is
+// `22.19.0`) instead of relying on native `.ts` execution (Node >= 22.18 only) — while still
 // exercising the actual source, so reverting the `settle.done.catch(...)` fix fails this test.
 function buildChildScript(): string {
   const streamingTs = fileURLToPath(new URL('../Streaming.ts', import.meta.url));
