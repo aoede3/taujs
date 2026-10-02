@@ -213,15 +213,15 @@
   </div>
 
   <ol class="sys-fig__parts" aria-label="Parts list">
-    <li data-part="1"><span class="sys-fig__num">1</span><span><a href="/guides/host-ownership/">Fastify host</a> - owns HTTP dispatch and the host lifecycle, then hands a selected τjs route over.</span></li>
-    <li data-part="2"><span class="sys-fig__num">2</span><span><a href="/guides/micro-frontend/">τjs application scope</a> - one per app, each with its own renderer root; several can live in one host.</span></li>
-    <li data-part="3"><span class="sys-fig__num">3</span><span><a href="/guides/request-contracts/">Declared route contract</a> - render · data · policy, stated once per route.</span></li>
-    <li data-part="4"><span class="sys-fig__num">4</span><span><a href="/guides/services/">Services</a> - critical data before first byte, deferred data streamed after.</span></li>
-    <li data-part="5"><span class="sys-fig__num">5</span><span><a href="/guides/architecture/">Renderer and the response</a> - React · Vue · Solid · HTML produce the declared response.</span></li>
-    <li data-part="6"><span class="sys-fig__num">6</span><span><a href="/guides/build-deployment/">Vite</a> - owns the module graph, dev pipeline and production bundles.</span></li>
-    <li data-part="7"><span class="sys-fig__num">7</span><span><a href="/reference/mcp/"><code>dist/.taujs/graph.json</code></a> - the structure-only request graph, the single build artefact.</span></li>
-    <li data-part="8"><span class="sys-fig__num">8</span><span><a href="/reference/mcp/">Development substrate</a> - <code>node_modules/.taujs/boots/&lt;bootId&gt;/</code>: graph · episodes · logs annex · observed edges.</span></li>
-    <li data-part="9"><span class="sys-fig__num">9</span><span><a href="/reference/mcp/"><code>taujs-mcp</code></a> - stdio adapter reading the boot for tools and agents; development only.</span></li>
+    <li data-part="1"><span class="sys-fig__num">1</span><span><a href="/guides/host-ownership/">Fastify host</a><small>owns HTTP dispatch and the host lifecycle, then hands a selected τjs route over.</small></span></li>
+    <li data-part="2"><span class="sys-fig__num">2</span><span><a href="/guides/micro-frontend/">τjs application scope</a><small>one per app, each with its own renderer root; several can live in one host.</small></span></li>
+    <li data-part="3"><span class="sys-fig__num">3</span><span><a href="/guides/request-contracts/">Declared route contract</a><small>render · data · policy, stated once per route.</small></span></li>
+    <li data-part="4"><span class="sys-fig__num">4</span><span><a href="/guides/services/">Services</a><small>critical data before first byte, deferred data streamed after.</small></span></li>
+    <li data-part="5"><span class="sys-fig__num">5</span><span><a href="/guides/architecture/">Renderer and the response</a><small>React · Vue · Solid · HTML produce the declared response.</small></span></li>
+    <li data-part="6"><span class="sys-fig__num">6</span><span><a href="/guides/build-deployment/">Vite</a><small>owns the module graph, dev pipeline and production bundles.</small></span></li>
+    <li data-part="7"><span class="sys-fig__num">7</span><span><a href="/reference/mcp/"><code>dist/.taujs/graph.json</code></a><small>the structure-only request graph, the single build artefact.</small></span></li>
+    <li data-part="8"><span class="sys-fig__num">8</span><span><a href="/reference/mcp/">Development substrate</a><small><code>node_modules/.taujs/boots/&lt;bootId&gt;/</code>: graph · episodes · logs annex · observed edges.</small></span></li>
+    <li data-part="9"><span class="sys-fig__num">9</span><span><a href="/reference/mcp/"><code>taujs-mcp</code></a><small>stdio adapter reading the boot for tools and agents; development only.</small></span></li>
   </ol>
 </figure>
 
@@ -243,7 +243,7 @@
   }
   @media (min-width: 60rem) {
     .sys-fig {
-      grid-template-columns: minmax(0, 3fr) minmax(14rem, 2fr);
+      grid-template-columns: minmax(0, 1fr) 17rem;
       align-items: start;
     }
   }
@@ -252,7 +252,6 @@
     display: block;
     width: 100%;
     height: auto;
-    max-height: 34rem;
   }
 
   /* line conventions */
@@ -394,6 +393,15 @@
     padding: 0.35rem 0 0.35rem 0.6rem;
     border-left: 2px solid var(--sl-color-gray-5);
     transition: border-color 0.12s, color 0.12s;
+  }
+  .sys-fig__parts a {
+    display: block;
+  }
+  .sys-fig__parts small {
+    display: block;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: var(--sl-color-gray-2);
   }
   .sys-fig__parts li + li {
     margin-top: 0.15rem;
