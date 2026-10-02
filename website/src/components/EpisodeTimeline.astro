@@ -7,7 +7,7 @@
  */
 import episode from "../data/streaming-episode.json";
 
-type Call = { service: string; method: string; startMs: number; endMs: number; kind?: string };
+type Call = { service: string; method: string; startMs: number; endMs: number; ok?: boolean; kind?: string };
 
 const timeline: Record<string, number> = episode.timeline ?? {};
 const serviceCalls: Call[] = episode.serviceCalls ?? [];
@@ -22,6 +22,19 @@ const spanEnd = Math.max(
   1,
 );
 const pct = (ms: number) => `${(ms / spanEnd) * 100}%`;
+
+const callName = (c: Call) => `${c.service}.${c.method}`;
+const callStatus = (c: Call) => (c.ok === false ? "failed" : "ok");
+const chartLabel = [
+  `Timeline over ${spanEnd} ms with marks ${marks.map(([k, v]) => `${k} at ${v} ms`).join(", ")}`,
+  serviceCalls.length > 0
+    ? `service calls: ${serviceCalls
+        .map((c) => `${callName(c)} ${c.startMs}–${c.endMs} ms ${callStatus(c)}`)
+        .join(", ")}`
+    : "",
+]
+  .filter(Boolean)
+  .join("; ");
 
 // Label placement, no JS at runtime: marks alternate above/below the bar by
 // default; any two labels whose horizontal positions fall within 9% of the
@@ -53,7 +66,7 @@ const rowsBelow = Math.max(1, ...placedMarks.filter((m) => m.side === "below").m
 <figure class="ep-tl">
   <figcaption class="ep-tl__q">
     <span class="ep-tl__prompt">Interrogate</span>
-    Why was this request slow?
+    Where did this request spend its time?
   </figcaption>
 
   <p class="ep-tl__line">
@@ -66,7 +79,7 @@ const rowsBelow = Math.max(1, ...placedMarks.filter((m) => m.side === "below").m
   <div
     class="ep-tl__chart"
     role="img"
-    aria-label={`Timeline over ${spanEnd} ms with marks ${marks.map(([k, v]) => `${k} at ${v} ms`).join(", ")}`}
+    aria-label={chartLabel}
     style={`--rows-above: ${rowsAbove}; --rows-below: ${rowsBelow}`}
   >
     <div class="ep-tl__bar">
@@ -112,18 +125,36 @@ const rowsBelow = Math.max(1, ...placedMarks.filter((m) => m.side === "below").m
     }
   </div>
 
-  <dl class="ep-tl__marks">
+  <div class="ep-tl__text">
+    <dl class="ep-tl__marks">
+      {
+        marks.map(([key, ms]) => (
+          <div>
+            <dt>
+              <code>{key}</code>
+            </dt>
+            <dd>{ms} ms</dd>
+          </div>
+        ))
+      }
+    </dl>
     {
-      marks.map(([key, ms]) => (
-        <div>
-          <dt>
-            <code>{key}</code>
-          </dt>
-          <dd>{ms} ms</dd>
-        </div>
-      ))
+      serviceCalls.length > 0 && (
+        <dl class="ep-tl__marks">
+          {serviceCalls.map((c) => (
+            <div>
+              <dt>
+                <code>{callName(c)}</code>
+              </dt>
+              <dd>
+                {c.startMs}–{c.endMs} ms · {callStatus(c)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )
     }
-  </dl>
+  </div>
 </figure>
 
 <style>
@@ -288,9 +319,11 @@ const rowsBelow = Math.max(1, ...placedMarks.filter((m) => m.side === "below").m
     color: var(--sl-color-gray-3);
   }
 
-  /* textual list of the same marks, for narrow screens and readers */
-  .ep-tl__marks {
+  /* textual list of the same marks and calls, for narrow screens and readers */
+  .ep-tl__text {
     display: none;
+  }
+  .ep-tl__marks {
     margin: 1rem 0 0;
     font-family: var(--ep-mono);
     font-size: 0.78rem;
@@ -314,8 +347,8 @@ const rowsBelow = Math.max(1, ...placedMarks.filter((m) => m.side === "below").m
     .ep-tl__chart {
       display: none;
     }
-    .ep-tl__marks {
-      display: grid;
+    .ep-tl__text {
+      display: block;
     }
   }
 </style>

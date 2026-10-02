@@ -1,7 +1,7 @@
 ---
 /**
  * The under-hero proof: a real `taujs_who_calls_service` answer for the
- * catalogue service, read from `src/data/who-calls-catalog.json`. Rows are
+ * catalog service, read from `src/data/who-calls-catalog.json`. Rows are
  * never written here; the JSON is captured from a real boot.
  *
  * `edges` (declared / observed) and `hostObserved` are rendered as separate
@@ -11,17 +11,20 @@
 import answer from "../data/who-calls-catalog.json";
 
 type Edge = { source: string; path: string; method: string };
+type Group = { label: string; rows: Edge[]; empty: string; host: boolean };
 
 const service: string = answer.service;
-const edges: Edge[] = answer.edges ?? [];
-const hostObserved: Edge[] = answer.hostObserved ?? [];
 const note: string | undefined = answer.note;
+const groups: Group[] = [
+  { label: "edges", rows: answer.edges ?? [], empty: "no rows", host: false },
+  { label: "hostObserved", rows: answer.hostObserved ?? [], empty: "no observation", host: true },
+];
 ---
 
 <figure class="ev-card">
   <figcaption class="ev-card__q">
     <span class="ev-card__prompt">Interrogate</span>
-    What depends on the catalogue service?
+    What depends on the catalog service?
   </figcaption>
 
   <div class="ev-card__tool">
@@ -29,66 +32,56 @@ const note: string | undefined = answer.note;
     <code class="ev-card__arg">service: "{service}"</code>
   </div>
 
-  <section class="ev-card__group" aria-label="edges">
-    <h3 class="ev-card__label">edges</h3>
-    {
-      edges.length === 0 ? (
-        <p class="ev-card__empty">no rows</p>
-      ) : (
-        <table class="ev-card__rows">
-          <tbody>
-            {edges.map((e) => (
-              <tr>
-                <td class="ev-card__path">
-                  <code>{e.path}</code>
-                </td>
-                <td class="ev-card__method">
-                  <code>{e.method}</code>
-                </td>
-                <td>
-                  <span class={`ev-card__badge ev-card__badge--${e.source}`}>{e.source}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )
-    }
-  </section>
-
-  <section class="ev-card__group ev-card__group--host" aria-label="hostObserved">
-    <h3 class="ev-card__label">hostObserved</h3>
-    {
-      hostObserved.length === 0 ? (
-        <p class="ev-card__empty">no observation</p>
-      ) : (
-        <table class="ev-card__rows">
-          <tbody>
-            {hostObserved.map((e) => (
-              <tr>
-                <td class="ev-card__path">
-                  <code>{e.path}</code>
-                </td>
-                <td class="ev-card__method">
-                  <code>{e.method}</code>
-                </td>
-                <td>
-                  <span class={`ev-card__badge ev-card__badge--${e.source}`}>{e.source}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )
-    }
-  </section>
-
-  {note && <p class="ev-card__note">{note}</p>}
+  {
+    groups.map((g) => (
+      <section class:list={["ev-card__group", { "ev-card__group--host": g.host }]} aria-label={g.label}>
+        <h3 class="ev-card__label">{g.label}</h3>
+        {g.rows.length === 0 ? (
+          <p class="ev-card__empty">{g.empty}</p>
+        ) : (
+          <>
+            <div class="ev-card__head" aria-hidden="true">
+              <span>route</span>
+              <span>method</span>
+              <span class="ev-card__source">source</span>
+            </div>
+            <ul class="ev-card__rows">
+              {g.rows.map((e) => (
+                <li class="ev-card__row">
+                  <span class="ev-card__path">
+                    <span class="sr-only">route </span>
+                    <code>{e.path}</code>
+                  </span>
+                  <span class="ev-card__method">
+                    <span class="sr-only">method </span>
+                    <code>{e.method}</code>
+                  </span>
+                  <span class="ev-card__source">
+                    <span class="sr-only">source </span>
+                    <span class={`ev-card__badge ev-card__badge--${e.source}`}>{e.source}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+    ))
+  }
 
   <p class="ev-card__key">
     <em>Declared</em> means intended. <em>Observed</em> means exercised. Missing means not seen yet
     - not "safe".
   </p>
+
+  {
+    note && (
+      <details class="ev-card__note">
+        <summary>What the tool says about these labels</summary>
+        <p>{note}</p>
+      </details>
+    )
+  }
 </figure>
 
 <style>
@@ -167,24 +160,30 @@ const note: string | undefined = answer.note;
     color: var(--sl-color-gray-3);
   }
 
+  /* Narrow (default): each row stacks path → method → source. Identifiers are
+     never broken mid-token; `overflow-wrap: anywhere` is the fallback only when
+     a single token is wider than the card. */
+  .ev-card__head {
+    display: none;
+  }
   .ev-card__rows {
-    display: table;
-    width: 100%;
+    display: grid;
+    gap: 0.5rem;
     margin: 0;
-    border-collapse: collapse;
+    padding: 0;
+    list-style: none;
     font-family: var(--ev-mono);
     font-size: 0.85rem;
   }
-  .ev-card__rows td {
-    padding: 0.25rem 0.75rem 0.25rem 0;
-    border: 0;
-    background: none;
-    vertical-align: baseline;
+  .ev-card__row {
+    display: grid;
+    gap: 0.1rem;
+    margin: 0;
+    min-width: 0;
   }
-  .ev-card__rows td:last-child {
-    padding-right: 0;
-    text-align: right;
-    white-space: nowrap;
+  .ev-card__row > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .ev-card__rows code {
     background: none;
@@ -193,6 +192,33 @@ const note: string | undefined = answer.note;
   }
   .ev-card__method code {
     color: var(--sl-color-gray-2);
+  }
+
+  /* Wide: one grid row per edge, aligned under a visible header. */
+  @media (min-width: 40rem) {
+    .ev-card__head,
+    .ev-card__row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      column-gap: 0.75rem;
+      align-items: baseline;
+    }
+    .ev-card__head {
+      margin-bottom: 0.2rem;
+      padding-bottom: 0.2rem;
+      border-bottom: 1px solid var(--ev-line);
+      font-family: var(--ev-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.04em;
+      color: var(--sl-color-gray-3);
+    }
+    .ev-card__rows {
+      gap: 0.3rem;
+    }
+    .ev-card__source {
+      text-align: right;
+      white-space: nowrap;
+    }
   }
   .ev-card__empty {
     margin: 0;
@@ -222,13 +248,8 @@ const note: string | undefined = answer.note;
     border-style: dashed;
   }
 
-  .ev-card__note {
-    margin: 1rem 0 0;
-    font-size: 0.8rem;
-    color: var(--sl-color-gray-3);
-  }
   .ev-card__key {
-    margin: 0.75rem 0 0;
+    margin: 1rem 0 0;
     padding-top: 0.75rem;
     border-top: 1px solid var(--ev-line);
     font-size: 0.875rem;
@@ -238,5 +259,21 @@ const note: string | undefined = answer.note;
     font-style: normal;
     font-weight: 600;
     color: var(--sl-color-white);
+  }
+
+  .ev-card__note {
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+    color: var(--sl-color-gray-3);
+  }
+  .ev-card__note summary {
+    cursor: pointer;
+    color: var(--sl-color-gray-2);
+  }
+  .ev-card__note summary:hover {
+    color: var(--sl-color-white);
+  }
+  .ev-card__note p {
+    margin: 0.5rem 0 0;
   }
 </style>

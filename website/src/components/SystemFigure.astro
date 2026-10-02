@@ -10,8 +10,9 @@
       <title id="sf-title">Fig. 1 - a τjs system, front elevation, exploded</title>
       <desc id="sf-desc">
         A production stack drawn bottom to top in continuous line: a Fastify host carries two τjs application scopes; above app A sits the declared route
-        contract (render, data, policy) coupled to its services, and above that the renderer that produces the response, with Vite and the build-time
-        graph.json joined in chain line. To the right, in dashed line, the development substrate written under node_modules/.taujs/boots and the taujs-mcp
+        contract (render, data, policy) coupled to its services, and above that the renderer that produces the response. To the left, in chain line, the
+        build sits low beside the application scopes and its outputs rise: the structure-only graph.json it emits sits above it, and its bundles climb to
+        enter the renderer. To the right, in dashed line, the development substrate written under node_modules/.taujs/boots and the taujs-mcp
         adapter that reads it: remove every dashed part and what remains is production.
       </desc>
       <defs>
@@ -117,36 +118,36 @@
       <text x="206" y="520" class="sf-sub">request</text>
       <text x="206" y="196" class="sf-sub">response</text>
 
-      <!-- 6 · vite -->
+      <!-- 6 · build (vite) · low, outputs rise -->
       <g class="sys-fig__part ln-build" data-part="6">
-        <rect x="14" y="216" width="120" height="52"></rect>
-        <text x="24" y="234">vite</text>
-        <text x="24" y="249" class="sf-sub">module graph</text>
-        <text x="24" y="262" class="sf-sub">dev pipeline</text>
-        <line x1="134" y1="270" x2="186" y2="270"></line>
-        <text x="160" y="283" text-anchor="middle" class="sf-sub">bundles</text>
-        <line x1="74" y1="268" x2="74" y2="300"></line>
-        <text x="80" y="288" class="sf-sub">emits</text>
+        <rect x="14" y="384" width="120" height="52"></rect>
+        <text x="24" y="402">build · vite</text>
+        <text x="24" y="417" class="sf-sub">module graph</text>
+        <text x="24" y="430" class="sf-sub">bundles</text>
+        <path d="M20 384 V258 H186"></path>
+        <text x="104" y="254" text-anchor="middle" class="sf-sub">bundles</text>
+        <line x1="74" y1="384" x2="74" y2="354"></line>
+        <text x="80" y="372" class="sf-sub">emits</text>
         <g class="sf-call">
-          <line x1="74" y1="201" x2="74" y2="214"></line>
-          <circle cx="74" cy="216" r="2.5" class="sf-dot"></circle>
-          <circle cx="74" cy="190" r="11"></circle>
-          <text x="74" y="190" class="sf-num">6</text>
+          <line x1="104" y1="438" x2="104" y2="451"></line>
+          <circle cx="104" cy="436" r="2.5" class="sf-dot"></circle>
+          <circle cx="104" cy="462" r="11"></circle>
+          <text x="104" y="462" class="sf-num">6</text>
         </g>
       </g>
 
-      <!-- 7 · dist/.taujs/graph.json -->
+      <!-- 7 · dist/.taujs/graph.json · above the build, no outgoing line -->
       <g class="sys-fig__part ln-build" data-part="7">
-        <polygon points="24,300 112,300 124,312 124,368 24,368"></polygon>
-        <polyline points="112,300 112,312 124,312"></polyline>
-        <text x="32" y="324" class="sf-sub">dist/.taujs/</text>
-        <text x="32" y="340" class="sf-sub">graph.json</text>
-        <text x="32" y="356" class="sf-sub">structure only</text>
+        <polygon points="34,304 112,304 124,316 124,354 34,354"></polygon>
+        <polyline points="112,304 112,316 124,316"></polyline>
+        <text x="42" y="322" class="sf-sub">dist/.taujs/</text>
+        <text x="42" y="336" class="sf-sub">graph.json</text>
+        <text x="42" y="350" class="sf-sub">structure only</text>
         <g class="sf-call">
-          <line x1="74" y1="379" x2="74" y2="370"></line>
-          <circle cx="74" cy="368" r="2.5" class="sf-dot"></circle>
-          <circle cx="74" cy="390" r="11"></circle>
-          <text x="74" y="390" class="sf-num">7</text>
+          <line x1="79" y1="302" x2="79" y2="289"></line>
+          <circle cx="79" cy="304" r="2.5" class="sf-dot"></circle>
+          <circle cx="79" cy="278" r="11"></circle>
+          <text x="79" y="278" class="sf-num">7</text>
         </g>
       </g>
 
@@ -218,8 +219,8 @@
     <li data-part="3"><span class="sys-fig__num">3</span><span><a href="/guides/request-contracts/">Declared route contract</a><small>render · data · policy, stated once per route.</small></span></li>
     <li data-part="4"><span class="sys-fig__num">4</span><span><a href="/guides/services/">Services</a><small>critical data before first byte, deferred data streamed after.</small></span></li>
     <li data-part="5"><span class="sys-fig__num">5</span><span><a href="/guides/architecture/">Renderer and the response</a><small>React · Vue · Solid · HTML produce the declared response.</small></span></li>
-    <li data-part="6"><span class="sys-fig__num">6</span><span><a href="/guides/build-deployment/">Vite</a><small>owns the module graph, dev pipeline and production bundles.</small></span></li>
-    <li data-part="7"><span class="sys-fig__num">7</span><span><a href="/reference/mcp/"><code>dist/.taujs/graph.json</code></a><small>the structure-only request graph, the single build artefact.</small></span></li>
+    <li data-part="6"><span class="sys-fig__num">6</span><span><a href="/guides/build-deployment/">Build</a><small>τjs's build drives Vite: module graph and bundles for the renderer; emits the structure-only graph.</small></span></li>
+    <li data-part="7"><span class="sys-fig__num">7</span><span><a href="/reference/mcp/"><code>dist/.taujs/graph.json</code></a><small>the structure-only request graph, written at build; read by <code>taujs-mcp</code> only when no dev boot is live.</small></span></li>
     <li data-part="8"><span class="sys-fig__num">8</span><span><a href="/reference/mcp/">Development substrate</a><small><code>node_modules/.taujs/boots/&lt;bootId&gt;/</code>: graph · episodes · logs annex · observed edges.</small></span></li>
     <li data-part="9"><span class="sys-fig__num">9</span><span><a href="/reference/mcp/"><code>taujs-mcp</code></a><small>stdio adapter reading the boot for tools and agents; development only.</small></span></li>
   </ol>
@@ -431,5 +432,16 @@
     font-weight: 700;
     color: var(--sl-color-accent-high);
     margin-top: 0.05rem;
+  }
+  @media (max-width: 59.99rem) {
+    .sys-fig__drawing {
+      display: none;
+    }
+    .sys-fig__parts li {
+      padding: 0.25rem 0 0.25rem 0.6rem;
+    }
+    .sys-fig__parts li + li {
+      margin-top: 0;
+    }
   }
 </style>
