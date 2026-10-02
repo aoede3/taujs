@@ -1,5 +1,11 @@
 # @taujs/create-taujs
 
+## 0.9.2
+
+### Patch Changes
+
+- [#195](https://github.com/aoede3/taujs/pull/195) [`bac5fc9`](https://github.com/aoede3/taujs/commit/bac5fc9d0410407eaee25f0c2c6a27dc57ea150a) Thanks [@aoede3](https://github.com/aoede3)! - Generated projects now declare `engines.node: ">=22.12.0"`. Node 20 reached end-of-life on 2026-04-30; the supported lines are Node 22 and 24.
+
 ## 0.9.1
 
 ### Patch Changes
