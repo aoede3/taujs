@@ -90,3 +90,29 @@ void _typedStream;
 // leak into the returned lifecycle handle.
 const _typedDone: Promise<void> = null as unknown as ReturnType<typeof _typedRenderer.renderStream>['done'];
 void _typedDone;
+
+// ---------------------------------------------------------------------------------------------
+// PER-CALL OPTIONS. `renderStream` takes a per-call `shellTimeoutMs`; `renderSSR` takes no per-call
+// timeout, and `completionTimeoutMs` / `deferredTimeoutMs` are factory-only. The runtime cells pass
+// the override `as never`, so these lines are the only thing holding the DECLARED surface: a
+// declaration that drops the option, or widens where it is accepted, fails here and nowhere else.
+// ---------------------------------------------------------------------------------------------
+type StreamCallOpts = NonNullable<Parameters<typeof _renderer.renderStream>[7]>;
+type SSRCallOpts = NonNullable<Parameters<typeof _renderer.renderSSR>[4]>;
+type HasKey<O, K extends string> = K extends keyof O ? true : false;
+
+// 1. `renderStream` declares the override, as a number.
+const _streamAcceptsShellTimeout: StreamCallOpts = { shellTimeoutMs: 5_000 };
+const _streamDeclaresShellTimeout: HasKey<StreamCallOpts, 'shellTimeoutMs'> = true;
+void _streamAcceptsShellTimeout;
+void _streamDeclaresShellTimeout;
+
+// 2. `renderSSR` does not: the option is stream-only.
+const _ssrHasNoShellTimeout: HasKey<SSRCallOpts, 'shellTimeoutMs'> = false;
+void _ssrHasNoShellTimeout;
+
+// 3. The other two stream deadlines have no per-call form.
+const _noPerCallCompletionTimeout: HasKey<StreamCallOpts, 'completionTimeoutMs'> = false;
+const _noPerCallDeferredTimeout: HasKey<StreamCallOpts, 'deferredTimeoutMs'> = false;
+void _noPerCallCompletionTimeout;
+void _noPerCallDeferredTimeout;
