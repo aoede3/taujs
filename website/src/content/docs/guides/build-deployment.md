@@ -71,7 +71,7 @@ npm run build:client
 1. Cleans `dist/` directory
 2. Runs Vite for each app in config
 3. Outputs browser assets to `dist/client/{entryPoint}/`
-4. Generates `manifest.json` per app
+4. Writes the client manifest at `dist/client/{entryPoint}/.vite/manifest.json` (or `dist/client/.vite/manifest.json` for a root app with `entryPoint: ''`)
 5. Copies `index.html` if present
 
 **Output structure:**
@@ -79,15 +79,17 @@ npm run build:client
 ```
 dist/client/
 ├── app/
+│   ├── .vite/
+│   │   └── manifest.json
 │   ├── assets/
 │   │   ├── client-DYQLYTXs.js
 │   │   ├── vendor-react-CQpOIP-s.js
 │   │   └── client-7RWUWx61.css
-│   ├── manifest.json
 │   └── index.html
 └── admin/
+    ├── .vite/
+    │   └── manifest.json
     ├── assets/
-    ├── manifest.json
     └── index.html
 ```
 
@@ -110,9 +112,9 @@ BUILD_MODE=ssr npm run build
 ```
 dist/ssr/
 ├── app/
-│   └── server.js
+│   └── entry-server.js
 └── admin/
-    └── server.js
+    └── entry-server.js
 ```
 
 No SSR-side manifest is written. Everything the browser needs - the entry script, its module
@@ -391,19 +393,21 @@ After a complete build:
 dist/
 ├── client/
 │   ├── app/
+│   │   ├── .vite/
+│   │   │   └── manifest.json
 │   │   ├── assets/
-│   │   ├── manifest.json
 │   │   └── index.html
 │   └── admin/
+│       ├── .vite/
+│       │   └── manifest.json
 │       ├── assets/
-│       ├── manifest.json
 │       └── index.html
 │
 ├── ssr/
 │   ├── app/
-│   │   └── server.js
+│   │   └── entry-server.js
 │   └── admin/
-│       └── server.js
+│       └── entry-server.js
 │
 └── server/
     └── index.js
