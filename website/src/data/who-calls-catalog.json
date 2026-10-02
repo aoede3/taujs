@@ -1,0 +1,70 @@
+{
+  "service": "catalog",
+  "bootId": "45e19ec6-0dae-4f43-acb1-1233950d7542",
+  "edges": [
+    {
+      "source": "declared",
+      "service": "catalog",
+      "method": "getProduct",
+      "declaredVia": "serviceData",
+      "routeId": "storefront:/product/:id",
+      "appId": "storefront",
+      "path": "/product/:id"
+    },
+    {
+      "source": "declared",
+      "service": "catalog",
+      "method": "getProductHead",
+      "declaredVia": "head",
+      "routeId": "storefront:/product/:id",
+      "appId": "storefront",
+      "path": "/product/:id"
+    },
+    {
+      "source": "observed",
+      "service": "catalog",
+      "method": "getProduct",
+      "routeId": "storefront:/product/:id",
+      "appId": "storefront",
+      "path": "/product/:id",
+      "methodCallCount": 3,
+      "routeCallCount": 1,
+      "lastObservedAt": "2026-10-02T17:52:35.361Z"
+    },
+    {
+      "source": "observed",
+      "service": "catalog",
+      "method": "getProduct",
+      "routeId": "storefront:/compare/:id",
+      "appId": "storefront",
+      "path": "/compare/:id",
+      "methodCallCount": 3,
+      "routeCallCount": 1,
+      "lastObservedAt": "2026-10-02T17:52:35.361Z"
+    },
+    {
+      "source": "observed",
+      "service": "catalog",
+      "method": "getProductHead",
+      "routeId": "storefront:/product/:id",
+      "appId": "storefront",
+      "path": "/product/:id",
+      "methodCallCount": 1,
+      "routeCallCount": 1,
+      "lastObservedAt": "2026-10-02T17:52:35.278Z"
+    }
+  ],
+  "hostObserved": [
+    {
+      "source": "hostObserved",
+      "service": "catalog",
+      "method": "getProduct",
+      "routeId": "host:GET /api/products/:id",
+      "path": "/api/products/:id",
+      "methodCallCount": 3,
+      "routeCallCount": 1,
+      "lastObservedAt": "2026-10-02T17:52:35.361Z"
+    }
+  ],
+  "note": "declared = from config (a serviceData edge, a deferred entry or a head edge); observed = seen in dev traffic through a τjs page route, never complete truth; hostObserved = seen in dev traffic through a Fastify route the application registered itself, reported separately so it is never mistaken for a declared edge. methodCallCount is the method-wide total for the boot; routeCallCount is that route’s own attribution. lastObservedAt is also method-wide: the last time any route called this method, not the last time this route did."
+}

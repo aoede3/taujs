@@ -1,0 +1,447 @@
+<figure class="sys-fig not-content">
+  <div class="sys-fig__drawing">
+    <svg
+      viewBox="0 0 630 536"
+      width="100%"
+      preserveAspectRatio="xMidYMid meet"
+      role="img"
+      aria-labelledby="sf-title sf-desc"
+    >
+      <title id="sf-title">Fig. 1 - a τjs system, front elevation, exploded</title>
+      <desc id="sf-desc">
+        A production stack drawn bottom to top in continuous line: a Fastify host carries two τjs application scopes; above app A sits the declared route
+        contract (render, data, policy) coupled to its services, and above that the renderer that produces the response. To the left, in chain line, the
+        build sits low beside the application scopes and its outputs rise: the structure-only graph.json it emits sits above it, and its bundles climb to
+        enter the renderer. To the right, in dashed line, the development substrate written under node_modules/.taujs/boots and the taujs-mcp
+        adapter that reads it: remove every dashed part and what remains is production.
+      </desc>
+      <defs>
+        <pattern id="sf-hatch" patternUnits="userSpaceOnUse" width="8" height="8">
+          <path d="M0 8 L8 0" class="sf-hatch-line"></path>
+        </pattern>
+        <marker id="sf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" class="sf-arrowhead"></path>
+        </marker>
+      </defs>
+
+      <!-- exploded-view alignment guides -->
+      <g class="sf-guide ln-prod">
+        <line x1="254" y1="446" x2="254" y2="426"></line>
+        <line x1="254" y1="384" x2="254" y2="354"></line>
+        <line x1="254" y1="304" x2="254" y2="268"></line>
+        <line x1="389" y1="446" x2="389" y2="426"></line>
+      </g>
+
+      <!-- 1 · fastify host -->
+      <g class="sys-fig__part ln-prod" data-part="1">
+        <rect x="176" y="446" width="270" height="42" fill="url(#sf-hatch)"></rect>
+        <text x="320" y="471" text-anchor="middle">fastify host · http dispatch</text>
+        <g class="sf-call">
+          <line x1="455" y1="467" x2="448" y2="467"></line>
+          <circle cx="446" cy="467" r="2.5" class="sf-dot"></circle>
+          <circle cx="466" cy="467" r="11"></circle>
+          <text x="466" y="467" class="sf-num">1</text>
+        </g>
+      </g>
+
+      <!-- 2 · application scopes -->
+      <g class="sys-fig__part ln-prod" data-part="2">
+        <rect x="186" y="384" width="136" height="42"></rect>
+        <text x="208" y="402">τjs app a</text>
+        <text x="208" y="418" class="sf-sub">renderer root</text>
+        <rect x="332" y="384" width="114" height="42"></rect>
+        <text x="342" y="402">app b</text>
+        <text x="342" y="418" class="sf-sub">same host</text>
+        <g class="sf-call">
+          <line x1="171" y1="405" x2="184" y2="405"></line>
+          <circle cx="186" cy="405" r="2.5" class="sf-dot"></circle>
+          <circle cx="160" cy="405" r="11"></circle>
+          <text x="160" y="405" class="sf-num">2</text>
+        </g>
+      </g>
+
+      <!-- 3 · declared route contract -->
+      <g class="sys-fig__part ln-prod" data-part="3">
+        <rect x="186" y="304" width="136" height="50" class="sf-tint"></rect>
+        <text x="208" y="320">declared route</text>
+        <line x1="186" y1="330" x2="322" y2="330"></line>
+        <line x1="243" y1="330" x2="243" y2="354"></line>
+        <line x1="279" y1="330" x2="279" y2="354"></line>
+        <text x="223" y="346" text-anchor="middle" class="sf-sub">render</text>
+        <text x="261" y="346" text-anchor="middle" class="sf-sub">data</text>
+        <text x="300" y="346" text-anchor="middle" class="sf-sub">policy</text>
+        <g class="sf-call">
+          <line x1="171" y1="329" x2="184" y2="329"></line>
+          <circle cx="186" cy="329" r="2.5" class="sf-dot"></circle>
+          <circle cx="160" cy="329" r="11"></circle>
+          <text x="160" y="329" class="sf-num">3</text>
+        </g>
+      </g>
+
+      <!-- 4 · services -->
+      <g class="sys-fig__part ln-prod" data-part="4">
+        <line x1="322" y1="330" x2="332" y2="330"></line>
+        <rect x="332" y="300" width="114" height="70"></rect>
+        <text x="389" y="314" text-anchor="middle">services</text>
+        <rect x="340" y="320" width="98" height="20"></rect>
+        <text x="389" y="334" text-anchor="middle" class="sf-sub">critical data</text>
+        <rect x="340" y="344" width="98" height="20"></rect>
+        <text x="389" y="358" text-anchor="middle" class="sf-sub">deferred data</text>
+        <g class="sf-call">
+          <line x1="455" y1="335" x2="448" y2="335"></line>
+          <circle cx="446" cy="335" r="2.5" class="sf-dot"></circle>
+          <circle cx="466" cy="335" r="11"></circle>
+          <text x="466" y="335" class="sf-num">4</text>
+        </g>
+      </g>
+
+      <!-- 5 · renderer and the response -->
+      <g class="sys-fig__part ln-prod" data-part="5">
+        <rect x="186" y="216" width="136" height="52"></rect>
+        <text x="208" y="234">renderer</text>
+        <text x="208" y="249" class="sf-sub">react · vue</text>
+        <text x="208" y="262" class="sf-sub">solid · html</text>
+        <g class="sf-call">
+          <line x1="171" y1="236" x2="184" y2="236"></line>
+          <circle cx="186" cy="236" r="2.5" class="sf-dot"></circle>
+          <circle cx="160" cy="236" r="11"></circle>
+          <text x="160" y="236" class="sf-num">5</text>
+        </g>
+      </g>
+
+      <!-- request path (accent): host → app → route → renderer → response -->
+      <g class="sf-req">
+        <line x1="198" y1="526" x2="198" y2="490" marker-end="url(#sf-arrow)"></line>
+        <line x1="198" y1="446" x2="198" y2="270" marker-end="url(#sf-arrow)"></line>
+        <line x1="198" y1="216" x2="198" y2="184" marker-end="url(#sf-arrow)"></line>
+      </g>
+      <text x="206" y="520" class="sf-sub">request</text>
+      <text x="206" y="196" class="sf-sub">response</text>
+
+      <!-- 6 · build (vite) · low, outputs rise -->
+      <g class="sys-fig__part ln-build" data-part="6">
+        <rect x="14" y="384" width="120" height="52"></rect>
+        <text x="24" y="402">build · vite</text>
+        <text x="24" y="417" class="sf-sub">module graph</text>
+        <text x="24" y="430" class="sf-sub">bundles</text>
+        <path d="M20 384 V258 H186"></path>
+        <text x="104" y="254" text-anchor="middle" class="sf-sub">bundles</text>
+        <line x1="74" y1="384" x2="74" y2="354"></line>
+        <text x="80" y="372" class="sf-sub">emits</text>
+        <g class="sf-call">
+          <line x1="104" y1="438" x2="104" y2="451"></line>
+          <circle cx="104" cy="436" r="2.5" class="sf-dot"></circle>
+          <circle cx="104" cy="462" r="11"></circle>
+          <text x="104" y="462" class="sf-num">6</text>
+        </g>
+      </g>
+
+      <!-- 7 · dist/.taujs/graph.json · above the build, no outgoing line -->
+      <g class="sys-fig__part ln-build" data-part="7">
+        <polygon points="34,304 112,304 124,316 124,354 34,354"></polygon>
+        <polyline points="112,304 112,316 124,316"></polyline>
+        <text x="42" y="322" class="sf-sub">dist/.taujs/</text>
+        <text x="42" y="336" class="sf-sub">graph.json</text>
+        <text x="42" y="350" class="sf-sub">structure only</text>
+        <g class="sf-call">
+          <line x1="79" y1="302" x2="79" y2="289"></line>
+          <circle cx="79" cy="304" r="2.5" class="sf-dot"></circle>
+          <circle cx="79" cy="278" r="11"></circle>
+          <text x="79" y="278" class="sf-num">7</text>
+        </g>
+      </g>
+
+      <!-- 8 · development substrate (tray) -->
+      <g class="sys-fig__part ln-dev" data-part="8">
+        <circle cx="198" cy="286" r="2.5" class="sf-dot"></circle>
+        <polyline points="198,286 466,286 466,170 486,170"></polyline>
+        <text x="330" y="279" text-anchor="middle" class="sf-sub">request episode</text>
+        <path d="M486 118 V330 H616 V118" class="sf-tint-dim"></path>
+        <rect x="496" y="128" width="110" height="24"></rect>
+        <text x="551" y="144" text-anchor="middle" class="sf-sub">request graph</text>
+        <rect x="496" y="158" width="110" height="24"></rect>
+        <text x="551" y="174" text-anchor="middle" class="sf-sub">episodes</text>
+        <rect x="496" y="188" width="110" height="24"></rect>
+        <text x="551" y="204" text-anchor="middle" class="sf-sub">logs annex</text>
+        <rect x="496" y="218" width="110" height="24"></rect>
+        <text x="551" y="234" text-anchor="middle" class="sf-sub">observed edges</text>
+        <text x="551" y="262" text-anchor="middle">dev boot</text>
+        <text x="551" y="278" text-anchor="middle" class="sf-sub">node_modules/</text>
+        <text x="551" y="292" text-anchor="middle" class="sf-sub">.taujs/boots/</text>
+        <text x="551" y="306" text-anchor="middle" class="sf-sub">&lt;bootId&gt;/</text>
+        <text x="551" y="320" text-anchor="middle" class="sf-sub">dev-only collectors</text>
+        <g class="sf-call">
+          <line x1="551" y1="341" x2="551" y2="332"></line>
+          <circle cx="551" cy="330" r="2.5" class="sf-dot"></circle>
+          <circle cx="551" cy="352" r="11"></circle>
+          <text x="551" y="352" class="sf-num">8</text>
+        </g>
+      </g>
+
+      <!-- 9 · taujs-mcp -->
+      <g class="sys-fig__part ln-dev" data-part="9">
+        <line x1="551" y1="118" x2="551" y2="92"></line>
+        <text x="557" y="109" class="sf-sub">reads</text>
+        <rect x="486" y="34" width="130" height="58" class="sf-tint"></rect>
+        <text x="496" y="52">taujs-mcp</text>
+        <text x="496" y="68" class="sf-sub">stdio · fs only</text>
+        <text x="496" y="84" class="sf-sub">11 tools · dev only</text>
+        <line x1="551" y1="34" x2="551" y2="0"></line>
+        <text x="543" y="20" text-anchor="end" class="sf-sub">tools · agents</text>
+        <g class="sf-call">
+          <line x1="477" y1="63" x2="484" y2="63"></line>
+          <circle cx="486" cy="63" r="2.5" class="sf-dot"></circle>
+          <circle cx="466" cy="63" r="11"></circle>
+          <text x="466" y="63" class="sf-num">9</text>
+        </g>
+      </g>
+    </svg>
+
+    <ul class="sys-fig__legend" aria-label="Line styles">
+      <li>
+        <svg viewBox="0 0 48 8" width="48" height="8" aria-hidden="true"><line x1="0" y1="4" x2="48" y2="4" class="ln-prod"></line></svg>
+        runs in production
+      </li>
+      <li>
+        <svg viewBox="0 0 48 8" width="48" height="8" aria-hidden="true"><line x1="0" y1="4" x2="48" y2="4" class="ln-dev"></line></svg>
+        development only - no production collectors
+      </li>
+      <li>
+        <svg viewBox="0 0 48 8" width="48" height="8" aria-hidden="true"><line x1="0" y1="4" x2="48" y2="4" class="ln-build"></line></svg>
+        written at build
+      </li>
+    </ul>
+  </div>
+
+  <ol class="sys-fig__parts" aria-label="Parts list">
+    <li data-part="1"><span class="sys-fig__num">1</span><span><a href="/guides/host-ownership/">Fastify host</a><small>owns HTTP dispatch and the host lifecycle, then hands a selected τjs route over.</small></span></li>
+    <li data-part="2"><span class="sys-fig__num">2</span><span><a href="/guides/micro-frontend/">τjs application scope</a><small>one per app, each with its own renderer root; several can live in one host.</small></span></li>
+    <li data-part="3"><span class="sys-fig__num">3</span><span><a href="/guides/request-contracts/">Declared route contract</a><small>render · data · policy, stated once per route.</small></span></li>
+    <li data-part="4"><span class="sys-fig__num">4</span><span><a href="/guides/services/">Services</a><small>critical data before first byte, deferred data streamed after.</small></span></li>
+    <li data-part="5"><span class="sys-fig__num">5</span><span><a href="/guides/architecture/">Renderer and the response</a><small>React · Vue · Solid · HTML produce the declared response.</small></span></li>
+    <li data-part="6"><span class="sys-fig__num">6</span><span><a href="/guides/build-deployment/">Build</a><small>τjs's build drives Vite: module graph and bundles for the renderer; emits the structure-only graph.</small></span></li>
+    <li data-part="7"><span class="sys-fig__num">7</span><span><a href="/reference/mcp/"><code>dist/.taujs/graph.json</code></a><small>the structure-only request graph, written at build; read by <code>taujs-mcp</code> only when no dev boot is live.</small></span></li>
+    <li data-part="8"><span class="sys-fig__num">8</span><span><a href="/reference/mcp/">Development substrate</a><small><code>node_modules/.taujs/boots/&lt;bootId&gt;/</code>: graph · episodes · logs annex · observed edges.</small></span></li>
+    <li data-part="9"><span class="sys-fig__num">9</span><span><a href="/reference/mcp/"><code>taujs-mcp</code></a><small>stdio adapter reading the boot for tools and agents; development only.</small></span></li>
+  </ol>
+</figure>
+
+<style>
+  .sys-fig {
+    --sf-line: var(--sl-color-gray-2);
+    --sf-text: var(--sl-color-gray-1);
+    --sf-dim: var(--sl-color-gray-3);
+    --sf-mono: var(--sl-font-system-mono, ui-monospace, monospace);
+    display: grid;
+    gap: 1.5rem;
+    margin: 2rem 0;
+    color: var(--sl-color-text);
+  }
+  :global([data-theme='light']) .sys-fig {
+    --sf-line: var(--sl-color-gray-3);
+    --sf-text: var(--sl-color-gray-2);
+    --sf-dim: var(--sl-color-gray-3);
+  }
+  @media (min-width: 60rem) {
+    .sys-fig {
+      grid-template-columns: minmax(0, 1fr) 17rem;
+      align-items: start;
+    }
+  }
+
+  .sys-fig__drawing > svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  /* line conventions */
+  .ln-prod { stroke-dasharray: none; }
+  .ln-dev { stroke-dasharray: 6 4; }
+  .ln-build { stroke-dasharray: 12 4 3 4; }
+
+  .sys-fig__part,
+  .sf-guide,
+  .sys-fig__legend line {
+    stroke: var(--sf-line);
+    stroke-width: 1.25;
+    stroke-linecap: butt;
+    stroke-linejoin: miter;
+    fill: none;
+    pointer-events: all;
+    transition: stroke 0.12s, stroke-width 0.12s;
+  }
+  .sf-guide {
+    stroke-width: 0.75;
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .sf-call,
+  .sf-dot {
+    stroke-dasharray: none;
+  }
+  .sf-dot {
+    fill: var(--sf-line);
+  }
+  .sf-tint {
+    fill: var(--sl-color-accent);
+    fill-opacity: 0.08;
+  }
+  .sf-tint-dim {
+    fill: var(--sl-color-gray-5);
+    fill-opacity: 0.35;
+  }
+  .sf-hatch-line {
+    stroke: var(--sf-line);
+    stroke-width: 0.5;
+    opacity: 0.4;
+  }
+  .sf-req {
+    stroke: var(--sl-color-accent-high);
+    stroke-width: 1.5;
+    fill: none;
+  }
+  .sf-arrowhead {
+    fill: var(--sl-color-accent-high);
+    stroke: none;
+  }
+
+  .sys-fig text {
+    fill: var(--sf-text);
+    stroke: none;
+    font-family: var(--sf-mono);
+    font-size: 12px;
+    font-variant-caps: small-caps;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+  }
+  .sys-fig text.sf-sub {
+    font-size: 11px;
+    fill: var(--sf-dim);
+  }
+  .sys-fig text.sf-num {
+    fill: var(--sl-color-accent-high);
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-caps: normal;
+    letter-spacing: 0;
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+
+  /* hover coupling: list row ↔ drawn part (CSS only) */
+  .sys-fig__part:hover,
+  .sys-fig:has(li[data-part='1']:hover) .sys-fig__part[data-part='1'],
+  .sys-fig:has(li[data-part='2']:hover) .sys-fig__part[data-part='2'],
+  .sys-fig:has(li[data-part='3']:hover) .sys-fig__part[data-part='3'],
+  .sys-fig:has(li[data-part='4']:hover) .sys-fig__part[data-part='4'],
+  .sys-fig:has(li[data-part='5']:hover) .sys-fig__part[data-part='5'],
+  .sys-fig:has(li[data-part='6']:hover) .sys-fig__part[data-part='6'],
+  .sys-fig:has(li[data-part='7']:hover) .sys-fig__part[data-part='7'],
+  .sys-fig:has(li[data-part='8']:hover) .sys-fig__part[data-part='8'],
+  .sys-fig:has(li[data-part='9']:hover) .sys-fig__part[data-part='9'] {
+    stroke: var(--sl-color-accent-high);
+    stroke-width: 2;
+  }
+  .sys-fig__parts li:hover,
+  .sys-fig:has(g.sys-fig__part[data-part='1']:hover) li[data-part='1'],
+  .sys-fig:has(g.sys-fig__part[data-part='2']:hover) li[data-part='2'],
+  .sys-fig:has(g.sys-fig__part[data-part='3']:hover) li[data-part='3'],
+  .sys-fig:has(g.sys-fig__part[data-part='4']:hover) li[data-part='4'],
+  .sys-fig:has(g.sys-fig__part[data-part='5']:hover) li[data-part='5'],
+  .sys-fig:has(g.sys-fig__part[data-part='6']:hover) li[data-part='6'],
+  .sys-fig:has(g.sys-fig__part[data-part='7']:hover) li[data-part='7'],
+  .sys-fig:has(g.sys-fig__part[data-part='8']:hover) li[data-part='8'],
+  .sys-fig:has(g.sys-fig__part[data-part='9']:hover) li[data-part='9'] {
+    border-left-color: var(--sl-color-accent-high);
+    color: var(--sl-color-white);
+  }
+
+  /* legend */
+  .sys-fig__legend {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.5rem;
+    font-family: var(--sf-mono);
+    font-size: 0.75rem;
+    color: var(--sf-dim);
+  }
+  .sys-fig__legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .sys-fig__legend svg {
+    flex: none;
+    overflow: visible;
+  }
+
+  /* parts list */
+  .sys-fig__parts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+  .sys-fig__parts li {
+    display: grid;
+    grid-template-columns: 1.4rem minmax(0, 1fr);
+    column-gap: 0.5rem;
+    padding: 0.35rem 0 0.35rem 0.6rem;
+    border-left: 2px solid var(--sl-color-gray-5);
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .sys-fig__parts a {
+    display: block;
+  }
+  .sys-fig__parts small {
+    display: block;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: var(--sl-color-gray-2);
+  }
+  .sys-fig__parts li + li {
+    margin-top: 0.15rem;
+  }
+  .sys-fig__parts a {
+    color: var(--sl-color-accent-high);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .sys-fig__parts a:hover {
+    text-decoration: underline;
+  }
+  .sys-fig__parts code {
+    font-family: var(--sf-mono);
+    font-size: 0.85em;
+  }
+  .sys-fig__num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.3rem;
+    height: 1.3rem;
+    border: 1.25px solid var(--sl-color-accent-high);
+    border-radius: 50%;
+    font-family: var(--sf-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--sl-color-accent-high);
+    margin-top: 0.05rem;
+  }
+  @media (max-width: 59.99rem) {
+    .sys-fig__drawing {
+      display: none;
+    }
+    .sys-fig__parts li {
+      padding: 0.25rem 0 0.25rem 0.6rem;
+    }
+    .sys-fig__parts li + li {
+      margin-top: 0;
+    }
+  }
+</style>

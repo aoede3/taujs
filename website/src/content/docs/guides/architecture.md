@@ -13,8 +13,9 @@ Its central boundary is straightforward:
 > Fastify owns HTTP dispatch and the host lifecycle. τjs owns the declared application response
 > after Fastify selects a τjs route.
 
-That boundary is what lets τjs add data orchestration, policy, rendering and introspection without
-becoming a replacement HTTP server or a client-side application framework.
+That boundary is what lets τjs own data orchestration, policy, rendering and the record of declared
+and observed execution - the request graph and development episodes - without becoming a
+replacement HTTP server or a client-side application framework.
 
 ## The ownership layers
 

@@ -107,16 +107,20 @@ Each application is built separately:
 dist/
 ├── client/
 │   ├── customer/
+│   │   ├── .vite/
+│   │   │   └── manifest.json
 │   │   ├── assets/
-│   │   └── manifest.json
+│   │   └── index.html
 │   └── admin/
+│       ├── .vite/
+│       │   └── manifest.json
 │       ├── assets/
-│       └── manifest.json
+│       └── index.html
 └── ssr/
     ├── customer/
-    │   └── server.js
+    │   └── entry-server.js
     └── admin/
-        └── server.js
+        └── entry-server.js
 ```
 
 Separate builds mean each application has its own import graph. Code imported by two applications
