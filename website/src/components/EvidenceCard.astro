@@ -1,0 +1,242 @@
+---
+/**
+ * The under-hero proof: a real `taujs_who_calls_service` answer for the
+ * catalogue service, read from `src/data/who-calls-catalog.json`. Rows are
+ * never written here; the JSON is captured from a real boot.
+ *
+ * `edges` (declared / observed) and `hostObserved` are rendered as separate
+ * groups because the tool reports them separately, so a host-observed row is
+ * never mistaken for a declared edge.
+ */
+import answer from "../data/who-calls-catalog.json";
+
+type Edge = { source: string; path: string; method: string };
+
+const service: string = answer.service;
+const edges: Edge[] = answer.edges ?? [];
+const hostObserved: Edge[] = answer.hostObserved ?? [];
+const note: string | undefined = answer.note;
+---
+
+<figure class="ev-card">
+  <figcaption class="ev-card__q">
+    <span class="ev-card__prompt">Ask</span>
+    What depends on the catalogue service?
+  </figcaption>
+
+  <div class="ev-card__tool">
+    <code>taujs_who_calls_service</code>
+    <code class="ev-card__arg">service: "{service}"</code>
+  </div>
+
+  <section class="ev-card__group" aria-label="edges">
+    <h3 class="ev-card__label">edges</h3>
+    {
+      edges.length === 0 ? (
+        <p class="ev-card__empty">no rows</p>
+      ) : (
+        <table class="ev-card__rows">
+          <tbody>
+            {edges.map((e) => (
+              <tr>
+                <td class="ev-card__path">
+                  <code>{e.path}</code>
+                </td>
+                <td class="ev-card__method">
+                  <code>{e.method}</code>
+                </td>
+                <td>
+                  <span class={`ev-card__badge ev-card__badge--${e.source}`}>{e.source}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )
+    }
+  </section>
+
+  <section class="ev-card__group ev-card__group--host" aria-label="hostObserved">
+    <h3 class="ev-card__label">hostObserved</h3>
+    {
+      hostObserved.length === 0 ? (
+        <p class="ev-card__empty">no observation</p>
+      ) : (
+        <table class="ev-card__rows">
+          <tbody>
+            {hostObserved.map((e) => (
+              <tr>
+                <td class="ev-card__path">
+                  <code>{e.path}</code>
+                </td>
+                <td class="ev-card__method">
+                  <code>{e.method}</code>
+                </td>
+                <td>
+                  <span class={`ev-card__badge ev-card__badge--${e.source}`}>{e.source}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )
+    }
+  </section>
+
+  {note && <p class="ev-card__note">{note}</p>}
+
+  <p class="ev-card__key">
+    <em>Declared</em> means intended. <em>Observed</em> means exercised. Missing means not seen yet
+    - not "safe".
+  </p>
+</figure>
+
+<style>
+  .ev-card {
+    --ev-mono: var(--sl-font-system-mono, ui-monospace, monospace);
+    --ev-line: var(--sl-color-gray-5);
+    margin: 2rem 0;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid var(--ev-line);
+    border-radius: 0.5rem;
+    background: var(--sl-color-black);
+    color: var(--sl-color-text);
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+  :global([data-theme="light"]) .ev-card {
+    --ev-line: var(--sl-color-gray-4);
+    background: var(--sl-color-gray-7);
+  }
+
+  .ev-card__q {
+    margin: 0 0 0.75rem;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+  .ev-card__prompt {
+    display: inline-block;
+    margin-right: 0.5rem;
+    padding: 0.05rem 0.45rem;
+    border: 1px solid var(--sl-color-accent-high);
+    border-radius: 0.25rem;
+    font-family: var(--ev-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--sl-color-accent-high);
+    vertical-align: middle;
+  }
+
+  .ev-card__tool {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    margin-bottom: 1rem;
+    font-family: var(--ev-mono);
+    font-size: 0.8rem;
+    color: var(--sl-color-gray-3);
+  }
+  .ev-card__tool code {
+    background: none;
+    padding: 0;
+    color: inherit;
+  }
+  .ev-card__tool code:first-child {
+    color: var(--sl-color-accent-high);
+  }
+
+  .ev-card__group {
+    padding: 0.6rem 0 0.6rem 0.75rem;
+    border-left: 2px solid var(--ev-line);
+  }
+  .ev-card__group + .ev-card__group {
+    margin-top: 0.75rem;
+  }
+  .ev-card__group--host {
+    border-left-style: dashed;
+  }
+  .ev-card__label {
+    margin: 0 0 0.35rem;
+    font-family: var(--ev-mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ev-card__rows {
+    display: table;
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-family: var(--ev-mono);
+    font-size: 0.85rem;
+  }
+  .ev-card__rows td {
+    padding: 0.25rem 0.75rem 0.25rem 0;
+    border: 0;
+    background: none;
+    vertical-align: baseline;
+  }
+  .ev-card__rows td:last-child {
+    padding-right: 0;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .ev-card__rows code {
+    background: none;
+    padding: 0;
+    color: var(--sl-color-white);
+  }
+  .ev-card__method code {
+    color: var(--sl-color-gray-2);
+  }
+  .ev-card__empty {
+    margin: 0;
+    font-family: var(--ev-mono);
+    font-size: 0.8rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .ev-card__badge {
+    display: inline-block;
+    padding: 0.05rem 0.5rem;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--sl-color-gray-3);
+  }
+  .ev-card__badge--declared {
+    color: var(--sl-color-accent-high);
+  }
+  .ev-card__badge--observed {
+    color: var(--sl-color-green-high, var(--sl-color-text-accent));
+  }
+  .ev-card__badge--hostObserved {
+    color: var(--sl-color-orange-high, var(--sl-color-gray-2));
+    border-style: dashed;
+  }
+
+  .ev-card__note {
+    margin: 1rem 0 0;
+    font-size: 0.8rem;
+    color: var(--sl-color-gray-3);
+  }
+  .ev-card__key {
+    margin: 0.75rem 0 0;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--ev-line);
+    font-size: 0.875rem;
+    color: var(--sl-color-gray-2);
+  }
+  .ev-card__key em {
+    font-style: normal;
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+</style>

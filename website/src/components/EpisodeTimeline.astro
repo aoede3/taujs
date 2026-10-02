@@ -1,0 +1,278 @@
+---
+/**
+ * The second proof: one real streaming episode, read from
+ * `src/data/streaming-episode.json` (captured from a dev boot, never written
+ * by hand). Renders the request line, the timeline marks present on the
+ * record as a horizontal bar, and the service calls as spans beneath. No JS.
+ */
+import episode from "../data/streaming-episode.json";
+
+type Call = { service: string; method: string; startMs: number; endMs: number; kind?: string };
+
+const timeline: Record<string, number> = episode.timeline ?? {};
+const serviceCalls: Call[] = episode.serviceCalls ?? [];
+
+const marks = Object.entries(timeline)
+  .filter(([, v]) => typeof v === "number")
+  .sort((a, b) => a[1] - b[1]);
+
+const spanEnd = Math.max(
+  ...marks.map(([, v]) => v),
+  ...serviceCalls.map((c) => c.endMs),
+  1,
+);
+const pct = (ms: number) => `${(ms / spanEnd) * 100}%`;
+---
+
+<figure class="ep-tl">
+  <figcaption class="ep-tl__q">
+    <span class="ep-tl__prompt">Ask</span>
+    Why was this request slow?
+  </figcaption>
+
+  <p class="ep-tl__line">
+    <code class="ep-tl__path">{episode.path}</code>
+    <span class="ep-tl__field"><span>mode</span><code>{episode.mode}</code></span>
+    <span class="ep-tl__field"><span>outcome</span><code>{episode.outcome}</code></span>
+    <span class="ep-tl__field"><span>status</span><code>{episode.status}</code></span>
+  </p>
+
+  <div class="ep-tl__chart" role="img" aria-label={`Timeline over ${spanEnd} ms with marks ${marks.map(([k, v]) => `${k} at ${v} ms`).join(", ")}`}>
+    <div class="ep-tl__bar">
+      {
+        marks.map(([key, ms], i) => (
+          <span
+            class="ep-tl__mark"
+            style={`left: ${pct(ms)}`}
+            data-alt={i % 2 === 1 ? "" : undefined}
+          >
+            <span class="ep-tl__tick" />
+            <span class="ep-tl__mark-label">
+              <code>{key}</code>
+              <span class="ep-tl__ms">{ms} ms</span>
+            </span>
+          </span>
+        ))
+      }
+    </div>
+
+    {
+      serviceCalls.length > 0 && (
+        <ol class="ep-tl__calls">
+          {serviceCalls.map((c) => (
+            <li class="ep-tl__call" data-kind={c.kind}>
+              <span
+                class="ep-tl__span"
+                style={`left: ${pct(c.startMs)}; width: ${pct(c.endMs - c.startMs)}`}
+              />
+              <span class="ep-tl__call-label" style={`left: ${pct(c.startMs)}`}>
+                <code>
+                  {c.service}.{c.method}
+                </code>
+                <span class="ep-tl__ms">
+                  {c.startMs}–{c.endMs} ms{c.kind ? ` · ${c.kind}` : ""}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )
+    }
+  </div>
+
+  <dl class="ep-tl__marks">
+    {
+      marks.map(([key, ms]) => (
+        <div>
+          <dt>
+            <code>{key}</code>
+          </dt>
+          <dd>{ms} ms</dd>
+        </div>
+      ))
+    }
+  </dl>
+</figure>
+
+<style>
+  .ep-tl {
+    --ep-mono: var(--sl-font-system-mono, ui-monospace, monospace);
+    --ep-line: var(--sl-color-gray-5);
+    margin: 2rem 0;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid var(--ep-line);
+    border-radius: 0.5rem;
+    background: var(--sl-color-black);
+    color: var(--sl-color-text);
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+  :global([data-theme="light"]) .ep-tl {
+    --ep-line: var(--sl-color-gray-4);
+    background: var(--sl-color-gray-7);
+  }
+
+  .ep-tl__q {
+    margin: 0 0 0.75rem;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+  .ep-tl__prompt {
+    display: inline-block;
+    margin-right: 0.5rem;
+    padding: 0.05rem 0.45rem;
+    border: 1px solid var(--sl-color-accent-high);
+    border-radius: 0.25rem;
+    font-family: var(--ep-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--sl-color-accent-high);
+    vertical-align: middle;
+  }
+
+  .ep-tl__line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    margin: 0 0 1.25rem;
+    font-family: var(--ep-mono);
+    font-size: 0.8rem;
+    color: var(--sl-color-gray-3);
+  }
+  .ep-tl__line code {
+    background: none;
+    padding: 0;
+    color: var(--sl-color-white);
+  }
+  .ep-tl__path {
+    color: var(--sl-color-accent-high) !important;
+  }
+  .ep-tl__field > span {
+    margin-right: 0.35rem;
+  }
+
+  /* bar */
+  .ep-tl__chart {
+    position: relative;
+    margin: 0 0.5rem;
+  }
+  .ep-tl__bar {
+    position: relative;
+    height: 2px;
+    margin: 2.6rem 0 0.5rem;
+    background: var(--sl-color-gray-4);
+  }
+  .ep-tl__mark {
+    position: absolute;
+    top: -0.45rem;
+    width: 0;
+  }
+  .ep-tl__tick {
+    display: block;
+    width: 2px;
+    height: 1rem;
+    margin-left: -1px;
+    background: var(--sl-color-accent-high);
+  }
+  .ep-tl__mark-label {
+    position: absolute;
+    bottom: 1.15rem;
+    left: 0;
+    display: grid;
+    white-space: nowrap;
+    transform: translateX(-50%);
+    text-align: center;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    color: var(--sl-color-gray-3);
+  }
+  .ep-tl__mark[data-alt] .ep-tl__mark-label {
+    bottom: auto;
+    top: 1.15rem;
+  }
+  .ep-tl__mark:first-child .ep-tl__mark-label {
+    transform: none;
+    text-align: left;
+  }
+  .ep-tl__mark:last-child .ep-tl__mark-label {
+    transform: translateX(-100%);
+    text-align: right;
+  }
+  .ep-tl__mark-label code,
+  .ep-tl__call-label code {
+    background: none;
+    padding: 0;
+    font-family: var(--ep-mono);
+    color: var(--sl-color-white);
+  }
+  .ep-tl__ms {
+    font-family: var(--ep-mono);
+  }
+
+  /* calls */
+  .ep-tl__calls {
+    list-style: none;
+    margin: 2.4rem 0 0;
+    padding: 0;
+  }
+  .ep-tl__call {
+    position: relative;
+    height: 2.4rem;
+  }
+  .ep-tl__span {
+    position: absolute;
+    top: 0;
+    height: 0.55rem;
+    min-width: 2px;
+    border-radius: 2px;
+    background: var(--sl-color-accent);
+    opacity: 0.85;
+  }
+  .ep-tl__call[data-kind="deferred"] .ep-tl__span {
+    background: transparent;
+    border: 1px dashed var(--sl-color-accent-high);
+  }
+  .ep-tl__call-label {
+    position: absolute;
+    top: 0.75rem;
+    display: grid;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    color: var(--sl-color-gray-3);
+  }
+
+  /* textual list of the same marks, for narrow screens and readers */
+  .ep-tl__marks {
+    display: none;
+    margin: 1rem 0 0;
+    font-family: var(--ep-mono);
+    font-size: 0.78rem;
+  }
+  .ep-tl__marks > div {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.15rem 0;
+    border-top: 1px solid var(--ep-line);
+  }
+  .ep-tl__marks dt code {
+    background: none;
+    padding: 0;
+    color: var(--sl-color-white);
+  }
+  .ep-tl__marks dd {
+    margin: 0;
+    color: var(--sl-color-gray-3);
+  }
+  @media (max-width: 40rem) {
+    .ep-tl__chart {
+      display: none;
+    }
+    .ep-tl__marks {
+      display: grid;
+    }
+  }
+</style>

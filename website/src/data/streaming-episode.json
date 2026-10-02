@@ -1,0 +1,38 @@
+{
+  "path": "/product/42",
+  "route": "/product/:id",
+  "mode": "streaming",
+  "outcome": "complete",
+  "status": 200,
+  "bootId": "45e19ec6-0dae-4f43-acb1-1233950d7542",
+  "requestId": "req-2",
+  "at": "2026-10-02T17:52:35.274Z",
+  "timeline": {
+    "startMs": 0,
+    "matched": 0.1,
+    "devAssetsReady": 2.4,
+    "dataStart": 4.8,
+    "dataEnd": 5.8,
+    "head": 7.3,
+    "shellReady": 7.7,
+    "allReady": 7.9
+  },
+  "serviceCalls": [
+    {
+      "service": "catalog",
+      "method": "getProductHead",
+      "startMs": 3.2,
+      "endMs": 3.3,
+      "ms": 0.1,
+      "ok": true
+    },
+    {
+      "service": "catalog",
+      "method": "getProduct",
+      "startMs": 5.6,
+      "endMs": 5.8,
+      "ms": 0.2,
+      "ok": true
+    }
+  ]
+}

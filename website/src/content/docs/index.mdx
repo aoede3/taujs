@@ -1,21 +1,19 @@
 ---
 title: Composing systems
-description: Declared routes bring data, policy and rendering into one request contract. Fastify dispatches it. React, Vue or Solid renders it. Graphs, episodes and MCP make it inspectable.
+description: τjs is the runtime between an HTTP request and your renderer - one executable contract for routes, data, policy and rendering in Fastify and Vite applications, with evidence from real development requests so you and your tools can change the system without guessing.
 template: splash
 hero:
   title: Composing <span>systems</span>
-  tagline: "Your routes. Your renderer. One orchestrated response: data, policy and rendering - declared per route, not discovered."
-
-
+  tagline: "Compose the response. Interrogate the outcome."
   image:
     file: ../../assets/taujs.svg
   actions:
+    - text: See your system answer
+      link: "#ask-your-system"
+      icon: down-caret
     - text: Get started
       link: /guides/getting-started/
       icon: right-arrow
-    - text: GitHub
-      link: https://github.com/aoede3/taujs
-      icon: external
       variant: minimal
 ---
 
@@ -27,8 +25,14 @@ import vueLogo from "../../assets/vue.svg";
 import solidLogo from "../../assets/solid.svg";
 import htmlLogo from "../../assets/html.svg";
 import SystemFigure from "../../components/SystemFigure.astro";
+import EvidenceCard from "../../components/EvidenceCard.astro";
+import EpisodeTimeline from "../../components/EpisodeTimeline.astro";
 
+τjs provides the runtime between an HTTP request and your renderer: one executable contract for
+routes, data, policy and rendering in Fastify and Vite applications - plus evidence from real
+development requests, so you and your tools can change the system without guessing.
 
+Development-only evidence by construction. No production collectors.
 
 <div className="container__logos">
   <a
@@ -83,130 +87,130 @@ import SystemFigure from "../../components/SystemFigure.astro";
 
 <SystemFigure />
 
-## Declare what your routes need
+## Ask your system
 
-τjs adds a declared request boundary to ordinary Fastify, Vite and framework conventions: each
-declared route states its data, policy and rendering.
+You are about to change the catalogue service. What depends on it? In most stacks that means
+grepping and hoping. Here you ask, and the answer is read from files the dev server already
+emits - never guessed from source.
 
-You don't need to convert an application. Start with what you have, then declare the routes whose
-initial responses benefit from server coordination.
+<EvidenceCard />
 
-- Add critical or deferred data when the server should own the initial read
-- Mediate service access where validation, cancellation and observability matter
-- Choose SSR, streaming and hydration per declared page
-- Move applications between React, Vue and Solid without moving policy and services into components
+The rows come from two artefacts under the application's own `node_modules/.taujs/boots/<bootId>/`:
+the request graph records what `taujs.config.ts` declares; observed edges record what real
+development requests did. An agent working on a τjs application is handed the substrate's own
+description of the application it is modifying, over MCP. When there is no live boot, the episode
+tools refuse rather than answer stale; structural answers from an old build are labelled as such.
 
-The same declaration that coordinates the response also makes the architecture inspectable.
+[How the tools answer, and what they refuse](/reference/mcp/).
 
-[Adopt the model incrementally](/guides/incremental-migration/).
+## One contract, two kinds of truth
 
-## Your architecture is declared, not discovered
+Each declared route states its data, policy and rendering once. That declaration is what Fastify
+dispatches and what the renderer consumes - and it is the same thing the graph reports. The
+contract is operational, not descriptive: data loading, rendering, policy, tracing and tooling all
+consume the same declaration, so the answer a tool reads cannot drift from the code the server
+runs.
 
-A τjs request contract can be inspected without running the component tree: routes, policy,
-rendering and declared service edges exist as configuration. Development episodes add what real
-requests actually did.
+Episodes add the second kind of truth. Every development request leaves a record of what actually
+happened: which services were called, when, with what outcome. Declared is intent; observed is
+behaviour; the page shows you both, labelled, and never substitutes one for the other.
 
-Using the application's typed `serviceData` helper, the declaration can describe a home page that
-server-renders and a product page that streams with its reviews declared alongside:
+Traces alone are available on any framework. What is unusual here is where the substrate sits -
+at the HTTP request and response boundary, with the renderer still yours - and that the boundary
+is inspectable by construction rather than by instrumentation added later.
+
+[Request contracts and data ownership](/guides/request-contracts/).
+
+## From request to response
+
+A request matches a declared route. Critical data resolves before the response commits, where a
+failure can still become an HTTP error. Deferred data starts with the request, never delays
+independent shell content and cannot decide the status. The renderer - the application's choice -
+turns the result into HTML, server-rendered or streamed; values consumed during rendering hydrate
+without a client refetch. Then the episode is written.
+
+Here is a product page that streams, with its reviews deferred alongside:
 
 ```ts
 export default defineConfig({
-  apps: [
-    {
-      appId: "storefront",
-      entryPoint: "",
-      renderer: reactRenderer({ project: "./tsconfig.json" }),
-      routes: [
-        { path: "/", attr: { render: "ssr", hydrate: true } },
-        {
-          path: "/products/:id",
-          attr: {
-            render: "streaming",
-            hydrate: true,
-            meta: { title: "Product" },
-            data: serviceData("catalogue", "product", (p) => ({ id: String(p.id) })),
-            deferred: {
-              reviews: serviceData("reviews", "forProduct", (p) => ({ id: String(p.id) })),
-            },
-          },
-        },
-      ],
-    },
-  ],
+  apps: [{
+    appId: "storefront",
+    entryPoint: "",
+    renderer: reactRenderer({ project: "./tsconfig.json" }),
+    routes: [{
+      path: "/products/:id",
+      attr: {
+        render: "streaming",
+        data: serviceData("catalog", "getProduct", (p) => ({ id: String(p.id) })),
+        deferred: { reviews: serviceData("reviews", "forProduct", (p) => ({ id: String(p.id) })) },
+      },
+    }],
+  }],
 });
 ```
 
-The product is critical: it resolves before the response commits, where a failure can still become
-an HTTP error. The reviews are deferred: they start with the request, never delay independent shell
-content, and cannot decide the status. Values consumed during rendering hydrate without a client
-refetch.
+The episode that request leaves is the second proof. Its marks are the contract's own stages, so
+"slow" has a location, not a guess:
+
+<EpisodeTimeline />
 
 Each declared page is a real Fastify route, and a route can also declare head metadata,
 authentication and Content Security Policy. Everything after hydration - mutations, polling,
-subscriptions, UI-local fetching - stays in your application, where it belongs.
-
-The contract is operational, not descriptive: data loading, rendering, policy, tracing and tooling
-all consume the same declaration.
-
-[Read about request contracts and data ownership](/guides/request-contracts/).
-
-## Ask your system what it does
-
-What breaks if you change the catalogue service? In most stacks that means grepping and hoping.
-Here you ask, and get back the routes known to use it - `declared` when configuration states the
-call, and `observed` when a real request has made it.
-
-The answers come from artefacts the dev server writes, not from reading source. The request graph
-records what `taujs.config.ts` declares; development episodes record what each request actually did.
-Both are served over MCP, so tools and AI agents work from the same evidence - and when there is no
-live dev server to ask, the episode tools say so rather than answer from stale data.
-
-[Explore architecture-aware inspection through MCP](/reference/mcp/).
-
-## One architecture, several application shapes
-
-The same Fastify host can serve, for example, a storefront, an account area and an operations
-console - each a separate application with its own renderer root, module graph and output bundle,
-and each free to choose its own renderer framework. Independently developed applications can share
-one server and one operational model without first standardising on a component framework.
-
-Each URL belongs to exactly one application. Left undeclared, it remains client-rendered by
-omission.
-
-Applications compose through routes and assembled build output rather than runtime module
-federation. They can be built selectively, while the deployed server artefact receives the bundles
-and manifests it needs to serve the complete system.
-
-[See how multi-app composition works](/guides/micro-frontend/).
+subscriptions, UI-local fetching - stays in your application.
 
 ## Use the ecosystems you already know
 
-τjs composes existing tools rather than replacing their native APIs:
+τjs composes existing tools rather than replacing their native APIs. **Fastify** owns HTTP routing,
+plugins, hooks, decorators and the host lifecycle. **Vite** owns the module graph, development
+pipeline and production bundles. **React**, **Vue**, **Solid** or plain **HTML** keep their own
+rendering, streaming semantics and client runtimes.
 
-- **Fastify** owns HTTP routing, plugins, hooks, decorators and the host lifecycle
-- **Vite** owns the application module graph, development pipeline and production bundles
-- **React, Vue and Solid** keep their component models, streaming semantics and client runtimes
+There is no second HTTP router or parallel plugin system. Supply your own Fastify instance and τjs
+operates inside an encapsulated scope; omit it and τjs creates the host. You do not convert an
+application: start with what you have and declare the routes whose initial responses benefit from
+server coordination. Policy, data orchestration and service access stay where they are when the
+renderer changes.
 
-There is no second HTTP router or parallel plugin system to learn. Supply your own Fastify instance
-and τjs operates inside an encapsulated scope; omit it and τjs creates and operates the Fastify
-host.
+[Adopt the model incrementally](/guides/incremental-migration/).
 
-The same request boundary holds across all three component models: policy, data orchestration and
-service access stay where they are when the renderer changes.
+## One architecture, several application shapes
 
-## Next steps
+One Fastify host can serve a storefront, an account area and an operations console - each a
+separate application with its own renderer, module graph and output bundle, each free to choose a
+different one. Every URL belongs to exactly one application; undeclared URLs remain client-rendered
+by omission. Applications compose through routes and assembled build output, not runtime module
+federation, and the whole system answers to the same graph and the same episodes.
+
+[How multi-app composition works](/guides/micro-frontend/).
+
+## Development only, by construction
+
+Episodes, logs and observed edges are collected by the dev server. The production runtime
+structurally excludes those collectors - there is nothing to switch off, no sampling to tune and
+no request data leaving a deployed host. Builds emit one artefact, a structure-only graph at
+`dist/.taujs/graph.json`, so structural questions can still be answered from the last build,
+labelled stale.
+
+The MCP server opens no network connections and loads no configuration: the files are its
+credential. Several live boots refuse with `multiple_active_boots`; a folder whose ids disagree is
+refused as `substrate_inconsistent`. Field values in answers are your application's data - capped,
+never treated as instructions.
+
+[Architecture overview](/guides/architecture/).
+
+## Get started
 
 <CardGrid>
   <Card title="Get started" icon="open-book">
-    [Learn more and get started with τjs](/guides/getting-started/)
+    [Scaffold an application and run the first dev boot](/guides/getting-started/)
   </Card>
   <Card title="Request contracts and data" icon="add-document">
     [Declare critical, deferred and component-owned work](/guides/request-contracts/)
   </Card>
-  <Card title="Micro-frontends with τjs" icon="add-document">
-    [Compose larger systems](/guides/micro-frontend/)
+  <Card title="Inspect and diagnose" icon="magnifier">
+    [The tools, their labels and what they refuse](/reference/mcp/)
   </Card>
-  <Card title="Ask your system what it does" icon="add-document">
-    [Declared architecture and runtime evidence, served over MCP](/reference/mcp/)
+  <Card title="Compose larger systems" icon="puzzle">
+    [Several applications on one host](/guides/micro-frontend/)
   </Card>
 </CardGrid>
