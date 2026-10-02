@@ -1,6 +1,6 @@
 # τjs &nbsp;[ taujs ]
 
-> τjs is the runtime between an HTTP request and your renderer: one executable contract for routes, data, policy and rendering on Fastify and Vite, rendered by React, Vue, Solid or plain HTML. The same contract records development episodes and a request graph, served over MCP, so you and your tools can change the system without guessing. Development-only by construction: the production runtime has no collectors.
+> τjs is the runtime between an HTTP request and your renderer: one executable contract for routes, data, policy and rendering on Fastify and Vite, rendered by React, Vue, Solid or plain HTML. The same contract records development episodes and a request graph, served over MCP, so you and your tools can change your system without guessing. Development-only by construction: the production runtime has no collectors.
 
 [![@taujs/create-taujs](https://img.shields.io/npm/v/@taujs/create-taujs?label=%40taujs%2Fcreate-taujs)](https://www.npmjs.com/package/@taujs/create-taujs)
 [![@taujs/server](https://img.shields.io/npm/v/@taujs/server?label=%40taujs%2Fserver)](https://www.npmjs.com/package/@taujs/server)
