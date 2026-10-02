@@ -189,6 +189,11 @@ federation, and the whole system answers to the same graph and the same episodes
 
 ## Introspection security: development only, by construction
 
+The server you develop against is the server you deploy: the same Fastify routes, the same
+contract, the same orchestration. Development is production plus exactly two things - Vite's
+module pipeline and the introspection collectors - and `NODE_ENV` decides which you are running:
+`development` is development, anything else is production. There is no third mode.
+
 Episodes, logs and observed edges are collected by the dev server. The production runtime
 structurally excludes those collectors - there is nothing to switch off, no sampling to tune and
 no request data leaving a deployed host. Builds emit one artefact, a structure-only graph at
