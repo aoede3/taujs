@@ -22,6 +22,32 @@ const spanEnd = Math.max(
   1,
 );
 const pct = (ms: number) => `${(ms / spanEnd) * 100}%`;
+
+// Label placement, no JS at runtime: marks alternate above/below the bar by
+// default; any two labels whose horizontal positions fall within 9% of the
+// bar width never share a (side, row). Up to three rows per side, chosen
+// greedily in ms order, preferring the mark's default side.
+type Side = "above" | "below";
+const MIN_GAP = 9;
+const MAX_ROWS = 3;
+const placed: { x: number; side: Side; row: number }[] = [];
+const placedMarks = marks.map(([key, ms], i) => {
+  const x = (ms / spanEnd) * 100;
+  const preferred: Side = i % 2 === 0 ? "above" : "below";
+  const other: Side = preferred === "above" ? "below" : "above";
+  const free = (side: Side, row: number) =>
+    !placed.some((p) => p.side === side && p.row === row && Math.abs(p.x - x) < MIN_GAP);
+  let slot: { side: Side; row: number } | undefined;
+  for (const side of [preferred, other]) {
+    for (let row = 1; row <= MAX_ROWS && !slot; row++) if (free(side, row)) slot = { side, row };
+    if (slot) break;
+  }
+  slot ??= { side: preferred, row: MAX_ROWS };
+  placed.push({ x, ...slot });
+  return { key, ms, x, ...slot };
+});
+const rowsAbove = Math.max(1, ...placedMarks.filter((m) => m.side === "above").map((m) => m.row));
+const rowsBelow = Math.max(1, ...placedMarks.filter((m) => m.side === "below").map((m) => m.row));
 ---
 
 <figure class="ep-tl">
@@ -37,19 +63,25 @@ const pct = (ms: number) => `${(ms / spanEnd) * 100}%`;
     <span class="ep-tl__field"><span>status</span><code>{episode.status}</code></span>
   </p>
 
-  <div class="ep-tl__chart" role="img" aria-label={`Timeline over ${spanEnd} ms with marks ${marks.map(([k, v]) => `${k} at ${v} ms`).join(", ")}`}>
+  <div
+    class="ep-tl__chart"
+    role="img"
+    aria-label={`Timeline over ${spanEnd} ms with marks ${marks.map(([k, v]) => `${k} at ${v} ms`).join(", ")}`}
+    style={`--rows-above: ${rowsAbove}; --rows-below: ${rowsBelow}`}
+  >
     <div class="ep-tl__bar">
       {
-        marks.map(([key, ms], i) => (
+        placedMarks.map((m) => (
           <span
             class="ep-tl__mark"
-            style={`left: ${pct(ms)}`}
-            data-alt={i % 2 === 1 ? "" : undefined}
+            data-side={m.side}
+            data-align={m.x < 5 ? "start" : m.x > 95 ? "end" : undefined}
+            style={`left: ${m.x}%; --row: ${m.row}`}
           >
             <span class="ep-tl__tick" />
             <span class="ep-tl__mark-label">
-              <code>{key}</code>
-              <span class="ep-tl__ms">{ms} ms</span>
+              <code>{m.key}</code>
+              <span class="ep-tl__ms">{m.ms} ms</span>
             </span>
           </span>
         ))
@@ -160,26 +192,35 @@ const pct = (ms: number) => `${(ms / spanEnd) * 100}%`;
     margin: 0 0.5rem;
   }
   .ep-tl__bar {
+    --row-h: 1.9rem;
     position: relative;
     height: 2px;
-    margin: 2.6rem 0 0.5rem;
+    margin: calc(0.85rem + var(--rows-above, 1) * var(--row-h)) 0 0;
     background: var(--sl-color-gray-4);
   }
   .ep-tl__mark {
     position: absolute;
-    top: -0.45rem;
+    top: 0;
     width: 0;
+    height: 2px;
+    /* distance from the bar to the label's near edge for this row */
+    --offset: calc(0.6rem + (var(--row, 1) - 1) * var(--row-h));
   }
   .ep-tl__tick {
-    display: block;
+    position: absolute;
+    left: -1px;
     width: 2px;
-    height: 1rem;
-    margin-left: -1px;
+    height: var(--offset);
     background: var(--sl-color-accent-high);
+  }
+  .ep-tl__mark[data-side="above"] .ep-tl__tick {
+    bottom: 0;
+  }
+  .ep-tl__mark[data-side="below"] .ep-tl__tick {
+    top: 0;
   }
   .ep-tl__mark-label {
     position: absolute;
-    bottom: 1.15rem;
     left: 0;
     display: grid;
     white-space: nowrap;
@@ -189,15 +230,17 @@ const pct = (ms: number) => `${(ms / spanEnd) * 100}%`;
     line-height: 1.2;
     color: var(--sl-color-gray-3);
   }
-  .ep-tl__mark[data-alt] .ep-tl__mark-label {
-    bottom: auto;
-    top: 1.15rem;
+  .ep-tl__mark[data-side="above"] .ep-tl__mark-label {
+    bottom: calc(var(--offset) + 0.15rem);
   }
-  .ep-tl__mark:first-child .ep-tl__mark-label {
+  .ep-tl__mark[data-side="below"] .ep-tl__mark-label {
+    top: calc(var(--offset) + 0.15rem);
+  }
+  .ep-tl__mark[data-align="start"] .ep-tl__mark-label {
     transform: none;
     text-align: left;
   }
-  .ep-tl__mark:last-child .ep-tl__mark-label {
+  .ep-tl__mark[data-align="end"] .ep-tl__mark-label {
     transform: translateX(-100%);
     text-align: right;
   }
@@ -215,7 +258,7 @@ const pct = (ms: number) => `${(ms / spanEnd) * 100}%`;
   /* calls */
   .ep-tl__calls {
     list-style: none;
-    margin: 2.4rem 0 0;
+    margin: calc(0.85rem + var(--rows-below, 1) * 1.9rem) 0 0;
     padding: 0;
   }
   .ep-tl__call {
