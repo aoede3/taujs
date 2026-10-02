@@ -355,7 +355,7 @@ describe('RFC 0012 - static composition (cell 8, semantic preservation)', () => 
           root: assetRoot,
           prefix: '/cdn/',
           index: false,
-          setHeaders: (res: { setHeader: (k: string, v: string) => void }) => res.setHeader('x-rfc0012-static', 'cell8'),
+          setHeaders: (reply: { header: (k: string, v: string) => unknown }) => reply.header('x-rfc0012-static', 'cell8'),
         },
       },
     });
