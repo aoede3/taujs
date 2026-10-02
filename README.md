@@ -9,7 +9,7 @@
 [![@taujs/solid](https://img.shields.io/npm/v/@taujs/solid?label=%40taujs%2Fsolid)](https://www.npmjs.com/package/@taujs/solid)
 [![@taujs/html](https://img.shields.io/npm/v/@taujs/html?label=%40taujs%2Fhtml)](https://www.npmjs.com/package/@taujs/html)
 [![@taujs/mcp](https://img.shields.io/npm/v/@taujs/mcp?label=%40taujs%2Fmcp)](https://www.npmjs.com/package/@taujs/mcp)
-[![node](https://img.shields.io/badge/node-%E2%89%A520.11-brightgreen)](.nvmrc)
+[![node](https://img.shields.io/badge/node-%E2%89%A522.12-brightgreen)](.nvmrc)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **Website:** https://taujs.dev
