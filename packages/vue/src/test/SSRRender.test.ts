@@ -343,12 +343,11 @@ describe('createRenderer.renderStream — completion & data delivery', () => {
     await expect(done).resolves.toBeUndefined();
   });
 
-  it('delivers resolved thunk data to onAllReady and onFinish', async () => {
+  it('delivers resolved thunk data to onAllReady', async () => {
     const writable = new Collector();
     const onAllReady = vi.fn();
-    const onFinish = vi.fn();
 
-    const { done } = makeRenderer().renderStream(writable as any, { onAllReady, onFinish }, () => Promise.resolve({ userId: 7 }) as any, '/data');
+    const { done } = makeRenderer().renderStream(writable as any, { onAllReady }, () => Promise.resolve({ userId: 7 }) as any, '/data');
 
     const sink = getSink();
     sink.push('<div/>');
@@ -356,25 +355,23 @@ describe('createRenderer.renderStream — completion & data delivery', () => {
     // stream ends. Flush the store's microtasks, then finish the stream.
     await new Promise((r) => setTimeout(r, 0));
     expect(onAllReady).toHaveBeenCalledWith({ userId: 7 });
-    expect(onFinish).toHaveBeenCalledWith({ userId: 7 });
 
     sink.push(null);
     await done;
   });
 
-  it('a throwing onAllReady is ISOLATED: onFinish still fires, done follows the render outcome, no manufactured fatal', async () => {
+  it('a throwing onAllReady is ISOLATED: done follows the render outcome, no manufactured fatal', async () => {
     // An advisory observer must not turn successfully resolved data + a completed render into a fatal
-    // stream failure (its throw previously reached the .catch and called fail), nor suppress onFinish.
+    // stream failure (its throw previously reached the .catch and called fail).
     const writable = new Collector();
     const onAllReady = vi.fn(() => {
       throw new Error('onAllReady boom');
     });
-    const onFinish = vi.fn();
     const onError = vi.fn();
 
     const { done } = makeRenderer({ logger: { error: vi.fn() } } as any).renderStream(
       writable as any,
-      { onAllReady, onFinish, onError },
+      { onAllReady, onError },
       () => Promise.resolve({ userId: 7 }) as any,
       '/data',
     );
@@ -384,35 +381,7 @@ describe('createRenderer.renderStream — completion & data delivery', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(onAllReady).toHaveBeenCalledTimes(1);
-    expect(onFinish).toHaveBeenCalledWith({ userId: 7 }); // sibling not suppressed
     expect(onError).not.toHaveBeenCalled(); // no manufactured fatal
-
-    sink.push(null);
-    await expect(done).resolves.toBeUndefined();
-  });
-
-  it('a throwing onFinish is ISOLATED: done still resolves, single fire', async () => {
-    const writable = new Collector();
-    const onAllReady = vi.fn();
-    const onFinish = vi.fn(() => {
-      throw new Error('onFinish boom');
-    });
-    const onError = vi.fn();
-
-    const { done } = makeRenderer({ logger: { error: vi.fn() } } as any).renderStream(
-      writable as any,
-      { onAllReady, onFinish, onError },
-      () => Promise.resolve({ userId: 7 }) as any,
-      '/data',
-    );
-
-    const sink = getSink();
-    sink.push('<div/>');
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(onAllReady).toHaveBeenCalledWith({ userId: 7 });
-    expect(onFinish).toHaveBeenCalledTimes(1);
-    expect(onError).not.toHaveBeenCalled();
 
     sink.push(null);
     await expect(done).resolves.toBeUndefined();

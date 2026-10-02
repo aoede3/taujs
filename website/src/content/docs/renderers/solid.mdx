@@ -289,7 +289,7 @@ function createRenderer<
     bootstrapModules?: string,
     meta?: Record<string, unknown>,
     signal?: AbortSignal,
-    opts?: RenderOptions
+    opts?: RenderOptions & { shellTimeoutMs?: number }
   ) => { abort: () => void; done: Promise<void> };
 };
 ```
@@ -444,6 +444,7 @@ await done;
 `onAllReady` is **two-latch**: it fires once *and only once*, after the route data is ready **and** Solid has finished rendering. A fatal, incomplete delivery never calls `onAllReady`, so it never seeds a truncated document. A pre-shell fatal also never calls `onShellReady`; a post-shell fatal necessarily occurs after `onShellReady` has already reported that the shell was committed. The resolved route data is delivered to `onAllReady` and serialised into `window.__INITIAL_DATA__`.
 
 - `shellTimeoutMs` bounds shell readiness; `completionTimeoutMs` bounds the whole lifecycle and is cleared by every terminal (normal completion, abort, or fatal). `deferredTimeoutMs` is the graceful counterpart to that fatal watchdog: it is armed at shell commit, abandons only the still-pending deferred boundaries, and lets the document terminate normally.
+- `renderStream` also accepts `shellTimeoutMs` on its final `opts` argument, overriding the renderer default for that call. It takes the same values as the factory option (`0`, `Infinity`, or a positive number of milliseconds within Node's timer range), and any other value throws a `TypeError` naming `renderStream`. `completionTimeoutMs` and `deferredTimeoutMs` are factory-only and have no per-call form, and `renderSSR` takes no per-call timeout.
 - App-owned `createResource` work under `<Suspense>`, and route-declared [deferred route data](#deferred-route-data), stream as Solid `$df` deferred patches once they settle; the critical route snapshot does not (see [The snapshot data bridge](#the-snapshot-data-bridge)).
 
 **Cancellation and lifecycle.** `renderStream` accepts an `AbortSignal` (a triggered signal is a benign cancel) and returns `{ abort, done }`: `abort()` performs a manual benign abort, and `done` resolves on normal completion or rejects on a fatal error. Client disconnects are classified benign and never surface as fatal errors. Every terminal releases the renderer's request-scoped state exactly once.

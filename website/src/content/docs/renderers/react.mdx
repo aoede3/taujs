@@ -427,7 +427,6 @@ type RenderCallbacks<T> = {
   onHead?: (head: string) => void; // required operationally: commits the head + connects the sink
   onShellReady?: () => void; // advisory
   onAllReady?: (data: T) => void; // advisory; fires once with the resolved route data
-  onFinish?: (data: T) => void; // deprecated alias of onAllReady
   onError?: (err: unknown) => void; // FATAL channel only
   onRenderError?: (info: {
     error: unknown;

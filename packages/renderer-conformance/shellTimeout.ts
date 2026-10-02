@@ -9,6 +9,13 @@
  * 2. The factory ACCEPTS the sentinels `0` and `Infinity`, an omitted value, and any ordinary
  *    finite timeout up to `MAX_NATIVE_TIMEOUT`.
  * 3. The timer is NOT ARMED for a sentinel.
+ * 4. A per-call override passed to `renderStream` is REJECTED for exactly the values the factory
+ *    rejects, with the same message text and the site `renderStream`, synchronously, before any
+ *    timer is armed.
+ * 5. A per-call sentinel, valid finite value, or omitted value is ACCEPTED.
+ * 6. PRECEDENCE: when a per-call override is present it, not the factory value, is the delay the
+ *    shell timer is armed with; a per-call sentinel means no shell timer is armed even when the
+ *    factory value is finite.
  *
  * Why there is an UPPER BOUND, which the first version of this vector wrongly omitted: Node stores
  * a delay as a 32-bit signed integer, so anything above 2_147_483_647 is clamped to 1ms and warned
@@ -56,6 +63,15 @@ export const SENTINEL_SHELL_TIMEOUTS: readonly number[] = [0, Infinity];
  */
 export const VALID_FINITE_SHELL_TIMEOUTS: readonly number[] = [1, 10_000, MAX_NATIVE_TIMEOUT];
 
+/** The site named in a per-call rejection: the `renderStream` boundary, not the factory. */
+export const PER_CALL_SITE = 'renderStream';
+
+/**
+ * Two DISTINCTIVE delays for the precedence cells. No renderer uses either as a default, so a
+ * recorded timer delay can be attributed to the factory value or to the per-call override.
+ */
+export const OVERRIDE_PRECEDENCE = { factory: 54_321, override: 12_345 } as const;
+
 export type FactoryProbe = (shellTimeoutMs: unknown) => void;
 
 export type RejectionReport = {
@@ -80,8 +96,9 @@ export const describeValue = (value: unknown): string => (typeof value === 'stri
 
 /**
  * The EXACT message a conforming renderer produces. Pinning the text, not merely the type, is what
- * makes "all three behave identically" a checked claim rather than an aspiration: a renderer whose
- * message omits the range, or names the option differently, is telling its caller something else.
+ * makes "every renderer behaves identically" a checked claim rather than an aspiration: a renderer
+ * whose message omits the range, or names the option differently, is telling its caller something
+ * else.
  */
 export const expectedRejectionMessage = (name: string, value: unknown, site = 'createRenderer'): string =>
   `${site}: ${name} must be 0, Infinity, or a positive number of milliseconds no greater than ${MAX_NATIVE_TIMEOUT} (received ${describeValue(value)})`;

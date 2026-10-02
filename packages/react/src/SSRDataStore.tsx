@@ -97,7 +97,9 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
   const subscribe = (callback: () => void) => {
     subscribers.add(callback);
 
-    return () => subscribers.delete(callback);
+    return () => {
+      subscribers.delete(callback);
+    };
   };
 
   const getSnapshot = (): T => {
@@ -110,6 +112,8 @@ export function createSSRStore<T>(initialDataOrPromise: T | Promise<T> | (() => 
 
   const getServerSnapshot = (): T => {
     if (status === 'pending') throw serverDataPromise;
+    // Rethrows the loader's ORIGINAL rejection (getSnapshot wraps): the server path preserves what the loader
+    // threw so the host's error channel reports the loader's own error; the client's consumer is a component boundary.
     if (status === 'error') throw serverError ?? new Error(`Server-side data fetch failed: ${lastError?.message || 'Unknown error'}`);
     if (currentData === undefined) throw new Error('Server data not available - check SSR configuration');
 

@@ -51,8 +51,6 @@ export type RenderCallbacks<T> = {
   onShellReady?: () => void;
   /** Advisory. Fires exactly once with the resolved route data. */
   onAllReady?: (data: T) => void;
-  /** @deprecated Legacy alias of `onAllReady`, fires when final data is available. Use `onAllReady`. */
-  onFinish?: (data: T) => void;
   /** FATAL error channel: a fatal stream error (shell error / timeout / guard / non-recoverable). */
   onError?: (err: unknown) => void;
   /**
@@ -231,7 +229,7 @@ export function createRenderer<
   const MAX_NATIVE_TIMEOUT = 2_147_483_647;
   // Strings are QUOTED so `'10'` and `10` are distinguishable in the message: they are the same
   // three characters under `String()`, and it is the string that coerces to a real delay rather
-  // than clamping. The vector pins this text, so all three renderers render it identically.
+  // than clamping. The vector pins this text, so every renderer renders it identically.
   const describeTimeout = (value: unknown): string => (typeof value === 'string' ? `'${value}'` : String(value));
   const assertTimeout = (value: unknown, name: string, site = 'createRenderer'): void => {
     const ok = value === 0 || value === Infinity || (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= MAX_NATIVE_TIMEOUT);
@@ -410,7 +408,6 @@ export function createRenderer<
       onHead: callbacks.onHead ?? NOOP,
       onShellReady: callbacks.onShellReady ?? NOOP,
       onAllReady: callbacks.onAllReady ?? NOOP,
-      onFinish: callbacks.onFinish ?? NOOP,
       onError: callbacks.onError ?? NOOP,
       onRenderError: callbacks.onRenderError ?? (NOOP as (info: RenderErrorInfo) => void),
     };
@@ -427,8 +424,7 @@ export function createRenderer<
     // shell-timeout unit an invalid value fired the watchdog immediately; after the timer site
     // learned to refuse non-finite delays it would instead SILENTLY DISABLE the watchdog, which is
     // quieter and worse. Neither is acceptable, so it is rejected with the same message the factory
-    // uses, named for this site. Whether this surface should exist at all - solid has no
-    // equivalent - is an open shape ruling (docs/followups/renderer-surface-asymmetries.md).
+    // uses, named for this site. The shared conformance vector holds the same rule in every renderer.
     if (opts?.shellTimeoutMs !== undefined) assertTimeout(opts.shellTimeoutMs, 'streamOptions.shellTimeoutMs', 'renderStream');
     if (opts?.dataTimeoutMs !== undefined) assertTimeout(opts.dataTimeoutMs, 'streamOptions.dataTimeoutMs', 'renderStream');
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
@@ -553,7 +549,7 @@ export function createRenderer<
       const store = createSSRStore(initialData as T | Promise<T> | (() => Promise<T>));
       const readiness = getStoreReadiness(store) ?? Promise.resolve();
 
-      // Single-fire delivery (design 2): fires onAllReady/onFinish exactly once, from the end-gate
+      // Single-fire delivery (design 2): fires onAllReady exactly once, from the end-gate
       // after data has settled — replacing the thrown-thenable retry dance. Reading the snapshot can
       // still throw (e.g. a loader that resolves to `undefined` settles status:'success' with no
       // data): route that through failFatal so it becomes a clean fatal, never a hung response.
@@ -573,11 +569,6 @@ export function createRenderer<
           cb.onAllReady(data);
         } catch (cbErr) {
           error('onAllReady callback threw:', cbErr);
-        }
-        try {
-          cb.onFinish(data);
-        } catch (cbErr) {
-          error('onFinish callback threw:', cbErr);
         }
       };
 

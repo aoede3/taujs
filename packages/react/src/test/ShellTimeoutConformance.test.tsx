@@ -27,8 +27,8 @@ describe('shellTimeoutMs conformance (@taujs/react)', () => {
       const report = probeRejection(build, value);
 
       expect(report).toMatchObject(CONFORMING_REJECTION);
-      // Pinning the TEXT, not just the type, is what makes "all three behave identically" checked
-      // rather than asserted. A renderer whose message omits the range says something else.
+      // Pinning the TEXT, not just the type, is what makes "every renderer behaves identically"
+      // checked rather than asserted. A renderer whose message omits the range says something else.
       expect(report.message).toBe(expectedRejectionMessage('streamOptions.shellTimeoutMs', value));
     }
   });

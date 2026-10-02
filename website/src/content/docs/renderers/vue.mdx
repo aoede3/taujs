@@ -400,8 +400,6 @@ type RenderCallbacks<T> = {
   onHead?: (head: string) => void;
   onShellReady?: () => void;
   onAllReady?: (data: T) => void;
-  /** @deprecated Legacy alias of onAllReady, kept for @taujs/react parity. Use onAllReady. */
-  onFinish?: (data: T) => void;
   onError?: (err: unknown) => void;
 };
 
@@ -527,7 +525,7 @@ Because of that:
 
 - `shellTimeoutMs` is a **time-to-first-content watchdog**, not a shell deadline. It starts before rendering and is cleared on the first streamed chunk; if no content is produced before it expires, the stream is aborted with a fatal error routed to `onError`.
 - `onShellReady()` fires on the **first content byte**, which is the honest meaning of "shell ready" for an in-order stream.
-- `onAllReady(data)` (and its deprecated alias `onFinish(data)`) fire once the store settles, delivering the resolved data.
+- `onAllReady(data)` fires once the store settles, delivering the resolved data.
 
 <Aside type="caution" title="Streamed routes must use the blocking Suspense idiom">
 Use `await useSSRDataAsync` under `<Suspense>` on a `streaming` route so the resolved data is rendered into the streamed HTML.
