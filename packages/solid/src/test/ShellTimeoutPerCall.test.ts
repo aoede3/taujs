@@ -1,4 +1,3 @@
-import React from 'react';
 import { PassThrough } from 'node:stream';
 import { describe, it, expect, vi } from 'vitest';
 
@@ -16,9 +15,9 @@ import {
 } from '../../../renderer-conformance/shellTimeout';
 
 // The shared per-call vector (packages/renderer-conformance/shellTimeout.ts, rules 4-6), run in THIS
-// renderer's own environment (jsdom). The setTimeout spy lives here, never in the vector: the
+// renderer's own environment (node). The setTimeout spy lives here, never in the vector: the
 // armed delay is what every renderer can be observed to use, whatever its stream machinery.
-const build = (shellTimeoutMs?: unknown) => createRenderer({ appComponent: () => <div />, headContent: () => '', streamOptions: { shellTimeoutMs } as never });
+const build = (shellTimeoutMs?: unknown) => createRenderer({ appComponent: () => '', headContent: () => '', streamOptions: { shellTimeoutMs } as never });
 
 const call = (shellTimeoutMs: unknown, override: unknown) =>
   build(shellTimeoutMs).renderStream(new PassThrough(), { onHead: () => {} }, {}, '/product/42', undefined, {}, undefined, {
@@ -44,7 +43,7 @@ const armedDelays = async (factory: unknown, override: unknown): Promise<unknown
   }
 };
 
-describe('per-call shellTimeoutMs override (@taujs/react)', () => {
+describe('per-call shellTimeoutMs override (@taujs/solid)', () => {
   it('rejects every invalid override at the renderStream boundary, with the exact shared message', () => {
     for (const value of INVALID_SHELL_TIMEOUTS) {
       const report = probeRejection(callWith(value), value);

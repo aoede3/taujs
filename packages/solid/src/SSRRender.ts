@@ -90,6 +90,10 @@ export type RenderSSRFn = (
   opts?: RenderOptions,
 ) => Promise<{ headContent: string; appHtml: string }>;
 
+// Per-call options for `renderStream` only. `shellTimeoutMs` overrides the factory value for that
+// call and accepts the same values; `completionTimeoutMs` and `deferredTimeoutMs` are factory-only.
+type StreamCallOptions = RenderOptions & Pick<StreamOptions, 'shellTimeoutMs'>;
+
 export type RenderStreamFn = (
   sink: Writable,
   callbacks: RenderCallbacks,
@@ -98,7 +102,7 @@ export type RenderStreamFn = (
   bootstrapModules?: string,
   meta?: Record<string, unknown>,
   signal?: AbortSignal,
-  opts?: RenderOptions,
+  opts?: StreamCallOptions,
 ) => RenderStreamHandle;
 
 export type StreamOptions = {
@@ -251,11 +255,11 @@ export function createRenderer<
   // MAX_NATIVE_TIMEOUT means "no bound" - each means the watchdog fires almost immediately.
   // Untyped values may also COERCE rather than clamp: `'10'` becomes a ten-millisecond delay, not
   // 1ms. Both are rejected, because the option's contract is a number and only `0`/`Infinity` are
-  // sentinels for "no bound". Same rule, same message, as @taujs/react and @taujs/vue.
+  // sentinels for "no bound". Same rule, same message, in every renderer.
   const MAX_NATIVE_TIMEOUT = 2_147_483_647;
   // Strings are QUOTED so `'10'` and `10` are distinguishable in the message: they are the same
   // three characters under `String()`, and it is the string that coerces to a real delay rather
-  // than clamping. The vector pins this text, so all three renderers render it identically.
+  // than clamping. The vector pins this text, so every renderer renders it identically.
   const describeTimeout = (value: unknown): string => (typeof value === 'string' ? `'${value}'` : String(value));
   const assertTimeout = (value: unknown, name: string, site = 'createRenderer'): void => {
     const ok = value === 0 || value === Infinity || (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= MAX_NATIVE_TIMEOUT);
@@ -414,8 +418,13 @@ export function createRenderer<
     bootstrapModules?: string,
     meta: Record<string, unknown> = {},
     signal?: AbortSignal,
-    opts?: RenderOptions,
+    opts?: StreamCallOptions,
   ): RenderStreamHandle => {
+    // A per-call override never passed through the factory, so it is validated HERE, before the
+    // completion timer or anything else is armed.
+    if (opts?.shellTimeoutMs !== undefined) assertTimeout(opts.shellTimeoutMs, 'streamOptions.shellTimeoutMs', 'renderStream');
+    const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
+
     const cb = {
       onHead: callbacks.onHead ?? NOOP,
       onShellReady: callbacks.onShellReady ?? NOOP,
@@ -675,9 +684,9 @@ export function createRenderer<
       }
 
       // Design 2: "the shell timer starts immediately before the Solid render begins".
-      stopShellTimer = startTimer(shellTimeoutMs, () => {
+      stopShellTimer = startTimer(effectiveShellTimeout, () => {
         if (controller.terminated || controller.shellCommitted) return;
-        failFatal(new Error(`Solid shell not ready after ${shellTimeoutMs}ms`));
+        failFatal(new Error(`Solid shell not ready after ${effectiveShellTimeout}ms`));
       });
 
       let stream: { pipe: (destination: unknown) => void };

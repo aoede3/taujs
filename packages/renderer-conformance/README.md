@@ -8,12 +8,12 @@ each renderer's own test suite, exactly as `fixtures/test-support/` is imported 
 
 ## Why this exists
 
-The renderers are deliberately **pattern-parity, not byte-parity**: `@taujs/react`, `@taujs/vue`
-and `@taujs/solid` reimplement the same shapes rather than sharing code, and that is a ruled
-decision, not an accident. The cost is that a fix applied to one is not applied to the others, and
-nothing notices. The `shellTimeoutMs` validation this directory starts with was the proof: solid
-validated at the factory AND refused to arm a timer for a sentinel value; react and vue did
-neither, for the whole life of the option.
+The renderers are deliberately **pattern-parity, not byte-parity**: `@taujs/react`, `@taujs/vue`,
+`@taujs/solid` and `@taujs/html` reimplement the same shapes rather than sharing code, and that is
+a ruled decision, not an accident. The cost is that a fix applied to one is not applied to the
+others, and nothing notices. The `shellTimeoutMs` validation this directory starts with was the
+proof: solid validated at the factory AND refused to arm a timer for a sentinel value; react and
+vue did neither, for the whole life of the option.
 
 A conformance vector is the only mechanism that holds an invariant across implementations that
 deliberately do not share code. It is not a substitute for each renderer's own tests - it is the
@@ -48,8 +48,8 @@ it exists to catch, and here it caught one.
   PROBES that return their observations (`collectProcessWarnings` listens on `process.warning`,
   because the 1ms clamp is visible nowhere else). What is forbidden is a shared TEST-FRAMEWORK
   runner, not asynchrony: every one of these hands its result back for the calling suite to assert.
-- **Environment-agnostic.** React and vue run under `jsdom`, solid under `node` with
-  `--expose-gc`. A vector must not assume either. This is also why there is no shared runner: each
+- **Environment-agnostic.** React and vue run under `jsdom`, solid and html under `node` (solid with
+  `--expose-gc`). A vector must not assume either. This is also why there is no shared runner: each
   renderer invokes the vectors from its own suite, in its own environment.
 - **One invariant per file**, named for the invariant rather than for the renderer.
 - **Adding a vector is a contract change.** If a renderer cannot satisfy it, that is a finding to
