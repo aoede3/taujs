@@ -1,5 +1,11 @@
 # @taujs/solid
 
+## 0.7.0
+
+### Minor Changes
+
+- [#193](https://github.com/aoede3/taujs/pull/193) [`88fdaf2`](https://github.com/aoede3/taujs/commit/88fdaf21d5aaca5d1e94f4567a14fbcce978926d) Thanks [@aoede3](https://github.com/aoede3)! - `renderStream` accepts a per-call `shellTimeoutMs` in its final `opts` argument, overriding the factory value for that call. It accepts the same values as the factory option and rejects anything else with the same message, named for the `renderStream` site, before any timer is armed. The option is stream-only: `renderSSR` is unaffected, and `completionTimeoutMs` and `deferredTimeoutMs` remain factory-only.
+
 ## 0.6.1
 
 ### Patch Changes

@@ -1,5 +1,21 @@
 # @taujs/react
 
+## 0.10.0
+
+### Minor Changes
+
+- [#193](https://github.com/aoede3/taujs/pull/193) [`dc6184b`](https://github.com/aoede3/taujs/commit/dc6184b623ccf45b95b35a279e900e486622a67d) Thanks [@aoede3](https://github.com/aoede3)! - Remove the deprecated `onFinish` callback alias from `renderStream`'s callbacks. Use `onAllReady`, which receives the same data at the same moment.
+
+  **BREAKING CHANGE** (released as `minor` under the repository's pre-1.0 convention - these packages are pre-1 and a `major` bump would declare τjs stable 1.0, which this work does not decide). `@taujs/server` never passed `onFinish`, so only code that calls `renderStream` directly is affected.
+
+  ```ts
+  // before
+  renderStream(sink, { onHead, onFinish: (data) => seed(data) }, initialData, location);
+
+  // after
+  renderStream(sink, { onHead, onAllReady: (data) => seed(data) }, initialData, location);
+  ```
+
 ## 0.9.0
 
 ### Minor Changes
