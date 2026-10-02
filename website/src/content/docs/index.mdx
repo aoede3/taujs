@@ -1,15 +1,15 @@
 ---
 title: Composing systems
-description: τjs is the runtime between an HTTP request and your renderer - one executable contract for routes, data, policy and rendering in Fastify and Vite applications, with evidence from real development requests so you and your tools can change the system without guessing.
+description: τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and rendering once; Fastify serves it, React, Vue, Solid or plain HTML renders it, and every development request leaves a record you can interrogate.
 template: splash
 hero:
   title: Composing <span>systems</span>
-  tagline: "Compose the response. Interrogate the outcome."
+  tagline: "Declare the response. Interrogate the outcome."
   image:
     file: ../../assets/taujs.svg
   actions:
-    - text: See your system answer
-      link: "#ask-your-system"
+    - text: Interrogate your system
+      link: "#interrogate-your-system"
       icon: down-caret
     - text: Get started
       link: /guides/getting-started/
@@ -28,11 +28,15 @@ import SystemFigure from "../../components/SystemFigure.astro";
 import EvidenceCard from "../../components/EvidenceCard.astro";
 import EpisodeTimeline from "../../components/EpisodeTimeline.astro";
 
-τjs provides the runtime between an HTTP request and your renderer: one executable contract for
-routes, data, policy and rendering in Fastify and Vite applications - plus evidence from real
-development requests, so you and your tools can change the system without guessing.
+<div className="hero-lede">
+
+τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and
+rendering once; Fastify serves it, React, Vue, Solid or plain HTML renders it, and every
+development request leaves a record you can interrogate. Change the system without guessing.
 
 Development-only evidence by construction. No production collectors.
+
+</div>
 
 <div className="container__logos">
   <a
@@ -87,10 +91,10 @@ Development-only evidence by construction. No production collectors.
 
 <SystemFigure />
 
-## Ask your system
+## Interrogate your system
 
 You are about to change the catalogue service. What depends on it? In most stacks that means
-grepping and hoping. Here you ask, and the answer is read from files the dev server already
+grepping and hoping. Here you interrogate the system, and the answer is read from files the dev server already
 emits - never guessed from source.
 
 <EvidenceCard />

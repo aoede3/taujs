@@ -59,6 +59,11 @@ h1 {
   margin: 0 0 8.75rem; /* matches the measured gap between hero content and the strip */
 }
 
+.hero-lede {
+  margin: 0 0 8.75rem;
+  padding-top: 0.625rem; /* 140px above and below, matching the strip */
+}
+
 .container__logos a {
   width: 12%;
   max-height: 5rem;
