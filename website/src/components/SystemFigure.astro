@@ -1,15 +1,3 @@
----
-interface Props {
-  bootId: string;
-  server: string;
-  mcp: string;
-  asOf: string;
-}
-
-const { bootId, server, mcp, asOf } = Astro.props;
-const shortBoot = bootId.slice(0, 8);
----
-
 <figure class="sys-fig not-content">
   <div class="sys-fig__drawing">
     <svg
@@ -237,7 +225,7 @@ const shortBoot = bootId.slice(0, 8);
   </ol>
 
   <figcaption class="sys-fig__caption">
-    Fig. 1 - a τjs system, as built · boot {shortBoot} · @taujs/server {server} · @taujs/mcp {mcp} · {asOf}
+    Fig. 1 - a τjs system in development. Remove every dashed part and what remains is production.
   </figcaption>
 </figure>
 
@@ -269,7 +257,6 @@ const shortBoot = bootId.slice(0, 8);
     width: 100%;
     height: auto;
     max-height: 34rem;
-    background: var(--sl-color-bg);
   }
 
   /* line conventions */
