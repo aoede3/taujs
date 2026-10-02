@@ -16,7 +16,7 @@ import { createSSRStore } from '../SSRDataStore';
 // shipped public API). As with R0-01, an in-process `process.on('unhandledRejection')` listener
 // would itself change Node's default behaviour, so the crash is proven in a real CHILD process
 // under DEFAULT flags, running the REAL `SSRDataStore.ts` transpiled at test time (the R0-01
-// methodology — portable to the whole `engines.node >=20.11` range). `vue` resolves from this
+// methodology — portable to the whole `engines.node >=22.12.0` range). `vue` resolves from this
 // package's node_modules because the child inherits this package as cwd.
 function buildChildScript(): string {
   const storeTs = fileURLToPath(new URL('../SSRDataStore.ts', import.meta.url));

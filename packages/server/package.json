@@ -49,6 +49,9 @@
     "dist",
     "contracts"
   ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "dependencies": {
     "@fastify/static": "^9.1.3",
     "fastify-plugin": "^5.1.0",
