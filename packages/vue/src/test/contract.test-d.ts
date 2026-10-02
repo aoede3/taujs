@@ -8,6 +8,7 @@ import { h } from 'vue';
 import type { RenderModule, RenderSSR, RenderStream, RenderStreamHandle } from '@taujs/server';
 
 import { createRenderer } from '../SSRRender';
+import type { RenderCallbacks } from '../SSRRender';
 
 // The load-bearing assertion: the whole renderer module conforms, cast-free.
 // The CONCRETE renderer output, deliberately un-annotated so tsc keeps its real inferred types.
@@ -65,3 +66,8 @@ const _typedStream: RenderStream = _typedRenderer.renderStream;
 void _typedModule;
 void _typedSSR;
 void _typedStream;
+
+// The callbacks accept `onAllReady` only: the removed `onFinish` alias must not reappear as a key.
+type _NoOnFinish = 'onFinish' extends keyof RenderCallbacks<unknown> ? never : true;
+const _noOnFinish: _NoOnFinish = true;
+void _noOnFinish;

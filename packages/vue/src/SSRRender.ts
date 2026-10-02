@@ -22,8 +22,6 @@ export type RenderCallbacks<T> = {
   onHead?: (head: string) => void;
   onShellReady?: () => void;
   onAllReady?: (data: T) => void;
-  /** @deprecated Legacy alias of `onAllReady`, kept for `@taujs/react` parity. Use `onAllReady`. */
-  onFinish?: (data: T) => void;
   onError?: (err: unknown) => void;
 };
 
@@ -222,7 +220,7 @@ export function createRenderer<
   const MAX_NATIVE_TIMEOUT = 2_147_483_647;
   // Strings are QUOTED so `'10'` and `10` are distinguishable in the message: they are the same
   // three characters under `String()`, and it is the string that coerces to a real delay rather
-  // than clamping. The vector pins this text, so all three renderers render it identically.
+  // than clamping. The vector pins this text, so every renderer renders it identically.
   const describeTimeout = (value: unknown): string => (typeof value === 'string' ? `'${value}'` : String(value));
   const assertTimeout = (value: unknown, name: string, site = 'createRenderer'): void => {
     const ok = value === 0 || value === Infinity || (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= MAX_NATIVE_TIMEOUT);
@@ -325,7 +323,6 @@ export function createRenderer<
       onHead: callbacks.onHead ?? NOOP,
       onShellReady: callbacks.onShellReady ?? NOOP,
       onAllReady: callbacks.onAllReady ?? NOOP,
-      onFinish: callbacks.onFinish ?? NOOP,
       onError: callbacks.onError ?? NOOP,
     };
 
@@ -341,8 +338,7 @@ export function createRenderer<
     // shell-timeout unit an invalid value fired the watchdog immediately; after the timer site
     // learned to refuse non-finite delays it would instead SILENTLY DISABLE the watchdog, which is
     // quieter and worse. Neither is acceptable, so it is rejected with the same message the factory
-    // uses, named for this site. Whether this surface should exist at all - solid has no
-    // equivalent - is an open shape ruling (docs/followups/renderer-surface-asymmetries.md).
+    // uses, named for this site. The shared conformance vector holds the same rule in every renderer.
     if (opts?.shellTimeoutMs !== undefined) assertTimeout(opts.shellTimeoutMs, 'streamOptions.shellTimeoutMs', 'renderStream');
     const effectiveShellTimeout = opts?.shellTimeoutMs ?? shellTimeoutMs;
     // RFC 0007 (decision 18): the deadline's time ORIGIN. It is armed later (at shell commit) but
@@ -603,12 +599,10 @@ export function createRenderer<
           if (controller.isAborted) return;
           const data = s.getSnapshot();
           if (data !== undefined) {
-            // Isolated INDEPENDENTLY (hardening-lessons §1): an advisory observer must not be able to
-            // turn a successfully resolved data load + completed render into a fatal stream failure
-            // (its throw would otherwise reach the `.catch` below and call `fail`), nor suppress its
-            // sibling (a throwing onAllReady previously prevented the legacy onFinish alias firing).
+            // Isolated (hardening-lessons §1): an advisory observer must not be able to turn a
+            // successfully resolved data load + completed render into a fatal stream failure (its
+            // throw would otherwise reach the `.catch` below and call `fail`).
             runObserver('onAllReady', () => cb.onAllReady(data));
-            runObserver('onFinish', () => cb.onFinish(data));
           }
         })
         .catch((e) => {
