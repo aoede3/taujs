@@ -34,7 +34,7 @@ import EpisodeTimeline from "../../components/EpisodeTimeline.astro";
 rendering once; Fastify serves it, React, Vue, Solid or plain HTML renders it, and every
 development request leaves a record you can interrogate. Change the system without guessing.
 
-Development-only evidence by construction. No production collectors.
+Introspection security: development only, by construction. No production collectors.
 
 </div>
 
@@ -187,7 +187,7 @@ federation, and the whole system answers to the same graph and the same episodes
 
 [How multi-app composition works](/guides/micro-frontend/).
 
-## Development only, by construction
+## Introspection security: development only, by construction
 
 Episodes, logs and observed edges are collected by the dev server. The production runtime
 structurally excludes those collectors - there is nothing to switch off, no sampling to tune and
