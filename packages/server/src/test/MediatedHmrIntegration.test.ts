@@ -146,9 +146,7 @@ const getStatus = (port: number, requestPath: string): Promise<number> =>
   });
 
 /**
- * A real `vite-hmr` dial at the app's own bound port - no second port. Uses the `ws` client
- * rather than the global `WebSocket`: the global exists on Node 22 but not on Node 20, which the
- * CI matrix runs, and this cell must prove the channel on both.
+ * A real `vite-hmr` dial at the app's own bound port - no second port. Uses the `ws` client.
  */
 const dialHmr = (port: number): Promise<unknown> =>
   new Promise((resolve, reject) => {

@@ -16,8 +16,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # LTS + the version pinned in .nvmrc. Drop to [22.x] if you only support 22.
-        node: [20.x, 22.x]
+        # Supported LTS lines (Node 20 reached end-of-life on 2026-04-30); .nvmrc pins 22.
+        node: [22.x, 24.x]
     steps:
       - uses: actions/checkout@v4
 

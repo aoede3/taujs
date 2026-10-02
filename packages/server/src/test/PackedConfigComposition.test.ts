@@ -209,8 +209,11 @@ describe('packed config-composition consumer - defineRoutes/defineApp against a 
     execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: projectDir, stdio: 'pipe' });
 
     // 3: typecheck against the EXTRACTED tarball's declarations. Non-throwing so both this and the
-    // dist-declarations check below can each fail on their own terms.
-    const result = spawnSync('npx', ['tsc', '--noEmit', '-p', '.', '--pretty', 'false'], { cwd: projectDir, encoding: 'utf8' });
+    // dist-declarations check below can each fail on their own terms. The project's own tsc is run
+    // directly rather than through npx: the cell asserts that the COMPILER printed nothing, and npx
+    // adds npm's own warnings to stderr (npm 11 warns about config it does not recognise).
+    const tscBin = path.join(projectDir, 'node_modules', 'typescript', 'bin', 'tsc');
+    const result = spawnSync(process.execPath, [tscBin, '--noEmit', '-p', '.', '--pretty', 'false'], { cwd: projectDir, encoding: 'utf8' });
     tscStatus = result.status ?? 1;
     tscOutput = `${result.stdout ?? ''}${result.stderr ?? ''}`;
   }, 180_000);
