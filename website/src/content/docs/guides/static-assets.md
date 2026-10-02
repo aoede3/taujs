@@ -75,12 +75,10 @@ await createServer({
       index: false,
       wildcard: false,
       decorateReply: false,
-      setHeaders: (response, filePath) => {
-        if (/[.-][a-f0-9]{8,}\./.test(filePath)) {
-          response.setHeader(
-            "Cache-Control",
-            "public, max-age=31536000, immutable",
-          );
+      setHeaders: (reply, filePath) => {
+        const relative = path.relative(clientRoot, filePath);
+        if (path.dirname(relative).split(path.sep).includes("assets")) {
+          reply.header("Cache-Control", "public, max-age=31536000, immutable");
         }
       },
     },
@@ -90,6 +88,14 @@ await createServer({
 
 τjs supplies `root`, `prefix`, `index` and `wildcard` defaults before applying your options. An
 explicit option wins.
+
+The `setHeaders` recipe classifies by directory: Vite writes hashed build output under `assets/`
+(`dist/client/assets/` for a single app, `dist/client/<entryPoint>/assets/` when each app has its own
+entry point), so every file in an `assets` directory gets the immutable header and everything else
+keeps the default. Vite copies `public/` verbatim, so a file placed at `public/assets/...` lands in
+the same directory without a hash. An application that does that must not use the recipe as written.
+In `@fastify/static` 10, the version τjs installs for its default registration, the callback receives
+the Fastify reply (`reply.header(...)`) and the absolute path of the file being sent.
 
 `decorateReply: false` is useful when the host already has an `@fastify/static` instance and the τjs
 scope only needs routes, not another `reply.sendFile` decoration.

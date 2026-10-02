@@ -80,9 +80,9 @@ npm run build:client
 dist/client/
 ├── app/
 │   ├── assets/
-│   │   ├── entry-client-abc123.js
-│   │   ├── App-def456.js
-│   │   └── index-ghi789.css
+│   │   ├── client-DYQLYTXs.js
+│   │   ├── vendor-react-CQpOIP-s.js
+│   │   └── client-7RWUWx61.css
 │   ├── manifest.json
 │   └── index.html
 └── admin/
@@ -731,8 +731,8 @@ CMD ["node", "dist/server/index.js"]
 ### Hashed Assets (Long Cache)
 
 ```
-/assets/entry-client-abc123.js    → max-age=31536000, immutable
-/assets/index-def456.css          → max-age=31536000, immutable
+/assets/client-DYQLYTXs.js   → max-age=31536000, immutable
+/assets/client-7RWUWx61.css  → max-age=31536000, immutable
 ```
 
 **Why:** Filenames include content hash. New content = new filename.
