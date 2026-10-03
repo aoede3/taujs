@@ -121,6 +121,12 @@ Episodes add the second kind of truth. Every development request leaves a record
 happened: which services were called, when, with what outcome. Declared is intent; observed is
 behaviour; the page shows you both, labelled, and never substitutes one for the other.
 
+The service registry is what makes the second kind possible without tracing. You do not have to
+use it - a route can load data however it likes - but a call that goes through the registry is
+observed, labelled and keyed to the same route identity the graph uses, even when nothing declared
+it. Declare the edge and you get intent; call through the registry and you get behaviour; do both
+and the two are joined.
+
 Traces alone are available on any framework. What is unusual here is where the substrate sits -
 at the HTTP request and response boundary, with the renderer still yours - and that the boundary
 is inspectable by construction rather than by instrumentation added later.
