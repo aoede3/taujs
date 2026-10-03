@@ -1,6 +1,6 @@
 ---
 title: Composing systems
-description: τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and rendering once; Fastify serves it, React, Vue, Solid or plain HTML renders it, and every development request leaves a record you can interrogate.
+description: τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and rendering once; Fastify dispatches it, τjs orchestrates it, React, Vue, Solid or plain HTML renders it, and every development request leaves a record you can interrogate.
 template: splash
 hero:
   title: Composing <span>systems</span>
@@ -33,7 +33,7 @@ import EpisodeTimeline from "../../components/EpisodeTimeline.astro";
 <h2 className="hero-lede__title">Where τjs sits</h2>
 
 τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and
-rendering once; Fastify serves it, React, Vue, Solid or plain HTML renders it, and every
+rendering once; Fastify dispatches it, τjs orchestrates it, React, Vue, Solid or plain HTML renders it, and every
 development request leaves a record you can interrogate. Change your system without guessing.
 
 Introspection security: development only, by construction. No production collectors.
@@ -41,52 +41,22 @@ Introspection security: development only, by construction. No production collect
 </div>
 
 <div className="container__logos">
-  <a
-    href="https://fastify.dev"
-    target="_blank"
-    title="Fastify: Fast and low overhead web framework, for Node.js"
-    rel="noreferrer"
-  >
+  <a href="/guides/host-ownership/" title="Fastify owns the host: what τjs installs and what stays yours">
     <img src={fastifyLogo.src} className="logo" alt="Fastify logo" />
   </a>
-  <a
-    href="https://vitejs.dev"
-    target="_blank"
-    title="Vite: Next Generation Frontend Tooling"
-    rel="noreferrer"
-  >
+  <a href="/guides/build-deployment/" title="Vite owns the module graph and bundles: how a τjs build is laid out">
     <img src={viteLogo.src} className="logo" alt="Vite logo" />
   </a>
-  <a
-    href="https://reactjs.org"
-    target="_blank"
-    title="React: The library for web and native user interfaces"
-    rel="noreferrer"
-  >
+  <a href="/renderers/react/" title="@taujs/react: React 19 streaming and static SSR with hydration">
     <img src={reactLogo.src} className="logo react" alt="React logo" />
   </a>
-  <a
-    href="https://vuejs.org/"
-    target="_blank"
-    title="Vue: The Progressive JavaScript Framework"
-    rel="noreferrer"
-  >
+  <a href="/renderers/vue/" title="@taujs/vue: Vue SSR and streaming with hydration">
     <img src={vueLogo.src} className="logo" alt="Vue logo" />
   </a>
-  <a
-    href="https://www.solidjs.com/"
-    target="_blank"
-    title="Solid: Simple and performant reactivity for building user interfaces"
-    rel="noreferrer"
-  >
+  <a href="/renderers/solid/" title="@taujs/solid: Solid SSR and streaming with hydration">
     <img src={solidLogo.src} className="logo" alt="Solid logo" />
   </a>
-  <a
-    href="https://developer.mozilla.org/docs/Web/HTML"
-    target="_blank"
-    title="HTML: server-rendered and streamed with no component framework"
-    rel="noreferrer"
-  >
+  <a href="/renderers/html/" title="@taujs/html: SSR and streaming with no component framework">
     <img src={htmlLogo.src} className="logo" alt="HTML5 logo" />
   </a>
 </div>
@@ -120,6 +90,12 @@ runs.
 Episodes add the second kind of truth. Every development request leaves a record of what actually
 happened: which services were called, when, with what outcome. Declared is intent; observed is
 behaviour; the page shows you both, labelled, and never substitutes one for the other.
+
+The service registry is what makes the second kind possible without tracing. You do not have to
+use it - a route can load data however it likes - but a call that goes through the registry is
+observed, labelled and keyed to the same route identity the graph uses, even when nothing declared
+it. Declare the edge and you get intent; call through the registry and you get behaviour; do both
+and the two are joined.
 
 Traces alone are available on any framework. What is unusual here is where the substrate sits -
 at the HTTP request and response boundary, with the renderer still yours - and that the boundary
@@ -177,7 +153,14 @@ application: start with what you have and declare the routes whose initial respo
 server coordination. Policy, data orchestration and service access stay where they are when the
 renderer changes.
 
-[Adopt the model incrementally](/guides/incremental-migration/).
+Render strategy is a route attribute, not a component concern: `ssr`, `streaming`, client-only by
+omission, hydration on or off - the same component tree serves all of them. And the renderer
+packages stand alone: `@taujs/react`, `@taujs/vue`, `@taujs/solid` and `@taujs/html` each run on
+any Node HTTP server with no τjs host at all. Bring the server when you want the contract and the
+evidence.
+
+[React](/renderers/react/) · [Vue](/renderers/vue/) · [Solid](/renderers/solid/) ·
+[HTML](/renderers/html/) · [Adopt the model incrementally](/guides/incremental-migration/).
 
 ## One architecture, several application shapes
 
@@ -194,7 +177,8 @@ federation, and the whole system answers to the same graph and the same episodes
 The server you develop against is the server you deploy: the same Fastify routes, the same
 contract, the same orchestration. Development is production plus exactly two things - Vite's
 module pipeline and the introspection collectors - and `NODE_ENV` decides which you are running:
-`development` is development, anything else is production. There is no third mode.
+`development` is development, anything else is production. There is no third mode. Observing
+production stays with the tools you already run for it.
 
 Episodes, logs and observed edges are collected by the dev server. The production runtime
 structurally excludes those collectors - there is nothing to switch off, no sampling to tune and
