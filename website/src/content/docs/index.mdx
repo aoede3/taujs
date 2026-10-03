@@ -41,52 +41,22 @@ Introspection security: development only, by construction. No production collect
 </div>
 
 <div className="container__logos">
-  <a
-    href="https://fastify.dev"
-    target="_blank"
-    title="Fastify: Fast and low overhead web framework, for Node.js"
-    rel="noreferrer"
-  >
+  <a href="/guides/host-ownership/" title="Fastify owns the host: what τjs installs and what stays yours">
     <img src={fastifyLogo.src} className="logo" alt="Fastify logo" />
   </a>
-  <a
-    href="https://vitejs.dev"
-    target="_blank"
-    title="Vite: Next Generation Frontend Tooling"
-    rel="noreferrer"
-  >
+  <a href="/guides/build-deployment/" title="Vite owns the module graph and bundles: how a τjs build is laid out">
     <img src={viteLogo.src} className="logo" alt="Vite logo" />
   </a>
-  <a
-    href="https://reactjs.org"
-    target="_blank"
-    title="React: The library for web and native user interfaces"
-    rel="noreferrer"
-  >
+  <a href="/renderers/react/" title="@taujs/react: React 19 streaming and static SSR with hydration">
     <img src={reactLogo.src} className="logo react" alt="React logo" />
   </a>
-  <a
-    href="https://vuejs.org/"
-    target="_blank"
-    title="Vue: The Progressive JavaScript Framework"
-    rel="noreferrer"
-  >
+  <a href="/renderers/vue/" title="@taujs/vue: Vue SSR and streaming with hydration">
     <img src={vueLogo.src} className="logo" alt="Vue logo" />
   </a>
-  <a
-    href="https://www.solidjs.com/"
-    target="_blank"
-    title="Solid: Simple and performant reactivity for building user interfaces"
-    rel="noreferrer"
-  >
+  <a href="/renderers/solid/" title="@taujs/solid: Solid SSR and streaming with hydration">
     <img src={solidLogo.src} className="logo" alt="Solid logo" />
   </a>
-  <a
-    href="https://developer.mozilla.org/docs/Web/HTML"
-    target="_blank"
-    title="HTML: server-rendered and streamed with no component framework"
-    rel="noreferrer"
-  >
+  <a href="/renderers/html/" title="@taujs/html: SSR and streaming with no component framework">
     <img src={htmlLogo.src} className="logo" alt="HTML5 logo" />
   </a>
 </div>
@@ -183,7 +153,14 @@ application: start with what you have and declare the routes whose initial respo
 server coordination. Policy, data orchestration and service access stay where they are when the
 renderer changes.
 
-[Adopt the model incrementally](/guides/incremental-migration/).
+Render strategy is a route attribute, not a component concern: `ssr`, `streaming`, client-only by
+omission, hydration on or off - the same component tree serves all of them. And the renderer
+packages stand alone: `@taujs/react`, `@taujs/vue`, `@taujs/solid` and `@taujs/html` each run on
+any Node HTTP server with no τjs host at all. Bring the server when you want the contract and the
+evidence.
+
+[React](/renderers/react/) · [Vue](/renderers/vue/) · [Solid](/renderers/solid/) ·
+[HTML](/renderers/html/) · [Adopt the model incrementally](/guides/incremental-migration/).
 
 ## One architecture, several application shapes
 
