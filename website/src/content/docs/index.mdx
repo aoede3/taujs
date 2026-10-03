@@ -1,6 +1,6 @@
 ---
 title: Composing systems
-description: τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and rendering once; Fastify serves it, React, Vue, Solid or plain HTML renders it, and every development request leaves a record you can interrogate.
+description: τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and rendering once; Fastify dispatches it, τjs orchestrates it, React, Vue, Solid or plain HTML renders it, and every development request leaves a record you can interrogate.
 template: splash
 hero:
   title: Composing <span>systems</span>
@@ -33,7 +33,7 @@ import EpisodeTimeline from "../../components/EpisodeTimeline.astro";
 <h2 className="hero-lede__title">Where τjs sits</h2>
 
 τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and
-rendering once; Fastify serves it, React, Vue, Solid or plain HTML renders it, and every
+rendering once; Fastify dispatches it, τjs orchestrates it, React, Vue, Solid or plain HTML renders it, and every
 development request leaves a record you can interrogate. Change your system without guessing.
 
 Introspection security: development only, by construction. No production collectors.
@@ -194,7 +194,8 @@ federation, and the whole system answers to the same graph and the same episodes
 The server you develop against is the server you deploy: the same Fastify routes, the same
 contract, the same orchestration. Development is production plus exactly two things - Vite's
 module pipeline and the introspection collectors - and `NODE_ENV` decides which you are running:
-`development` is development, anything else is production. There is no third mode.
+`development` is development, anything else is production. There is no third mode. Observing
+production stays with the tools you already run for it.
 
 Episodes, logs and observed edges are collected by the dev server. The production runtime
 structurally excludes those collectors - there is nothing to switch off, no sampling to tune and
