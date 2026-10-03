@@ -1,11 +1,8 @@
 <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
-  <!-- Grid: centre (250,250). Ring 246/206. Stem, bar and flank bars 50 wide. Flank-to-stem gap 40. All chamfers 45°. -->
+  <!-- Three concentric radii, 40 apart: ring 246, disc 206, glyph 166. Every outward-facing edge is an arc of r=166 about (250,250). -->
   <circle cx="250" cy="250" r="246" fill="#000"/>
   <circle cx="250" cy="250" r="206" fill="#fffafa"/>
-  <!-- tau: bar 130-180 with 45° ends (top 150-350, bottom 100-400), stem 225-275 down to 405 -->
-  <path fill="#000" d="M150 130H350L400 180H275V405H225V180H100Z"/>
-  <!-- left flank: arm 90-185 x 225-280, bar 135-185 down to a 45° foot (340 at the outer edge, 390 at the inner) -->
-  <path fill="#000" d="M90 225H185V390L135 340V280H90Z"/>
-  <!-- right flank: exact mirror about x=250 -->
-  <path fill="#000" d="M410 225H315V390L365 340V280H410Z"/>
+  <path fill="#000" d="M135.3 130H364.7A166 166 0 0 1 400.5 180H275V414.1A166 166 0 0 1 225 414.1V180H99.5A166 166 0 0 1 135.3 130Z"/>
+  <path fill="#000" d="M85.9 225H185V402.7A166 166 0 0 1 135 369.7V280H86.7A166 166 0 0 1 85.9 225Z"/>
+  <path fill="#000" d="M414.1 225H315V402.7A166 166 0 0 0 365 369.7V280H413.3A166 166 0 0 0 414.1 225Z"/>
 </svg>
