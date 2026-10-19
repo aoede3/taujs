@@ -6,8 +6,7 @@ description: The situations τjs is built for, the ones it is not, and the guide
 τjs is an application-response orchestration layer built on Fastify and Vite. Fastify owns HTTP
 dispatch and the host lifecycle; τjs owns the declared application response after Fastify selects a
 τjs route; the renderer the application chose turns that response into HTML. The
-[architecture guide](/guides/architecture/) explains how those layers fit. This page covers what
-that arrangement is good for, and what it is not.
+[architecture guide](/guides/architecture/) explains how those layers fit.
 
 ## Reach for τjs when
 
