@@ -21,7 +21,7 @@ stays where it is.
 [Incremental Migration](/guides/incremental-migration/) ·
 [Request Contracts and Data Ownership](/guides/request-contracts/)
 
-### A URL area wants a different renderer from the rest
+### Part of the application moves to another framework
 
 A renderer belongs to an application, not a route. One Fastify host can serve a React storefront
 and a Solid account area, each with its own client and SSR build, each a real Fastify route.
