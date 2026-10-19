@@ -27,6 +27,7 @@ export default defineConfig({
           label: "Getting Started",
           items: [
             { label: "Overview", slug: "guides/getting-started" },
+            { label: "When to Use τjs", slug: "guides/when-to-use" },
             { label: "Architecture", slug: "guides/architecture" },
             {
               label: "Request Contracts & Data",
