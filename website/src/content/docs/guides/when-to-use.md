@@ -9,8 +9,6 @@ dispatch and the host lifecycle; τjs owns the declared application response aft
 [architecture guide](/guides/architecture/) explains how those layers fit. This page is for the
 question before that one: is your situation one τjs serves well?
 
-Each section states a claim in a few lines and links to the guide that carries the detail.
-
 ## Reach for τjs when
 
 ### An existing application needs a request boundary without a rewrite
