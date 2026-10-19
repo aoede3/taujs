@@ -1,6 +1,6 @@
 ---
 title: Composing systems
-description: τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and rendering once; Fastify dispatches it, τjs orchestrates it, React, Vue, Solid or plain HTML renders it, and every development request leaves a record you can interrogate.
+description: τjs is an application-response orchestration layer built on Fastify and Vite. Fastify owns HTTP dispatch and the host lifecycle; τjs owns the declared application response after Fastify selects a τjs route, and every development request leaves a record you can interrogate.
 template: splash
 hero:
   title: Composing <span>systems</span>
@@ -32,11 +32,13 @@ import EpisodeTimeline from "../../components/EpisodeTimeline.astro";
 
 <h2 className="hero-lede__title">Explicit boundary, not implicit discovery</h2>
 
-τjs is the runtime between an HTTP request and your renderer. A route states its data, policy and
-rendering once; Fastify dispatches it, τjs orchestrates it, React, Vue, Solid or plain HTML renders it, and every
-development request leaves a record you can interrogate. Change your system without guessing.
+τjs is an application-response orchestration layer built on Fastify and Vite. It coordinates the
+work needed to turn a declared application route into HTML, then hands rendering to the renderer that
+application selected: React, Vue, Solid, or framework-free HTML fragments of your own.
 
-Introspection security: development only, by construction. No production collectors.
+Fastify owns HTTP dispatch and the host lifecycle. τjs owns the declared application response after
+Fastify selects a τjs route. Every development request leaves a record you can interrogate. No
+production collectors, by construction.
 
 </div>
 
