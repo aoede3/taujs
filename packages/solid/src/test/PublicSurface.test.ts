@@ -142,9 +142,17 @@ describe('slice 6 - dependency classification', () => {
     expect(packageJson.files).toEqual(['dist']);
   });
 
-  it('seroval is a real dependency pinned exactly, not an optional peer', () => {
-    expect(packageJson.dependencies.seroval).toBe('1.5.5');
+  it("seroval is types-only: no runtime or peer dependency, and the dev range is solid-js's own", () => {
+    // The sanitiser is a plain plugin object consumed by solid-js's seroval; the renderer ships no
+    // seroval of its own, so an install can never hold two copies that disagree. The dev range
+    // exists only for the plugin types and must track the range solid-js declares, so the types
+    // the sanitiser is compiled against are the runtime solid-js actually loads.
+    expect(packageJson.dependencies.seroval).toBeUndefined();
     expect(packageJson.peerDependencies.seroval).toBeUndefined();
+    const solidJs = JSON.parse(readFileSync(createRequire(import.meta.url).resolve('solid-js/package.json'), 'utf8')) as {
+      dependencies: Record<string, string>;
+    };
+    expect(packageJson.devDependencies?.seroval).toBe(solidJs.dependencies.seroval);
   });
 
   it('solid-js is a REQUIRED peer - the root entry ships runtime code that imports it', () => {

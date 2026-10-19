@@ -1,5 +1,3 @@
-import { createPlugin } from 'seroval';
-
 import type { AsyncParsePluginContext, Plugin, SerializePluginContext, SerovalNode, StreamParsePluginContext, SyncParsePluginContext } from 'seroval';
 
 /**
@@ -57,7 +55,7 @@ async function sanitiseAsync(ctx: AsyncParsePluginContext): Promise<SanitisedErr
   return { name: await ctx.parse(REDACTED_NAME), message: await ctx.parse(REDACTED_MESSAGE) };
 }
 
-export const SanitisedErrorPlugin: Plugin<Error, SanitisedErrorInfo> = createPlugin<Error, SanitisedErrorInfo>({
+export const SanitisedErrorPlugin: Plugin<Error, SanitisedErrorInfo> = {
   tag: 'taujs/solid/SanitisedError',
 
   /**
@@ -110,4 +108,4 @@ export const SanitisedErrorPlugin: Plugin<Error, SanitisedErrorInfo> = createPlu
   deserialize(): Error {
     return Object.assign(new Error(REDACTED_MESSAGE), { name: REDACTED_NAME });
   },
-});
+};
