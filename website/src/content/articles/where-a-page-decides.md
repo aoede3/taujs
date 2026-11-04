@@ -5,7 +5,7 @@ author: "@J"
 date: 2026-11-04
 ---
 
-The useful question about τjs is not whether it competes with Next, React Router or Rails. It borrows enough from each that the comparison quickly becomes a list of qualifications.
+The useful question about τjs is not whether it competes with Next, React Router or Rails. It overlaps with each just enough that the comparison quickly becomes a list of qualifications.
 
 The more useful question is smaller: where does a page decide what it needs?
 
