@@ -1,6 +1,6 @@
 ---
 title: Where a page decides what it needs
-description: τjs puts that decision at the request. The page being requested is coordinated by the server; the application being used stays with the component tree.
+description: Why τjs coordinates the initial response at the route, then leaves the running application to its component tree.
 author: "@J"
 date: 2026-11-04
 ---
@@ -11,7 +11,7 @@ The more useful question is smaller: where does a page decide what it needs?
 
 For τjs, the answer is the request. A route declares the work that belongs to the initial response. The server resolves what must be known before the response can commit, starts any declared work that may arrive later, and passes the result to the renderer. Once the page has hydrated, the component tree behaves as component trees do: it owns local state, interaction, mutations, optimistic updates and data requested afterwards.
 
-That is the boundary τjs is built around: the page being requested on one side, the application being used on the other. The request coordinates the page. The component tree owns the application.
+τjs is built around that division. The request coordinates the page. The component tree owns the application.
 
 ## How the plan moved into the tree
 
@@ -33,7 +33,7 @@ To recover that plan, somebody has to follow the render, find every conditional 
 
 Caching, deduplication, Suspense, preloading and server rendering all improve parts of this. They are good engineering aimed at real problems. But an execution plan can be efficient and still be distributed. Moving a wait, sharing it or avoiding it does not necessarily give the request a single account of what it is expected to do.
 
-## The boundary τjs chooses
+## What τjs chooses to own
 
 τjs makes a limited trade: work owned by the initial response is declared at the route boundary, while work owned by the interactive application remains with the application.
 
@@ -47,7 +47,7 @@ There is no formula that places every fetch correctly. A useful question is whet
 
 If it can change the status or redirect, is needed for the initial page, is shared across the route, or benefits from a visible relationship to authentication and other request policy, there is a good case for declaring it at the request. If it exists because of something the user did after the application arrived, it probably belongs with the component that owns that interaction.
 
-The distinction will not settle every argument. It does at least give the argument a boundary.
+The distinction will not settle every argument. It does at least make the disagreement visible.
 
 ## Nearby ideas
 
@@ -65,7 +65,7 @@ There is an honest resemblance to a multi-page application too. Both take the do
 
 Rails belongs in the family history for the same reason. The useful inheritance is not a particular controller API or template model. It is the idea that a server route should have a place where the initial response can be understood.
 
-## What follows from the boundary
+## What follows
 
 Some of τjs's other choices make more sense once that line is visible.
 
@@ -75,7 +75,7 @@ Several applications can sit under one Fastify host, each with its own renderer,
 
 The request graph follows the same logic. It records declared structure: routes, policy, rendering choices and service relationships that have been made statically visible. Development episodes record what a particular response actually did. Arbitrary handlers and component-local work remain outside the declaration. The distinction matters because declared intent and observed execution are different kinds of evidence, and neither should be presented as complete knowledge of the application.
 
-These capabilities are not proof that the boundary is universally correct. They are what becomes possible once the request has a durable description.
+These capabilities do not make the model universally correct. They are what becomes possible once the request has a durable description.
 
 ## The cost
 
@@ -97,4 +97,4 @@ The contract does not give any of them perfect knowledge, but they are no longer
 
 It is not a new idea, and that may be the point. Servers are good at coordinating requests. Components are good at owning interactive interfaces. They do not need to compete for the whole application.
 
-There is a boundary between the page being requested and the application being used. τjs makes it explicit.
+Coordinating the page and running the application are different jobs. τjs gives each one an explicit owner.
