@@ -1,0 +1,52 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { getCollection } from "astro:content";
+import ArticleByline from "../../components/ArticleByline.astro";
+
+const articles = (await getCollection("articles")).sort(
+  (a, b) => b.data.date.getTime() - a.data.date.getTime(),
+);
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "Articles",
+    description: "Longer-form writing on the ideas behind τjs.",
+    tableOfContents: false,
+  }}
+  hasSidebar={false}
+>
+  <ul class="article-list">
+    {
+      articles.map((article) => (
+        <li>
+          <a href={`/articles/${article.id}/`}>{article.data.title}</a>
+          <ArticleByline author={article.data.author} date={article.data.date} />
+          <p>{article.data.description}</p>
+        </li>
+      ))
+    }
+  </ul>
+</StarlightPage>
+
+<style>
+  .article-list {
+    list-style: none;
+    padding: 0;
+  }
+  .article-list li + li {
+    margin-top: 2rem;
+  }
+  .article-list a {
+    font-size: var(--sl-text-h3);
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--sl-color-white);
+  }
+  .article-list a:hover {
+    text-decoration: underline;
+  }
+  .article-list p {
+    margin-top: 0.5rem;
+  }
+</style>
