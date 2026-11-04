@@ -1,0 +1,96 @@
+---
+/**
+ * Starlight only renders the mobile menu toggle and sidebar pane when a page has a sidebar,
+ * which leaves the splash landing page and the article pages with no menu at all on phones.
+ * This override always renders them so every page shares the same hamburger menu, and hides
+ * the sidebar at desktop width on pages that opted out of one.
+ */
+import MobileMenuToggle from "@astrojs/starlight/components/MobileMenuToggle.astro";
+import Sidebar from "@astrojs/starlight/components/Sidebar.astro";
+
+const hasSidebarSlot = Astro.slots.has("sidebar");
+---
+
+<div class="page sl-flex">
+  <header class="header"><slot name="header" /></header>
+  <nav class="sidebar print:hidden" aria-label={Astro.locals.t("sidebarNav.accessibleLabel")}>
+    <MobileMenuToggle />
+    <div id="starlight__sidebar" class="sidebar-pane">
+      <div class="sidebar-content sl-flex">
+        {hasSidebarSlot ? <slot name="sidebar" /> : <Sidebar />}
+      </div>
+    </div>
+  </nav>
+  <div class="main-frame"><slot /></div>
+</div>
+
+<style>
+  @layer starlight.core {
+    .page {
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .header {
+      z-index: var(--sl-z-index-navbar);
+      position: fixed;
+      inset-inline-start: 0;
+      inset-block-start: 0;
+      width: 100%;
+      height: var(--sl-nav-height);
+      border-bottom: 1px solid var(--sl-color-hairline-shade);
+      padding: var(--sl-nav-pad-y) var(--sl-nav-pad-x);
+      /* Every page now has the menu button on small screens, so every header makes room for it. */
+      padding-inline-end: calc(var(--sl-nav-gap) + var(--sl-nav-pad-x) + var(--sl-menu-button-size));
+      background-color: var(--sl-color-bg-nav);
+    }
+
+    .sidebar-pane {
+      visibility: var(--sl-sidebar-visibility, hidden);
+      position: fixed;
+      z-index: var(--sl-z-index-menu);
+      inset-block: var(--sl-nav-height) 0;
+      inset-inline-start: 0;
+      width: 100%;
+      background-color: var(--sl-color-black);
+      overflow-y: auto;
+    }
+
+    :global([aria-expanded="true"]) ~ .sidebar-pane {
+      --sl-sidebar-visibility: visible;
+    }
+
+    .sidebar-content {
+      height: 100%;
+      min-height: max-content;
+      padding: 1rem var(--sl-sidebar-pad-x) 0;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .main-frame {
+      padding-top: calc(var(--sl-nav-height) + var(--sl-mobile-toc-height));
+      padding-inline-start: var(--sl-content-inline-start);
+    }
+
+    @media (min-width: 50rem) {
+      .header {
+        padding-inline-end: var(--sl-nav-pad-x);
+      }
+      .sidebar-content::after {
+        content: "";
+        padding-bottom: 1px;
+      }
+      .sidebar-pane {
+        --sl-sidebar-visibility: visible;
+        width: var(--sl-sidebar-width);
+        background-color: var(--sl-color-bg-sidebar);
+        border-inline-end: 1px solid var(--sl-color-hairline-shade);
+      }
+      /* Pages without a sidebar (splash, articles) get the mobile menu only. */
+      :global(html:not([data-has-sidebar])) .sidebar {
+        display: none;
+      }
+    }
+  }
+</style>

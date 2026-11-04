@@ -13,6 +13,7 @@ export default defineConfig({
         SiteTitle: "./src/components/ResponsiveSiteTitle.astro",
         Header: "./src/components/Header.astro",
         MobileMenuFooter: "./src/components/MobileMenuFooter.astro",
+        PageFrame: "./src/components/PageFrame.astro",
       },
 
       customCss: ["./src/styles/custom.css"],
