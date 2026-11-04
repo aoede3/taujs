@@ -12,6 +12,7 @@ export default defineConfig({
         Footer: "./src/components/CustomFooter.astro",
         SiteTitle: "./src/components/ResponsiveSiteTitle.astro",
         Header: "./src/components/Header.astro",
+        MobileMenuFooter: "./src/components/MobileMenuFooter.astro",
       },
 
       customCss: ["./src/styles/custom.css"],
