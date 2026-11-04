@@ -1,0 +1,28 @@
+---
+interface Props {
+  author: string;
+  date: Date;
+}
+const { author, date } = Astro.props;
+const formatted = date.toLocaleDateString("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+---
+
+<p class="article-byline">
+  <time datetime={date.toISOString().slice(0, 10)}>{formatted}</time>
+  <span aria-hidden="true">·</span>
+  <span>{author}</span>
+</p>
+
+<style>
+  .article-byline {
+    display: flex;
+    gap: 0.5rem;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+    margin-top: 0 !important;
+  }
+</style>

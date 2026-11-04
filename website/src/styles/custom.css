@@ -119,3 +119,9 @@ h1 {
 starlight-theme-select {
   display: none;
 } */
+
+/* Reserve the vertical scrollbar's width on every page so short pages (no scrollbar)
+   and long pages (scrollbar) do not shift the header and content sideways. */
+html {
+  scrollbar-gutter: stable;
+}
