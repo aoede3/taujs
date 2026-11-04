@@ -8,7 +8,10 @@
 import MobileMenuToggle from "@astrojs/starlight/components/MobileMenuToggle.astro";
 import Sidebar from "@astrojs/starlight/components/Sidebar.astro";
 
-const hasSidebarSlot = Astro.slots.has("sidebar");
+// Page.astro always declares the slot but only fills it when the page has a sidebar,
+// so the rendered output is the only reliable test.
+const sidebarHtml = Astro.slots.has("sidebar") ? await Astro.slots.render("sidebar") : "";
+const hasSidebarContent = sidebarHtml.trim().length > 0;
 ---
 
 <div class="page sl-flex">
@@ -17,7 +20,7 @@ const hasSidebarSlot = Astro.slots.has("sidebar");
     <MobileMenuToggle />
     <div id="starlight__sidebar" class="sidebar-pane">
       <div class="sidebar-content sl-flex">
-        {hasSidebarSlot ? <slot name="sidebar" /> : <Sidebar />}
+        {hasSidebarContent ? <Fragment set:html={sidebarHtml} /> : <Sidebar />}
       </div>
     </div>
   </nav>
