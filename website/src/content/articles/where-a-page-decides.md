@@ -1,25 +1,21 @@
 ---
 title: Where a page decides what it needs
 description: Why τjs coordinates the initial response at the route, then leaves the running application to its component tree.
-author: "@J"
+author: "John Smith"
 date: 2026-11-04
 ---
 
-The useful question about τjs is not whether it competes with Next, React Router or Rails. It overlaps with each just enough that the comparison quickly becomes a list of qualifications.
-
-The more useful question is smaller: where does a page decide what it needs?
+The useful question about τjs is not which existing framework it most resembles. It is smaller: where does a page decide what it needs?
 
 For τjs, the answer is the request. A route declares the work that belongs to the initial response. The server resolves what must be known before the response can commit, starts any declared work that may arrive later, and passes the result to the renderer. Once the page has hydrated, the component tree behaves as component trees do: it owns local state, interaction, mutations, optimistic updates and data requested afterwards.
 
 τjs is built around that division. The request coordinates the page. The component tree owns the application.
 
-## How the plan moved into the tree
-
-Any account in which one era got everything right and the next simply forgot is too neat.
+## Why data moved into components
 
 Server-rendered applications made a page relatively easy to trace. The controller ran the queries, dealt with failure and passed a set of facts to the view. You could usually read it and get a reasonable account of what a request would do.
 
-It was not a better world in every respect.
+That legibility came with real costs.
 
 Views were awkward to compose. A partial could render what it was given, but it could not easily say what it needed. Reuse meant remembering to provide the right data in every controller that included it. Interactivity then formed a second system over the first, with another account of state and another set of failure modes.
 
@@ -49,9 +45,9 @@ If it can change the status or redirect, is needed for the initial page, is shar
 
 The distinction will not settle every argument. It does at least make the disagreement visible.
 
-## Nearby ideas
+## Other answers to the same question
 
-React Server Components address part of the same problem from another direction. They allow data-dependent components to execute on the server, keep some code and work away from the browser, and make sequential server-local reads much cheaper than the equivalent client round trips. Preloading and request-local caching can also begin or share work outside the component that eventually consumes it. Those are substantial advantages.
+React Server Components answer the same question from another direction. They allow data-dependent components to execute on the server, keep some code and work away from the browser, and make sequential server-local reads much cheaper than the equivalent client round trips. Preloading and request-local caching can also begin or share work outside the component that eventually consumes it. Those are substantial advantages.
 
 They make a different choice about where the system is described. Server execution remains part of the React component model, together with a server/client component boundary that affects how code may be imported and composed. The work can be well coordinated, but the component hierarchy remains one of the places a maintainer has to read to understand it.
 
@@ -63,11 +59,9 @@ React Router is the closer comparison. Its Data and Framework modes move route c
 
 There is an honest resemblance to a multi-page application too. Both take the document request seriously, and τjs uses full document navigation between separately built applications. Within an application, client routing and hydration can remain entirely conventional. The server owns the production of a response; it does not become the permanent owner of the interface.
 
-Rails belongs in the family history for the same reason. The useful inheritance is not a particular controller API or template model. It is the idea that a server route should have a place where the initial response can be understood.
-
 ## What follows
 
-Some of τjs's other choices make more sense once that line is visible.
+Once response-owned work is declared before rendering, some of τjs's other choices follow.
 
 Server-owned routes choose between SSR and streaming, with hydration controlled separately. Client-routed screens are omitted from the server route contract and remain with the client router once the application document has loaded.
 
@@ -91,10 +85,10 @@ Eighteen months later, when somebody asks what a route does, an explicit contrac
 
 For an agent, it changes the task from reconstructing an architecture from source to reading declared evidence and checking it against observed execution.
 
-The contract does not give any of them perfect knowledge, but they are no longer required to treat a render as the only reliable documentation.
+An explicit contract is not complete knowledge, but it means a render is no longer the only reliable documentation.
 
-τjs spends some convenience at the beginning to preserve that account for later.
+τjs gives up some convenience at the beginning to preserve a readable account of the request for later.
 
-It is not a new idea, and that may be the point. Servers are good at coordinating requests. Components are good at owning interactive interfaces. They do not need to compete for the whole application.
+Servers are good at coordinating requests. Components are good at owning interactive interfaces. They do not need to compete for the whole application.
 
 Coordinating the page and running the application are different jobs. τjs gives each one an explicit owner.
