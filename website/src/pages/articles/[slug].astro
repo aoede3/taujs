@@ -23,6 +23,22 @@ const { Content, headings } = await render(article);
   headings={headings}
   hasSidebar={false}
 >
+  <p class="article-back"><a href="/articles/">All articles</a></p>
   <ArticleByline author={article.data.author} date={article.data.date} />
   <Content />
 </StarlightPage>
+
+<style>
+  .article-back {
+    margin-top: 0 !important;
+    font-size: var(--sl-text-sm);
+  }
+  .article-back a {
+    color: var(--sl-color-text-accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .article-back a:hover {
+    text-decoration: underline;
+  }
+</style>
