@@ -12,6 +12,11 @@ const current = Astro.url.pathname;
 <div class="header">
   <div class="title-wrapper sl-flex">
     <SiteTitle />
+  </div>
+  <div class="sl-flex print:hidden">
+    <Search />
+  </div>
+  <div class="sl-hidden md:sl-flex print:hidden right-group">
     <nav class="header-nav sl-flex" aria-label="Site">
       {
         links.map(({ label, href }) => (
@@ -21,11 +26,6 @@ const current = Astro.url.pathname;
         ))
       }
     </nav>
-  </div>
-  <div class="sl-flex print:hidden">
-    <Search />
-  </div>
-  <div class="sl-hidden md:sl-flex print:hidden right-group">
     <div class="sl-flex social-icons">
       <SocialIcons />
     </div>
@@ -49,13 +49,16 @@ const current = Astro.url.pathname;
       padding: 0.25rem;
       margin: -0.25rem;
       min-width: 0;
-      align-items: center;
-      gap: var(--sl-nav-gap);
     }
 
     .header-nav {
-      gap: var(--sl-nav-gap);
+      gap: 1rem;
       align-items: center;
+    }
+    .header-nav::after {
+      content: "";
+      height: 2rem;
+      border-inline-end: 1px solid var(--sl-color-gray-5);
     }
     .header-nav a {
       color: var(--sl-color-gray-2);
