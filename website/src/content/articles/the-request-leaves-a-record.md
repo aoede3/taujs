@@ -82,7 +82,7 @@ A direct `serviceData()` relationship can appear in the graph before the applica
 
 An ordinary loader closure is different. τjs records that the route has dynamic data, but it does not inspect the function and pretend to know which calls it might make. If that loader uses the service registry during a development request, the call can appear later as `observed` evidence.
 
-Routes registered directly on Fastify remain outside τjs ownership. If development traffic shows one calling a registered service, the edge is labelled `hostObserved`; it does not quietly acquire a τjs contract. Those labels carry the earlier distinction into each answer: declared intent, behaviour through a τjs response, and behaviour through a host route remain distinct.
+Routes registered directly on Fastify remain outside τjs ownership. If development traffic shows one calling a registered service, the edge is labelled `hostObserved`; it does not quietly acquire a τjs contract. Those labels carry the earlier distinction into each answer.
 
 ## A refusal can be the correct answer
 
