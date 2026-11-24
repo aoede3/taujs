@@ -19,9 +19,9 @@ Three years later Chris Coyier named what happened instead, in [The Great Divide
 
 Both pieces were describing a human problem of identity, craft and belonging. Neither named the structural cost underneath it.
 
-The ecosystem's answer to the divide wasn't to respect it. It was to collapse it. Full stack frameworks, and the component tree as the host of everything: data fetching, auth, error handling, server logic. The implicit message became that everyone just needs to understand all of it now, and the abstraction will hold.
+The divide wasn't respected, and it wasn't resolved. One half of it became the default. In the terms Frost [later gave the two halves](https://bradfrost.com/blog/post/front-of-the-front-end-and-back-of-the-front-end-web-development/), the back of the front end came forward. The tools and instincts of application engineering moved into the interface, and the component tree became the host of everything: markup, styling, data fetching, auth, error handling, server logic. The people who thought in HTML and CSS argued against it at the time. Their craft came to be treated as something to abstract away rather than something to know, and the implicit message became that everyone just needs to understand all of it now, and the abstraction will hold.
 
-We didn't just unify those concerns. We lost the boundaries that had made systems legible in the first place. The divide wasn't only a people problem; it was an architectural one, and flattening it didn't reduce the complexity. It made the complexity harder to see.
+That's a reading of what happened, and not the only one. What it left behind is easier to agree on. We didn't just unify those concerns. We lost the boundaries that had made systems legible in the first place. The divide wasn't only a people problem; it was an architectural one, and flattening it didn't reduce the complexity. It made the complexity harder to see.
 
 And so we built, quickly, reasonably and in good faith.
 
@@ -48,6 +48,8 @@ It doesn't arrive as a crisis. There's no outage, no breaking change, no moment 
 It arrives as a question that should take five minutes and takes a morning. An onboarding process measured in weeks. A debugging session where understanding what's happening requires tracing the execution path of a single request across a codebase that has never, in any one place, described what it actually does.
 
 A customer says the cancel button is missing from one of their orders. Nothing failed loudly; the page loaded. To answer, somebody has to follow the request from the layout down to the row.
+
+A trace would help, if that lookup was instrumented and the trace was kept. It would show what one request did. It would not show what the page was meant to do.
 
 The execution plan exists. It's just not anywhere in particular. It's distributed across however many components deep the render goes, assembled implicitly by whatever the tree happens to do when it runs.
 
