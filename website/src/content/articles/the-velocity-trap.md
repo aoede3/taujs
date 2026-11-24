@@ -31,7 +31,7 @@ This is the part that always gets left out.
 
 The component model was genuinely good. Composable, testable, portable, hireable. It made hard things tractable and let small teams build things that used to need much larger ones.
 
-Every individual choice made sense. Fetch here, because this component needs it. Handle the error here, because this is where it surfaces. Check the permission here, because this is where the context lives. Locally reasonable, every one of them, and documented, reviewed and approved.
+Take an order history page. The account layout checks who's signed in, the list fetches their orders, and each row asks whether its order can still be cancelled. If that last lookup fails, the row hides the cancel button and the rest of the page loads. Each choice makes sense where it's made, but to answer a support question about a missing button, you have to follow the request from the layout down to the row.
 
 The velocity was real. The features shipped and the companies grew.
 
@@ -67,9 +67,9 @@ Partly true. Also slightly dishonest.
 
 The ecosystem doesn't self-correct. It self-replaces. Those are different things.
 
-Self-correction would mean going back into the existing codebases and dealing with what accumulated. What actually happens is that a new framework arrives, or worse, the one you built on changes fundamentally beneath you. It rewrites its mental model, breaks its own conventions, deprecates the patterns your team standardised on two years ago. Suddenly the migration isn't optional. It's a forced march dressed up as progress, paid for by people who weren't there for the original decisions and didn't sign up for the new direction.
+Self-correction would mean going back into the existing codebases and dealing with what accumulated. A new framework can make the next project easier to start. An upgrade can give the current project better conventions to work with. Neither does the work of recovering why the old code behaves the way it does.
 
-Either way the existing codebase stays exactly as it was. Someone maintains it, usually someone who wasn't there when the decisions were made, working in a system that's neither the old thing nor the new thing and understanding neither completely. They learn the archaeology. They make their own reasonable decisions on top of it.
+Someone still maintains the existing codebase, usually someone who wasn't there when the decisions were made. Midway through a migration, they may have to follow both sets of conventions to understand a single request. They learn the archaeology. They make their own reasonable decisions on top of it.
 
 The cycle continues. Build fast. Ship. Slow down. Rewrite or migrate. New framework this time. Build fast again.
 
@@ -93,13 +93,13 @@ That's not an accusation. It's a description of something we built together and 
 
 Because the next layer is arriving.
 
-AI tooling is making the component model more productive than it's ever been. Code that took days takes hours. Features that needed senior engineers get scaffolded by juniors with the right prompt. The velocity is genuinely increasing.
+AI tooling can get a feature to its first working version faster. A prompt can produce the list, the rows and the error handling before anyone has asked how a maintainer will follow a request through them.
 
-Which means the accumulation is increasing too. Faster in, faster distributed, faster invisible. The archaeological problem compounds at exactly the rate the shipping speed improves.
+When that code ships, the time saved writing it is easy to see. The work of piecing it together later is still somebody else's morning.
 
-And there's something new in this layer that wasn't true before. A human who wrote something without documenting it at least had a reason; the reasoning existed somewhere, even undocumented. AI-generated code has neither the trail nor the author. There's no intent to excavate, just pattern. The execution plan still exists, distributed, implicit and assembled at runtime, and now increasingly nobody wrote it either. The connection between the person who made a decision and the code that resulted from it has become easier to lose than it has ever been.
+With generated code, it's easier for a default to become a decision without anyone discussing it. An AI can trace the missing button back to the failed lookup. Why hide it from the customer instead of telling them to try again? The reason may never have made it into the code or the review. Maybe nobody asked.
 
-Some will say AI will read the codebase for you. Maybe. An AI explaining sediment is still archaeology, just faster.
+An AI explaining sediment is still archaeology, just faster.
 
 We're making a collective decision about this right now, not in any single meeting but in aggregate, through the tools we reach for, the patterns we reward and the questions we remember to ask.
 
@@ -112,3 +112,5 @@ The people who'll be asking it aren't here yet. They'll arrive in eighteen month
 They'll be asking in good faith, the same way we built in good faith.
 
 The question is whether we leave them a system, or a dig site.
+
+*For how τjs makes the initial request easier to follow, see [Where a page decides what it needs](/articles/where-a-page-decides/).*
