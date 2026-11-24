@@ -1,6 +1,6 @@
 ---
 title: The Velocity Trap
-description: Systems optimised for writing become archaeology for the people who read them later. That cost is quiet, it compounds, and it is about to accelerate.
+description: Systems optimised for writing become archaeology for the people who read them later. That cost is quiet, it compounds, and it is going up a gear.
 author: "John Smith"
 date: 2026-11-24
 ---
